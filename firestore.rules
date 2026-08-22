@@ -1,0 +1,117 @@
+rules_version = '2';
+
+// Firestore Security Rules — ระบบจัดการสต็อกยา OPD
+//
+// หลักการออกแบบสำคัญ:
+// 1. `transactions` เป็น append-only audit log — client สร้างได้อย่างเดียว ห้ามแก้/ลบ
+//    การแก้ไขยอดทำผ่านการสร้างธุรกรรมใหม่ (เช่น adjust) เท่านั้น
+// 2. `substock_inventory` / `floor_inventory` / `alerts` เป็นค่าที่คำนวณ (derived data)
+//    โดย Cloud Functions (Admin SDK ซึ่งไม่ผ่าน rules เหล่านี้) จาก transactions เพียงแหล่งเดียว
+//    -> client ห้ามเขียนตรง ๆ เด็ดขาด ป้องกันยอดเพี้ยนจากการเขียนแข่งกัน
+// 3. บัญชีใหม่ (self sign-up) เริ่มด้วย role=null, active=false เสมอ ต้องรอ admin อนุมัติ
+//
+// *** รายชื่อ role / ประเภทธุรกรรม ต้องตรงกับ src/lib/constants.js เสมอ ***
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isActiveUser() {
+      return isSignedIn() && userDoc().active == true && userDoc().role != null;
+    }
+
+    function role() {
+      return userDoc().role;
+    }
+
+    function hasRole(roles) {
+      return isActiveUser() && role() in roles;
+    }
+
+    function isAdmin() {
+      return hasRole(['admin']);
+    }
+
+    // ต้องตรงกับ TX_TYPES_ALLOWED_BY_ROLE ใน src/lib/constants.js
+    function allowedTxTypesForRole(r) {
+      return r == 'admin' || r == 'pharmacist'
+        ? ['receive_from_central', 'transfer_to_floor', 'dispense', 'return_to_substock', 'return_to_central', 'adjust', 'expired', 'waste']
+        : ['transfer_to_floor', 'dispense', 'return_to_substock'];
+    }
+
+    // ต้องตรงกับ TX_TYPES_REQUIRE_REASON ใน src/lib/constants.js
+    function txRequiresReason(type) {
+      return type in ['return_to_substock', 'return_to_central', 'adjust', 'expired', 'waste'];
+    }
+
+    // ===== users =====
+    match /users/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      // สมัครสมาชิกด้วยตนเอง: สร้างได้เฉพาะเอกสารของตัวเอง และต้องเริ่มที่ role=null, active=false เท่านั้น
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && request.resource.data.role == null
+        && request.resource.data.active == false;
+      // แก้ไข role/active/department ได้เฉพาะ admin เท่านั้น (กันยกระดับสิทธิ์ตัวเอง)
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // ===== medications (master data) =====
+    match /medications/{medId} {
+      allow read: if isActiveUser();
+      allow create, update: if hasRole(['pharmacist', 'admin']);
+      allow delete: if false; // ใช้ active:false แทนการลบจริง
+    }
+
+    // ===== lots =====
+    match /lots/{lotId} {
+      allow read: if isActiveUser();
+      allow create, update: if hasRole(['pharmacist', 'admin']);
+      allow delete: if false;
+    }
+
+    // ===== inventory aggregates — คำนวณโดย Cloud Function เท่านั้น =====
+    match /substock_inventory/{rowId} {
+      allow read: if isActiveUser();
+      allow write: if false;
+    }
+    match /floor_inventory/{rowId} {
+      allow read: if isActiveUser();
+      allow write: if false;
+    }
+
+    // ===== alerts — สร้าง/อัปเดตโดย Cloud Function scheduled job เท่านั้น =====
+    match /alerts/{alertId} {
+      allow read: if isActiveUser();
+      allow write: if false;
+    }
+
+    // ===== transactions — append-only audit log =====
+    match /transactions/{txId} {
+      allow read: if isActiveUser();
+      allow create: if isActiveUser()
+        && request.resource.data.performed_by == request.auth.uid
+        && request.resource.data.role == role()
+        && request.resource.data.type in allowedTxTypesForRole(role())
+        && request.resource.data.medication_id is string
+        && request.resource.data.qty is number
+        && request.resource.data.qty != 0
+        && (!txRequiresReason(request.resource.data.type)
+            || (request.resource.data.reason is string && request.resource.data.reason.size() > 0));
+      allow update, delete: if false;
+    }
+
+    // ===== central_requisitions — schema สำรองไว้สำหรับเชื่อมคลังใหญ่ในเฟสถัดไป (ยังไม่ใช้งานจริง) =====
+    match /central_requisitions/{reqId} {
+      allow read, write: if hasRole(['pharmacist', 'admin']);
+    }
+  }
+}
