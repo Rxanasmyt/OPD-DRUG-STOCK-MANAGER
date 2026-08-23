@@ -11,8 +11,9 @@ import {
   persistentLocalCache,
   persistentSingleTabManager
 } from 'firebase/firestore'
-import { getAuth } from 'firebase/auth'
-import { getFunctions } from 'firebase/functions'
+import { connectAuthEmulator, getAuth } from 'firebase/auth'
+import { connectFunctionsEmulator, getFunctions } from 'firebase/functions'
+import { connectFirestoreEmulator } from 'firebase/firestore'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -51,5 +52,15 @@ export const db = dbInstance
 
 export const auth = getAuth(app)
 export const functions = getFunctions(app, 'asia-southeast1')
+
+// เชื่อม Firebase Local Emulator Suite แทน production เฉพาะตอน dev + เปิดใช้งานด้วยมือ
+// (npm run dev พร้อม VITE_USE_EMULATOR=true ใน .env — ดู npm run emulators / DEPLOY.md)
+// กันพลาดต่อ production โดยไม่ตั้งใจ: ต้องเข้าเงื่อนไขทั้งสองอย่างพร้อมกัน
+if (import.meta.env.DEV && import.meta.env.VITE_USE_EMULATOR === 'true') {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true })
+  connectFirestoreEmulator(db, '127.0.0.1', 8080)
+  connectFunctionsEmulator(functions, '127.0.0.1', 5001)
+  console.info('[firebase] ต่อ Local Emulator Suite (auth:9099, firestore:8080, functions:5001)')
+}
 
 export default app

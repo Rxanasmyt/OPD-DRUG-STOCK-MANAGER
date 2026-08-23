@@ -25,14 +25,15 @@ firebase login
 ```
 
 ## 3) รันทดสอบด้วย Firebase Emulator (แนะนำก่อน deploy จริง)
+ตั้ง `VITE_USE_EMULATOR=true` ใน `.env` ก่อน (ดู `.env.example`) แล้วรัน 2 terminal:
 ```bash
-npm run emulators     # เปิด Auth + Firestore + Functions emulator
+npm run emulators     # เปิด Auth + Firestore + Functions emulator (ต้อง firebase login แล้ว)
 # อีก terminal หนึ่ง
-npm run dev            # เปิดเว็บ dev server ที่ localhost:5173
+npm run dev            # เปิดเว็บ dev server ที่ localhost:5173 — จะต่อ emulator อัตโนมัติ
 ```
-> หมายเหตุ: ตอนรัน emulator ให้ตั้งค่า `connectFirestoreEmulator`/`connectAuthEmulator` เพิ่มใน
-> `src/firebase.js` แบบมีเงื่อนไข (เช่นเช็ค `import.meta.env.DEV`) ถ้าต้องการให้ dev server ต่อ
-> emulator แทน production จริงระหว่างพัฒนา
+`src/firebase.js` เช็ค `VITE_USE_EMULATOR` ให้อัตโนมัติ — ตอนนี้ค่า `VITE_FIREBASE_*` ใส่เป็นค่า
+อะไรก็ได้เพราะไม่ได้ต่อ production จริง (แค่ `projectId` ควรตรงกับใน `.firebaserc` เพื่อกันสับสน)
+Emulator UI (ดู/แก้ข้อมูลตรงๆ) เปิดที่ `http://localhost:4000`
 
 ## 4) ใส่ข้อมูลตั้งต้น
 1. เปิดเว็บแอป (หลัง deploy หรือ `npm run dev`) แล้ว **สมัครใช้งาน** บัญชีแรกของตัวเอง
