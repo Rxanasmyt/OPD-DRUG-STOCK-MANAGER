@@ -1,0 +1,105 @@
+import { useApp } from '../store/AppContext';
+import { thDate, thTime } from '../utils/format';
+import type { AdminTab, AuditFilter, Role } from '../types';
+
+const ADMIN_TABS: [AdminTab, string][] = [['users', 'ผู้ใช้งาน'], ['audit', 'Audit log']];
+const ROLES: Role[] = ['pharm', 'tech', 'admin'];
+const AUDIT_FILTERS: [AuditFilter, string][] = [['all', 'ทั้งหมด'], ['users', 'บัญชีผู้ใช้'], ['stock', 'สต็อก/ธุรกรรม']];
+const USER_TYPES = ['login', 'user_added', 'user_role_changed', 'user_status_changed'];
+const TYPE_LABEL: Record<string, string> = {
+  login: 'เข้าสู่ระบบ', user_added: 'เพิ่มผู้ใช้', user_role_changed: 'เปลี่ยนบทบาท', user_status_changed: 'เปิด/ปิดบัญชี', par_updated: 'ปรับ par level',
+  receive_from_central: 'รับเข้า substock', receive_pending: 'รับเข้า (รออนุมัติ)', transfer_to_floor: 'เติมหน้างาน',
+  adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP',
+};
+
+export default function AdminScreen() {
+  const {
+    state, setAdminTab, setAuditFilter, setNewUserName, setNewUserDept, setNewUserRole,
+    addUser, setUserRole, toggleUserActive, exportAudit, roleLabelOf,
+  } = useApp();
+  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : '#fff', color: active ? '#fff' : 'var(--ink)' });
+
+  const allEntries = [
+    ...state.authLog,
+    ...state.txs.map((x) => ({ type: x.type, by: x.by, ts: x.ts, note: (x.name ? x.name + ' — ' : '') + (x.note || '') + (x.qty != null ? ' (' + (x.qty > 0 ? '+' : '') + x.qty + ' ' + (x.unit || '') + ')' : '') })),
+  ];
+  const filtered = allEntries
+    .filter((e) => (state.auditFilter === 'all' ? true : state.auditFilter === 'users' ? USER_TYPES.includes(e.type) : !USER_TYPES.includes(e.type)))
+    .sort((a, b) => b.ts - a.ts)
+    .slice(0, 80);
+
+  return (
+    <div style={{ animation: 'fade .18s' }}>
+      <div style={{ display: 'flex', gap: 7, padding: '12px 14px 10px', overflowX: 'auto', position: 'sticky', top: 0, background: 'var(--bg-app)', zIndex: 2, borderBottom: '1px solid #e6e7e0' }}>
+        {ADMIN_TABS.map(([t, label]) => (
+          <button key={t} className="chip" style={{ ...chip(state.adminTab === t), minHeight: 38 }} onClick={() => setAdminTab(t)}>{label}</button>
+        ))}
+      </div>
+
+      <div style={{ padding: '12px 14px 24px' }}>
+        {state.adminTab === 'users' && (
+          <>
+            <div className="card" style={{ padding: 12, marginBottom: 13 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 9 }}>เพิ่มผู้ใช้</div>
+              <input value={state.newUserName} onChange={(e) => setNewUserName(e.target.value)} placeholder="ชื่อ-สกุล" style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44, marginBottom: 8 }} />
+              <div style={{ display: 'flex', gap: 7, marginBottom: 8 }}>
+                {ROLES.map((r) => {
+                  const active = state.newUserRole === r;
+                  return <button key={r} onClick={() => setNewUserRole(r)} style={{ flex: 1, border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : '#fff', color: active ? '#fff' : 'var(--ink)', padding: '9px 4px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>{roleLabelOf(r)}</button>;
+                })}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input value={state.newUserDept} onChange={(e) => setNewUserDept(e.target.value)} placeholder="แผนก" style={{ flex: 1, minWidth: 0, border: '1px solid var(--border)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 }} />
+                <button onClick={addUser} style={{ flex: 'none', border: 0, background: 'var(--green)', color: '#fff', padding: '11px 16px', borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 44 }}>+ เพิ่ม</button>
+              </div>
+            </div>
+            <div className="card" style={{ overflow: 'hidden' }}>
+              {state.users.map((u) => (
+                <div key={u.id} style={{ padding: '12px 13px', borderBottom: '1px solid var(--border-soft)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }}>{u.name}</div>
+                      <div className="muted" style={{ fontSize: 11.5, marginTop: 1 }}>{u.dept} · {u.lastLogin ? 'ล็อกอินล่าสุด ' + thDate(u.lastLogin) : 'ยังไม่เคยล็อกอิน'}</div>
+                    </div>
+                    <span style={{ flex: 'none', fontSize: 11, fontWeight: 700, color: u.active ? 'var(--green)' : 'var(--red)', background: u.active ? 'var(--green-tint)' : 'var(--red-bg)', padding: '4px 9px', borderRadius: 20 }}>{u.active ? 'ใช้งานอยู่' : 'ปิดใช้งาน'}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
+                    {ROLES.map((r) => {
+                      const active = u.role === r;
+                      return <button key={r} onClick={() => setUserRole(u.id, r)} style={{ flex: 1, border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : '#fff', color: active ? '#fff' : 'var(--ink)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 38 }}>{roleLabelOf(r)}</button>;
+                    })}
+                    <button onClick={() => toggleUserActive(u.id)} style={{ flex: 'none', border: '1px solid var(--border)', background: '#fff', color: 'var(--ink)', padding: '8px 11px', borderRadius: 9, fontSize: 12, minHeight: 38, whiteSpace: 'nowrap' }}>{u.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {state.adminTab === 'audit' && (
+          <>
+            <div style={{ display: 'flex', gap: 7, marginBottom: 11, overflowX: 'auto', paddingBottom: 2 }}>
+              {AUDIT_FILTERS.map(([f, label]) => (
+                <button key={f} className="chip" style={chip(state.auditFilter === f)} onClick={() => setAuditFilter(f)}>{label}</button>
+              ))}
+            </div>
+            <button onClick={exportAudit} className="btn-outline" style={{ width: '100%', padding: 12, borderRadius: 11, fontSize: 14, fontWeight: 600, minHeight: 46, marginBottom: 12 }}>↓ Export CSV — audit_log.csv</button>
+            <div className="card" style={{ overflow: 'hidden' }}>
+              {filtered.map((e, i) => (
+                <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: USER_TYPES.includes(e.type) ? 'var(--muted)' : 'var(--green)' }}>{TYPE_LABEL[e.type] || e.type}</span>
+                    <span className="muted" style={{ fontSize: 11, flex: 'none' }}>{thDate(e.ts)} {thTime(e.ts)}</span>
+                  </div>
+                  <div style={{ fontSize: 12.5, marginTop: 2, lineHeight: 1.4 }}>{e.note}</div>
+                  <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>โดย {e.by}</div>
+                </div>
+              ))}
+              {filtered.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ไม่มีรายการในตัวกรองนี้</div>}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

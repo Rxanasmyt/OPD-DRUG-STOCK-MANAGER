@@ -1,0 +1,153 @@
+export type Role = 'pharm' | 'tech' | 'admin';
+
+export interface Med {
+  id: string;
+  code: string;
+  name: string;
+  unit: string;
+  dosageForm: string;
+  price: number;
+  had: boolean;
+  active: boolean; // false = not carried by this hospital (from CSV "ไม่มียาในรพ.กรงปินัง" notes)
+  parSub: number;
+  parFloor: number;
+  floor: number;
+  bin: string;
+  used30: number;
+  usedPrev30: number;
+  volatility: number;
+  lastCountTs: number;
+}
+
+export interface Lot {
+  id: string;
+  code: string;
+  medId: string;
+  lotNo: string;
+  exp: number;
+  qty: number;
+  loc: string;
+}
+
+export type TxType =
+  | 'adjust' | 'return' | 'damaged' | 'expired' | 'count' | 'reconcile_hosxp'
+  | 'transfer_to_floor' | 'receive_from_central' | 'receive_pending';
+
+export interface Tx {
+  id: string;
+  type: TxType;
+  name: string;
+  qty: number;
+  unit: string;
+  by: string;
+  ts: number;
+  reason?: string;
+  note?: string;
+  loc?: 'floor' | 'substock';
+  from?: string;
+  to?: string;
+}
+
+export interface User {
+  id: string;
+  name: string;
+  role: Role;
+  dept: string;
+  active: boolean;
+  lastLogin: number | null;
+}
+
+export type AuditType =
+  | 'login' | 'user_added' | 'user_role_changed' | 'user_status_changed' | 'par_updated'
+  | TxType;
+
+export interface AuditEntry {
+  id: string;
+  type: AuditType;
+  by: string;
+  ts: number;
+  note: string;
+}
+
+export interface RecvItem {
+  medId: string;
+  name: string;
+  unit: string;
+  lotNo: string;
+  exp: number;
+  qty: number;
+}
+
+export type Screen =
+  | 'login' | 'home' | 'transfer' | 'tconfirm' | 'done' | 'receive' | 'adjust'
+  | 'report' | 'labels' | 'settings' | 'more' | 'count' | 'reconcile' | 'admin';
+
+export type AdjType = 'adjust' | 'return' | 'damaged' | 'expired';
+export type ReportTab = 'aging' | 'turn' | 'disc';
+export type LabelType = 'med' | 'lot' | 'loc';
+export type AdminTab = 'users' | 'audit';
+export type AuditFilter = 'all' | 'users' | 'stock';
+export type TransferFilter = 'low' | 'all' | 'had';
+
+export interface AppState {
+  meds: Med[];
+  lots: Lot[];
+  txs: Tx[];
+  users: User[];
+  authLog: AuditEntry[];
+
+  screen: Screen;
+  prevScreen: Screen;
+  role: Role | null;
+  online: boolean;
+  device: 'phone' | 'tablet';
+  pending: number;
+
+  cart: Record<string, number>;
+  search: string;
+  filter: TransferFilter;
+
+  recvNo: string;
+  recvSearch: string;
+  recvMed: string | null;
+  recvLot: string;
+  recvExp: string;
+  recvQty: string;
+  recvItems: RecvItem[];
+
+  adjType: AdjType | null;
+  adjSearch: string;
+  adjMed: string | null;
+  adjQty: string;
+  adjReason: string;
+  adjNote: string;
+
+  reportTab: ReportTab;
+  labelType: LabelType;
+
+  qrOpen: boolean;
+  qrManualOpen: boolean;
+  qrCode: string;
+  qrPurpose: string | null;
+  hadOk: Record<string, boolean>;
+  scanCycle: number;
+
+  doneKind: 'transfer' | 'receive' | 'recvPending' | null;
+  doneRows: { name: string; sub: string; qty: string }[];
+  toast: string | null;
+
+  countInputs: Record<string, string>;
+  hosxpText: string;
+  hosxpRows: { name: string; qty: number }[] | null;
+
+  newUserName: string;
+  newUserRole: Role;
+  newUserDept: string;
+
+  adminTab: AdminTab;
+  auditFilter: AuditFilter;
+
+  expiryWarnDays: number;
+  parFloorCoverDays: number;
+  parSubCoverDays: number;
+}

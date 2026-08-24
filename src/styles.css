@@ -1,0 +1,75 @@
+:root {
+  --bg-page: #e7e6e0;
+  --bg-app: #f7f6f2;
+  --bg-card: #fff;
+  --green: #17552f;
+  --green-dark: #0e3a20;
+  --green-tint: #eef3ee;
+  --ink: #12211a;
+  --ink-soft: #f2f5ef;
+  --muted: #6b7269;
+  --border: #dfe0d9;
+  --border-soft: #eeefe9;
+  --amber: #b8710f;
+  --amber-bg: #fdf3e2;
+  --amber-ink: #8a5407;
+  --red: #a32b22;
+  --red-bg: #fbeceb;
+  --had: #8f1f4f;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg-page);
+  font-family: 'Bai Jamjuree', system-ui, -apple-system, sans-serif;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--green); }
+a:hover { color: var(--green-dark); }
+
+input, button, select, textarea { font-family: inherit; font-size: inherit; color: inherit; }
+input:focus, textarea:focus, select:focus { outline: 2px solid var(--green); outline-offset: -1px; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #c9cbc2; border-radius: 4px; }
+
+@keyframes pop { from { transform: translateY(8px) scale(.98); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes sweep { from { transform: translateY(-100%); } to { transform: translateY(100%); } }
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  max-width: 560px;
+  margin: 0 auto;
+  background: var(--bg-app);
+  position: relative;
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+@media (min-width: 720px) {
+  .app-shell { max-width: 900px; }
+}
+
+.card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; }
+.chip { border-radius: 20px; font-size: 12.5px; font-weight: 600; white-space: nowrap; padding: 7px 12px; cursor: pointer; }
+.btn { border: 0; border-radius: 12px; font-weight: 600; cursor: pointer; }
+.btn-primary { background: var(--green); color: var(--ink-soft); }
+.btn-outline { background: #fff; border: 1px solid var(--green); color: var(--green); }
+.muted { color: var(--muted); }
+
+.grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; }
+@media (min-width: 560px) {
+  .grid-2.tablet-4 { grid-template-columns: repeat(4, 1fr); }
+  .grid-2.tablet-2 { grid-template-columns: repeat(2, 1fr); }
+}
