@@ -14,20 +14,28 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 export default function AdminScreen() {
-  const { state, setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit, roleLabelOf } = useApp();
+  const {
+    state, setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit, roleLabelOf,
+    setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch,
+  } = useApp();
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : '#fff', color: active ? '#fff' : 'var(--ink)' });
 
   const pending = state.users.filter((u) => !u.active).sort((a, b) => b.createdAt - a.createdAt);
   const approved = state.users.filter((u) => u.active).sort((a, b) => a.name.localeCompare(b.name, 'th'));
 
-  const allEntries = [
+  // The live subscriptions only carry the most recent 300 (kept small on purpose, for a
+  // real-time "recent activity" feed) — a date-range search below queries Firestore directly
+  // instead, so any point in history is always reachable, not just the last ~300 events.
+  const isHistory = state.historyResults !== null;
+  const liveEntries = [
     ...state.authLog,
     ...state.txs.map((x) => ({ type: x.type, by: x.by, ts: x.ts, note: (x.name ? x.name + ' — ' : '') + (x.note || '') + (x.qty != null ? ' (' + (x.qty > 0 ? '+' : '') + x.qty + ' ' + (x.unit || '') + ')' : '') })),
   ];
-  const filtered = allEntries
+  const baseEntries = isHistory ? state.historyResults! : liveEntries;
+  const filtered = baseEntries
     .filter((e) => (state.auditFilter === 'all' ? true : state.auditFilter === 'users' ? USER_TYPES.includes(e.type) : !USER_TYPES.includes(e.type)))
     .sort((a, b) => b.ts - a.ts)
-    .slice(0, 80);
+    .slice(0, isHistory ? 300 : 80);
 
   return (
     <div style={{ animation: 'fade .18s' }}>
@@ -78,12 +86,38 @@ export default function AdminScreen() {
 
         {state.adminTab === 'audit' && (
           <>
+            <div className="card" style={{ padding: 12, marginBottom: 13 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>ค้นหาย้อนหลังตามช่วงวันที่</div>
+              <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginBottom: 9 }}>รายการล่าสุดด้านล่างแสดงเฉพาะ ~300 รายการล่าสุดเพื่อความไว — ค้นหาช่วงวันที่เพื่อดูรายการเก่ากว่านั้นได้เสมอ ไม่ว่าจะผ่านมานานแค่ไหน</div>
+              <div className="grid-2" style={{ marginBottom: 9 }}>
+                <label>
+                  <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>จากวันที่</span>
+                  <input type="date" value={state.historyFrom} onChange={(e) => setHistoryFrom(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 13, minHeight: 40 }} />
+                </label>
+                <label>
+                  <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>ถึงวันที่</span>
+                  <input type="date" value={state.historyTo} onChange={(e) => setHistoryTo(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 13, minHeight: 40 }} />
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={searchHistory} disabled={state.historyLoading} className="btn-primary" style={{ flex: 1, padding: 10, borderRadius: 9, fontSize: 13, fontWeight: 600, minHeight: 40 }}>
+                  {state.historyLoading ? 'กำลังค้นหา…' : 'ค้นหา'}
+                </button>
+                {isHistory && (
+                  <button onClick={clearHistorySearch} style={{ flex: 'none', border: '1px solid var(--border)', background: '#fff', color: 'var(--ink)', padding: '10px 14px', borderRadius: 9, fontSize: 13, minHeight: 40 }}>กลับไปดูล่าสุด</button>
+                )}
+              </div>
+            </div>
+
             <div style={{ display: 'flex', gap: 7, marginBottom: 11, overflowX: 'auto', paddingBottom: 2 }}>
               {AUDIT_FILTERS.map(([f, label]) => (
                 <button key={f} className="chip" style={chip(state.auditFilter === f)} onClick={() => setAuditFilter(f)}>{label}</button>
               ))}
             </div>
-            <button onClick={exportAudit} className="btn-outline" style={{ width: '100%', padding: 12, borderRadius: 11, fontSize: 14, fontWeight: 600, minHeight: 46, marginBottom: 12 }}>↓ Export CSV — audit_log.csv</button>
+            <button onClick={exportAudit} className="btn-outline" style={{ width: '100%', padding: 12, borderRadius: 11, fontSize: 14, fontWeight: 600, minHeight: 46, marginBottom: 12 }}>↓ Export CSV — audit_log.csv (ประวัติทั้งหมด)</button>
+            {isHistory && (
+              <div className="muted" style={{ fontSize: 11.5, marginBottom: 9 }}>ผลค้นหา {thDate(new Date(state.historyFrom).getTime())} – {thDate(new Date(state.historyTo).getTime())} · {filtered.length} รายการ{filtered.length === 300 ? '+ (แสดงสูงสุด 300 รายการ ลองย่อช่วงวันที่)' : ''}</div>
+            )}
             <div className="card" style={{ overflow: 'hidden' }}>
               {filtered.map((e, i) => (
                 <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)' }}>
@@ -95,7 +129,7 @@ export default function AdminScreen() {
                   <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>โดย {e.by}</div>
                 </div>
               ))}
-              {filtered.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ไม่มีรายการในตัวกรองนี้</div>}
+              {filtered.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>{isHistory ? 'ไม่มีรายการในช่วงวันที่นี้' : 'ไม่มีรายการในตัวกรองนี้'}</div>}
             </div>
           </>
         )}

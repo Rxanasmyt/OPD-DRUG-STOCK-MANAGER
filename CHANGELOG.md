@@ -7,6 +7,26 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.8.0] - 2026-08-25
+
+### Added
+- **feat:** date-range history search in Admin → Audit log — the live feed only ever shows
+  the most recent ~300 events (kept small on purpose, for real-time speed), so anything older
+  was previously reachable only via CSV export, not browsable in the app. Pick a "จากวันที่" /
+  "ถึงวันที่" and hit ค้นหา to query Firestore directly for that range — any point in history is
+  now always reachable in-app, not just the last ~300 events. Combined with the existing
+  unrestricted CSV export (2.5.0) and the append-only, undeletable `txs`/`auditLog` collections
+  (security rules already block update/delete on both), this is the traceability guarantee
+  asked for: what happened, when, by whom, is never truncated and never edited out
+
+### Changed
+- **perf:** code-split the screens outside the hot day-to-day path (settings, admin, reports,
+  labels/QR, reconcile, count, adjust) and the QR camera scanner (`jsqr`, the single heaviest
+  dependency at ~50KB gzipped) into separate chunks loaded on first visit instead of the
+  initial bundle — cuts what a phone has to download and parse before the login/home screen is
+  interactive by about 60KB gzipped. The PWA still precaches every chunk for full offline
+  support; this only changes what blocks first paint
+
 ## [2.7.1] - 2026-08-25
 
 ### Fixed

@@ -169,6 +169,10 @@ export interface AppState {
 
   adminTab: AdminTab;
   auditFilter: AuditFilter;
+  historyFrom: string;
+  historyTo: string;
+  historyResults: { type: string; by: string; ts: number; note: string }[] | null;
+  historyLoading: boolean;
 
   expiryWarnDays: number;
   parFloorCoverDays: number;

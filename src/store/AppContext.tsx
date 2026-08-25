@@ -42,6 +42,7 @@ function freshState(): AppState {
     countInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false,
 
     adminTab: 'users', auditFilter: 'all',
+    historyFrom: '', historyTo: '', historyResults: null, historyLoading: false,
 
     expiryWarnDays: 90, parFloorCoverDays: 3, parSubCoverDays: 21,
   } as AppState;
@@ -152,6 +153,10 @@ export interface AppCtx {
   setUserRole: (id: string, r: Role) => void;
   toggleUserActive: (id: string) => void;
   exportAudit: () => void;
+  setHistoryFrom: (v: string) => void;
+  setHistoryTo: (v: string) => void;
+  searchHistory: () => void;
+  clearHistorySearch: () => void;
 }
 
 const Ctx = createContext<AppCtx | null>(null);
@@ -982,6 +987,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (outcome === 'saved') toast('ดาวน์โหลด audit_log.csv แล้ว');
   }, [toast]);
 
+  // ---------- audit/tx history search (browse any date range, not just the live 300-cap) ----------
+  const setHistoryFrom = useCallback((v: string) => patch({ historyFrom: v }), [patch]);
+  const setHistoryTo = useCallback((v: string) => patch({ historyTo: v }), [patch]);
+  const clearHistorySearch = useCallback(() => patch({ historyResults: null }), [patch]);
+
+  const searchHistory = useCallback(async () => {
+    if (!state.historyFrom || !state.historyTo) { toast('เลือกช่วงวันที่ให้ครบทั้งจากและถึงก่อนค้นหา'); return; }
+    const from = new Date(state.historyFrom + 'T00:00:00').getTime();
+    const to = new Date(state.historyTo + 'T23:59:59.999').getTime();
+    if (isNaN(from) || isNaN(to) || from > to) { toast('ช่วงวันที่ไม่ถูกต้อง — "จาก" ต้องไม่เกิน "ถึง"'); return; }
+    patch({ historyLoading: true, historyResults: null });
+    const CAP = 1500;
+    try {
+      const [auditSnap, txSnap] = await Promise.all([
+        getDocs(query(collection(db, 'auditLog'), where('ts', '>=', from), where('ts', '<=', to))),
+        getDocs(query(collection(db, 'txs'), where('ts', '>=', from), where('ts', '<=', to))),
+      ]);
+      const all = [
+        ...auditSnap.docs.map((d) => d.data() as { type: string; by: string; ts: number; note: string }),
+        ...txSnap.docs
+          .map((d) => d.data() as { type: string; by: string; ts: number; name?: string; note?: string; qty?: number; unit?: string })
+          .map((x) => ({ type: x.type, by: x.by, ts: x.ts, note: (x.name ? x.name + ' — ' : '') + (x.note || '') + (x.qty != null ? ' (' + (x.qty > 0 ? '+' : '') + x.qty + ' ' + (x.unit || '') + ')' : '') })),
+      ].sort((a, b) => b.ts - a.ts);
+      patch({ historyResults: all.slice(0, CAP), historyLoading: false });
+      toast(
+        all.length > CAP
+          ? 'พบ ' + all.length + ' รายการ — แสดง ' + CAP + ' รายการล่าสุดในช่วงนี้ ลองย่อช่วงวันที่ให้แคบลง'
+          : 'พบ ' + all.length + ' รายการในช่วงวันที่เลือก'
+      );
+    } catch (e) {
+      console.error(e);
+      patch({ historyLoading: false });
+      toast('ค้นหาไม่สำเร็จ ลองใหม่อีกครั้ง');
+    }
+  }, [state.historyFrom, state.historyTo, patch, toast]);
+
   const value = useMemo<AppCtx>(() => ({
     state, myProfile, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, go, back,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, signIn, signUp, logout, setDevice, seedDatabase,
@@ -997,6 +1038,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     doneAgain,
     setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit,
+    setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [state, myProfile]);
 

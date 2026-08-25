@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { useApp } from './store/AppContext';
 import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
@@ -5,18 +6,24 @@ import TransferScreen from './screens/TransferScreen';
 import TConfirmScreen from './screens/TConfirmScreen';
 import DoneScreen from './screens/DoneScreen';
 import ReceiveScreen from './screens/ReceiveScreen';
-import AdjustScreen from './screens/AdjustScreen';
-import ReportScreen from './screens/ReportScreen';
-import LabelsScreen from './screens/LabelsScreen';
-import SettingsScreen from './screens/SettingsScreen';
-import CountScreen from './screens/CountScreen';
-import ReconcileScreen from './screens/ReconcileScreen';
-import AdminScreen from './screens/AdminScreen';
-import MedsScreen from './screens/MedsScreen';
 import MoreScreen from './screens/MoreScreen';
-import QrModal from './components/QrModal';
 import Toast from './components/Toast';
 import type { Screen } from './types';
+
+// Code-split the screens that aren't part of the hot day-to-day path (settings, admin,
+// reports, labels/QR, reconcile, count, adjust) — these pull in extra weight (qrcode, jsqr
+// for the labels screen especially) that shouldn't sit in the initial bundle a phone has to
+// download and parse before it can even show the login/home screen.
+const AdjustScreen = lazy(() => import('./screens/AdjustScreen'));
+const ReportScreen = lazy(() => import('./screens/ReportScreen'));
+const LabelsScreen = lazy(() => import('./screens/LabelsScreen'));
+const SettingsScreen = lazy(() => import('./screens/SettingsScreen'));
+const CountScreen = lazy(() => import('./screens/CountScreen'));
+const ReconcileScreen = lazy(() => import('./screens/ReconcileScreen'));
+const AdminScreen = lazy(() => import('./screens/AdminScreen'));
+const MedsScreen = lazy(() => import('./screens/MedsScreen'));
+// jsqr (camera decode) only matters once someone actually opens the scanner
+const QrModal = lazy(() => import('./components/QrModal'));
 
 const TITLES: Record<Screen, [string, string]> = {
   login: ['', ''],
@@ -91,7 +98,9 @@ export default function App() {
       )}
 
       <main style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
-        <Screens screen={state.screen} />
+        <Suspense fallback={<ScreenLoading />}>
+          <Screens screen={state.screen} />
+        </Suspense>
       </main>
 
       <nav style={{ flex: 'none', display: 'flex', background: 'rgba(255,255,255,.88)', backdropFilter: 'blur(14px) saturate(1.5)', WebkitBackdropFilter: 'blur(14px) saturate(1.5)', borderTop: '1px solid var(--border)', boxShadow: '0 -4px 14px -8px rgba(18,33,26,.15)', position: 'relative', zIndex: 3, paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
@@ -111,8 +120,18 @@ export default function App() {
         })}
       </nav>
 
-      <QrModal />
+      <Suspense fallback={null}>
+        <QrModal />
+      </Suspense>
       <Toast />
+    </div>
+  );
+}
+
+function ScreenLoading() {
+  return (
+    <div style={{ padding: '40px 20px', textAlign: 'center', animation: 'fade .15s' }}>
+      <div className="muted" style={{ fontSize: 12.5 }}>กำลังโหลด…</div>
     </div>
   );
 }
