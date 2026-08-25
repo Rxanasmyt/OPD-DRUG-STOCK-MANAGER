@@ -42,6 +42,18 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ---- username -> uid claims (login is by username, not email) ----
+    // Publicly readable (needed to check "is this username taken" before signup,
+    // and it's not sensitive — just an index), but a username can only ever be
+    // claimed once: the doc ID is the username, and this only matches the
+    // "create" case (the doc not existing yet) — once claimed, any further
+    // write is treated as an "update" and blocked below.
+    match /usernames/{uname} {
+      allow read: if true;
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
     // ---- master drug data & lots: any approved staff account ----
     match /meds/{medId} {
       allow read: if isActive();

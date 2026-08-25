@@ -7,6 +7,20 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.1.0] - 2026-08-25
+
+### Changed
+- **feat:** login/registration now use a **username** instead of an email address — easier for staff
+  to remember and type. Under the hood this maps to a synthetic, never-emailed address on a fake
+  domain, entirely client-side (no Cloud Functions / Blaze plan needed); usernames are lowercase
+  `a-z0-9_.`, 3–20 characters, and are reserved atomically at signup via a public `usernames/{name}`
+  Firestore collection (`firestore.rules` updated — republish it)
+- Account management stays exactly as in 2.0.0 (self-register → admin approves + assigns role,
+  fully inside the app) — this was confirmed as the intended meaning of "admin จัดการในแอปเลย" rather
+  than switching to admin-created accounts, which would require enabling Firebase's paid Blaze plan
+- Forgotten passwords now need an admin to reset them by hand in the Firebase console (documented in
+  README) since there's no real inbox behind a username to send a reset link to
+
 ## [2.0.0] - 2026-08-25
 
 ### Changed (breaking)

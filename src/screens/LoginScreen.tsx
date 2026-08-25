@@ -1,7 +1,7 @@
 import { useApp } from '../store/AppContext';
 
 export default function LoginScreen() {
-  const { state, myProfile, setAuthMode, setAuthEmail, setAuthPassword, setAuthName, setAuthDept, signIn, signUp, logout } = useApp();
+  const { state, myProfile, setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, signIn, signUp, logout } = useApp();
 
   if (state.authStatus === 'loading') {
     return (
@@ -17,7 +17,7 @@ export default function LoginScreen() {
         <div style={{ width: 62, height: 62, borderRadius: '50%', background: 'rgba(242,245,239,.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, margin: '0 auto 18px' }}>⏳</div>
         <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 6 }}>รอ Admin อนุมัติบัญชี</div>
         <div style={{ fontSize: 13.5, opacity: 0.78, lineHeight: 1.6, marginBottom: 4 }}>
-          บัญชี <b>{myProfile?.name}</b> ({myProfile?.email}) สมัครสำเร็จแล้ว
+          บัญชี <b>{myProfile?.name}</b> (@{myProfile?.username}) สมัครสำเร็จแล้ว
         </div>
         <div style={{ fontSize: 13, opacity: 0.65, lineHeight: 1.6, marginBottom: 26 }}>
           รอเภสัชกรหรือ Admin กดอนุมัติและกำหนดบทบาทให้ก่อน จึงจะเข้าใช้งานได้ — ลองเข้าสู่ระบบใหม่อีกครั้งภายหลัง
@@ -51,7 +51,10 @@ export default function LoginScreen() {
             <Field label="แผนก" value={state.authDept} onChange={setAuthDept} placeholder="เภสัชกรรม" />
           </>
         )}
-        <Field label="อีเมล" value={state.authEmail} onChange={setAuthEmail} type="email" placeholder="name@hospital.go.th" autoComplete="email" />
+        <div>
+          <Field label="ชื่อผู้ใช้" value={state.authUsername} onChange={(v) => setAuthUsername(v.toLowerCase())} placeholder="เช่น nurhayati" autoComplete="username" />
+          {isRegister && <div style={{ fontSize: 11, opacity: 0.55, marginTop: 5 }}>ตัวอักษรอังกฤษเล็ก ตัวเลข . หรือ _ เท่านั้น (3-20 ตัว)</div>}
+        </div>
         <Field label="รหัสผ่าน" value={state.authPassword} onChange={setAuthPassword} type="password" placeholder={isRegister ? 'อย่างน้อย 6 ตัวอักษร' : '••••••••'} autoComplete={isRegister ? 'new-password' : 'current-password'} />
 
         {state.authError && (

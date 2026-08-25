@@ -50,7 +50,7 @@ export interface Tx {
 
 export interface User {
   id: string; // Firebase Auth uid
-  email: string;
+  username: string; // lowercase, unique — login identifier (mapped to a synthetic email under the hood)
   name: string;
   role: Role;
   dept: string;
@@ -105,7 +105,7 @@ export interface AppState {
   authStatus: AuthStatus;
   authMode: AuthMode;
   myUid: string | null;
-  authEmail: string;
+  authUsername: string;
   authPassword: string;
   authName: string;
   authDept: string;

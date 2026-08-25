@@ -19,3 +19,20 @@ const firebaseConfig = {
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+// Firebase's built-in Auth provider is email/password only — there's no separate
+// "username" provider without standing up Cloud Functions (a paid Blaze-plan
+// feature this project intentionally avoids). So a username maps 1:1 to a
+// synthetic, never-emailed address on a fake domain, and that's what Auth
+// actually sees; the app and its users never think in terms of "email".
+const USERNAME_DOMAIN = 'opd-drug-stock.local';
+
+export const USERNAME_RE = /^[a-z0-9_.]{3,20}$/;
+
+export function normalizeUsername(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
+export function usernameToEmail(username: string): string {
+  return `${normalizeUsername(username)}@${USERNAME_DOMAIN}`;
+}

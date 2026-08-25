@@ -4,9 +4,9 @@ import {
 } from 'firebase/auth';
 import {
   collection, doc, onSnapshot, query, orderBy, limit, writeBatch, addDoc, updateDoc, setDoc,
-  runTransaction, getDocs,
+  runTransaction, getDocs, getDoc,
 } from 'firebase/firestore';
-import { auth, db } from '../firebase';
+import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, User, AuthMode,
 } from '../types';
@@ -20,7 +20,7 @@ function freshState(): AppState {
     meds: [], lots: [], txs: [], users: [], authLog: [], dbReady: false,
 
     authStatus: 'loading', authMode: 'login', myUid: null,
-    authEmail: '', authPassword: '', authName: '', authDept: 'เภสัชกรรม', authError: null, authBusy: false,
+    authUsername: '', authPassword: '', authName: '', authDept: 'เภสัชกรรม', authError: null, authBusy: false,
 
     screen: 'login', prevScreen: 'home', role: null, online: navigator.onLine, device: 'phone', pending: 0,
 
@@ -59,7 +59,7 @@ export interface AppCtx {
 
   // auth
   setAuthMode: (m: AuthMode) => void;
-  setAuthEmail: (v: string) => void;
+  setAuthUsername: (v: string) => void;
   setAuthPassword: (v: string) => void;
   setAuthName: (v: string) => void;
   setAuthDept: (v: string) => void;
@@ -147,12 +147,12 @@ export interface AppCtx {
 const Ctx = createContext<AppCtx | null>(null);
 
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
-  'auth/invalid-email': 'อีเมลไม่ถูกต้อง',
+  'auth/invalid-email': 'ชื่อผู้ใช้ไม่ถูกต้อง',
   'auth/user-disabled': 'บัญชีนี้ถูกปิดใช้งาน',
   'auth/user-not-found': 'ไม่พบบัญชีนี้',
-  'auth/wrong-password': 'อีเมลหรือรหัสผ่านไม่ถูกต้อง',
-  'auth/invalid-credential': 'อีเมลหรือรหัสผ่านไม่ถูกต้อง',
-  'auth/email-already-in-use': 'อีเมลนี้ถูกใช้สมัครไปแล้ว',
+  'auth/wrong-password': 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
+  'auth/invalid-credential': 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
+  'auth/email-already-in-use': 'ชื่อผู้ใช้นี้มีคนใช้แล้ว',
   'auth/weak-password': 'รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร',
   'auth/too-many-requests': 'ลองผิดหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่',
   'auth/network-request-failed': 'เชื่อมต่อเครือข่ายไม่ได้ ลองใหม่อีกครั้ง',
@@ -261,46 +261,60 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ---------- auth actions ----------
   const setAuthMode = useCallback((m: AuthMode) => patch({ authMode: m, authError: null }), [patch]);
-  const setAuthEmail = useCallback((v: string) => patch({ authEmail: v }), [patch]);
+  const setAuthUsername = useCallback((v: string) => patch({ authUsername: v }), [patch]);
   const setAuthPassword = useCallback((v: string) => patch({ authPassword: v }), [patch]);
   const setAuthName = useCallback((v: string) => patch({ authName: v }), [patch]);
   const setAuthDept = useCallback((v: string) => patch({ authDept: v }), [patch]);
 
   const signIn = useCallback(async () => {
-    const email = state.authEmail.trim();
+    const username = normalizeUsername(state.authUsername);
     const password = state.authPassword;
-    if (!email || !password) { patch({ authError: 'กรอกอีเมลและรหัสผ่าน' }); return; }
+    if (!username || !password) { patch({ authError: 'กรอกชื่อผู้ใช้และรหัสผ่าน' }); return; }
     patch({ authBusy: true, authError: null });
     try {
-      const cred = await signInWithEmailAndPassword(auth, email, password);
+      const cred = await signInWithEmailAndPassword(auth, usernameToEmail(username), password);
       await setDoc(doc(db, 'users', cred.user.uid), { lastLogin: Date.now() }, { merge: true });
     } catch (e) {
       patch({ authError: authErrorMessage(e) });
     } finally {
       patch({ authBusy: false });
     }
-  }, [state.authEmail, state.authPassword, patch]);
+  }, [state.authUsername, state.authPassword, patch]);
 
   const signUp = useCallback(async () => {
-    const email = state.authEmail.trim();
+    const username = normalizeUsername(state.authUsername);
     const password = state.authPassword;
     const name = state.authName.trim();
     const dept = state.authDept.trim() || 'เภสัชกรรม';
-    if (!email || !password || !name) { patch({ authError: 'กรอกชื่อ อีเมล และรหัสผ่านให้ครบ' }); return; }
+    if (!username || !password || !name) { patch({ authError: 'กรอกชื่อ ชื่อผู้ใช้ และรหัสผ่านให้ครบ' }); return; }
+    if (!USERNAME_RE.test(username)) { patch({ authError: 'ชื่อผู้ใช้ต้องเป็นตัวอักษรอังกฤษเล็ก ตัวเลข . หรือ _ ยาว 3-20 ตัว' }); return; }
     if (password.length < 6) { patch({ authError: 'รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร' }); return; }
     patch({ authBusy: true, authError: null });
     try {
-      const cred = await createUserWithEmailAndPassword(auth, email, password);
-      const profile: Omit<User, 'id'> = { email, name, role: 'tech', dept, active: false, createdAt: Date.now(), lastLogin: null };
-      await setDoc(doc(db, 'users', cred.user.uid), profile);
+      const takenSnap = await getDoc(doc(db, 'usernames', username));
+      if (takenSnap.exists()) { patch({ authError: 'ชื่อผู้ใช้นี้มีคนใช้แล้ว' }); return; }
+
+      const cred = await createUserWithEmailAndPassword(auth, usernameToEmail(username), password);
+      try {
+        const profile: Omit<User, 'id'> = { username, name, role: 'tech', dept, active: false, createdAt: Date.now(), lastLogin: null };
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'users', cred.user.uid), profile);
+        batch.set(doc(db, 'usernames', username), { uid: cred.user.uid });
+        await batch.commit();
+      } catch (inner) {
+        // Someone else claimed this username in the split second between our
+        // check and here — undo the orphaned Auth account so they can retry.
+        await cred.user.delete().catch(() => {});
+        throw inner;
+      }
     } catch (e) {
       patch({ authError: authErrorMessage(e) });
     } finally {
       patch({ authBusy: false });
     }
-  }, [state.authEmail, state.authPassword, state.authName, state.authDept, patch]);
+  }, [state.authUsername, state.authPassword, state.authName, state.authDept, patch]);
 
-  const logout = useCallback(() => { signOut(auth); patch({ cart: {}, authEmail: '', authPassword: '' }); }, [patch]);
+  const logout = useCallback(() => { signOut(auth); patch({ cart: {}, authUsername: '', authPassword: '' }); }, [patch]);
   const setDevice = useCallback((d: 'phone' | 'tablet') => patch({ device: d }), [patch]);
 
   const seedDatabase = useCallback(async () => {
@@ -789,7 +803,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<AppCtx>(() => ({
     state, myProfile, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, go, back,
-    setAuthMode, setAuthEmail, setAuthPassword, setAuthName, setAuthDept, signIn, signUp, logout, setDevice, seedDatabase, resetData,
+    setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, signIn, signUp, logout, setDevice, seedDatabase, resetData,
     setSearch, setFilter, bump, setCartQty, fillAll, removeFromCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, goReceiveFor,
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
