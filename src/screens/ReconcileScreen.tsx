@@ -3,7 +3,7 @@ import { nf } from '../utils/format';
 import type { HosxpMatch } from '../types';
 
 export default function ReconcileScreen() {
-  const { state, setHosxpText, loadHosxpSample, processHosxp, setHosxpConfirmFuzzy, commitReconcile } = useApp();
+  const { state, setHosxpText, processHosxp, setHosxpConfirmFuzzy, commitReconcile } = useApp();
 
   const medById = (id: string) => state.meds.find((x) => x.id === id);
 
@@ -26,13 +26,10 @@ export default function ReconcileScreen() {
       <textarea
         value={state.hosxpText}
         onChange={(e) => setHosxpText(e.target.value)}
-        placeholder={'เช่น PARACETAMOL 500 mg,340\namlodipine 5 mg,120'}
-        style={{ width: '100%', minHeight: 96, border: '1px solid var(--border)', background: '#fff', borderRadius: 10, padding: '11px 12px', fontSize: 13, fontFamily: 'ui-monospace, monospace', resize: 'vertical', marginBottom: 10 }}
+        placeholder={'วางข้อมูลจากไฟล์ HOSxP รูปแบบ "ชื่อยา,จำนวนที่จ่าย" บรรทัดละ 1 รายการ เช่น\nPARACETAMOL 500 mg,340\namlodipine 5 mg,120'}
+        style={{ width: '100%', minHeight: 120, border: '1px solid var(--border)', background: '#fff', borderRadius: 10, padding: '11px 12px', fontSize: 13, fontFamily: 'ui-monospace, monospace', resize: 'vertical', marginBottom: 10 }}
       />
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <button onClick={loadHosxpSample} style={{ flex: 1, border: '1px solid var(--border)', background: '#fff', color: 'var(--ink)', padding: 11, borderRadius: 10, fontSize: 13, fontWeight: 600, minHeight: 44 }}>จำลองไฟล์ตัวอย่าง</button>
-        <button onClick={processHosxp} className="btn-primary" style={{ flex: 1, padding: 11, borderRadius: 10, fontSize: 13, minHeight: 44 }}>ประมวลผล</button>
-      </div>
+      <button onClick={processHosxp} className="btn-primary" style={{ width: '100%', padding: 11, borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 46, marginBottom: 14 }}>ประมวลผล</button>
 
       {reconcileRows.length > 0 && (
         <>
@@ -66,7 +63,6 @@ export default function ReconcileScreen() {
           </button>
         </>
       )}
-      <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginTop: 12 }}>ระบบจริง: Cloud Function ดึงยอดจ่าย OPD จาก HOSxP (MySQL) มาตัดยอดอัตโนมัติทุกวัน แทนการวางไฟล์ด้วยมือ</div>
     </div>
   );
 }

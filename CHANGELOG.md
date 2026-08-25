@@ -7,6 +7,43 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.7.0] - 2026-08-25
+
+Go-live cleanup pass: bug fixes found by re-reading every remaining screen, removal of the
+last leftover trial/demo scaffolding, and a visual refresh of the shared shell.
+
+### Fixed
+- **fix:** the "ธุรกรรมวันนี้" (transactions today) stat tile on the home screen was silently
+  stuck at 0 forever — it used `daysUntil()`, which computes days remaining *until* a future
+  timestamp (correct for expiry dates), against `tx.ts`, which is always in the past, so the
+  check was never true. Now compares calendar dates directly
+  - the transfer-confirm screen's "สแกน QR ยา high alert (N รายการ)" button stayed visible
+    (showing "0 รายการ") and clickable even after every high-alert item in the cart was
+    already confirmed — tapping it would scan against nothing. Now hides once nothing's left
+    to confirm
+
+### Removed
+- **fix!:** removed "รีเซ็ตข้อมูลยา/lot กลับเป็นชุดตั้งต้น" from the More menu — a leftover
+  setup/testing tool that deleted every med and lot doc and reseeded the random starter data,
+  sitting behind nothing but a browser `confirm()` dialog. With real stock data in the system
+  now, an accidental tap would have been a real incident; a genuine full reset is rare enough
+  to do by hand in the Firebase console instead. (The one-time "โหลดข้อมูลตั้งต้น" bootstrap
+  action stays — it only ever runs once, when the med collection is still empty.)
+- removed "จำลองไฟล์ตัวอย่าง" (load a fake sample file) from the HOSxP reconcile screen and the
+  sample data it loaded — the CSV format is still shown via the textarea's placeholder text
+- removed the "ระบบจริง: Cloud Function ดึงยอดจ่าย..." disclaimer on the same screen — it read
+  as if the manual-paste workflow wasn't the real one, when pasting the HOSxP export has always
+  been the intended day-to-day method (see README)
+
+### Added
+- **feat:** search box on "นับสต็อกหน้างาน" (floor count) — it was a flat list capped at the
+  first 150 of up to 585 meds with no way to reach anything past that
+
+### Changed
+- **feat:** visual refresh — gradient header and login background instead of a flat fill,
+  frosted-glass blur on sticky sub-headers (tab bars, the transfer search bar) and the bottom
+  nav instead of a flat opaque fill, subtle shadow lift on the login logo mark
+
 ## [2.6.0] - 2026-08-25
 
 ### Added

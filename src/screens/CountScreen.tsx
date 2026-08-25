@@ -1,15 +1,25 @@
+import { useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf } from '../utils/format';
 
 export default function CountScreen() {
   const { state, setCountInput, commitCount } = useApp();
-  const meds = state.meds.filter((m) => m.active).slice(0, 150);
+  const [q, setQ] = useState('');
+  const meds = state.meds
+    .filter((m) => m.active && (!q.trim() || m.name.toLowerCase().indexOf(q.trim().toLowerCase()) >= 0))
+    .slice(0, 150);
 
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
       <div style={{ background: 'var(--green-tint)', borderRadius: 12, padding: '12px 13px', fontSize: 12.5, lineHeight: 1.6, marginBottom: 13 }}>
         ฟังก์ชันเสริม — ใช้เมื่อสงสัยว่ายอดคลาดเคลื่อนมาก หรือเมื่อมีกำลังคนพอ ไม่จำเป็นต้องทำเป็นประจำ ("นำเข้า HOSxP" ในเมนูหลักเป็นวิธีหลักที่ใช้เวลาน้อยกว่า) นับของจริงแล้วกรอก ระบบจะแก้ยอดให้ตรงและบันทึกส่วนต่างลง discrepancy log ให้อัตโนมัติ
       </div>
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="ค้นหาชื่อยา"
+        style={{ width: '100%', border: '1px solid var(--border)', background: '#fff', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44, marginBottom: 12 }}
+      />
       <div className="card" style={{ overflow: 'hidden' }}>
         {meds.map((m) => {
           const typed = state.countInputs[m.id] ?? '';
@@ -47,6 +57,7 @@ export default function CountScreen() {
             </div>
           );
         })}
+        {meds.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ไม่พบยาที่ค้นหา</div>}
       </div>
     </div>
   );

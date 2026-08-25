@@ -41,7 +41,7 @@ export default function ReportScreen() {
 
   return (
     <div style={{ animation: 'fade .18s' }}>
-      <div style={{ display: 'flex', gap: 7, padding: '12px 14px 10px', overflowX: 'auto', position: 'sticky', top: 0, background: 'var(--bg-app)', zIndex: 2, borderBottom: '1px solid #e6e7e0' }}>
+      <div style={{ display: 'flex', gap: 7, padding: '12px 14px 10px', overflowX: 'auto', position: 'sticky', top: 0, zIndex: 2 }} className="sticky-bar">
         {TABS.map(([t, label]) => (
           <button key={t} className="chip" style={{ ...chip(state.reportTab === t), minHeight: 38 }} onClick={() => setReportTab(t)}>{label}</button>
         ))}

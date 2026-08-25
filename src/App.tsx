@@ -66,7 +66,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <header style={{ background: 'var(--green)', color: 'var(--ink-soft)', padding: '12px 16px 13px', display: 'flex', alignItems: 'center', gap: 10, flex: 'none', boxShadow: '0 4px 14px -6px rgba(14,58,32,.5)', position: 'relative', zIndex: 3 }}>
+      <header style={{ background: 'linear-gradient(155deg, #1c6338 0%, var(--green) 55%, var(--green-dark) 100%)', color: 'var(--ink-soft)', padding: '12px 16px 13px', display: 'flex', alignItems: 'center', gap: 10, flex: 'none', boxShadow: '0 4px 14px -6px rgba(14,58,32,.5)', position: 'relative', zIndex: 3 }}>
         {canBack && (
           <button onClick={back} style={{ border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 32, height: 32, borderRadius: 9, fontSize: 16, flex: 'none' }}>←</button>
         )}
@@ -94,7 +94,7 @@ export default function App() {
         <Screens screen={state.screen} />
       </main>
 
-      <nav style={{ flex: 'none', display: 'flex', background: '#fff', borderTop: '1px solid var(--border)', boxShadow: '0 -4px 14px -8px rgba(18,33,26,.15)', position: 'relative', zIndex: 3 }}>
+      <nav style={{ flex: 'none', display: 'flex', background: 'rgba(255,255,255,.88)', backdropFilter: 'blur(14px) saturate(1.5)', WebkitBackdropFilter: 'blur(14px) saturate(1.5)', borderTop: '1px solid var(--border)', boxShadow: '0 -4px 14px -8px rgba(18,33,26,.15)', position: 'relative', zIndex: 3 }}>
         {NAV_DEF.map(([s, label, icon]) => {
           const active = state.screen === s;
           return (

@@ -21,7 +21,7 @@ export default function TransferScreen() {
 
   return (
     <div style={{ animation: 'fade .18s' }}>
-      <div style={{ padding: '12px 14px 10px', background: 'var(--bg-app)', position: 'sticky', top: 0, zIndex: 2, borderBottom: '1px solid #e6e7e0' }}>
+      <div style={{ padding: '12px 14px 10px' }} className="sticky-bar">
         <div style={{ display: 'flex', gap: 8 }}>
           <input
             value={state.search}

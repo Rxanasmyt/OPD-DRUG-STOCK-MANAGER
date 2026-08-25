@@ -1,6 +1,6 @@
 import { useApp } from '../store/AppContext';
 import { toneFor, daysUntil } from '../store/selectors';
-import { nf, thDate } from '../utils/format';
+import { nf, thDate, isoDate } from '../utils/format';
 
 export default function HomeScreen() {
   const { state, myProfile, sub, fefo, bump, goReceiveFor, go, warn, pickAdjType, seedDatabase } = useApp();
@@ -32,7 +32,11 @@ export default function HomeScreen() {
     .filter((l) => l.qty > 0 && daysUntil(l.exp) < W)
     .sort((a, b) => a.exp - b.exp);
   const expiredCount = state.lots.filter((l) => l.qty > 0 && daysUntil(l.exp) < 0).length;
-  const txToday = state.txs.filter((x) => daysUntil(x.ts) >= 0).length;
+  // Bug fix: daysUntil() computes days remaining until a *future* timestamp (right for
+  // expiry dates) — for a tx.ts, which is always in the past, it was always negative, so
+  // this tile silently showed 0 for every transaction ever logged. Compare calendar dates.
+  const todayIso = isoDate(Date.now());
+  const txToday = state.txs.filter((x) => isoDate(x.ts) === todayIso).length;
 
   return (
     <div style={{ padding: '14px 14px 20px', animation: 'fade .18s' }}>

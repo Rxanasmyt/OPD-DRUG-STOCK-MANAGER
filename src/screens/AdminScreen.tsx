@@ -31,7 +31,7 @@ export default function AdminScreen() {
 
   return (
     <div style={{ animation: 'fade .18s' }}>
-      <div style={{ display: 'flex', gap: 7, padding: '12px 14px 10px', overflowX: 'auto', position: 'sticky', top: 0, background: 'var(--bg-app)', zIndex: 2, borderBottom: '1px solid #e6e7e0' }}>
+      <div style={{ display: 'flex', gap: 7, padding: '12px 14px 10px', overflowX: 'auto', position: 'sticky', top: 0, zIndex: 2 }} className="sticky-bar">
         {ADMIN_TABS.map(([t, label]) => (
           <button key={t} className="chip" style={{ ...chip(state.adminTab === t), minHeight: 38 }} onClick={() => setAdminTab(t)}>
             {label}{t === 'users' && pending.length > 0 ? ` (${pending.length})` : ''}

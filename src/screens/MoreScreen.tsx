@@ -1,7 +1,7 @@
 import { useApp } from '../store/AppContext';
 
 export default function MoreScreen() {
-  const { state, go, userName, roleLabel, logout, resetData } = useApp();
+  const { state, go, userName, roleLabel, logout } = useApp();
   const items = [
     { label: 'ปรับยอด / คืนยา / ยาหมดอายุ', sub: 'บันทึกเหตุผลทุกครั้ง', go: () => go('adjust') },
     { label: 'รายงานและ Export CSV', sub: 'stock aging · turnover · discrepancy', go: () => go('report') },
@@ -32,10 +32,7 @@ export default function MoreScreen() {
         <div className="muted" style={{ fontSize: 12.5 }}>{roleLabel()} · ห้องยา OPD</div>
       </div>
 
-      <button onClick={logout} style={{ width: '100%', border: '1px solid var(--border)', background: '#fff', color: 'var(--red)', padding: 14, borderRadius: 11, fontSize: 14.5, fontWeight: 600, minHeight: 50, marginBottom: 10 }}>ออกจากระบบ</button>
-      {state.role === 'admin' && (
-        <button onClick={resetData} style={{ width: '100%', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', padding: 12, borderRadius: 11, fontSize: 12.5, minHeight: 44 }}>รีเซ็ตข้อมูลยา/lot กลับเป็นชุดตั้งต้น</button>
-      )}
+      <button onClick={logout} style={{ width: '100%', border: '1px solid var(--border)', background: '#fff', color: 'var(--red)', padding: 14, borderRadius: 11, fontSize: 14.5, fontWeight: 600, minHeight: 50 }}>ออกจากระบบ</button>
     </div>
   );
 }

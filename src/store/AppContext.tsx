@@ -71,7 +71,6 @@ export interface AppCtx {
   logout: () => void;
   setDevice: (d: 'phone' | 'tablet') => void;
   seedDatabase: () => void;
-  resetData: () => void;
 
   // transfer
   setSearch: (v: string) => void;
@@ -131,7 +130,6 @@ export interface AppCtx {
 
   // hosxp reconcile
   setHosxpText: (v: string) => void;
-  loadHosxpSample: () => void;
   processHosxp: () => void;
   setHosxpConfirmFuzzy: (v: boolean) => void;
   commitReconcile: () => void;
@@ -342,27 +340,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast('โหลดข้อมูลตั้งต้นไม่สำเร็จ: ' + authErrorMessage(e));
     }
   }, [toast, logAudit]);
-
-  const resetData = useCallback(async () => {
-    if (myProfile?.role !== 'admin') return;
-    if (!window.confirm('รีเซ็ตข้อมูลยาและ lot ทั้งหมดกลับเป็นชุดตั้งต้น? ธุรกรรม/ผู้ใช้จะไม่ถูกลบ')) return;
-    toast('กำลังรีเซ็ตข้อมูล…');
-    try {
-      for (const colName of ['meds', 'lots']) {
-        const snap = await getDocs(collection(db, colName));
-        const ids = snap.docs.map((d) => d.id);
-        for (let i = 0; i < ids.length; i += 400) {
-          const batch = writeBatch(db);
-          ids.slice(i, i + 400).forEach((id) => batch.delete(doc(db, colName, id)));
-          await batch.commit();
-        }
-      }
-      await seedInitialData();
-      toast('รีเซ็ตข้อมูลตัวอย่างแล้ว');
-    } catch (e) {
-      toast('รีเซ็ตไม่สำเร็จ: ' + authErrorMessage(e));
-    }
-  }, [myProfile, toast]);
 
   // ---------- transfer ----------
   const setSearch = useCallback((v: string) => patch({ search: v }), [patch]);
@@ -830,9 +807,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.countInputs, state.meds, logTx, toast, patch]);
 
   // ---------- hosxp reconcile ----------
-  const hosxpSample = 'PARACETAMOL 500 mg,340\namlodipine 5 mg,95\nAMOXICILlin 500 mg,140\nCPM 4 mg,60\nEnalapril 5 mg,80\nIbuprofen 400 mg,55\nWARFARIN (สีส้ม) 2 mg,18';
   const setHosxpText = useCallback((v: string) => patch({ hosxpText: v }), [patch]);
-  const loadHosxpSample = useCallback(() => patch({ hosxpText: hosxpSample, hosxpRows: null, hosxpConfirmFuzzy: false }), [patch]);
 
   const processHosxp = useCallback(() => {
     const lines = state.hosxpText.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -1009,7 +984,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<AppCtx>(() => ({
     state, myProfile, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, go, back,
-    setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, signIn, signUp, logout, setDevice, seedDatabase, resetData,
+    setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, signIn, signUp, logout, setDevice, seedDatabase,
     setSearch, setFilter, bump, setCartQty, fillAll, removeFromCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, goReceiveFor,
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
@@ -1018,7 +993,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats,
     addMed, toggleMedActive, deleteMed,
     setCountInput, commitCount,
-    setHosxpText, loadHosxpSample, processHosxp, setHosxpConfirmFuzzy, commitReconcile,
+    setHosxpText, processHosxp, setHosxpConfirmFuzzy, commitReconcile,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     doneAgain,
     setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit,

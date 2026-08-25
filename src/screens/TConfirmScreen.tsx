@@ -6,7 +6,6 @@ export default function TConfirmScreen() {
   const cartIds = Object.keys(state.cart);
   const meds = state.meds;
   const hadPending = cartIds.filter((id) => meds.find((m) => m.id === id)?.had && !state.hadOk[id]);
-  const cartHasHad = cartIds.some((id) => meds.find((m) => m.id === id)?.had);
 
   const rows = cartIds.map((id) => {
     const m = meds.find((x) => x.id === id)!;
@@ -54,7 +53,7 @@ export default function TConfirmScreen() {
         ผู้ทำรายการ <b>{userName()}</b> ({roleLabel()})<br />ปลายทาง ชั้นจ่ายยา OPD · เวลา {thTime(Date.now())} น.
       </div>
 
-      {cartHasHad && (
+      {hadPending.length > 0 && (
         <button onClick={() => startHadScan(hadPending[0])} style={{ width: '100%', border: 0, background: 'var(--had)', color: '#fff', padding: 16, borderRadius: 12, fontSize: 16, fontWeight: 600, minHeight: 54, marginBottom: 9 }}>
           สแกน QR ยา high alert ({hadPending.length} รายการ)
         </button>
