@@ -6,11 +6,25 @@ Implementation ของดีไซน์ `ระบบสต็อกยา OP
 ## Stack
 
 - React 18 + TypeScript + Vite
-- ไม่มี backend จริง — state ทั้งหมดอยู่ใน React Context และ persist ผ่าน `localStorage`
-  (จุดเชื่อมต่อกับ Firebase Auth/Firestore และ HOSxP ตามที่ระบุในดีไซน์ต้นฉบับยังเป็น mock/placeholder)
+- **Firebase** — Authentication (Email/Password) + Firestore (ข้อมูลยา/lot/ธุรกรรม/ผู้ใช้/audit log แบบ
+  real-time sync ทุกอุปกรณ์) ดู `src/firebase.ts` — ค่า config เป็น public config ของ Firebase Web SDK
+  (ไม่ใช่รหัสลับ) ความปลอดภัยจริงอยู่ที่ `firestore.rules`
 - Master data ยา 585 รายการ นำเข้าจาก `src/data/med_list.csv` (บัญชีเวชภัณฑ์ยา รพ.กรงปินัง) —
-  par/stock/lot/high-alert ถูกสุ่มสร้างแบบ deterministic (seed ตาม index) เพื่อให้เดโมมีข้อมูลสมจริง
+  par/stock/lot/high-alert ถูกสุ่มสร้างแบบ deterministic (seed ตาม index) เพื่อให้มีข้อมูลตั้งต้นสมจริง
   รายการที่มีหมายเหตุ "ไม่มียาในรพ.กรงปินัง" ในชื่อจะถูกทำเครื่องหมายเป็น inactive (par/stock = 0)
+
+## ตั้งค่า Firebase (ต้องทำก่อนแอปจะใช้งานได้)
+
+1. **Publish security rules** — ไปที่ [Firebase Console](https://console.firebase.google.com) → เลือก
+   project → Firestore Database → แท็บ **Rules** → copy เนื้อหาทั้งหมดใน `firestore.rules` ไปวางแทนของเดิม →
+   **Publish** (ถ้าไม่ทำขั้นตอนนี้ แอปจะใช้งานไม่ได้เลย เพราะ Firestore เริ่มต้นปฏิเสธ read/write ทั้งหมด)
+2. **สมัครบัญชีแรกผ่านแอป** — เปิดแอป → แท็บ "สมัครสมาชิก" → กรอกข้อมูลสมัคร (จะเข้าสถานะ "รออนุมัติ" อัตโนมัติ)
+3. **ตั้งบัญชีแรกให้เป็น Admin (ทำครั้งเดียว)** — เพราะยังไม่มีใครอนุมัติได้ ต้องทำเองผ่าน Console:
+   Firebase Console → Firestore Database → แท็บ **Data** → collection `users` → เปิด document ของบัญชีที่เพิ่งสมัคร
+   (ดูจาก field `email`) → แก้ `active` เป็น `true` และ `role` เป็น `"admin"` → Save
+4. **ล็อกอินใหม่อีกครั้ง** ในแอป — ตอนนี้จะเข้าเป็น Admin ได้แล้ว
+5. หน้าหลักจะแสดง "ยังไม่มีข้อมูลยาในระบบ" — กด **"โหลดข้อมูลตั้งต้น"** เพื่อนำเข้ายา 585 รายการ + lot ตัวอย่าง
+6. จากนี้พนักงานคนอื่นสมัครเองผ่านแอปได้เลย แล้ว Admin ไปกด "อนุมัติ" ในหน้า Admin → ผู้ใช้งาน
 
 ## รัน dev server
 
@@ -28,11 +42,19 @@ npm run preview
 
 ## โครงสร้าง
 
-- `src/data/` — CSV ต้นฉบับ + ตัวสร้างข้อมูลตั้งต้น (seed)
-- `src/store/AppContext.tsx` — state ทั้งแอปและ action ทั้งหมด (login, เติมหน้างาน/FEFO, รับเข้า substock,
-  ปรับยอด/คืนยา/ยาหมดอายุ, นำเข้า HOSxP, นับสต็อก, รายงาน, ฉลาก QR, จัดการผู้ใช้ + audit log)
+- `src/firebase.ts` — เริ่มต้น Firebase app/Auth/Firestore
+- `firestore.rules` — security rules (ต้อง publish เข้า Firebase Console เอง ดูด้านบน)
+- `src/data/` — CSV ต้นฉบับ + ตัวสร้างข้อมูลตั้งต้น (seed), `seedFirestore.ts` เขียนข้อมูลตั้งต้นลง Firestore
+- `src/store/AppContext.tsx` — auth state + live Firestore sync + action ทั้งหมด (เติมหน้างาน/FEFO,
+  รับเข้า substock, ปรับยอด/คืนยา/ยาหมดอายุ, นำเข้า HOSxP, นับสต็อก, รายงาน, ฉลาก QR, จัดการผู้ใช้ + audit log)
 - `src/screens/` — หน้าจอแต่ละหน้าตาม flow ในดีไซน์
 - `src/components/` — ชิ้นส่วนที่ใช้ร่วมกัน (QR modal, toast, QR code generator)
+
+## สิทธิ์ผู้ใช้งาน
+
+บัญชีใหม่ทุกบัญชีสมัครเองผ่านหน้า login (อีเมล + รหัสผ่าน) แล้วอยู่ในสถานะรออนุมัติ (`active: false`,
+`role: 'tech'`) — เข้าใช้งานไม่ได้จนกว่า Admin จะกด "อนุมัติ" ในหน้า Admin → ผู้ใช้งาน (ซึ่งกำหนดบทบาทได้ 3 แบบ:
+เภสัชกร / ผู้ช่วยเภสัชกร / Admin) ทุกการเปลี่ยนบทบาท/สถานะบัญชีถูกบันทึกลง audit log
 
 ## ข้อสมมติที่ใช้ออกแบบ (ตามดีไซน์ต้นฉบับ)
 

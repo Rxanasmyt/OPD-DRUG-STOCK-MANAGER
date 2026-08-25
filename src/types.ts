@@ -49,16 +49,21 @@ export interface Tx {
 }
 
 export interface User {
-  id: string;
+  id: string; // Firebase Auth uid
+  email: string;
   name: string;
   role: Role;
   dept: string;
-  active: boolean;
+  active: boolean; // false = pending admin approval, or deactivated
+  createdAt: number;
   lastLogin: number | null;
 }
 
+export type AuthStatus = 'loading' | 'signedOut' | 'pendingApproval' | 'signedIn';
+export type AuthMode = 'login' | 'register';
+
 export type AuditType =
-  | 'login' | 'user_added' | 'user_role_changed' | 'user_status_changed' | 'par_updated'
+  | 'login' | 'user_registered' | 'user_approved' | 'user_role_changed' | 'user_status_changed' | 'par_updated'
   | TxType;
 
 export interface AuditEntry {
@@ -95,6 +100,17 @@ export interface AppState {
   txs: Tx[];
   users: User[];
   authLog: AuditEntry[];
+  dbReady: boolean; // false until the first Firestore snapshot for meds arrives
+
+  authStatus: AuthStatus;
+  authMode: AuthMode;
+  myUid: string | null;
+  authEmail: string;
+  authPassword: string;
+  authName: string;
+  authDept: string;
+  authError: string | null;
+  authBusy: boolean;
 
   screen: Screen;
   prevScreen: Screen;
@@ -139,10 +155,6 @@ export interface AppState {
   countInputs: Record<string, string>;
   hosxpText: string;
   hosxpRows: { name: string; qty: number }[] | null;
-
-  newUserName: string;
-  newUserRole: Role;
-  newUserDept: string;
 
   adminTab: AdminTab;
   auditFilter: AuditFilter;

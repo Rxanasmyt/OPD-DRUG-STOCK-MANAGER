@@ -32,7 +32,9 @@ export default function MoreScreen() {
       </div>
 
       <button onClick={logout} style={{ width: '100%', border: '1px solid var(--border)', background: '#fff', color: 'var(--red)', padding: 14, borderRadius: 11, fontSize: 14.5, fontWeight: 600, minHeight: 50, marginBottom: 10 }}>ออกจากระบบ</button>
-      <button onClick={resetData} style={{ width: '100%', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', padding: 12, borderRadius: 11, fontSize: 12.5, minHeight: 44 }}>รีเซ็ตข้อมูลตัวอย่าง</button>
+      {state.role === 'admin' && (
+        <button onClick={resetData} style={{ width: '100%', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', padding: 12, borderRadius: 11, fontSize: 12.5, minHeight: 44 }}>รีเซ็ตข้อมูลยา/lot กลับเป็นชุดตั้งต้น</button>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import rawCsv from './med_list.csv?raw';
 import { parseCsv } from '../utils/csv';
 import { mulberry32, DAY } from '../utils/format';
-import type { Med, Lot, Tx, User } from '../types';
+import type { Med, Lot } from '../types';
 
 const NOT_CARRIED_RE = /ไม่มี|refer back|เตรียมเฉพาะราย|เฉพาะราย/i;
 const HAD_RE = /^\(HAD\)\s*/i;
@@ -91,28 +91,3 @@ export function seedLots(meds: Med[]): Lot[] {
   return lots;
 }
 
-export function seedTxs(meds: Med[]): Tx[] {
-  const now = Date.now();
-  const active = meds.filter((m) => m.active);
-  const pick = (i: number) => active[i % active.length];
-  const m0 = pick(2), m1 = pick(9), m2 = pick(4), m3 = pick(15), m4 = pick(6), m5 = pick(1);
-  return [
-    { id: 'T1', type: 'adjust', name: m0.name, qty: -Math.min(60, Math.max(5, m0.floor || 20)), unit: m0.unit, by: 'ภญ.นูรฮายาตี ส.', ts: now - 2 * DAY, reason: 'นับได้ต่างจากระบบ', note: 'ตรวจนับรอบเดือน ส.ค. ร่วมกับ อับดุลเลาะ ม.', loc: 'substock' },
-    { id: 'T2', type: 'expired', name: m1.name, qty: -Math.min(120, Math.max(10, m1.floor || 30)), unit: m1.unit, by: 'ภญ.นูรฮายาตี ส.', ts: now - 5 * DAY, reason: 'หมดอายุ', note: 'ตัดออกจาก substock ตามรอบตรวจ', loc: 'substock' },
-    { id: 'T3', type: 'return', name: m2.name, qty: Math.min(40, Math.max(5, Math.round((m2.floor || 20) * 0.2))), unit: m2.unit, by: 'อับดุลเลาะ ม.', ts: now - 6 * DAY, reason: 'ผู้ป่วยคืนยา (ไม่เปิดซอง)', note: 'HN 00214477 นัดเปลี่ยนแผนการรักษา', loc: 'floor' },
-    { id: 'T4', type: 'adjust', name: m3.name, qty: -Math.min(25, Math.max(3, Math.round((m3.floor || 15) * 0.15))), unit: m3.unit, by: 'อับดุลเลาะ ม.', ts: now - 9 * DAY, reason: 'เบิกใช้ในหน่วยงาน', note: 'ให้ ER ช่วงระบาด', loc: 'floor' },
-    { id: 'T5', type: 'expired', name: m4.name, qty: -Math.min(6, Math.max(1, Math.round((m4.floor || 6) * 0.1))), unit: m4.unit, by: 'ภญ.นูรฮายาตี ส.', ts: now - 12 * DAY, reason: 'ยาเสีย/ชำรุด', note: 'ตะกอนผิดปกติหลังผสม', loc: 'floor' },
-    { id: 'T6', type: 'adjust', name: m5.name, qty: -Math.min(8, Math.max(1, Math.round((m5.floor || 8) * 0.05))), unit: m5.unit, by: 'ภญ.นูรฮายาตี ส.', ts: now - 15 * DAY, reason: 'นับได้ต่างจากระบบ', note: 'high alert — ทวนสอบ 2 คน ตามแนวทาง CQI', loc: 'floor' },
-  ];
-}
-
-export function seedUsers(): User[] {
-  const now = Date.now();
-  return [
-    { id: 'U1', name: 'ภญ.นูรฮายาตี ส.', role: 'pharm', dept: 'เภสัชกรรม', active: true, lastLogin: now - 0.4 * DAY },
-    { id: 'U2', name: 'อับดุลเลาะ ม.', role: 'tech', dept: 'เภสัชกรรม', active: true, lastLogin: now - 0.1 * DAY },
-    { id: 'U3', name: 'ผู้ดูแลระบบ', role: 'admin', dept: 'IT', active: true, lastLogin: now - 3 * DAY },
-    { id: 'U4', name: 'ซากีนะ เจ๊ะมะ', role: 'tech', dept: 'เภสัชกรรม', active: true, lastLogin: now - 2 * DAY },
-    { id: 'U5', name: 'ภก.อิสมาแอล ดอเลาะ', role: 'pharm', dept: 'เภสัชกรรม', active: false, lastLogin: now - 40 * DAY },
-  ];
-}

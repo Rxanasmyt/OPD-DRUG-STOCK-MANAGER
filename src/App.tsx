@@ -44,14 +44,22 @@ const NAV_DEF: [Screen, string, string][] = [
 ];
 
 export default function App() {
-  const { state, roleLabel, go, back, setOnline } = useApp();
+  const { state, roleLabel, go, back } = useApp();
 
-  if (state.screen === 'login' || !state.role) {
+  if (state.authStatus !== 'signedIn') {
     return <LoginScreen />;
   }
 
+  if (!state.dbReady) {
+    return (
+      <div className="app-shell" style={{ justifyContent: 'center', alignItems: 'center' }}>
+        <div className="muted" style={{ fontSize: 13 }}>กำลังโหลดข้อมูล…</div>
+      </div>
+    );
+  }
+
   const [title, sub] = TITLES[state.screen];
-  const headerSub = state.screen === 'home' ? 'รพ.กรงปินัง · ' + roleLabel() : state.screen === 'more' ? state.role : sub;
+  const headerSub = state.screen === 'home' ? 'รพ.กรงปินัง · ' + roleLabel() : state.screen === 'more' ? roleLabel() : sub;
   const canBack = CAN_BACK.includes(state.screen);
 
   return (
@@ -64,19 +72,19 @@ export default function App() {
           <div style={{ fontSize: 16.5, fontWeight: 600, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
           <div style={{ fontSize: 11.5, opacity: 0.65, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{headerSub}</div>
         </div>
-        <button
-          onClick={setOnline}
+        <div
+          title={state.online ? 'เชื่อมต่ออินเทอร์เน็ตอยู่' : 'ออฟไลน์ — การเปลี่ยนแปลงจะ sync เมื่อกลับมาออนไลน์'}
           style={{ border: 0, background: state.online ? 'rgba(255,255,255,.14)' : 'var(--amber-bg)', color: state.online ? 'var(--ink-soft)' : 'var(--amber-ink)', padding: '6px 9px', borderRadius: 8, fontSize: 11.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flex: 'none' }}
         >
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: state.online ? '#5adc8c' : 'var(--amber)', display: 'inline-block', transition: 'background-color var(--dur) var(--ease)' }} />
-          {state.online ? 'sync แล้ว' : 'ค้าง ' + state.pending}
-        </button>
+          {state.online ? 'ออนไลน์' : 'ออฟไลน์'}
+        </div>
       </header>
 
-      {!state.online && state.pending > 0 && (
+      {!state.online && (
         <div style={{ flex: 'none', background: 'var(--amber-bg)', borderBottom: '1px solid #f0dfbc', color: 'var(--amber-ink)', padding: '8px 16px', fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, animation: 'fade .22s var(--ease-out)' }}>
           <span style={{ animation: 'pulse 1.6s infinite' }}>◍</span>
-          <span>ออฟไลน์ — มี {state.pending.toLocaleString('en-US')} รายการรอ sync เมื่อกลับมาออนไลน์</span>
+          <span>ออฟไลน์ — การเปลี่ยนแปลงจะบันทึกอัตโนมัติเมื่อกลับมาออนไลน์</span>
         </div>
       )}
 

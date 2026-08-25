@@ -1,23 +1,23 @@
 import { useApp } from '../store/AppContext';
 import { thDate, thTime } from '../utils/format';
-import type { AdminTab, AuditFilter, Role } from '../types';
+import type { AdminTab, AuditFilter, Role, User } from '../types';
 
 const ADMIN_TABS: [AdminTab, string][] = [['users', 'ผู้ใช้งาน'], ['audit', 'Audit log']];
 const ROLES: Role[] = ['pharm', 'tech', 'admin'];
 const AUDIT_FILTERS: [AuditFilter, string][] = [['all', 'ทั้งหมด'], ['users', 'บัญชีผู้ใช้'], ['stock', 'สต็อก/ธุรกรรม']];
-const USER_TYPES = ['login', 'user_added', 'user_role_changed', 'user_status_changed'];
+const USER_TYPES = ['login', 'user_registered', 'user_approved', 'user_role_changed', 'user_status_changed'];
 const TYPE_LABEL: Record<string, string> = {
-  login: 'เข้าสู่ระบบ', user_added: 'เพิ่มผู้ใช้', user_role_changed: 'เปลี่ยนบทบาท', user_status_changed: 'เปิด/ปิดบัญชี', par_updated: 'ปรับ par level',
+  login: 'เข้าสู่ระบบ', user_registered: 'สมัครสมาชิก', user_approved: 'อนุมัติบัญชี', user_role_changed: 'เปลี่ยนบทบาท', user_status_changed: 'เปิด/ปิดบัญชี', par_updated: 'ปรับ par level',
   receive_from_central: 'รับเข้า substock', receive_pending: 'รับเข้า (รออนุมัติ)', transfer_to_floor: 'เติมหน้างาน',
   adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP',
 };
 
 export default function AdminScreen() {
-  const {
-    state, setAdminTab, setAuditFilter, setNewUserName, setNewUserDept, setNewUserRole,
-    addUser, setUserRole, toggleUserActive, exportAudit, roleLabelOf,
-  } = useApp();
+  const { state, setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit, roleLabelOf } = useApp();
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : '#fff', color: active ? '#fff' : 'var(--ink)' });
+
+  const pending = state.users.filter((u) => !u.active).sort((a, b) => b.createdAt - a.createdAt);
+  const approved = state.users.filter((u) => u.active).sort((a, b) => a.name.localeCompare(b.name, 'th'));
 
   const allEntries = [
     ...state.authLog,
@@ -32,46 +32,45 @@ export default function AdminScreen() {
     <div style={{ animation: 'fade .18s' }}>
       <div style={{ display: 'flex', gap: 7, padding: '12px 14px 10px', overflowX: 'auto', position: 'sticky', top: 0, background: 'var(--bg-app)', zIndex: 2, borderBottom: '1px solid #e6e7e0' }}>
         {ADMIN_TABS.map(([t, label]) => (
-          <button key={t} className="chip" style={{ ...chip(state.adminTab === t), minHeight: 38 }} onClick={() => setAdminTab(t)}>{label}</button>
+          <button key={t} className="chip" style={{ ...chip(state.adminTab === t), minHeight: 38 }} onClick={() => setAdminTab(t)}>
+            {label}{t === 'users' && pending.length > 0 ? ` (${pending.length})` : ''}
+          </button>
         ))}
       </div>
 
       <div style={{ padding: '12px 14px 24px' }}>
         {state.adminTab === 'users' && (
           <>
-            <div className="card" style={{ padding: 12, marginBottom: 13 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 9 }}>เพิ่มผู้ใช้</div>
-              <input value={state.newUserName} onChange={(e) => setNewUserName(e.target.value)} placeholder="ชื่อ-สกุล" style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44, marginBottom: 8 }} />
-              <div style={{ display: 'flex', gap: 7, marginBottom: 8 }}>
-                {ROLES.map((r) => {
-                  const active = state.newUserRole === r;
-                  return <button key={r} onClick={() => setNewUserRole(r)} style={{ flex: 1, border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : '#fff', color: active ? '#fff' : 'var(--ink)', padding: '9px 4px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>{roleLabelOf(r)}</button>;
-                })}
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input value={state.newUserDept} onChange={(e) => setNewUserDept(e.target.value)} placeholder="แผนก" style={{ flex: 1, minWidth: 0, border: '1px solid var(--border)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 }} />
-                <button onClick={addUser} style={{ flex: 'none', border: 0, background: 'var(--green)', color: '#fff', padding: '11px 16px', borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 44 }}>+ เพิ่ม</button>
-              </div>
-            </div>
+            {pending.length > 0 && (
+              <>
+                <div style={{ fontSize: 13.5, fontWeight: 600, margin: '0 2px 8px', color: 'var(--amber-ink)' }}>รออนุมัติ ({pending.length})</div>
+                <div className="card" style={{ overflow: 'hidden', marginBottom: 16, borderColor: 'var(--amber)' }}>
+                  {pending.map((u) => <PendingRow key={u.id} u={u} onApprove={() => toggleUserActive(u.id)} roleLabelOf={roleLabelOf} />)}
+                </div>
+              </>
+            )}
+
+            <div style={{ fontSize: 13.5, fontWeight: 600, margin: '0 2px 8px' }}>ผู้ใช้งาน ({approved.length})</div>
             <div className="card" style={{ overflow: 'hidden' }}>
-              {state.users.map((u) => (
+              {approved.map((u) => (
                 <div key={u.id} style={{ padding: '12px 13px', borderBottom: '1px solid var(--border-soft)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }}>{u.name}</div>
-                      <div className="muted" style={{ fontSize: 11.5, marginTop: 1 }}>{u.dept} · {u.lastLogin ? 'ล็อกอินล่าสุด ' + thDate(u.lastLogin) : 'ยังไม่เคยล็อกอิน'}</div>
+                      <div className="muted" style={{ fontSize: 11.5, marginTop: 1 }}>{u.dept} · {u.email} · {u.lastLogin ? 'ล็อกอินล่าสุด ' + thDate(u.lastLogin) : 'ยังไม่เคยล็อกอิน'}</div>
                     </div>
-                    <span style={{ flex: 'none', fontSize: 11, fontWeight: 700, color: u.active ? 'var(--green)' : 'var(--red)', background: u.active ? 'var(--green-tint)' : 'var(--red-bg)', padding: '4px 9px', borderRadius: 20 }}>{u.active ? 'ใช้งานอยู่' : 'ปิดใช้งาน'}</span>
+                    <span style={{ flex: 'none', fontSize: 11, fontWeight: 700, color: 'var(--green)', background: 'var(--green-tint)', padding: '4px 9px', borderRadius: 20 }}>ใช้งานอยู่</span>
                   </div>
                   <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
                     {ROLES.map((r) => {
                       const active = u.role === r;
                       return <button key={r} onClick={() => setUserRole(u.id, r)} style={{ flex: 1, border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : '#fff', color: active ? '#fff' : 'var(--ink)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 38 }}>{roleLabelOf(r)}</button>;
                     })}
-                    <button onClick={() => toggleUserActive(u.id)} style={{ flex: 'none', border: '1px solid var(--border)', background: '#fff', color: 'var(--ink)', padding: '8px 11px', borderRadius: 9, fontSize: 12, minHeight: 38, whiteSpace: 'nowrap' }}>{u.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}</button>
+                    <button onClick={() => toggleUserActive(u.id)} style={{ flex: 'none', border: '1px solid var(--border)', background: '#fff', color: 'var(--red)', padding: '8px 11px', borderRadius: 9, fontSize: 12, minHeight: 38, whiteSpace: 'nowrap' }}>ปิดใช้งาน</button>
                   </div>
                 </div>
               ))}
+              {approved.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ยังไม่มีผู้ใช้งานที่อนุมัติแล้ว</div>}
             </div>
           </>
         )}
@@ -100,6 +99,18 @@ export default function AdminScreen() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function PendingRow({ u, onApprove, roleLabelOf }: { u: User; onApprove: () => void; roleLabelOf: (r: Role) => string }) {
+  return (
+    <div style={{ padding: '12px 13px', borderBottom: '1px solid var(--border-soft)', display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }}>{u.name}</div>
+        <div className="muted" style={{ fontSize: 11.5, marginTop: 1 }}>{u.email} · {u.dept} · สมัครเป็น{roleLabelOf(u.role)}</div>
+      </div>
+      <button onClick={onApprove} style={{ flex: 'none', border: 0, background: 'var(--green)', color: '#fff', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>อนุมัติ</button>
     </div>
   );
 }

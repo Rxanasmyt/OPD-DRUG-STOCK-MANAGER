@@ -1,0 +1,73 @@
+rules_version = '2';
+
+// Paste this whole file into: Firebase Console → your project → Firestore Database
+// → Rules tab → replace everything → Publish.
+//
+// Model: every signed-in Firebase Auth user gets a profile doc at
+// users/{uid}. New accounts are created with role:'tech', active:false
+// (pending). Nothing in meds/lots/txs/auditLog is readable or writable
+// until an admin flips a user's `active` to true. The very first admin
+// account has to be promoted by hand once, directly in the Firestore
+// "Data" tab (see README) — there is no user yet to approve the first one.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function myProfile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function isActive() { return signedIn() && myProfile().active == true; }
+    function isAdmin() { return isActive() && myProfile().role == 'admin'; }
+    function isPharmOrAdmin() { return isActive() && (myProfile().role == 'pharm' || myProfile().role == 'admin'); }
+
+    // ---- user profiles ----
+    match /users/{uid} {
+      // Anyone signed in can create their OWN profile once, at registration —
+      // and only as an unapproved, non-privileged account. The server (rules)
+      // forces role/active here so a client can't self-promote to admin.
+      allow create: if signedIn() && request.auth.uid == uid
+                    && request.resource.data.active == false
+                    && request.resource.data.role == 'tech';
+
+      // A user can read their own profile (to know if they're approved yet);
+      // an admin can read/list anyone's (for the approvals screen).
+      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+
+      // A signed-in user may update only their own `lastLogin` field.
+      // Only an admin may change role/active (approve, promote, disable).
+      allow update: if isAdmin()
+                    || (signedIn() && request.auth.uid == uid
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastLogin']));
+
+      allow delete: if false;
+    }
+
+    // ---- master drug data & lots: any approved staff account ----
+    match /meds/{medId} {
+      allow read: if isActive();
+      allow write: if isActive();
+    }
+    match /lots/{lotId} {
+      allow read: if isActive();
+      allow write: if isActive();
+    }
+
+    // ---- transactions & audit trail: append-only ----
+    match /txs/{txId} {
+      allow read: if isActive();
+      allow create: if isActive();
+      allow update, delete: if false;
+    }
+    match /auditLog/{entryId} {
+      allow read: if isActive();
+      allow create: if isActive();
+      allow update, delete: if false;
+    }
+
+    // ---- shared settings (expiry warning days, par cover days) ----
+    match /meta/{doc} {
+      allow read: if isActive();
+      allow write: if isPharmOrAdmin();
+    }
+  }
+}

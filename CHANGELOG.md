@@ -7,6 +7,32 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.0.0] - 2026-08-25
+
+### Changed (breaking)
+- **feat!:** replaced the local-only, tap-to-demo-login prototype with a real Firebase backend —
+  Authentication (email/password) and Firestore, synced live across every device
+- Login is now a real form (sign in / register). New accounts self-register and land in a
+  "pending approval" state (`role: 'tech'`, `active: false`) until an admin approves them and
+  assigns a role, from the existing Admin → ผู้ใช้งาน screen (now shows pending signups separately
+  from approved staff, since accounts can no longer be created manually from the client)
+- All app data — meds, lots, transactions, audit log, user accounts — now lives in Firestore
+  instead of `localStorage`; stock-affecting actions (transfer, receive, adjust, count,
+  HOSxP reconcile, scrap) use Firestore transactions to stay correct under concurrent edits from
+  multiple devices
+- `firestore.rules` added (must be published manually in the Firebase console — see README) —
+  blocks all reads/writes for unapproved/unauthenticated users; only an approved admin can change
+  roles or approve accounts
+- Removed the prototype's simulated online/offline toggle and "pending sync" counter (Firestore's
+  own offline queue makes it moot); the online/offline pill in the header now reflects real
+  `navigator.onLine` status
+- Removed demo seed data (fake users, fake transaction history) — a fresh Firestore project starts
+  with an admin-triggered "load starter data" action (585-item formulary + starter lots) instead
+
+### Setup required
+- See the new "ตั้งค่า Firebase" section in README.md — publishing `firestore.rules` and
+  bootstrapping the first admin account are one-time manual steps in the Firebase console.
+
 ## [1.2.0] - 2026-08-25
 
 ### Added

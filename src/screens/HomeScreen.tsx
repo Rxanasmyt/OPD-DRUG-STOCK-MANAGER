@@ -3,7 +3,27 @@ import { toneFor, daysUntil } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
 
 export default function HomeScreen() {
-  const { state, sub, fefo, bump, goReceiveFor, go, warn, pickAdjType } = useApp();
+  const { state, myProfile, sub, fefo, bump, goReceiveFor, go, warn, pickAdjType, seedDatabase } = useApp();
+
+  if (state.meds.length === 0) {
+    return (
+      <div style={{ padding: '14px 14px 20px', animation: 'fade .18s' }}>
+        <div className="card" style={{ padding: 20, textAlign: 'center' }}>
+          <div style={{ fontSize: 30, marginBottom: 10 }}>📦</div>
+          <div style={{ fontSize: 15.5, fontWeight: 600, marginBottom: 6 }}>ยังไม่มีข้อมูลยาในระบบ</div>
+          {myProfile?.role === 'admin' ? (
+            <>
+              <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 14 }}>กดเพื่อโหลดข้อมูลตั้งต้น — บัญชีเวชภัณฑ์ยา รพ.กรงปินัง 585 รายการ</div>
+              <button onClick={seedDatabase} className="btn-primary" style={{ padding: '12px 20px', borderRadius: 11, fontSize: 14, fontWeight: 600 }}>โหลดข้อมูลตั้งต้น</button>
+            </>
+          ) : (
+            <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6 }}>รอ Admin โหลดข้อมูลตั้งต้นเข้าระบบก่อนใช้งาน</div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   const meds = state.meds.filter((m) => m.active);
   const low = meds.filter((m) => m.floor < m.parFloor);
   const lowSub = meds.filter((m) => sub(m.id) < m.parSub);
