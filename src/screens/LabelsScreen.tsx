@@ -61,7 +61,10 @@ export default function LabelsScreen() {
         </div>
       )}
       <button onClick={printLabels} className="btn-primary" style={{ width: '100%', padding: 15, borderRadius: 11, fontSize: 15, minHeight: 52 }}>พิมพ์ฉลากทั้งชุด ({labelCount} ดวง · A4 กระดาษสติกเกอร์)</button>
-      <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginTop: 11 }}>พิมพ์ลงกระดาษสติกเกอร์ A4 แล้วตัดติดหน้ายา/lot/ชั้นวางได้เลย — QR แต่ละดวงสแกนด้วยกล้องมือถือหรือแท็บเล็ตผ่านปุ่ม ▣ ในหน้ารับเข้า/เติมหน้างานได้ทันที</div>
+      <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginTop: 11 }}>
+        พิมพ์ลงกระดาษ A4 แล้วตัดติดหน้ายา/lot/ชั้นวางได้เลย — QR แต่ละดวงสแกนด้วยกล้องมือถือหรือแท็บเล็ตผ่านปุ่ม ▣ ในหน้ารับเข้า/เติมหน้างานได้ทันที
+        {state.labelType === 'med' && <> ฉลากตัวยาพิมพ์ที่ขนาดจริง 2×10 ซม. ต่อดวง — 1 แผ่น A4 จุ 28 ดวงพอดี (2 คอลัมน์ × 14 แถว)</>}
+      </div>
     </div>
   );
 }

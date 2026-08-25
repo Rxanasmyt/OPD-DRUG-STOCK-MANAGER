@@ -7,6 +7,21 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.4.1] - 2026-08-25
+
+### Changed
+- **feat:** ฉลากตัวยา (shelf-tag strips) now print at a fixed real-world size — 20mm × 100mm
+  per label — instead of stretching to fill an N-up grid. 2 columns × 14 rows fills an A4 sheet
+  exactly (28 labels/page, verified: 585 meds → 21 pages, each page identically laid out), so
+  every printed label is the same known size regardless of how many are in the run — needed so
+  they cut cleanly and line up on the shelf edge
+  - bumped the bin-code chip and drug-name text size for legibility at that size (name now
+    wraps to 2 lines instead of truncating, for longer drug names)
+  - raised the QR's internal render resolution (still the same physical ~16mm size) so it stays
+    crisp at print DPI, not just screen DPI
+  - verified end-to-end with a headless render: 28 labels lay out on exactly 1 A4 page,
+    confirmed via the generated PDF's page count
+
 ## [2.4.0] - 2026-08-25
 
 ### Added
