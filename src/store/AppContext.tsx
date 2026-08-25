@@ -443,9 +443,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---------- report ----------
   const setReportTab = useCallback((t: AppState['reportTab']) => patch({ reportTab: t }), [patch]);
 
-  const exportReportCsv = useCallback(() => {
+  const exportReportCsv = useCallback(async () => {
     const st = state;
     const names = { aging: 'stock_aging.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv' };
+    let outcome: Awaited<ReturnType<typeof downloadCsv>>;
     if (st.reportTab === 'aging') {
       const bDef: [string, number, number][] = [['หมดอายุแล้ว', -99999, 0], ['เหลือ ≤ 30 วัน', 0, 30], ['31–90 วัน', 30, 90], ['91–180 วัน', 90, 180], ['มากกว่า 180 วัน', 180, 99999]];
       const rows = bDef.map(([label, lo, hi]) => {
@@ -453,19 +454,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const val = ls.reduce((s, l) => s + l.qty * (st.meds.find((m) => m.id === l.medId)?.price || 0), 0);
         return [label, ls.length, Math.round(val)];
       });
-      downloadCsv([['bucket', 'lots', 'value_thb'], ...rows], names.aging);
+      outcome = await downloadCsv([['bucket', 'lots', 'value_thb'], ...rows], names.aging);
     } else if (st.reportTab === 'turn') {
       const rows = st.meds.filter((m) => m.active).map((m) => {
         const oh = m.floor + subQty(st, m.id);
         return [m.name, m.unit, oh, m.used30, Math.round(oh / (m.used30 / 30))];
       });
-      downloadCsv([['medication', 'unit', 'on_hand', 'used_30d', 'days_on_hand'], ...rows], names.turn);
+      outcome = await downloadCsv([['medication', 'unit', 'on_hand', 'used_30d', 'days_on_hand'], ...rows], names.turn);
     } else {
       const types = ['adjust', 'return', 'damaged', 'expired', 'count', 'reconcile_hosxp'];
       const rows = st.txs.filter((x) => types.indexOf(x.type) >= 0).map((x) => [isoDate(x.ts), x.name, x.type, x.qty, x.unit, x.loc || '', x.reason || '', x.note || '', x.by]);
-      downloadCsv([['date', 'medication', 'type', 'qty', 'unit', 'location', 'reason', 'note', 'performed_by'], ...rows], names.disc);
+      outcome = await downloadCsv([['date', 'medication', 'type', 'qty', 'unit', 'location', 'reason', 'note', 'performed_by'], ...rows], names.disc);
     }
-    toast('ดาวน์โหลด ' + names[state.reportTab] + ' แล้ว');
+    if (outcome === 'saved') toast('ดาวน์โหลด ' + names[state.reportTab] + ' แล้ว');
+    else if (outcome === 'unavailable') toast('ดาวน์โหลดไฟล์ไม่ได้ในเบราว์เซอร์นี้');
   }, [state, toast]);
 
   // ---------- labels ----------
@@ -639,14 +641,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toast((next ? 'เปิด' : 'ปิด') + 'ใช้งานบัญชี ' + u.name + ' แล้ว');
   }, [state.users, logAudit, toast]);
 
-  const exportAudit = useCallback(() => {
+  const exportAudit = useCallback(async () => {
     const typeLabel: Record<string, string> = { login: 'เข้าสู่ระบบ', user_added: 'เพิ่มผู้ใช้', user_role_changed: 'เปลี่ยนบทบาท', user_status_changed: 'เปิด/ปิดบัญชี', par_updated: 'ปรับ par level', receive_from_central: 'รับเข้า substock', receive_pending: 'รับเข้า (รออนุมัติ)', transfer_to_floor: 'เติมหน้างาน', adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP' };
     const all = [
       ...state.authLog,
       ...state.txs.map((x) => ({ type: x.type, by: x.by, ts: x.ts, note: (x.name ? x.name + ' — ' : '') + (x.note || '') })),
     ];
-    downloadCsv([['date_time', 'event', 'by', 'detail'], ...all.sort((a, b) => b.ts - a.ts).map((e) => [new Date(e.ts).toISOString(), typeLabel[e.type] || e.type, e.by, e.note])], 'audit_log.csv');
-    toast('ดาวน์โหลด audit_log.csv แล้ว');
+    const outcome = await downloadCsv([['date_time', 'event', 'by', 'detail'], ...all.sort((a, b) => b.ts - a.ts).map((e) => [new Date(e.ts).toISOString(), typeLabel[e.type] || e.type, e.by, e.note])], 'audit_log.csv');
+    if (outcome === 'saved') toast('ดาวน์โหลด audit_log.csv แล้ว');
+    else if (outcome === 'unavailable') toast('ดาวน์โหลดไฟล์ไม่ได้ในเบราว์เซอร์นี้');
   }, [state.authLog, state.txs, toast]);
 
   const value = useMemo<AppCtx>(() => ({
