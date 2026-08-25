@@ -263,12 +263,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const back = useCallback(() => setState((st) => ({ ...st, screen: st.screen === 'tconfirm' ? 'transfer' : 'more', prevScreen: st.screen })), []);
 
   const logAudit = useCallback(async (entry: { type: string; note: string }) => {
-    try { await addDoc(collection(db, 'auditLog'), { ...entry, by: userName(), ts: Date.now() }); } catch { /* best-effort */ }
-  }, [userName]);
+    try { await addDoc(collection(db, 'auditLog'), { ...entry, by: userName(), ts: Date.now() }); }
+    catch (e) { console.error('audit log write failed:', e); toast('บันทึกลง audit log ไม่สำเร็จ — รายการหลักบันทึกแล้ว แต่ประวัตินี้อาจหายไป'); }
+  }, [userName, toast]);
 
   const logTx = useCallback(async (tx: Omit<import('../types').Tx, 'id' | 'ts' | 'by'>) => {
-    try { await addDoc(collection(db, 'txs'), { ...tx, by: userName(), ts: Date.now() }); } catch { /* best-effort */ }
-  }, [userName]);
+    try { await addDoc(collection(db, 'txs'), { ...tx, by: userName(), ts: Date.now() }); }
+    catch (e) { console.error('tx log write failed:', e); toast('บันทึกประวัติธุรกรรมไม่สำเร็จ — ยอดสต็อกอัปเดตแล้ว แต่ไม่มีบันทึกรายการนี้ในประวัติ'); }
+  }, [userName, toast]);
 
   // ---------- auth actions ----------
   const setAuthMode = useCallback((m: AuthMode) => patch({ authMode: m, authError: null }), [patch]);
@@ -598,8 +600,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       outcome = await downloadCsv([['medication', 'unit', 'on_hand', 'used_30d', 'days_on_hand'], ...rows], names.turn);
     } else {
+      // The live txs subscription is capped at the most recent 300 (kept small on purpose —
+      // it only backs the "recent activity" UI). A compliance report can't silently drop
+      // everything before that, so re-fetch the full collection fresh at export time.
+      toast('กำลังดึงประวัติทั้งหมด…');
       const types = ['adjust', 'return', 'damaged', 'expired', 'count', 'reconcile_hosxp'];
-      const rows = st.txs.filter((x) => types.indexOf(x.type) >= 0).map((x) => [isoDate(x.ts), x.name, x.type, x.qty, x.unit, x.loc || '', x.reason || '', x.note || '', x.by]);
+      let rows: (string | number)[][];
+      try {
+        const snap = await getDocs(query(collection(db, 'txs'), orderBy('ts', 'desc')));
+        rows = snap.docs
+          .map((d) => d.data() as { type: string; ts: number; name: string; qty: number; unit: string; loc?: string; reason?: string; note?: string; by: string })
+          .filter((x) => types.indexOf(x.type) >= 0)
+          .map((x) => [isoDate(x.ts), x.name, x.type, x.qty, x.unit, x.loc || '', x.reason || '', x.note || '', x.by]);
+      } catch (e) { console.error(e); toast('ดึงประวัติไม่สำเร็จ ลองใหม่อีกครั้ง'); return; }
       outcome = await downloadCsv([['date', 'medication', 'type', 'qty', 'unit', 'location', 'reason', 'note', 'performed_by'], ...rows], names.disc);
     }
     if (outcome === 'saved') toast('ดาวน์โหลด ' + names[state.reportTab] + ' แล้ว');
@@ -920,17 +933,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const exportAudit = useCallback(async () => {
     const typeLabel: Record<string, string> = {
-      login: 'เข้าสู่ระบบ', user_registered: 'สมัครสมาชิก', user_approved: 'อนุมัติบัญชี', user_role_changed: 'เปลี่ยนบทบาท', user_status_changed: 'เปิด/ปิดบัญชี', par_updated: 'ปรับ par level',
+      login: 'เข้าสู่ระบบ', user_registered: 'สมัครสมาชิก', user_approved: 'อนุมัติบัญชี', user_role_changed: 'เปลี่ยนบทบาท', user_status_changed: 'เปิด/ปิดบัญชี', par_updated: 'ปรับ par level', qr_manual: 'กรอกรหัส QR ด้วยมือ',
+      med_added: 'เพิ่มยาใหม่', med_status_changed: 'เปิด/ปิดใช้งานยา', med_deleted: 'ลบยาถาวร',
       receive_from_central: 'รับเข้า substock', receive_pending: 'รับเข้า (รออนุมัติ)', transfer_to_floor: 'เติมหน้างาน',
       adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP',
     };
-    const all = [
-      ...state.authLog,
-      ...state.txs.map((x) => ({ type: x.type, by: x.by, ts: x.ts, note: (x.name ? x.name + ' — ' : '') + (x.note || '') })),
-    ];
+    // Same reasoning as exportReportCsv — the live subscriptions are capped at 300 each for
+    // the on-screen "recent activity" feed; a real audit export needs the full history.
+    toast('กำลังดึงประวัติทั้งหมด…');
+    type Entry = { type: string; by: string; ts: number; note: string };
+    let all: Entry[];
+    try {
+      const [auditSnap, txSnap] = await Promise.all([
+        getDocs(query(collection(db, 'auditLog'), orderBy('ts', 'desc'))),
+        getDocs(query(collection(db, 'txs'), orderBy('ts', 'desc'))),
+      ]);
+      all = [
+        ...auditSnap.docs.map((d) => d.data() as Entry),
+        ...txSnap.docs.map((d) => d.data() as { type: string; by: string; ts: number; name?: string; note?: string })
+          .map((x) => ({ type: x.type, by: x.by, ts: x.ts, note: (x.name ? x.name + ' — ' : '') + (x.note || '') })),
+      ];
+    } catch (e) { console.error(e); toast('ดึงประวัติไม่สำเร็จ ลองใหม่อีกครั้ง'); return; }
     const outcome = await downloadCsv([['date_time', 'event', 'by', 'detail'], ...all.sort((a, b) => b.ts - a.ts).map((e) => [new Date(e.ts).toISOString(), typeLabel[e.type] || e.type, e.by, e.note])], 'audit_log.csv');
     if (outcome === 'saved') toast('ดาวน์โหลด audit_log.csv แล้ว');
-  }, [state.authLog, state.txs, toast]);
+  }, [toast]);
 
   const value = useMemo<AppCtx>(() => ({
     state, myProfile, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, go, back,

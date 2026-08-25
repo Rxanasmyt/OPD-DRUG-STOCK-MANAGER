@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 
 // This is the Firebase Web SDK "config" object — it identifies the project to
 // Firebase, it is NOT a secret (Google's own docs say it's safe to ship in
@@ -18,7 +18,23 @@ const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+
+// Persistent (IndexedDB) offline cache, shared across tabs — the counter/substock tablet on
+// hospital wifi drops connectivity often enough that this matters: reads already synced keep
+// working, and writes made while offline queue and flush automatically on reconnect instead
+// of being silently lost on a refresh. Falls back to the plain in-memory client if IndexedDB
+// isn't available (private/incognito mode in some browsers, very old browsers) rather than
+// crashing the app on init.
+let firestoreDb;
+try {
+  firestoreDb = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  });
+} catch (e) {
+  console.warn('Persistent Firestore cache unavailable, falling back to in-memory cache:', e);
+  firestoreDb = initializeFirestore(app, {});
+}
+export const db = firestoreDb;
 
 // Firebase's built-in Auth provider is email/password only — there's no separate
 // "username" provider without standing up Cloud Functions (a paid Blaze-plan

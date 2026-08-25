@@ -7,6 +7,30 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.5.0] - 2026-08-25
+
+### Fixed
+- **fix:** the "รายงานและ Export CSV" discrepancy log and "Export CSV — audit_log.csv" were
+  silently truncated to the most recent 300 transactions/audit entries — the on-screen live
+  feeds are intentionally capped there, but the exports were reading from that same capped
+  state instead of the full collection. In a hospital pharmacy 300 transactions passes fast, so
+  a PTC/CQI report pulled after go-live would quietly be missing everything before that with no
+  indication. Both exports now do a fresh, uncapped fetch of the full history at export time
+- **fix:** an uncaught render error (e.g. from a malformed doc after a manual Firestore console
+  edit) white-screened the whole app with no way back short of knowing to hard-refresh — added
+  a top-level error boundary with a plain "โหลดหน้าใหม่" recovery screen instead
+- **fix:** a failed write to `txs`/`auditLog` (e.g. connection drops right after a stock update
+  already committed) failed completely silently — the stock number would be correct but the
+  transaction/audit trail entry explaining it would just be missing, with no indication to the
+  person who did it. Now surfaces a toast so staff know to note it manually
+
+### Added
+- **feat:** Firestore now uses a persistent (IndexedDB), multi-tab offline cache instead of the
+  default in-memory-only one — meaningful for a stockroom tablet on hospital wifi that drops:
+  already-synced data keeps working offline, and writes made while offline queue and flush
+  automatically on reconnect instead of being silently lost on a refresh. Falls back to the
+  plain in-memory client if IndexedDB isn't available (e.g. some private-browsing modes)
+
 ## [2.4.1] - 2026-08-25
 
 ### Changed
