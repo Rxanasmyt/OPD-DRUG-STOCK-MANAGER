@@ -8,13 +8,13 @@ export default function DoneScreen() {
     : state.online ? 'บันทึกและ audit trail แล้ว' : 'บันทึกไว้ในเครื่อง จะ sync ให้เมื่อกลับมาออนไลน์';
 
   return (
-    <div style={{ padding: '34px 20px', textAlign: 'center', animation: 'pop .22s' }}>
-      <div style={{ width: 62, height: 62, borderRadius: '50%', background: 'var(--green-tint)', color: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, margin: '0 auto 16px' }}>✓</div>
+    <div style={{ padding: '34px 20px', textAlign: 'center', animation: 'fade .24s var(--ease-out)' }}>
+      <div style={{ width: 62, height: 62, borderRadius: '50%', background: 'var(--green-tint)', color: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, margin: '0 auto 16px', animation: 'checkPop .5s var(--ease-out)' }}>✓</div>
       <div style={{ fontSize: 20, fontWeight: 700 }}>{title}</div>
       <div className="muted" style={{ fontSize: 13.5, marginTop: 6, lineHeight: 1.6 }}>{sub}</div>
       <div className="card" style={{ textAlign: 'left', margin: '18px 0', overflow: 'hidden' }}>
         {state.doneRows.map((d, i) => (
-          <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+          <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', display: 'flex', justifyContent: 'space-between', gap: 10, animation: `fade .3s var(--ease-out) both`, animationDelay: `${Math.min(i, 6) * 40}ms` }}>
             <span style={{ fontSize: 13, minWidth: 0 }}>{d.name}<span style={{ display: 'block', fontSize: 11, color: 'var(--muted)' }}>{d.sub}</span></span>
             <span style={{ fontSize: 13.5, fontWeight: 700, flex: 'none' }}>{d.qty}</span>
           </div>

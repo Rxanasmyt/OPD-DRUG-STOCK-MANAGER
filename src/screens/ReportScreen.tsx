@@ -60,8 +60,8 @@ export default function ReportScreen() {
                     <span style={{ fontSize: 13.5, fontWeight: 600, color: b.fg }}>{b.label}</span>
                     <span className="muted" style={{ fontSize: 13, flex: 'none' }}>{b.lots} lot · {nf(b.value)} บาท</span>
                   </div>
-                  <div style={{ height: 6, background: 'var(--border-soft)', borderRadius: 3, marginTop: 7, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: Math.max(2, Math.round((b.value / maxVal) * 100)) + '%', background: b.fg, borderRadius: 3 }} />
+                  <div className="bar-track" style={{ height: 6, background: 'var(--border-soft)', borderRadius: 3, marginTop: 7 }}>
+                    <div className="bar-fill" style={{ height: '100%', width: Math.max(2, Math.round((b.value / maxVal) * 100)) + '%', background: b.fg, borderRadius: 3 }} />
                   </div>
                 </div>
               ))}

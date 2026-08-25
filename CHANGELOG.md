@@ -7,6 +7,19 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [1.1.0] - 2026-08-25
+
+### Added
+- **feat:** UI/UX polish — global micro-interactions (button hover/press feedback, animated focus
+  rings, smooth color/border transitions on state changes), animated progress bars (par level,
+  aging buckets), list-row hover highlighting, stat-tile hover lift
+- **feat:** QR scan modal restyled with backdrop blur, spring bottom-sheet entrance, and a
+  four-corner scan-frame look; smoother toast entrance; checkmark pop + staggered row reveal on
+  the "done" screen; staggered fade-in on the login screen with animated arrow-on-hover
+- **feat:** header/bottom-nav depth (subtle shadows) and an animated active-tab indicator
+- respects `prefers-reduced-motion` — all animation/transition durations collapse to ~0 for users
+  who've asked for reduced motion
+
 ## [1.0.0] - 2026-08-25
 
 ### Added

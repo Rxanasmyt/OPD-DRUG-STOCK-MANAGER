@@ -41,15 +41,15 @@ export default function HomeScreen() {
       <SectionHeader title="ต้องเติมหน้างาน" actionLabel="ดูทั้งหมด" onAction={() => go('transfer')} />
       <div className="card" style={{ overflow: 'hidden', marginBottom: 18 }}>
         {low.slice(0, 5).map((m) => (
-          <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}>
+          <div key={m.id} className="row-interactive" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
                 {m.name}
                 {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}> HAD</span>}
               </div>
               <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>หน้างาน {nf(m.floor)} / par {nf(m.parFloor)} · substock {nf(sub(m.id))} {m.unit}</div>
-              <div style={{ height: 4, background: 'var(--border-soft)', borderRadius: 2, marginTop: 6, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: Math.max(3, Math.min(100, Math.round((m.floor / m.parFloor) * 100))) + '%', background: toneFor(m), borderRadius: 2 }} />
+              <div className="bar-track" style={{ height: 4, background: 'var(--border-soft)', borderRadius: 2, marginTop: 6 }}>
+                <div className="bar-fill" style={{ height: '100%', width: Math.max(3, Math.min(100, Math.round((m.floor / m.parFloor) * 100))) + '%', background: toneFor(m), borderRadius: 2 }} />
               </div>
             </div>
             <button
@@ -67,7 +67,7 @@ export default function HomeScreen() {
       <SectionHeader title="ควรเบิกจากคลังยาใหญ่" actionLabel="ไปหน้ารับเข้า" onAction={() => go('receive')} />
       <div className="card" style={{ overflow: 'hidden', marginBottom: 18 }}>
         {lowSub.slice(0, 5).map((m) => (
-          <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}>
+          <div key={m.id} className="row-interactive" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
                 {m.name}
@@ -88,7 +88,7 @@ export default function HomeScreen() {
           if (!m) return null;
           const d = daysUntil(l.exp);
           return (
-            <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}>
+            <div key={l.id} className="row-interactive" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}>
               <div style={{ width: 52, flex: 'none', textAlign: 'center', background: d < 30 ? 'var(--red-bg)' : 'var(--amber-bg)', color: d < 30 ? 'var(--red)' : 'var(--amber-ink)', borderRadius: 8, padding: '6px 2px' }}>
                 <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1 }}>{d < 0 ? Math.abs(d) : d}</div>
                 <div style={{ fontSize: 10, lineHeight: 1.3 }}>{d < 0 ? 'วันที่เกิน' : 'วัน'}</div>
@@ -114,7 +114,7 @@ export default function HomeScreen() {
 
 function StatTile({ label, value, tone, note }: { label: string; value: number; tone?: string; note: string }) {
   return (
-    <div className="card" style={{ padding: '12px 13px' }}>
+    <div className="card stat-tile" style={{ padding: '12px 13px' }}>
       <div className="muted" style={{ fontSize: 12, marginBottom: 3 }}>{label}</div>
       <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, color: tone || 'var(--ink)' }}>{value.toLocaleString('en-US')}</div>
       <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>{note}</div>

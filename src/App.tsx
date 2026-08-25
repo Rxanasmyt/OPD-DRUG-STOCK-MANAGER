@@ -56,11 +56,11 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <header style={{ background: 'var(--green)', color: 'var(--ink-soft)', padding: '12px 16px 13px', display: 'flex', alignItems: 'center', gap: 10, flex: 'none' }}>
+      <header style={{ background: 'var(--green)', color: 'var(--ink-soft)', padding: '12px 16px 13px', display: 'flex', alignItems: 'center', gap: 10, flex: 'none', boxShadow: '0 4px 14px -6px rgba(14,58,32,.5)', position: 'relative', zIndex: 3 }}>
         {canBack && (
           <button onClick={back} style={{ border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 32, height: 32, borderRadius: 9, fontSize: 16, flex: 'none' }}>←</button>
         )}
-        <div style={{ minWidth: 0, flex: 1 }}>
+        <div key={state.screen} style={{ minWidth: 0, flex: 1, animation: 'fade .22s var(--ease-out)' }}>
           <div style={{ fontSize: 16.5, fontWeight: 600, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
           <div style={{ fontSize: 11.5, opacity: 0.65, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{headerSub}</div>
         </div>
@@ -68,13 +68,13 @@ export default function App() {
           onClick={setOnline}
           style={{ border: 0, background: state.online ? 'rgba(255,255,255,.14)' : 'var(--amber-bg)', color: state.online ? 'var(--ink-soft)' : 'var(--amber-ink)', padding: '6px 9px', borderRadius: 8, fontSize: 11.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flex: 'none' }}
         >
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: state.online ? '#5adc8c' : 'var(--amber)', display: 'inline-block' }} />
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: state.online ? '#5adc8c' : 'var(--amber)', display: 'inline-block', transition: 'background-color var(--dur) var(--ease)' }} />
           {state.online ? 'sync แล้ว' : 'ค้าง ' + state.pending}
         </button>
       </header>
 
       {!state.online && state.pending > 0 && (
-        <div style={{ flex: 'none', background: 'var(--amber-bg)', borderBottom: '1px solid #f0dfbc', color: 'var(--amber-ink)', padding: '8px 16px', fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ flex: 'none', background: 'var(--amber-bg)', borderBottom: '1px solid #f0dfbc', color: 'var(--amber-ink)', padding: '8px 16px', fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, animation: 'fade .22s var(--ease-out)' }}>
           <span style={{ animation: 'pulse 1.6s infinite' }}>◍</span>
           <span>ออฟไลน์ — มี {state.pending.toLocaleString('en-US')} รายการรอ sync เมื่อกลับมาออนไลน์</span>
         </div>
@@ -84,7 +84,7 @@ export default function App() {
         <Screens screen={state.screen} />
       </main>
 
-      <nav style={{ flex: 'none', display: 'flex', background: '#fff', borderTop: '1px solid var(--border)' }}>
+      <nav style={{ flex: 'none', display: 'flex', background: '#fff', borderTop: '1px solid var(--border)', boxShadow: '0 -4px 14px -8px rgba(18,33,26,.15)', position: 'relative', zIndex: 3 }}>
         {NAV_DEF.map(([s, label, icon]) => {
           const active = state.screen === s;
           return (
@@ -93,9 +93,9 @@ export default function App() {
               onClick={() => go(s)}
               style={{ flex: 1, border: 0, background: 'transparent', padding: '9px 2px 10px', minHeight: 66, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, position: 'relative' }}
             >
-              <span style={{ fontSize: 18, lineHeight: 1, color: active ? 'var(--green)' : '#8b9186' }}>{icon}</span>
+              <span style={{ fontSize: 18, lineHeight: 1, color: active ? 'var(--green)' : '#8b9186', transform: active ? 'translateY(-1px) scale(1.08)' : 'none', transition: 'transform var(--dur) var(--ease-out), color var(--dur) var(--ease)' }}>{icon}</span>
               <span style={{ fontSize: 11, fontWeight: 600, color: active ? 'var(--green)' : '#8b9186', whiteSpace: 'nowrap' }}>{label}</span>
-              <span style={{ position: 'absolute', top: 0, left: '22%', right: '22%', height: 2.5, background: active ? 'var(--green)' : 'transparent', borderRadius: '0 0 3px 3px' }} />
+              <span style={{ position: 'absolute', top: 0, left: '50%', width: active ? '56%' : 0, height: 2.5, background: 'var(--green)', borderRadius: '0 0 3px 3px', transform: 'translateX(-50%)', transition: 'width var(--dur) var(--ease-out)' }} />
             </button>
           );
         })}
