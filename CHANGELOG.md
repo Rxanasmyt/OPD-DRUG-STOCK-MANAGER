@@ -7,6 +7,18 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [1.2.0] - 2026-08-25
+
+### Added
+- **feat:** installable PWA — `vite-plugin-pwa` generates a web app manifest and an
+  auto-updating service worker so the GitHub Pages build can be added to the home screen /
+  installed like a native app on Android, iOS, and desktop Chrome/Edge
+- new brand icon (green gradient badge with the "ยา" mark) rendered at every required size:
+  `icon-192.png` / `icon-512.png` (purpose "any"), `icon-maskable-192.png` /
+  `icon-maskable-512.png` (Android adaptive-icon safe zone), and `apple-touch-icon.png` for iOS
+- favicon, `apple-mobile-web-app-*` meta tags, and an SEO `<meta name="description">` added to
+  `index.html`
+
 ## [1.1.0] - 2026-08-25
 
 ### Added
