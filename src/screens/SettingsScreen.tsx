@@ -1,11 +1,13 @@
+import { useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { suggestPar } from '../store/selectors';
 import { nf, digitsOnly } from '../utils/format';
 
 export default function SettingsScreen() {
-  const { state, warn, applyOnePar, applyAllSuggested, setParSub, setParFloor } = useApp();
+  const { state, warn, applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin } = useApp();
   const canEdit = state.role !== 'tech';
-  const meds = state.meds.filter((m) => m.active);
+  const [q, setQ] = useState('');
+  const meds = state.meds.filter((m) => m.active && (!q.trim() || m.name.toLowerCase().indexOf(q.trim().toLowerCase()) >= 0));
 
   const suggestDiffCount = meds.filter((m) => {
     const s = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
@@ -21,7 +23,7 @@ export default function SettingsScreen() {
       </div>
 
       {!canEdit && (
-        <div style={{ fontSize: 12, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>บทบาทผู้ช่วยเภสัชกรดูค่าได้แต่แก้ไม่ได้ — การแก้ par level สงวนไว้สำหรับเภสัชกรและ Admin</div>
+        <div style={{ fontSize: 12, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>บทบาทผู้ช่วยเภสัชกรดูค่าได้แต่แก้ไม่ได้ — การแก้ par level และชั้นวางสงวนไว้สำหรับเภสัชกรและ Admin</div>
       )}
 
       <div style={{ background: 'var(--green-tint)', borderRadius: 12, padding: '12px 13px', marginBottom: 13 }}>
@@ -32,7 +34,16 @@ export default function SettingsScreen() {
         )}
       </div>
 
-      <div style={{ fontSize: 13.5, fontWeight: 600, margin: '0 2px 8px' }}>Par level ต่อรายการ</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', margin: '0 2px 8px' }}>
+        <div style={{ fontSize: 13.5, fontWeight: 600 }}>Par level และชั้นวาง ต่อรายการ</div>
+        <div className="muted" style={{ fontSize: 11.5 }}>{meds.length} รายการ</div>
+      </div>
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="ค้นหาชื่อยา เพื่อแก้ par หรือชั้นวาง"
+        style={{ width: '100%', border: '1px solid var(--border)', background: '#fff', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44, marginBottom: 10 }}
+      />
       <div className="card" style={{ overflow: 'hidden' }}>
         {meds.slice(0, 120).map((m) => {
           const sug = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
@@ -46,7 +57,7 @@ export default function SettingsScreen() {
                 <span style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1.3 }}>{m.name}</span>
                 <span style={{ flex: 'none', fontSize: 11, fontWeight: 700, color: trendTone }}>{trendText}</span>
               </div>
-              <div className="grid-2">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 0.7fr', gap: 8 }}>
                 <div>
                   <div className="muted" style={{ fontSize: 10.5, marginBottom: 3 }}>par substock</div>
                   <input value={m.parSub} onChange={(e) => setParSub(m.id, digitsOnly(e.target.value))} readOnly={!canEdit} inputMode="numeric" style={inStyle} />
@@ -61,11 +72,23 @@ export default function SettingsScreen() {
                     <button onClick={() => applyOnePar(m.id, 'floor')} style={{ width: '100%', border: 0, background: 'transparent', color: 'var(--green)', fontSize: 10.5, fontWeight: 600, padding: '3px 0', textAlign: 'center' }}>แนะนำ {nf(sug.floor)} ↺</button>
                   )}
                 </div>
+                <div>
+                  <div className="muted" style={{ fontSize: 10.5, marginBottom: 3 }}>ชั้นวาง</div>
+                  <input
+                    value={m.bin}
+                    onChange={(e) => setMedBin(m.id, e.target.value)}
+                    readOnly={!canEdit}
+                    placeholder="เช่น J4"
+                    style={{ ...inStyle, fontWeight: 700, textTransform: 'uppercase' as const }}
+                  />
+                </div>
               </div>
             </div>
           );
         })}
+        {meds.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ไม่พบยาที่ค้นหา</div>}
       </div>
+      {meds.length > 120 && <div className="muted" style={{ fontSize: 11.5, textAlign: 'center', marginTop: 10 }}>แสดง 120 รายการแรก — ค้นหาชื่อยาเพื่อหารายการอื่น</div>}
     </div>
   );
 }

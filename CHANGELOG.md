@@ -7,6 +7,29 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.3.0] - 2026-08-25
+
+### Fixed
+- **fix:** the QR camera scanner could fail completely silently — `navigator.mediaDevices` is
+  only exposed in a secure context, and `navigator.mediaDevices?.getUserMedia(...)` short-
+  circuits the *entire* optional-chained call when it's undefined, so nothing ever ran and
+  nothing was ever shown: no video, no error, just an animated "กำลังค้นหา QR ในกรอบ" scan box
+  that never actually did anything. Now checked explicitly and reported with a clear message
+  (insecure origin / unsupported browser / camera permission denied / no camera found) so a
+  scan that can't work says so instead of silently pretending to try
+- camera decode now tries both normal and inverted contrast (`attemptBoth`) — more forgiving
+  of glare and lighting on a printed label than the previous normal-only attempt
+- verified end-to-end offline: the `qrcode`-encoded module matrix decodes correctly back to
+  the exact original payload through `jsqr` (was never actually the broken part)
+
+### Added
+- **feat:** ชั้นวาง (bin/shelf location) per medication is now editable in the app — เมนู "ตั้งค่า
+  par level และชั้นวาง" now has a ค้นหา box (585 items is too many to scroll blind) and a third
+  "ชั้นวาง" field next to the par inputs, saved the same debounced way. Until now the shelf code
+  printed on every med label came only from the randomized seed data with no way to correct it
+  to match the hospital's real layout (e.g. `J4`) — this was the point of the shelf-tag print
+  redesign in 2.2.1, so it needed to actually be assignable
+
 ## [2.2.1] - 2026-08-25
 
 ### Changed

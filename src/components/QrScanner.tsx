@@ -21,8 +21,21 @@ export function QrScanner({ active, onDecode }: { active: boolean; onDecode: (ra
     let last: { text: string; at: number } | null = null;
     setError(null);
 
+    // navigator.mediaDevices is only exposed in a secure context (https:// or localhost) —
+    // on plain http:// it's simply undefined, and `?.getUserMedia(...)` would then
+    // short-circuit the whole chain silently (no promise, no .catch, no error shown), leaving
+    // a blank camera box that looks "stuck" forever. Check explicitly instead.
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError(
+        window.isSecureContext === false
+          ? 'เปิดกล้องไม่ได้ — หน้านี้ต้องเปิดผ่าน https:// เบราว์เซอร์บล็อกกล้องบนการเชื่อมต่อที่ไม่ปลอดภัย กรอกรหัสด้วยมือแทนด้านล่าง'
+          : 'เบราว์เซอร์นี้ไม่รองรับการเปิดกล้อง — กรอกรหัสด้วยมือแทนด้านล่าง'
+      );
+      return;
+    }
+
     navigator.mediaDevices
-      ?.getUserMedia({ video: { facingMode: 'environment' } })
+      .getUserMedia({ video: { facingMode: 'environment' } })
       .then((s) => {
         if (cancelled) { s.getTracks().forEach((t) => t.stop()); return; }
         stream = s;
@@ -30,7 +43,16 @@ export function QrScanner({ active, onDecode }: { active: boolean; onDecode: (ra
         if (video) { video.srcObject = s; void video.play(); }
         raf = requestAnimationFrame(tick);
       })
-      .catch(() => setError('เปิดกล้องไม่ได้ — ตรวจสอบสิทธิ์การใช้กล้องของเบราว์เซอร์ในการตั้งค่า หรือกรอกรหัสด้วยมือแทนด้านล่าง'));
+      .catch((err) => {
+        const name = (err as { name?: string })?.name;
+        setError(
+          name === 'NotAllowedError'
+            ? 'ไม่ได้รับอนุญาตให้ใช้กล้อง — กดอนุญาตสิทธิ์กล้องในเบราว์เซอร์ (หรือแก้ในการตั้งค่าเว็บไซต์) แล้วลองใหม่ หรือกรอกรหัสด้วยมือแทนด้านล่าง'
+            : name === 'NotFoundError'
+            ? 'ไม่พบกล้องในอุปกรณ์นี้ — กรอกรหัสด้วยมือแทนด้านล่าง'
+            : 'เปิดกล้องไม่ได้ — กรอกรหัสด้วยมือแทนด้านล่าง'
+        );
+      });
 
     function tick() {
       const video = videoRef.current;
@@ -42,7 +64,7 @@ export function QrScanner({ active, onDecode }: { active: boolean; onDecode: (ra
         if (ctx) {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+          const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
           if (code && code.data) {
             const now = Date.now();
             if (!last || last.text !== code.data || now - last.at > 1500) {

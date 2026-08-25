@@ -117,6 +117,7 @@ export interface AppCtx {
   applyAllSuggested: () => void;
   setParSub: (medId: string, v: string) => void;
   setParFloor: (medId: string, v: string) => void;
+  setMedBin: (medId: string, v: string) => void;
 
   // count
   setCountInput: (medId: string, v: string) => void;
@@ -171,6 +172,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [myProfile, setMyProfile] = useState<User | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
   const parDebounce = useRef<Record<string, number>>({});
+  const binDebounce = useRef<Record<string, number>>({});
 
   const patch = useCallback((p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => {
     setState((s) => ({ ...s, ...(typeof p === 'function' ? p(s) : p) }));
@@ -678,6 +680,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     debouncedParWrite(medId, 'parFloor', val);
   }, [canEditPar, debouncedParWrite]);
 
+  const setMedBin = useCallback((medId: string, v: string) => {
+    if (!canEditPar) return;
+    const val = v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, bin: val } : x)) }));
+    window.clearTimeout(binDebounce.current[medId]);
+    binDebounce.current[medId] = window.setTimeout(() => {
+      updateDoc(doc(db, 'meds', medId), { bin: val }).catch(() => toast('บันทึกชั้นวางไม่สำเร็จ'));
+    }, 500);
+  }, [canEditPar, toast]);
+
   // ---------- count ----------
   const setCountInput = useCallback((medId: string, v: string) => patch((st) => ({ countInputs: { ...st.countInputs, [medId]: digitsOnly(v) } })), [patch]);
 
@@ -869,7 +881,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
     setReportTab, exportReportCsv,
     setLabelType, printLabels,
-    applyOnePar, applyAllSuggested, setParSub, setParFloor,
+    applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin,
     setCountInput, commitCount,
     setHosxpText, loadHosxpSample, processHosxp, commitReconcile,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
