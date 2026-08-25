@@ -7,6 +7,26 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.4.0] - 2026-08-25
+
+### Added
+- **feat:** full formulary CRUD — เมนู "จัดการรายการยา" (More → จัดการรายการยา, pharm/admin only)
+  - เพิ่มยาใหม่ (name, dosage form, unit, price, high-alert flag, bin, initial par) — auto-assigns
+    the next `MED-####` code
+  - ปิดใช้งาน / เปิดใช้งาน (soft delete) — drops it from transfer/receive/par lists and printed
+    labels immediately, keeps every past transaction and audit entry intact; this was already
+    possible from the seed data (the "ไม่มียาในรพ." rows) but had no in-app control until now
+  - ลบถาวร (hard delete) — only enabled once both substock and floor are 0, to avoid orphaning
+    stock history; deletes the med doc and any of its lot docs in one batch
+  - all three log to the audit trail (`med_added` / `med_status_changed` / `med_deleted`)
+
+### Security
+- **fix:** `firestore.rules` tightened — writing to `meds` beyond `floor`/`lastCountTs` (the two
+  fields day-to-day stock movement touches) now requires pharm/admin, matching what the UI
+  already enforced client-side but the rules hadn't. Previously any approved account could write
+  anything to a med doc directly via the API. **Needs republishing** — Firebase Console → Firestore
+  Database → Rules → paste `firestore.rules` → Publish.
+
 ## [2.3.0] - 2026-08-25
 
 ### Fixed

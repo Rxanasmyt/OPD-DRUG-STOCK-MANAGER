@@ -85,7 +85,7 @@ export interface RecvItem {
 
 export type Screen =
   | 'login' | 'home' | 'transfer' | 'tconfirm' | 'done' | 'receive' | 'adjust'
-  | 'report' | 'labels' | 'settings' | 'more' | 'count' | 'reconcile' | 'admin';
+  | 'report' | 'labels' | 'settings' | 'more' | 'count' | 'reconcile' | 'admin' | 'meds';
 
 export type AdjType = 'adjust' | 'return' | 'damaged' | 'expired';
 export type ReportTab = 'aging' | 'turn' | 'disc';

@@ -12,6 +12,7 @@ import SettingsScreen from './screens/SettingsScreen';
 import CountScreen from './screens/CountScreen';
 import ReconcileScreen from './screens/ReconcileScreen';
 import AdminScreen from './screens/AdminScreen';
+import MedsScreen from './screens/MedsScreen';
 import MoreScreen from './screens/MoreScreen';
 import QrModal from './components/QrModal';
 import Toast from './components/Toast';
@@ -32,9 +33,10 @@ const TITLES: Record<Screen, [string, string]> = {
   count: ['นับสต็อกหน้างาน (เสริม)', 'ใช้เมื่อสงสัยยอดคลาดเคลื่อน'],
   reconcile: ['นำเข้าจาก HOSxP', 'ตัดยอดตามที่จ่ายจริง'],
   admin: ['จัดการผู้ใช้งาน', 'Audit log ทั้งระบบ'],
+  meds: ['จัดการรายการยา', 'เพิ่ม / ปิดใช้งาน / ลบ'],
 };
 
-const CAN_BACK: Screen[] = ['tconfirm', 'adjust', 'report', 'labels', 'settings', 'count', 'reconcile', 'admin'];
+const CAN_BACK: Screen[] = ['tconfirm', 'adjust', 'report', 'labels', 'settings', 'count', 'reconcile', 'admin', 'meds'];
 const NAV_DEF: [Screen, string, string][] = [
   ['home', 'หน้าหลัก', '▤'],
   ['transfer', 'เติมหน้างาน', '⇄'],
@@ -129,6 +131,7 @@ function Screens({ screen }: { screen: Screen }) {
     case 'count': return <CountScreen />;
     case 'reconcile': return <ReconcileScreen />;
     case 'admin': return <AdminScreen />;
+    case 'meds': return <MedsScreen />;
     case 'more': return <MoreScreen />;
     default: return null;
   }

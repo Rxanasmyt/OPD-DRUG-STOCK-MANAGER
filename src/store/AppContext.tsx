@@ -3,7 +3,7 @@ import {
   onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
 } from 'firebase/auth';
 import {
-  collection, doc, onSnapshot, query, orderBy, limit, writeBatch, addDoc, updateDoc, setDoc,
+  collection, doc, onSnapshot, query, orderBy, limit, where, writeBatch, addDoc, updateDoc, setDoc,
   runTransaction, getDocs, getDoc,
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
@@ -118,6 +118,11 @@ export interface AppCtx {
   setParSub: (medId: string, v: string) => void;
   setParFloor: (medId: string, v: string) => void;
   setMedBin: (medId: string, v: string) => void;
+
+  // meds (formulary) management
+  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number }) => void;
+  toggleMedActive: (medId: string) => void;
+  deleteMed: (medId: string) => void;
 
   // count
   setCountInput: (medId: string, v: string) => void;
@@ -690,6 +695,60 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }, 500);
   }, [canEditPar, toast]);
 
+  // ---------- meds (formulary) management ----------
+  const addMed = useCallback(async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number }) => {
+    if (!canEditPar) return;
+    const name = input.name.trim();
+    if (!name) { toast('กรอกชื่อยาก่อน'); return; }
+    let max = 0;
+    state.meds.forEach((m) => {
+      const mm = /^MED-(\d+)$/.exec(m.code);
+      if (mm) max = Math.max(max, parseInt(mm[1], 10));
+    });
+    const code = 'MED-' + String(max + 1).padStart(4, '0');
+    const med = {
+      code, name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
+      price: input.price || 0, had: input.had, active: true,
+      parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0), floor: 0,
+      bin: input.bin.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8),
+      used30: 0, usedPrev30: 0, volatility: 1.1, lastCountTs: Date.now(),
+    };
+    try {
+      await addDoc(collection(db, 'meds'), med);
+      logAudit({ type: 'med_added', note: 'เพิ่มยาใหม่ ' + name + ' (' + code + ')' });
+      toast('เพิ่ม ' + name + ' แล้ว');
+    } catch (e) { console.error(e); toast('เพิ่มยาไม่สำเร็จ'); }
+  }, [canEditPar, state.meds, logAudit, toast]);
+
+  const toggleMedActive = useCallback(async (medId: string) => {
+    if (!canEditPar) return;
+    const m = state.meds.find((x) => x.id === medId);
+    if (!m) return;
+    const next = !m.active;
+    try {
+      await updateDoc(doc(db, 'meds', medId), { active: next });
+      logAudit({ type: 'med_status_changed', note: (next ? 'เปิดใช้งานยา ' : 'ปิดใช้งานยา (ตัดออกจากบัญชี) ') + m.name });
+      toast((next ? 'เปิดใช้งาน ' : 'ปิดใช้งาน ') + m.name + ' แล้ว');
+    } catch (e) { console.error(e); toast('เปลี่ยนสถานะไม่สำเร็จ'); }
+  }, [canEditPar, state.meds, logAudit, toast]);
+
+  const deleteMed = useCallback(async (medId: string) => {
+    if (!canEditPar) return;
+    const m = state.meds.find((x) => x.id === medId);
+    if (!m) return;
+    if (m.floor > 0 || subQty(state, medId) > 0) { toast('ลบไม่ได้ — ยังมียอดคงเหลือที่หน้างานหรือ substock ต้องปรับยอด/ตัดออกให้เป็น 0 ก่อน'); return; }
+    if (!window.confirm('ลบ "' + m.name + '" ออกจากระบบถาวร? ย้อนกลับไม่ได้ — ถ้าแค่เลิกใช้ชั่วคราวแนะนำให้ "ปิดใช้งาน" แทน')) return;
+    try {
+      const lotSnap = await getDocs(query(collection(db, 'lots'), where('medId', '==', medId)));
+      const batch = writeBatch(db);
+      lotSnap.docs.forEach((d) => batch.delete(d.ref));
+      batch.delete(doc(db, 'meds', medId));
+      await batch.commit();
+      logAudit({ type: 'med_deleted', note: 'ลบยา ' + m.name + ' (' + m.code + ') ออกจากระบบถาวร' });
+      toast('ลบ ' + m.name + ' แล้ว');
+    } catch (e) { console.error(e); toast('ลบไม่สำเร็จ'); }
+  }, [canEditPar, state, logAudit, toast]);
+
   // ---------- count ----------
   const setCountInput = useCallback((medId: string, v: string) => patch((st) => ({ countInputs: { ...st.countInputs, [medId]: digitsOnly(v) } })), [patch]);
 
@@ -882,6 +941,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setReportTab, exportReportCsv,
     setLabelType, printLabels,
     applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin,
+    addMed, toggleMedActive, deleteMed,
     setCountInput, commitCount,
     setHosxpText, loadHosxpSample, processHosxp, commitReconcile,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,

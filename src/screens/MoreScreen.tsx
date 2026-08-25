@@ -7,6 +7,7 @@ export default function MoreScreen() {
     { label: 'รายงานและ Export CSV', sub: 'stock aging · turnover · discrepancy', go: () => go('report') },
     { label: 'ระบบฉลาก QR', sub: 'พิมพ์ฉลากตัวยา lot และชั้นวาง', go: () => go('labels') },
     { label: 'ตั้งค่า par level และชั้นวาง', sub: state.role !== 'tech' ? 'แก้ไขได้ — รวมกำหนดชั้นวางของแต่ละยา' : 'ดูได้เท่านั้น', go: () => go('settings') },
+    ...(state.role !== 'tech' ? [{ label: 'จัดการรายการยา', sub: 'เพิ่มยาใหม่ / ปิดใช้งาน / ลบยาที่เลิกใช้', go: () => go('meds') }] : []),
     { label: 'นับสต็อกหน้างาน (เสริม)', sub: 'ใช้เมื่อสงสัยยอดคลาดเคลื่อน — ไม่บังคับ', go: () => go('count') },
     ...(state.role === 'admin' ? [{ label: 'จัดการผู้ใช้ & Audit log', sub: 'ควบคุมบัญชีผู้ใช้ ตามรอยทุกธุรกรรมในระบบ', go: () => go('admin') }] : []),
   ];

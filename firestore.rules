@@ -54,11 +54,19 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // ---- master drug data & lots: any approved staff account ----
+    // ---- master drug data: any approved staff can read. Any approved staff can also
+    // update just `floor`/`lastCountTs` (day-to-day stock movement — transfer, adjust,
+    // count, HOSxP reconcile all touch only these). Everything else about a drug's
+    // record — creating one, deleting one, par/bin/price/name/active/high-alert — is
+    // pharm/admin only. ----
     match /meds/{medId} {
       allow read: if isActive();
-      allow write: if isActive();
+      allow create, delete: if isPharmOrAdmin();
+      allow update: if isPharmOrAdmin()
+                    || (isActive() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['floor', 'lastCountTs']));
     }
+    // ---- lots: any approved staff can read/write (receiving, FEFO transfer, scrap
+    // all touch lots as part of normal day-to-day work, not just pharm/admin) ----
     match /lots/{lotId} {
       allow read: if isActive();
       allow write: if isActive();
