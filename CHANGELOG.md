@@ -7,6 +7,17 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.2.1] - 2026-08-25
+
+### Changed
+- **feat:** ฉลากตัวยา (med labels) now print as a real shelf-tag strip matching the hospital's
+  existing paper labels — bin code (e.g. `J4`) in a yellow chip, followed by a QR code, followed
+  by the drug name + strength, one strip per shelf slot — instead of the generic QR-card layout
+  still used for lot/location sheets. Matches what's already taped to the shelves, just with a
+  scannable QR added in, so the printed sheet can replace the old labels directly
+  - on-screen preview updated to match (single-column strip list instead of a 2-up card grid)
+  - print sheet lays strips out 2-up on A4 (vs. 4-up for the card layout) to fit the wider strip
+
 ## [2.2.0] - 2026-08-25
 
 ### Changed

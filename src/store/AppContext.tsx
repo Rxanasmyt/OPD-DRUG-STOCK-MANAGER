@@ -606,7 +606,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let labels: PrintLabel[] = [];
     let heading = 'ฉลากตัวยา';
     if (state.labelType === 'med') {
-      labels = meds.map((m) => ({ payload: encodeQr('med', m.code), id: m.code, title: m.name, sub: 'หน่วย ' + m.unit + ' · ชั้น ' + m.bin, tag: m.had ? 'HIGH ALERT' : undefined }));
+      labels = meds.map((m) => ({ payload: encodeQr('med', m.code), id: m.code, title: m.name, sub: 'หน่วย ' + m.unit + ' · ชั้น ' + m.bin, tag: m.had ? 'HIGH ALERT' : undefined, bin: m.bin }));
     } else if (state.labelType === 'lot') {
       heading = 'ฉลาก lot';
       labels = state.lots.map((l) => {
