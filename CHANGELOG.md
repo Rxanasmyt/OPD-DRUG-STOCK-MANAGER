@@ -7,6 +7,17 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.7.1] - 2026-08-25
+
+### Fixed
+- **fix:** on iOS installed-to-home-screen (standalone PWA), the app's own header was rendering
+  *underneath* the iOS status bar instead of below it — `apple-mobile-web-app-status-bar-style:
+  black-translucent` (already set, for a native look) makes iOS draw content edge-to-edge under
+  the status bar, but nothing was padding for it, so the header's title/subtitle sat hidden
+  behind the clock/battery icons. Added `env(safe-area-inset-top)` padding to the header and the
+  three full-screen login states, and `env(safe-area-inset-bottom)` to the bottom nav for the
+  home-indicator area on notched iPhones
+
 ## [2.7.0] - 2026-08-25
 
 Go-live cleanup pass: bug fixes found by re-reading every remaining screen, removal of the
