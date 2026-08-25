@@ -1,31 +1,31 @@
-/**
- * Demo-only QR glyph: a deterministic pseudo-random pattern derived from the payload
- * string, styled like a QR code (finder squares + noise). Not a real scannable QR —
- * the production app would generate real codes and read them via html5-qrcode.
- */
+import { useMemo } from 'react';
+import { qrModules } from '../utils/qr';
+
+/** Real, scannable QR code — encodes `value` (a JSON payload from utils/qr.ts) and renders
+ * the module matrix as inline SVG so it stays crisp at any print size and matches the
+ * app's color language. */
 export function QrCode({ value, size = 52 }: { value: string; size?: number }) {
-  const n = 21;
-  const cell = size / n;
-  let h = 0;
-  for (let i = 0; i < value.length; i++) h = (h * 31 + value.charCodeAt(i)) >>> 0;
+  const modules = useMemo(() => qrModules(value), [value]);
+
+  if (!modules) {
+    return <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: 'block', background: '#fff', borderRadius: 4 }} />;
+  }
+
+  const n = modules.size;
+  const quiet = 2; // quiet-zone modules, keeps it scannable near label edges
+  const total = n + quiet * 2;
+  const cell = size / total;
   const rects: JSX.Element[] = [];
-  const finder = (ox: number, oy: number) => {
-    rects.push(<rect key={`f${ox}${oy}`} x={ox * cell} y={oy * cell} width={7 * cell} height={7 * cell} fill="#12211a" />);
-    rects.push(<rect key={`g${ox}${oy}`} x={(ox + 1) * cell} y={(oy + 1) * cell} width={5 * cell} height={5 * cell} fill="#fff" />);
-    rects.push(<rect key={`i${ox}${oy}`} x={(ox + 2) * cell} y={(oy + 2) * cell} width={3 * cell} height={3 * cell} fill="#12211a" />);
-  };
-  let s = h || 1;
-  for (let y = 0; y < n; y++) {
-    for (let x = 0; x < n; x++) {
-      const inFinder = (x < 8 && y < 8) || (x > n - 9 && y < 8) || (x < 8 && y > n - 9);
-      if (inFinder) continue;
-      s = (s * 1103515245 + 12345) >>> 0;
-      if ((s >>> 16) % 100 < 47) rects.push(<rect key={`${x}_${y}`} x={x * cell} y={y * cell} width={cell} height={cell} fill="#12211a" />);
+  for (let row = 0; row < n; row++) {
+    for (let col = 0; col < n; col++) {
+      if (modules.get(row, col)) {
+        rects.push(<rect key={`${row}_${col}`} x={(col + quiet) * cell} y={(row + quiet) * cell} width={cell} height={cell} fill="#12211a" />);
+      }
     }
   }
-  finder(0, 0); finder(n - 7, 0); finder(0, n - 7);
+
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: 'block', background: '#fff', borderRadius: 4 }}>
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} shapeRendering="crispEdges" style={{ display: 'block', background: '#fff', borderRadius: 4 }}>
       {rects}
     </svg>
   );

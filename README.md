@@ -12,6 +12,9 @@ Implementation ของดีไซน์ `ระบบสต็อกยา OP
 - Master data ยา 585 รายการ นำเข้าจาก `src/data/med_list.csv` (บัญชีเวชภัณฑ์ยา รพ.กรงปินัง) —
   par/stock/lot/high-alert ถูกสุ่มสร้างแบบ deterministic (seed ตาม index) เพื่อให้มีข้อมูลตั้งต้นสมจริง
   รายการที่มีหมายเหตุ "ไม่มียาในรพ.กรงปินัง" ในชื่อจะถูกทำเครื่องหมายเป็น inactive (par/stock = 0)
+- **QR label จริง** — `qrcode` เข้ารหัส payload ของยา/lot/ชั้นวางเป็น QR ที่สแกนได้จริง, พิมพ์ลงกระดาษ
+  สติกเกอร์ A4 ได้จริง (`window.print()`), และสแกนกลับด้วยกล้องเครื่อง (`jsqr`) ในหน้ารับเข้า/เติมหน้างาน/
+  ยืนยันยา high alert — ดู `src/utils/qr.ts`, `src/components/QrScanner.tsx`, `src/utils/print.ts`
 
 ## ตั้งค่า Firebase (ต้องทำก่อนแอปจะใช้งานได้)
 

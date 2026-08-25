@@ -144,9 +144,9 @@ export interface AppState {
   qrOpen: boolean;
   qrManualOpen: boolean;
   qrCode: string;
+  qrManualReason: string;
   qrPurpose: string | null;
   hadOk: Record<string, boolean>;
-  scanCycle: number;
 
   doneKind: 'transfer' | 'receive' | 'recvPending' | null;
   doneRows: { name: string; sub: string; qty: string }[];

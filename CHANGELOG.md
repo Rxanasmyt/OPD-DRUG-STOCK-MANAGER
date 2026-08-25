@@ -7,6 +7,29 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.2.0] - 2026-08-25
+
+### Changed
+- **feat:** QR labels and scanning are now real, not a demo pattern — this closes out the last
+  simulated flow left in the app (everything else was already live against Firestore)
+  - `<QrCode>` encodes a real payload (`{"t":"med"|"lot"|"loc","id":"..."}`) with the `qrcode`
+    library and renders it as a real, scannable QR (previously: a deterministic-noise SVG glyph
+    that only looked like one)
+  - the scan sheet (รับเข้า substock / เติมหน้างาน / ยืนยันยา high alert) now opens the device
+    camera and decodes frames live with `jsqr`, matching the scanned code against the actual
+    med/lot in Firestore — previously the "สแกน" button just picked a random low-stock item, and
+    the high-alert forcing function accepted any tap as a pass
+    - a location (`loc`) label resolves to the neediest med stocked in that bin
+    - an unrecognized code (e.g. from an old data re-seed) now says so instead of silently
+      "succeeding"
+  - "กรอกรหัสด้วยมือ" (manual entry, for a damaged label) is now wired to something — previously
+    the input box didn't do anything at all — and requires a reason, logged to the audit trail
+    (`qr_manual` entries)
+  - "พิมพ์ฉลากทั้งชุด" opens a real, print-ready A4 sticker sheet (`window.print()`) for every
+    active med / lot / floor-stock location instead of showing a toast that pretended to
+  - `src/data/locations.ts` — the floor-stock bin list (`A1`..`D2`) is now shared between the
+    labels screen and the QR-resolution logic instead of being duplicated
+
 ## [2.1.0] - 2026-08-25
 
 ### Changed

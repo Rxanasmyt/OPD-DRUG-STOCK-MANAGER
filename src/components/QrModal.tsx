@@ -1,8 +1,9 @@
 import type { CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
+import { QrScanner } from './QrScanner';
 
 export default function QrModal() {
-  const { state, closeQr, qrSuccess, qrManual, setQrCode } = useApp();
+  const { state, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason } = useApp();
   if (!state.qrOpen) return null;
 
   const isReceive = state.qrPurpose === 'receive';
@@ -46,18 +47,20 @@ export default function QrModal() {
           <button onClick={closeQr} style={{ border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 32, height: 32, borderRadius: 9, fontSize: 15 }}>✕</button>
         </div>
         <div style={{ fontSize: 12.5, opacity: 0.7, lineHeight: 1.5, marginBottom: 14 }}>{desc}</div>
-        <div style={{ position: 'relative', height: 172, borderRadius: 14, background: '#0a120e', overflow: 'hidden', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ position: 'relative', width: 120, height: 120 }}>
-            <div style={corner(true, true)} /><div style={corner(true, false)} />
-            <div style={corner(false, true)} /><div style={corner(false, false)} />
+        <div style={{ position: 'relative', height: 172, borderRadius: 14, background: '#0a120e', overflow: 'hidden', marginBottom: 14 }}>
+          <QrScanner active={state.qrOpen} onDecode={qrDecoded} />
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+            <div style={{ position: 'relative', width: 120, height: 120 }}>
+              <div style={corner(true, true)} /><div style={corner(true, false)} />
+              <div style={corner(false, true)} /><div style={corner(false, false)} />
+            </div>
+            <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: '34%', background: 'linear-gradient(to bottom, rgba(23,85,47,0), rgba(90,220,140,.35))', animation: 'sweep 1.7s infinite ease-in-out' }} />
           </div>
-          <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: '34%', background: 'linear-gradient(to bottom, rgba(23,85,47,0), rgba(90,220,140,.35))', animation: 'sweep 1.7s infinite ease-in-out' }} />
-          <div style={{ position: 'absolute', bottom: 10, left: 0, right: 0, textAlign: 'center', fontSize: 11.5, opacity: 0.6 }}>
+          <div style={{ position: 'absolute', bottom: 10, left: 0, right: 0, textAlign: 'center', fontSize: 11.5, opacity: 0.75, pointerEvents: 'none', textShadow: '0 1px 4px rgba(0,0,0,.6)' }}>
             <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: '#5adc8c', marginRight: 6, verticalAlign: 'middle', animation: 'pulse 1.6s infinite' }} />
             กำลังค้นหา QR ในกรอบ…
           </div>
         </div>
-        <button onClick={qrSuccess} style={{ width: '100%', border: 0, background: 'var(--ink-soft)', color: 'var(--ink)', padding: 15, borderRadius: 11, fontSize: 15.5, fontWeight: 600, minHeight: 52, marginBottom: 8, boxShadow: '0 8px 20px -8px rgba(242,245,239,.3)' }}>จำลองสแกนสำเร็จ</button>
         <button onClick={qrManual} style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'transparent', color: 'var(--ink-soft)', padding: 13, borderRadius: 11, fontSize: 13.5, minHeight: 46 }}>กรอกรหัสด้วยมือ (กรณีฉลากชำรุด)</button>
         {state.qrManualOpen && (
           <div style={{ marginTop: 10, animation: 'fade .2s var(--ease-out)' }}>
@@ -65,9 +68,22 @@ export default function QrModal() {
               value={state.qrCode}
               onChange={(e) => setQrCode(e.target.value)}
               placeholder="เช่น MED-0035"
-              style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: 12, fontSize: 14, minHeight: 46 }}
+              style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: 12, fontSize: 14, minHeight: 46, marginBottom: 8 }}
             />
-            <div style={{ fontSize: 11.5, opacity: 0.6, marginTop: 6 }}>ต้องระบุเหตุผลที่สแกนไม่ได้ ระบบบันทึกลง audit trail</div>
+            <input
+              value={state.qrManualReason}
+              onChange={(e) => setQrManualReason(e.target.value)}
+              placeholder="เหตุผลที่สแกนไม่ได้ เช่น ฉลากขาด/เลอะ"
+              style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: 12, fontSize: 13.5, minHeight: 44, marginBottom: 8 }}
+            />
+            <button
+              onClick={() => qrDecoded(state.qrCode, true)}
+              disabled={!state.qrCode.trim()}
+              style={{ width: '100%', border: 0, background: state.qrCode.trim() ? 'var(--ink-soft)' : 'rgba(255,255,255,.14)', color: state.qrCode.trim() ? 'var(--ink)' : 'rgba(255,255,255,.4)', padding: 13, borderRadius: 10, fontSize: 14, fontWeight: 600, minHeight: 46 }}
+            >
+              ยืนยันรหัส
+            </button>
+            <div style={{ fontSize: 11.5, opacity: 0.6, marginTop: 6 }}>บันทึกการกรอกรหัสด้วยมือลง audit trail พร้อมเหตุผล</div>
           </div>
         )}
       </div>

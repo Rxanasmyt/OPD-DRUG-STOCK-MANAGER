@@ -14,6 +14,9 @@ import { seedInitialData } from '../data/seedFirestore';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
+import { encodeQr, parseQr } from '../utils/qr';
+import { printLabelSheet, type PrintLabel } from '../utils/print';
+import { LOCS } from '../data/locations';
 
 function freshState(): AppState {
   return {
@@ -32,7 +35,7 @@ function freshState(): AppState {
 
     reportTab: 'aging', labelType: 'med',
 
-    qrOpen: false, qrManualOpen: false, qrCode: '', qrPurpose: null, hadOk: {}, scanCycle: 0,
+    qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: null, hadOk: {},
 
     doneKind: null, doneRows: [], toast: null,
 
@@ -128,9 +131,10 @@ export interface AppCtx {
   // qr
   openScanSearch: (purpose: string) => void;
   closeQr: () => void;
-  qrSuccess: () => void;
+  qrDecoded: (raw: string, manual?: boolean) => void;
   qrManual: () => void;
   setQrCode: (v: string) => void;
+  setQrManualReason: (v: string) => void;
   startHadScan: (medId: string) => void;
 
   // done
@@ -597,7 +601,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ---------- labels ----------
   const setLabelType = useCallback((t: AppState['labelType']) => patch({ labelType: t }), [patch]);
-  const printLabels = useCallback(() => toast('ส่งไปยังคิวพิมพ์ — ระบบจริงสร้าง PDF A4 ตามขนาดสติกเกอร์ที่ตั้งไว้'), [toast]);
+  const printLabels = useCallback(() => {
+    const meds = state.meds.filter((m) => m.active);
+    let labels: PrintLabel[] = [];
+    let heading = 'ฉลากตัวยา';
+    if (state.labelType === 'med') {
+      labels = meds.map((m) => ({ payload: encodeQr('med', m.code), id: m.code, title: m.name, sub: 'หน่วย ' + m.unit + ' · ชั้น ' + m.bin, tag: m.had ? 'HIGH ALERT' : undefined }));
+    } else if (state.labelType === 'lot') {
+      heading = 'ฉลาก lot';
+      labels = state.lots.map((l) => {
+        const m = meds.find((x) => x.id === l.medId);
+        return { payload: encodeQr('lot', l.code), id: l.code, title: m ? m.name : '—', sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: daysUntil(l.exp) < state.expiryWarnDays ? 'ใกล้หมดอายุ' : undefined };
+      });
+    } else {
+      heading = 'ฉลากชั้นวาง';
+      labels = LOCS.map((b) => ({ payload: encodeQr('loc', 'LOC-' + b), id: 'LOC-' + b, title: 'ชั้นจ่ายยา ' + b, sub: 'หน้างาน OPD · สแกนเพื่อเปิดรายการในชั้นนี้' }));
+    }
+    if (!labels.length) { toast('ไม่มีรายการให้พิมพ์ฉลาก'); return; }
+    const ok = printLabelSheet(labels, heading);
+    toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว — เลือกกระดาษสติกเกอร์ A4 แล้วสั่งพิมพ์' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
+  }, [state.meds, state.lots, state.labelType, state.expiryWarnDays, toast]);
 
   // ---------- settings / par ----------
   const canEditPar = myProfile?.role !== 'tech';
@@ -725,40 +748,77 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.hosxpRows, state.meds, logTx, toast, patch]);
 
   // ---------- qr ----------
-  const openScanSearch = useCallback((purpose: string) => patch({ qrOpen: true, qrPurpose: purpose }), [patch]);
+  const openScanSearch = useCallback((purpose: string) => patch({ qrOpen: true, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: purpose }), [patch]);
   const closeQr = useCallback(() => patch({ qrOpen: false, qrManualOpen: false }), [patch]);
   const qrManual = useCallback(() => patch((st) => ({ qrManualOpen: !st.qrManualOpen })), [patch]);
   const setQrCode = useCallback((v: string) => patch({ qrCode: v }), [patch]);
+  const setQrManualReason = useCallback((v: string) => patch({ qrManualReason: v }), [patch]);
 
-  const pickScan = useCallback((kind: 'receive' | 'transfer') => {
-    setState((st) => {
-      const meds = st.meds.filter((m) => m.active);
-      let pool = kind === 'receive' ? meds.filter((m) => subQty(st, m.id) < m.parSub) : meds.filter((m) => m.floor < m.parFloor);
-      if (!pool.length) pool = meds;
-      if (!pool.length) return { ...st, qrOpen: false, qrManualOpen: false, qrCode: '' };
-      const cyc = st.scanCycle || 0;
-      const m = pool[cyc % pool.length];
-      const next = { ...st, qrOpen: false, qrManualOpen: false, qrCode: '', scanCycle: cyc + 1 };
-      if (kind === 'receive') {
-        window.setTimeout(() => toast('สแกนพบ ' + m.name + ' ที่ substock — กรอก lot วันหมดอายุ และจำนวนที่รับ'), 0);
-        return { ...next, recvMed: m.id, recvSearch: m.name, recvLot: '', recvExp: '', recvQty: '' };
+  /** Resolves a scanned/typed code against a specific med/lot label — the label a real
+   * printed QR encodes must exist in the current data, or this reports "not found" instead
+   * of pretending. Location labels (loc) don't map to one med, so they're resolved by the
+   * caller (picks the neediest med in that bin). */
+  const resolveMed = useCallback((p: { t: 'med' | 'lot' | 'loc'; id: string }): Med | null => {
+    if (p.t === 'med') return state.meds.find((m) => m.code === p.id) || null;
+    if (p.t === 'lot') {
+      const l = state.lots.find((x) => x.code === p.id);
+      return l ? state.meds.find((m) => m.id === l.medId) || null : null;
+    }
+    return null;
+  }, [state.meds, state.lots]);
+
+  const qrDecodedImpl = useCallback((raw: string, manual = false) => {
+    const payload = parseQr(raw);
+    if (!payload) { toast('อ่าน QR ไม่ได้ — รูปแบบรหัสไม่ถูกต้อง'); return; }
+    const purpose = state.qrPurpose;
+
+    if (purpose === 'receive' || purpose === 'transfer') {
+      let med: Med | null = null;
+      if (payload.t === 'loc') {
+        const bin = payload.id.replace(/^LOC-/, '');
+        const pool = state.meds.filter((m) => m.active && m.bin === bin);
+        med = pool.find((m) => (purpose === 'receive' ? subQty(state, m.id) < m.parSub : m.floor < m.parFloor)) || pool[0] || null;
+        if (!med) { toast('ไม่พบยาที่ผูกกับชั้น ' + bin + ' ในระบบ'); return; }
+      } else {
+        med = resolveMed(payload);
+        if (!med) { toast('ไม่พบรายการนี้ในระบบ — QR อาจมาจากฉลากรุ่นเก่า ลองพิมพ์ฉลากใหม่'); return; }
       }
-      window.setTimeout(() => toast('สแกนพบ ' + m.name + ' ที่ชั้นจ่ายยา — ปรับจำนวนแล้วยืนยัน'), 0);
-      window.setTimeout(() => bumpRef.current?.(m.id, 1), 0);
-      return { ...next, search: m.name, filter: 'all' };
-    });
-  }, [toast]);
-  const bumpRef = useRef<typeof bump>(undefined);
-  bumpRef.current = bump;
+      if (manual && purpose) logAudit({ type: 'qr_manual', note: 'กรอกรหัส QR ด้วยมือแทนการสแกน (' + med.name + ') — เหตุผล: ' + (state.qrManualReason.trim() || 'ไม่ระบุ') });
+      if (purpose === 'receive') {
+        pickRecvMed(med.id);
+        toast('สแกนพบ ' + med.name + ' ที่ substock — กรอก lot วันหมดอายุ และจำนวนที่รับ');
+      } else {
+        patch({ search: med.name, filter: 'all' });
+        bump(med.id, 1);
+        toast('สแกนพบ ' + med.name + ' ที่ชั้นจ่ายยา — ปรับจำนวนแล้วยืนยัน');
+      }
+      patch({ qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '' });
+      return;
+    }
 
-  const qrSuccess = useCallback(() => {
-    const p = state.qrPurpose;
-    if (p === 'receive' || p === 'transfer') { pickScan(p); return; }
-    setState((st) => ({ ...st, qrOpen: false, qrManualOpen: false, qrCode: '', hadOk: { ...st.hadOk, [p as string]: true } }));
-    toast('ยืนยัน QR สำเร็จ — ทำรายการ high alert ต่อได้');
-  }, [state.qrPurpose, pickScan, toast]);
+    // forcing function: qrPurpose holds the exact medId that must be scanned
+    const target = state.meds.find((m) => m.id === purpose);
+    if (target) {
+      if (payload.t === 'med' && payload.id === target.code) {
+        if (manual) logAudit({ type: 'qr_manual', note: 'กรอกรหัส QR ด้วยมือแทนการสแกนสำหรับยา high alert ' + target.name + ' — เหตุผล: ' + (state.qrManualReason.trim() || 'ไม่ระบุ') });
+        setState((st) => ({ ...st, qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', hadOk: { ...st.hadOk, [purpose as string]: true } }));
+        toast('ยืนยัน QR สำเร็จ — ทำรายการ high alert ต่อได้');
+      } else {
+        toast('QR ไม่ตรงกับ "' + target.name + '" — สแกนฉลากที่ตัวยาให้ตรงรายการ');
+      }
+      return;
+    }
 
-  const startHadScan = useCallback((medId: string) => patch({ qrOpen: true, qrPurpose: medId }), [patch]);
+    toast('อ่าน QR ได้ แต่ไม่พบรายการที่ต้องยืนยันในหน้านี้');
+  }, [state, toast, resolveMed, pickRecvMed, bump, patch, logAudit]);
+
+  // Stable identity — <QrScanner> keeps its camera stream open across re-renders (toasts,
+  // cart edits, etc.) by depending on this ref-backed wrapper instead of qrDecodedImpl directly.
+  const qrDecodedRef = useRef(qrDecodedImpl);
+  qrDecodedRef.current = qrDecodedImpl;
+  const qrDecoded = useCallback((raw: string, manual = false) => qrDecodedRef.current(raw, manual), []);
+
+  const startHadScan = useCallback((medId: string) => patch({ qrOpen: true, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: medId }), [patch]);
 
   // ---------- done ----------
   const doneAgain = useCallback(() => go(state.doneKind === 'transfer' ? 'transfer' : 'receive'), [go, state.doneKind]);
@@ -812,7 +872,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     applyOnePar, applyAllSuggested, setParSub, setParFloor,
     setCountInput, commitCount,
     setHosxpText, loadHosxpSample, processHosxp, commitReconcile,
-    openScanSearch, closeQr, qrSuccess, qrManual, setQrCode, startHadScan,
+    openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     doneAgain,
     setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit,
     // eslint-disable-next-line react-hooks/exhaustive-deps
