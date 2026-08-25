@@ -90,6 +90,16 @@ export type Screen =
 export type AdjType = 'adjust' | 'return' | 'damaged' | 'expired';
 export type ReportTab = 'aging' | 'turn' | 'disc';
 export type LabelType = 'med' | 'lot' | 'loc';
+
+/** How a HOSxP file's drug name resolved against the formulary — see matchHosxpMed().
+ * 'exact' commits freely; 'fuzzy' (substring match) needs an explicit human confirmation
+ * before it's allowed to touch stock, since e.g. "Amoxicillin 250" can substring-match
+ * "Amoxicillin 500"; 'ambiguous' (matched more than one drug) and 'none' never auto-commit. */
+export type HosxpMatch =
+  | { kind: 'exact'; medId: string }
+  | { kind: 'fuzzy'; medId: string }
+  | { kind: 'ambiguous'; candidateIds: string[] }
+  | { kind: 'none' };
 export type AdminTab = 'users' | 'audit';
 export type AuditFilter = 'all' | 'users' | 'stock';
 export type TransferFilter = 'low' | 'all' | 'had';
@@ -154,7 +164,8 @@ export interface AppState {
 
   countInputs: Record<string, string>;
   hosxpText: string;
-  hosxpRows: { name: string; qty: number }[] | null;
+  hosxpRows: { name: string; qty: number; match: HosxpMatch }[] | null;
+  hosxpConfirmFuzzy: boolean;
 
   adminTab: AdminTab;
   auditFilter: AuditFilter;

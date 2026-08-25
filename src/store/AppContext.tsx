@@ -11,7 +11,7 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, User, AuthMode,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -39,7 +39,7 @@ function freshState(): AppState {
 
     doneKind: null, doneRows: [], toast: null,
 
-    countInputs: {}, hosxpText: '', hosxpRows: null,
+    countInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false,
 
     adminTab: 'users', auditFilter: 'all',
 
@@ -118,6 +118,7 @@ export interface AppCtx {
   setParSub: (medId: string, v: string) => void;
   setParFloor: (medId: string, v: string) => void;
   setMedBin: (medId: string, v: string) => void;
+  recomputeUsageStats: () => void;
 
   // meds (formulary) management
   addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number }) => void;
@@ -132,6 +133,7 @@ export interface AppCtx {
   setHosxpText: (v: string) => void;
   loadHosxpSample: () => void;
   processHosxp: () => void;
+  setHosxpConfirmFuzzy: (v: boolean) => void;
   commitReconcile: () => void;
 
   // qr
@@ -708,6 +710,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }, 500);
   }, [canEditPar, toast]);
 
+  /**
+   * `used30`/`usedPrev30` (the daily-usage stats behind "แนะนำ par" and the turnover report)
+   * come from the seed data and are never touched again on their own — there's no server to
+   * run a nightly rollup. This recomputes them from real dispensing history: every
+   * `reconcile_hosxp` tx (the only place patient dispensing is actually recorded — see
+   * README) in the last 30 days, and the 30 days before that, summed per drug by name.
+   * A drug with no reconcile history yet in a given window computes to 0 for it — expected
+   * right after go-live, before HOSxP reconcile has been run daily for a while.
+   */
+  const recomputeUsageStats = useCallback(async () => {
+    if (!canEditPar) return;
+    toast('กำลังคำนวณสถิติการใช้ยาใหม่จากประวัติ HOSxP…');
+    try {
+      const snap = await getDocs(query(collection(db, 'txs'), where('type', '==', 'reconcile_hosxp')));
+      const now = Date.now();
+      const cur: Record<string, number> = {};
+      const prev: Record<string, number> = {};
+      snap.docs.forEach((d) => {
+        const x = d.data() as { name?: string; qty?: number; ts?: number };
+        if (!x.name || typeof x.qty !== 'number' || x.qty >= 0 || typeof x.ts !== 'number') return; // only dispensed (negative) entries
+        const ageDays = (now - x.ts) / DAY;
+        if (ageDays < 0) return;
+        if (ageDays <= 30) cur[x.name] = (cur[x.name] || 0) + Math.abs(x.qty);
+        else if (ageDays <= 60) prev[x.name] = (prev[x.name] || 0) + Math.abs(x.qty);
+      });
+      const targets = state.meds.filter((m) => m.active);
+      for (let i = 0; i < targets.length; i += 400) {
+        const batch = writeBatch(db);
+        targets.slice(i, i + 400).forEach((m) => {
+          batch.update(doc(db, 'meds', m.id), { used30: Math.round(cur[m.name] || 0), usedPrev30: Math.round(prev[m.name] || 0) });
+        });
+        await batch.commit();
+      }
+      logAudit({ type: 'par_updated', note: 'คำนวณสถิติการใช้ยาใหม่จากประวัติ HOSxP 60 วันล่าสุด (' + targets.length + ' รายการ)' });
+      toast('คำนวณสถิติใหม่แล้ว ' + targets.length + ' รายการ — กด "ใช้ค่าแนะนำทั้งหมด" ด้านบนอีกครั้งเพื่ออัปเดต par ตามสถิติใหม่');
+    } catch (e) { console.error(e); toast('คำนวณสถิติไม่สำเร็จ ลองใหม่อีกครั้ง'); }
+  }, [canEditPar, state.meds, logAudit, toast]);
+
   // ---------- meds (formulary) management ----------
   const addMed = useCallback(async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number }) => {
     if (!canEditPar) return;
@@ -792,7 +832,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---------- hosxp reconcile ----------
   const hosxpSample = 'PARACETAMOL 500 mg,340\namlodipine 5 mg,95\nAMOXICILlin 500 mg,140\nCPM 4 mg,60\nEnalapril 5 mg,80\nIbuprofen 400 mg,55\nWARFARIN (สีส้ม) 2 mg,18';
   const setHosxpText = useCallback((v: string) => patch({ hosxpText: v }), [patch]);
-  const loadHosxpSample = useCallback(() => patch({ hosxpText: hosxpSample, hosxpRows: null }), [patch]);
+  const loadHosxpSample = useCallback(() => patch({ hosxpText: hosxpSample, hosxpRows: null, hosxpConfirmFuzzy: false }), [patch]);
 
   const processHosxp = useCallback(() => {
     const lines = state.hosxpText.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -801,20 +841,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (idx < 0) return null;
       const name = l.slice(0, idx).trim();
       const qty = parseIntSafe(l.slice(idx + 1));
-      return { name, qty };
-    }).filter((x): x is { name: string; qty: number } => !!x);
+      return { name, qty, match: matchHosxpMed(state.meds, name) };
+    }).filter((x): x is { name: string; qty: number; match: ReturnType<typeof matchHosxpMed> } => !!x);
     if (!rows.length) { toast('วางข้อมูล CSV รูปแบบ "ชื่อยา,จำนวน" ก่อนประมวลผล'); return; }
-    patch({ hosxpRows: rows });
-  }, [state.hosxpText, patch, toast]);
+    patch({ hosxpRows: rows, hosxpConfirmFuzzy: false });
+  }, [state.hosxpText, state.meds, patch, toast]);
+
+  const setHosxpConfirmFuzzy = useCallback((v: boolean) => patch({ hosxpConfirmFuzzy: v }), [patch]);
 
   const commitReconcile = useCallback(async () => {
     const rows = state.hosxpRows || [];
     const meds = state.meds;
-    let applied = 0;
+    const hasFuzzy = rows.some((r) => r.match.kind === 'fuzzy');
+    if (hasFuzzy && !state.hosxpConfirmFuzzy) { toast('กรุณายืนยันว่าตรวจสอบรายการที่จับคู่แบบไม่ตรงชื่อเป๊ะแล้ว ก่อนตัดยอด'); return; }
+    let applied = 0, skipped = 0;
     try {
       for (const r of rows) {
-        const m = meds.find((x) => x.name.toLowerCase().indexOf(r.name.toLowerCase()) >= 0 || r.name.toLowerCase().indexOf(x.name.toLowerCase()) >= 0);
-        if (!m || r.qty <= 0) continue;
+        if (r.qty <= 0) continue;
+        // Only 'exact' and 'fuzzy' (human-confirmed above) resolve to a single med — 'ambiguous'
+        // and 'none' never touch stock, so a bad name in the source file can't silently
+        // deduct from the wrong drug or get dropped without anyone noticing.
+        const medId = r.match.kind === 'exact' || r.match.kind === 'fuzzy' ? r.match.medId : null;
+        const m = medId ? meds.find((x) => x.id === medId) : null;
+        if (!m) { skipped++; continue; }
         let after = 0, before = 0;
         await runTransaction(db, async (trx) => {
           const ref = doc(db, 'meds', m.id);
@@ -823,13 +872,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           after = Math.max(0, before - r.qty);
           trx.update(ref, { floor: after });
         });
-        await logTx({ type: 'reconcile_hosxp', name: m.name, qty: -(before - after), unit: m.unit, reason: 'นำเข้าจากไฟล์ HOSxP', note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP', loc: 'floor' });
+        await logTx({ type: 'reconcile_hosxp', name: m.name, qty: -(before - after), unit: m.unit, reason: 'นำเข้าจากไฟล์ HOSxP', note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP' + (r.match.kind === 'fuzzy' ? ' (จับคู่ชื่อแบบไม่ตรงเป๊ะ — ยืนยันโดยผู้ใช้แล้ว)' : ''), loc: 'floor' });
         applied++;
       }
-      patch({ hosxpRows: null, hosxpText: '' });
-      toast('ตัดยอดหน้างานตามไฟล์แล้ว ' + applied + ' รายการ — บันทึกลง discrepancy log');
+      patch({ hosxpRows: null, hosxpText: '', hosxpConfirmFuzzy: false });
+      toast('ตัดยอดหน้างานตามไฟล์แล้ว ' + applied + ' รายการ' + (skipped ? ' · ข้าม ' + skipped + ' รายการที่จับคู่ไม่ได้' : '') + ' — บันทึกลง discrepancy log');
     } catch (e) { console.error(e); toast('ประมวลผลไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }, [state.hosxpRows, state.meds, logTx, toast, patch]);
+  }, [state.hosxpRows, state.hosxpConfirmFuzzy, state.meds, logTx, toast, patch]);
 
   // ---------- qr ----------
   const openScanSearch = useCallback((purpose: string) => patch({ qrOpen: true, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: purpose }), [patch]);
@@ -966,10 +1015,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
     setReportTab, exportReportCsv,
     setLabelType, printLabels,
-    applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin,
+    applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats,
     addMed, toggleMedActive, deleteMed,
     setCountInput, commitCount,
-    setHosxpText, loadHosxpSample, processHosxp, commitReconcile,
+    setHosxpText, loadHosxpSample, processHosxp, setHosxpConfirmFuzzy, commitReconcile,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     doneAgain,
     setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit,

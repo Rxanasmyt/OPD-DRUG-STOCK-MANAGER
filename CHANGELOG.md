@@ -7,6 +7,24 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.6.0] - 2026-08-25
+
+### Added
+- **feat:** "คำนวณสถิติการใช้ใหม่จากประวัติ HOSxP" button (ตั้งค่า → par อัตโนมัติ) — `used30`/
+  `usedPrev30` (the daily-usage stats behind "แนะนำ par" and the turnover report's `used_30d`
+  column) came only from the seed data and were never touched again — there's no server to
+  run a nightly rollup, so they'd drift further from reality forever as real dispensing
+  diverged from the randomized seed. This recomputes both from real `reconcile_hosxp` history
+  (the only place patient dispensing is actually recorded), on demand
+- **feat:** HOSxP name matching now distinguishes exact / fuzzy (substring) / ambiguous (matches
+  more than one drug) / not-found instead of silently taking whatever `Array.find()` hit first
+  — a file listing "Amoxicillin 250" when both "...250 mg" and "...500 mg" exist previously
+  risked deducting stock from the wrong one with nothing to notice. Ambiguous and not-found
+  rows are now excluded from the commit entirely (shown with why); fuzzy rows are shown with
+  the exact match and require an explicit "ตรวจสอบแล้ว" checkbox before the commit button
+  enables. Same matcher (`matchHosxpMed`) now backs both the preview table and the actual
+  commit, instead of two separately-maintained copies of the matching logic
+
 ## [2.5.0] - 2026-08-25
 
 ### Fixed

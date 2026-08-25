@@ -1,4 +1,4 @@
-import type { AppState, Med, Role } from '../types';
+import type { AppState, HosxpMatch, Med, Role } from '../types';
 import { DAY, daysUntil } from '../utils/format';
 
 /** Pure, stateless helpers derived from AppState — no mutation, safe to call during render. */
@@ -41,6 +41,31 @@ export function suggestTransferQty(state: AppState, m: Med): number {
   const need = Math.max(0, m.parFloor - m.floor);
   const step = m.parFloor >= 500 ? 100 : m.parFloor >= 100 ? 10 : 1;
   return Math.min(subQty(state, m.id), Math.ceil(need / step) * step);
+}
+
+/**
+ * Resolves one HOSxP file row's drug name against the active formulary. Prefers an exact
+ * (case-insensitive) name match; only falls back to a substring match when there's exactly
+ * one candidate — a substring match against *two or more* drugs (e.g. a file listing
+ * "Amoxicillin 250" when both "Amoxicillin 250 mg" and "Amoxicillin 500 mg" exist) is
+ * reported as ambiguous rather than silently picking the first one Array.find() happens to
+ * hit, since guessing wrong here means deducting stock from the wrong drug.
+ */
+export function matchHosxpMed(meds: Med[], rawName: string): HosxpMatch {
+  const active = meds.filter((m) => m.active);
+  const n = rawName.trim().toLowerCase();
+  if (!n) return { kind: 'none' };
+
+  const exact = active.find((m) => m.name.trim().toLowerCase() === n);
+  if (exact) return { kind: 'exact', medId: exact.id };
+
+  const candidates = active.filter((m) => {
+    const mn = m.name.toLowerCase();
+    return mn.indexOf(n) >= 0 || n.indexOf(mn) >= 0;
+  });
+  if (candidates.length === 1) return { kind: 'fuzzy', medId: candidates[0].id };
+  if (candidates.length > 1) return { kind: 'ambiguous', candidateIds: candidates.map((m) => m.id) };
+  return { kind: 'none' };
 }
 
 export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number) {

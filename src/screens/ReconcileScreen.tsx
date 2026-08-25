@@ -1,15 +1,22 @@
 import { useApp } from '../store/AppContext';
 import { nf } from '../utils/format';
+import type { HosxpMatch } from '../types';
 
 export default function ReconcileScreen() {
-  const { state, setHosxpText, loadHosxpSample, processHosxp, commitReconcile } = useApp();
+  const { state, setHosxpText, loadHosxpSample, processHosxp, setHosxpConfirmFuzzy, commitReconcile } = useApp();
+
+  const medById = (id: string) => state.meds.find((x) => x.id === id);
 
   const reconcileRows = (state.hosxpRows || []).map((r) => {
-    const m = state.meds.find((x) => x.name.toLowerCase().indexOf(r.name.toLowerCase()) >= 0 || r.name.toLowerCase().indexOf(x.name.toLowerCase()) >= 0);
-    const before = m ? m.floor : 0;
-    const after = m ? Math.max(0, before - r.qty) : 0;
-    return { name: m ? m.name : r.name + ' (ไม่พบในระบบ)', qty: r.qty, before, after };
+    const med = r.match.kind === 'exact' || r.match.kind === 'fuzzy' ? medById(r.match.medId) : undefined;
+    const before = med ? med.floor : 0;
+    const after = med ? Math.max(0, before - r.qty) : 0;
+    return { fileText: r.name, qty: r.qty, match: r.match, med, before, after };
   });
+
+  const fuzzyCount = reconcileRows.filter((r) => r.match.kind === 'fuzzy').length;
+  const skippedCount = reconcileRows.filter((r) => r.match.kind === 'ambiguous' || r.match.kind === 'none').length;
+  const canCommit = reconcileRows.length > 0 && (fuzzyCount === 0 || state.hosxpConfirmFuzzy);
 
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
@@ -34,17 +41,44 @@ export default function ReconcileScreen() {
               <span style={{ flex: 1 }}>รายการยา</span><span style={{ width: 70, textAlign: 'right', flex: 'none' }}>จ่ายจริง</span><span style={{ width: 70, textAlign: 'right', flex: 'none' }}>ก่อน → หลัง</span>
             </div>
             {reconcileRows.map((r, i) => (
-              <div key={i} style={{ display: 'flex', padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', alignItems: 'center', gap: 6 }}>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.3 }}>{r.name}</span>
-                <span style={{ width: 70, textAlign: 'right', flex: 'none', fontSize: 13, fontWeight: 600, color: 'var(--red)' }}>−{nf(r.qty)}</span>
-                <span className="muted" style={{ width: 70, textAlign: 'right', flex: 'none', fontSize: 12.5 }}>{nf(r.before)}→{nf(r.after)}</span>
+              <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.3, fontWeight: r.match.kind === 'exact' ? 400 : 600 }}>
+                    {r.med ? r.med.name : r.fileText}
+                  </span>
+                  <span style={{ width: 70, textAlign: 'right', flex: 'none', fontSize: 13, fontWeight: 600, color: 'var(--red)' }}>{r.med ? '−' + nf(r.qty) : '—'}</span>
+                  <span className="muted" style={{ width: 70, textAlign: 'right', flex: 'none', fontSize: 12.5 }}>{r.med ? nf(r.before) + '→' + nf(r.after) : '—'}</span>
+                </div>
+                <MatchBadge match={r.match} fileText={r.fileText} medById={medById} />
               </div>
             ))}
           </div>
-          <button onClick={commitReconcile} className="btn-primary" style={{ width: '100%', padding: 15, borderRadius: 12, fontSize: 15, minHeight: 52 }}>ตัดยอดหน้างานตามไฟล์นี้ และบันทึก discrepancy log</button>
+
+          {fuzzyCount > 0 && (
+            <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', background: 'var(--amber-bg)', border: '1px solid var(--amber)', borderRadius: 10, padding: '11px 12px', marginBottom: 12, cursor: 'pointer' }}>
+              <input type="checkbox" checked={state.hosxpConfirmFuzzy} onChange={(e) => setHosxpConfirmFuzzy(e.target.checked)} style={{ marginTop: 2, flex: 'none', width: 17, height: 17 }} />
+              <span style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--amber-ink)' }}>ตรวจสอบแล้วว่า {fuzzyCount} รายการที่ทำเครื่องหมาย ⚠ ด้านบน จับคู่กับยาถูกตัว (ชื่อในไฟล์ไม่ตรงกับชื่อในระบบเป๊ะๆ ระบบเดาให้จากชื่อที่ใกล้เคียงที่สุด)</span>
+            </label>
+          )}
+
+          <button onClick={commitReconcile} disabled={!canCommit} className="btn-primary" style={{ width: '100%', padding: 15, borderRadius: 12, fontSize: 15, minHeight: 52, opacity: canCommit ? 1 : 0.5 }}>
+            ตัดยอดหน้างานตามไฟล์นี้ และบันทึก discrepancy log{skippedCount > 0 ? ' (ข้าม ' + skippedCount + ' รายการที่จับคู่ไม่ได้)' : ''}
+          </button>
         </>
       )}
       <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginTop: 12 }}>ระบบจริง: Cloud Function ดึงยอดจ่าย OPD จาก HOSxP (MySQL) มาตัดยอดอัตโนมัติทุกวัน แทนการวางไฟล์ด้วยมือ</div>
     </div>
   );
+}
+
+function MatchBadge({ match, fileText, medById }: { match: HosxpMatch; fileText: string; medById: (id: string) => { name: string } | undefined }) {
+  if (match.kind === 'exact') return null; // clean match — no need to draw attention
+  if (match.kind === 'fuzzy') {
+    return <div style={{ fontSize: 10.5, color: 'var(--amber-ink)', fontWeight: 600, marginTop: 3 }}>⚠ ไม่ตรงชื่อเป๊ะ — ไฟล์เขียนว่า "{fileText}"</div>;
+  }
+  if (match.kind === 'ambiguous') {
+    const names = match.candidateIds.map((id) => medById(id)?.name).filter(Boolean).join(', ');
+    return <div style={{ fontSize: 10.5, color: 'var(--red)', fontWeight: 600, marginTop: 3 }}>✕ พบยาที่ชื่อใกล้เคียงกันหลายรายการ — ข้าม ({names})</div>;
+  }
+  return <div style={{ fontSize: 10.5, color: 'var(--red)', fontWeight: 600, marginTop: 3 }}>✕ ไม่พบยานี้ในระบบ — ข้าม</div>;
 }

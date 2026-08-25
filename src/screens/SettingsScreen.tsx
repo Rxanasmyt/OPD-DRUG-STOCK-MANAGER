@@ -4,7 +4,7 @@ import { suggestPar } from '../store/selectors';
 import { nf, digitsOnly } from '../utils/format';
 
 export default function SettingsScreen() {
-  const { state, warn, applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin } = useApp();
+  const { state, warn, applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats } = useApp();
   const canEdit = state.role !== 'tech';
   const [q, setQ] = useState('');
   const meds = state.meds.filter((m) => m.active && (!q.trim() || m.name.toLowerCase().indexOf(q.trim().toLowerCase()) >= 0));
@@ -30,8 +30,12 @@ export default function SettingsScreen() {
         <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}>par อัตโนมัติจากสถิติการใช้</div>
         <div style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 9 }}>คำนวณจากอัตราจ่ายเฉลี่ย/วัน (30 วันล่าสุด) × จำนวนวันที่ต้องสำรอง แล้วปรับเพิ่มตามความผันผวนของแต่ละรายการ — par หน้างานสำรอง {state.parFloorCoverDays} วัน, par substock สำรอง {state.parSubCoverDays} วัน</div>
         {canEdit && (
-          <button onClick={applyAllSuggested} style={{ border: 0, background: 'var(--green)', color: '#fff', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>ใช้ค่าแนะนำทั้งหมด ({suggestDiffCount} รายการเปลี่ยน)</button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={applyAllSuggested} style={{ border: 0, background: 'var(--green)', color: '#fff', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>ใช้ค่าแนะนำทั้งหมด ({suggestDiffCount} รายการเปลี่ยน)</button>
+            <button onClick={recomputeUsageStats} style={{ border: '1px solid var(--green)', background: '#fff', color: 'var(--green)', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>คำนวณสถิติการใช้ใหม่จากประวัติ HOSxP ↺</button>
+          </div>
         )}
+        <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 8 }}>อัตราการใช้คำนวณจากประวัติ "นำเข้าจาก HOSxP" เท่านั้น ไม่ได้อัปเดตอัตโนมัติทุกวัน — ควรกด "คำนวณสถิติการใช้ใหม่" เป็นระยะ (เช่น เดือนละครั้ง) หลังจากใช้งานนำเข้า HOSxP มาสม่ำเสมอแล้ว ถ้ากดตอนที่ยังไม่มีประวัติ HOSxP เลย ค่าจะกลายเป็น 0 ทั้งหมด</div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', margin: '0 2px 8px' }}>
