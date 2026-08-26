@@ -7,6 +7,25 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.9.0] - 2026-08-25
+
+### Changed
+- **feat:** shelf-tag label name shortened to "generic name + strength" and kept to one line
+  — `shortLabelName()` trims trailing packaging detail (e.g. "Vial", "Amphule (2 mL.)", "ซอง")
+  that's still on the underlying master data (search/HOSxP-matching still see the full name;
+  this only affects what's printed/previewed on the label) since it doesn't help identify the
+  drug at a glance and was pushing names onto a second line
+  - name text now sizes per-label (17pt down to 9pt) based on length instead of one fixed
+    size, so a short name reads large and a long one shrinks to fit *one line* rather than
+    truncating mid-strength — losing "500 mg" off the end would defeat the label's purpose.
+    ALL-CAPS names (common in this formulary) are weighted as wider, since they render
+    noticeably wider per character than mixed case
+  - bug fix along the way: the Thai packaging-word trim (ซอง/ขวด/หลอด/...) was silently never
+    matching — `\b` word-boundaries in JS regex are ASCII-only and never match next to Thai
+    script, so only the English half of the original combined pattern actually worked
+  - verified the sizing with a headless render across a spread of real formulary name lengths
+    (short/medium/long, mixed-case and all-caps) — every one fits its single line
+
 ## [2.8.2] - 2026-08-25
 
 ### Changed

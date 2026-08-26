@@ -3,6 +3,12 @@ import { daysUntil } from '../store/selectors';
 import { thDate } from '../utils/format';
 import { QrCode } from '../components/QrCode';
 import { encodeQr } from '../utils/qr';
+import { shortLabelName, titleSizeStep } from '../utils/labelName';
+
+// On-screen px per titleSizeStep() — mirrors print.ts's pt scale so the preview shows what
+// will actually print (just in px instead of pt, and one notch smaller since the strip is
+// stretched full mobile-width here vs a fixed 100mm print card).
+const TITLE_PX_BY_STEP = [17, 16, 14.5, 13, 11.5, 10.5];
 import { LOCS } from '../data/locations';
 import type { LabelType } from '../types';
 
@@ -14,7 +20,7 @@ export default function LabelsScreen() {
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : '#fff', color: active ? '#fff' : 'var(--ink)' });
 
   const rows = state.labelType === 'med'
-    ? meds.slice(0, 8).map((m) => ({ code: m.code, bin: m.bin, payload: encodeQr('med', m.code), title: m.name, sub: 'หน่วย ' + m.unit + ' · ชั้น ' + m.bin, tag: m.had ? 'HIGH ALERT' : '', tagColor: 'var(--had)' }))
+    ? meds.slice(0, 8).map((m) => ({ code: m.code, bin: m.bin, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + m.bin, tag: m.had ? 'HIGH ALERT' : '', tagColor: 'var(--had)' }))
     : state.labelType === 'lot'
     ? state.lots.slice(0, 8).map((l) => {
         const m = meds.find((x) => x.id === l.medId);
@@ -39,7 +45,7 @@ export default function LabelsScreen() {
               <div style={{ flex: 'none', width: 38, background: '#f5c518', color: '#1a1a1a', fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', lineHeight: 1.1 }}>{r.bin}</div>
               <div style={{ flex: 'none', padding: 8, display: 'flex', alignItems: 'center' }}><QrCode value={r.payload} size={34} /></div>
               <div style={{ minWidth: 0, padding: '4px 10px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <div style={{ fontSize: 15.5, fontWeight: 800, lineHeight: 1.2 }}>{r.title}</div>
+                <div style={{ fontSize: TITLE_PX_BY_STEP[titleSizeStep(r.title)], fontWeight: 800, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.title}</div>
                 {r.tag && <div style={{ fontSize: 10.5, color: r.tagColor, fontWeight: 700, marginTop: 2 }}>{r.tag}</div>}
               </div>
             </div>

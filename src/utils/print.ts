@@ -1,4 +1,5 @@
 import { qrSvgMarkup } from './qr';
+import { titleSizeStep } from './labelName';
 
 export interface PrintLabel {
   payload: string;
@@ -14,6 +15,14 @@ export interface PrintLabel {
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
+
+// Font size (pt) per titleSizeStep() — a short name (most of them, once shortLabelName() has
+// trimmed packaging detail) reads large and bold; a longer one steps down instead of
+// truncating mid-strength (losing the "500 mg" is worse than smaller text).
+const TITLE_PT_BY_STEP = [17, 15, 13, 11.5, 10, 9];
+function titleFontSizePt(title: string): number {
+  return TITLE_PT_BY_STEP[titleSizeStep(title)];
 }
 
 /**
@@ -41,7 +50,7 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
           <div class="bin">${escapeHtml(l.bin || '')}</div>
           <div class="qr">${qrSvgMarkup(l.payload, qrPx)}</div>
           <div class="meta">
-            <div class="title">${escapeHtml(l.title)}</div>
+            <div class="title" style="font-size:${titleFontSizePt(l.title)}pt">${escapeHtml(l.title)}</div>
             ${l.tag ? `<div class="tag">${escapeHtml(l.tag)}</div>` : ''}
           </div>
         </div>`;
@@ -87,9 +96,10 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
 
   .qr svg { width: 100%; height: 100%; }
   .title { font-size: 8pt; font-weight: 700; line-height: 1.2; margin-top: .5mm; }
-  /* Drug name + strength is the thing staff actually read at a glance while shelving —
-     sized as large as the strip comfortably fits, bin code and QR shrunk to make room. */
-  .strip .title { font-size: 15.5pt; font-weight: 800; margin-top: 0; line-height: 1.12; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  /* Drug name + strength is the thing staff actually read at a glance while shelving — one
+     line only (name is pre-shortened to "generic + strength", packaging detail like "Vial"/
+     "(2 mL.)" trimmed off — see shortLabelName()), sized as large as that comfortably fits. */
+  .strip .title { font-size: 17pt; font-weight: 800; margin-top: 0; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tag { font-size: 6pt; font-weight: 700; color: #b3261e; margin-top: .5mm; }
   .strip .tag { font-size: 8.5pt; margin-top: .8mm; }
 
