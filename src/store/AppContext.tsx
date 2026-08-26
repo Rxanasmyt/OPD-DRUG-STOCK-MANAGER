@@ -220,7 +220,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!snap.exists()) { patch({ authStatus: 'signedOut' }); return; }
         const profile = { id: snap.id, ...snap.data() } as User;
         setMyProfile(profile);
-        patch({ role: profile.active ? profile.role : null, authStatus: profile.active ? 'signedIn' : 'pendingApproval' });
+        // Bug: authStatus flipping to 'signedIn' never moved `screen` off its initial/post-
+        // logout value of 'login' — the Screens() switch in App.tsx has no case for 'login'
+        // (LoginScreen renders separately, gated on authStatus), so it fell through to
+        // `default: return null`, i.e. a blank home screen on every login until the person
+        // happened to tap "หน้าหลัก" themselves. Land on 'home' only from that specific state,
+        // so it doesn't stomp on wherever they already are (e.g. a live profile update while
+        // mid-workflow shouldn't yank them back to the home screen).
+        patch((st) => ({
+          role: profile.active ? profile.role : null,
+          authStatus: profile.active ? 'signedIn' : 'pendingApproval',
+          screen: profile.active && st.screen === 'login' ? 'home' : st.screen,
+        }));
       },
       () => patch({ authStatus: 'signedOut' }),
     );

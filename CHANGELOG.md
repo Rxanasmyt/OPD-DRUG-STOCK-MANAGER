@@ -7,6 +7,17 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.9.3] - 2026-08-25
+
+### Fixed
+- **fix:** blank white home screen on every login, until manually tapping "หน้าหลัก" — `screen`
+  stays at its initial/post-logout value of `'login'` in state; nothing ever moved it to
+  `'home'` once `authStatus` flips to `'signedIn'`. The `Screens()` switch in App.tsx has no
+  case for `'login'` (the login screen renders separately, gated directly on `authStatus`), so
+  it fell through to `default: return null` — a blank `<main>` — until something else (tapping
+  a nav button) changed `screen` to a real value. Now lands on `'home'` specifically when
+  coming from that `'login'` state, without stomping on wherever else you might already be
+
 ## [2.9.2] - 2026-08-25
 
 ### Fixed
