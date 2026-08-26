@@ -7,6 +7,22 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.9.1] - 2026-08-25
+
+### Fixed
+- **fix:** the bottom nav could scroll off-screen entirely on any content-heavy screen (the
+  home dashboard with its stat tiles + several lists, in particular) — `.app-shell` used
+  `min-height: 100vh`, which let the flex column grow *taller* than the viewport whenever a
+  screen's content was long, pushing the whole page into normal document-level scroll instead
+  of confining scrolling to `<main>`. The header and bottom nav are supposed to stay pinned;
+  instead they'd scroll away with the content, so reaching the nav meant scrolling all the way
+  down. Changed to a fixed `100dvh` (with a `100vh` fallback) height with `overflow: hidden`
+  on the shell, so only `<main>` scrolls — verified with a headless render that the document
+  itself no longer scrolls at all, only the content pane between header and nav
+  - the three login-screen states got `overflow-y: auto` added explicitly, so this doesn't
+    newly clip a tall register form (long content + an on-screen keyboard) instead of
+    scrolling it, now that the shell itself is a fixed height
+
 ## [2.9.0] - 2026-08-25
 
 ### Changed

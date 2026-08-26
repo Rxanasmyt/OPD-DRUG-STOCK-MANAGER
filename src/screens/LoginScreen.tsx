@@ -5,7 +5,7 @@ export default function LoginScreen() {
 
   if (state.authStatus === 'loading') {
     return (
-      <div className="app-shell" style={{ justifyContent: 'center', alignItems: 'center', background: 'var(--login-bg)' }}>
+      <div className="app-shell" style={{ justifyContent: 'center', alignItems: 'center', background: 'var(--login-bg)', overflowY: 'auto' }}>
         <div style={{ color: 'var(--ink-soft)', opacity: 0.8, fontSize: 13 }}>กำลังเชื่อมต่อ…</div>
       </div>
     );
@@ -13,7 +13,7 @@ export default function LoginScreen() {
 
   if (state.authStatus === 'pendingApproval') {
     return (
-      <div className="app-shell" style={{ justifyContent: 'center', padding: 'calc(env(safe-area-inset-top, 0px) + 32px) 26px calc(env(safe-area-inset-bottom, 0px) + 32px)', background: 'var(--login-bg)', color: 'var(--ink-soft)', textAlign: 'center' }}>
+      <div className="app-shell" style={{ justifyContent: 'center', padding: 'calc(env(safe-area-inset-top, 0px) + 32px) 26px calc(env(safe-area-inset-bottom, 0px) + 32px)', background: 'var(--login-bg)', color: 'var(--ink-soft)', textAlign: 'center', overflowY: 'auto' }}>
         <div style={{ width: 62, height: 62, borderRadius: '50%', background: 'rgba(242,245,239,.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, margin: '0 auto 18px' }}>⏳</div>
         <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 6 }}>รอ Admin อนุมัติบัญชี</div>
         <div style={{ fontSize: 13.5, opacity: 0.78, lineHeight: 1.6, marginBottom: 4 }}>
@@ -30,7 +30,7 @@ export default function LoginScreen() {
   const isRegister = state.authMode === 'register';
 
   return (
-    <div className="app-shell" style={{ justifyContent: 'center', padding: 'calc(env(safe-area-inset-top, 0px) + 32px) 26px calc(env(safe-area-inset-bottom, 0px) + 32px)', background: 'var(--login-bg)', color: 'var(--ink-soft)' }}>
+    <div className="app-shell" style={{ justifyContent: 'center', padding: 'calc(env(safe-area-inset-top, 0px) + 32px) 26px calc(env(safe-area-inset-bottom, 0px) + 32px)', background: 'var(--login-bg)', color: 'var(--ink-soft)', overflowY: 'auto' }}>
       <div style={{ width: 48, height: 48, borderRadius: 14, background: 'var(--ink-soft)', color: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 20, marginBottom: 22, boxShadow: '0 10px 26px -8px rgba(0,0,0,.35)', animation: 'fade .4s var(--ease-out) both' }}>ยา</div>
       <div style={{ fontSize: 13, letterSpacing: '.06em', opacity: 0.72, fontWeight: 600, animation: 'fade .4s var(--ease-out) both', animationDelay: '40ms' }}>รพ.กรงปินัง · ห้องยาผู้ป่วยนอก</div>
       <div style={{ fontSize: 29, fontWeight: 700, lineHeight: 1.25, margin: '6px 0 4px', animation: 'fade .4s var(--ease-out) both', animationDelay: '80ms' }}>ระบบจัดการสต็อกยา</div>

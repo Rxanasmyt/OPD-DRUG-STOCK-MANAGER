@@ -106,7 +106,15 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); }
 }
 
 .app-shell {
-  min-height: 100vh;
+  /* Fixed to the viewport (not min-height, which let the flex column grow taller than the
+     screen whenever a screen's content was long — e.g. the home dashboard's stat tiles +
+     several lists — pushing the whole page into document-level scroll and the bottom nav
+     off-screen until scrolled all the way down. Only <main> should ever scroll; header and
+     nav stay pinned. 100dvh accounts for mobile browsers' address bar show/hide, falling
+     back to 100vh where dvh isn't supported. */
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   max-width: 560px;
