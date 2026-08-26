@@ -1,4 +1,7 @@
 import { useApp } from '../store/AppContext';
+import versionRaw from '../../VERSION?raw';
+
+const APP_VERSION = versionRaw.trim();
 
 export default function MoreScreen() {
   const { state, go, userName, roleLabel, logout } = useApp();
@@ -33,6 +36,7 @@ export default function MoreScreen() {
       </div>
 
       <button onClick={logout} style={{ width: '100%', border: '1px solid var(--border)', background: '#fff', color: 'var(--red)', padding: 14, borderRadius: 11, fontSize: 14.5, fontWeight: 600, minHeight: 50 }}>ออกจากระบบ</button>
+      <div className="muted" style={{ textAlign: 'center', fontSize: 11, marginTop: 16 }}>เวอร์ชัน {APP_VERSION}</div>
     </div>
   );
 }

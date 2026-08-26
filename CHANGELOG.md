@@ -7,6 +7,13 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.8.1] - 2026-08-25
+
+### Added
+- **feat:** version number shown at the bottom of the More menu — useful for support: when
+  reporting an issue, whoever's helping can confirm at a glance whether the device is actually
+  running the latest deploy or a stale cached PWA build
+
 ## [2.8.0] - 2026-08-25
 
 ### Added
