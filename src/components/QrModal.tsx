@@ -46,7 +46,8 @@ export default function QrModal() {
           <div style={{ fontSize: 16.5, fontWeight: 600 }}>{title}</div>
           <button onClick={closeQr} style={{ border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 32, height: 32, borderRadius: 9, fontSize: 15 }}>✕</button>
         </div>
-        <div style={{ fontSize: 12.5, opacity: 0.7, lineHeight: 1.5, marginBottom: 14 }}>{desc}</div>
+        <div style={{ fontSize: 12.5, opacity: 0.7, lineHeight: 1.5, marginBottom: 4 }}>{desc}</div>
+        <div style={{ fontSize: 11.5, opacity: 0.55, lineHeight: 1.5, marginBottom: 14 }}>เข้าใกล้จนเห็น QR ดวงเดียวเต็มกรอบเขียว — ถ้าเห็นหลายดวงพร้อมกันในกรอบ แต่ละดวงจะเล็กเกินกล้องจะอ่าน</div>
         <div style={{ position: 'relative', height: 172, borderRadius: 14, background: '#0a120e', overflow: 'hidden', marginBottom: 14 }}>
           <QrScanner active={state.qrOpen} onDecode={qrDecoded} />
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>

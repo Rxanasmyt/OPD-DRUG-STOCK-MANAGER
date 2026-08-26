@@ -35,10 +35,21 @@ export function QrScanner({ active, onDecode }: { active: boolean; onDecode: (ra
     }
 
     navigator.mediaDevices
-      .getUserMedia({ video: { facingMode: 'environment' } })
+      // Without explicit resolution constraints, some phone browsers (notably iOS Safari)
+      // default the camera stream to a low capture resolution (as low as 640×480) — plenty
+      // for a video call, not enough to resolve a QR that only fills a small part of the
+      // frame (e.g. a phone held back far enough to see several shelf labels at once). Ask
+      // for a much higher resolution; "ideal" is a hint, so this can't fail the getUserMedia
+      // call on a device/camera that can't deliver it.
+      .getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } })
       .then((s) => {
         if (cancelled) { s.getTracks().forEach((t) => t.stop()); return; }
         stream = s;
+        // Keep autofocus hunting continuously — without this some devices focus once on
+        // whatever was in frame when the camera opened (often the background) and never
+        // refocus on a label held up afterwards. Not all cameras expose this; ignore if not.
+        const [track] = s.getVideoTracks();
+        track?.applyConstraints({ advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet] }).catch(() => {});
         const video = videoRef.current;
         if (video) { video.srcObject = s; void video.play(); }
         raf = requestAnimationFrame(tick);

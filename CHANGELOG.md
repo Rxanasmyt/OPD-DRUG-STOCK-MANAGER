@@ -7,6 +7,26 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.10.3] - 2026-08-26
+
+### Fixed
+- **fix:** camera QR scanner requested no resolution constraints from `getUserMedia`, so on
+  some phone browsers (iOS Safari in particular) the actual camera stream defaults to a low
+  capture resolution — fine for a video call, not enough to resolve a QR that only fills a
+  small part of the frame. Now requests `{ width: 1920, height: 1080 } ideal`, and asks for
+  continuous autofocus on cameras that support it (some devices otherwise focus once on
+  whatever was in frame when the camera opened and never refocus on a label held up after)
+- **fix:** scan sheet now says explicitly to get close enough that only one QR fills the
+  green frame — a user pointing the camera at an entire printed sheet from a normal
+  distance was capturing 5-6 labels in one frame, each too small to decode even with a
+  correctly-sized QR on the label itself
+
+### Note
+- The QR-too-small-to-print fix from 2.10.2 still requires reprinting shelf labels — that
+  part doesn't change here. This release targets the camera side separately, since a
+  correctly-sized QR still won't scan if the camera stream itself is low-resolution or the
+  phone is held too far back to capture a single label
+
 ## [2.10.2] - 2026-08-26
 
 ### Fixed
