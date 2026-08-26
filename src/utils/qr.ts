@@ -47,7 +47,9 @@ export function qrSvgMarkup(value: string, sizePx: number): string {
   const modules = qrModules(value);
   if (!modules) return '';
   const n = modules.size;
-  const quiet = 2;
+  const quiet = 3; // wider quiet zone than the on-screen preview — printed labels get handled,
+  // creased, and shot under worse lighting than a phone screen, so give the scanner more
+  // margin to lock on
   const total = n + quiet * 2;
   const cell = sizePx / total;
   let rects = '';

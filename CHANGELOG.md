@@ -7,6 +7,24 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.10.2] - 2026-08-26
+
+### Fixed
+- **fix:** shelf-label QR stopped scanning reliably — the "larger drug name text" change
+  shrank the QR from 16mm down to 13mm to make room for bigger name text on the strip.
+  Root-caused with a synthetic decode test (render at 300dpi print resolution → simulate a
+  phone camera photographing it at typical capture resolution/blur): 13mm survives a sharp
+  close-up shot but fails as soon as any blur/distance is simulated, while ~16.6mm keeps
+  decoding under the same conditions. QR is back to ~16.6mm — bigger than the original
+  working size, not just restored — with the strip layout rebalanced (bin chip narrowed
+  slightly) so the name still prints at full size on one line. Also widened the QR's
+  built-in quiet zone (2→3 modules) for better lock-on under real-world lighting/creases.
+  **Any shelf labels already printed since that change should be reprinted** — the QR on
+  those sheets is physically too small and that can't be fixed after printing
+- **fix:** cleaned up the shelf-strip visual design (both the print sheet and the on-screen
+  preview in ระบบฉลาก QR) — thin dividers between the bin chip / QR / name sections, rounded
+  strip corners, consistent ink color, tighter tag spacing — was reported as looking rough
+
 ## [2.10.1] - 2026-08-26
 
 ### Changed

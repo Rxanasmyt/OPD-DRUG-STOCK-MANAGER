@@ -41,11 +41,11 @@ export default function LabelsScreen() {
       {state.labelType === 'med' ? (
         <div style={{ marginBottom: 14 }}>
           {rows.map((r, i) => (
-            <div key={i} style={{ background: '#fff', border: '1px solid #999', borderRadius: 6, marginBottom: 6, display: 'flex', alignItems: 'stretch', height: 58, overflow: 'hidden' }}>
-              <div style={{ flex: 'none', width: 38, background: '#f5c518', color: '#1a1a1a', fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', lineHeight: 1.1 }}>{r.bin}</div>
-              <div style={{ flex: 'none', padding: 8, display: 'flex', alignItems: 'center' }}><QrCode value={r.payload} size={34} /></div>
-              <div style={{ minWidth: 0, padding: '4px 10px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <div style={{ fontSize: TITLE_PX_BY_STEP[titleSizeStep(r.title)], fontWeight: 800, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.title}</div>
+            <div key={i} style={{ background: '#fff', border: '1px solid #999', borderRadius: 8, marginBottom: 7, display: 'flex', alignItems: 'stretch', height: 64, overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,.04)' }}>
+              <div style={{ flex: 'none', width: 34, background: '#f5c518', color: '#1a1a1a', fontWeight: 800, fontSize: 12.5, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', lineHeight: 1.1, borderRight: '1px solid #d9ac00' }}>{r.bin}</div>
+              <div style={{ flex: 'none', padding: '0 9px', display: 'flex', alignItems: 'center' }}><QrCode value={r.payload} size={46} /></div>
+              <div style={{ minWidth: 0, padding: '4px 10px', display: 'flex', flexDirection: 'column', justifyContent: 'center', borderLeft: '1px solid #e5e5e0' }}>
+                <div style={{ fontSize: TITLE_PX_BY_STEP[titleSizeStep(r.title)], fontWeight: 800, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#14231a' }}>{r.title}</div>
                 {r.tag && <div style={{ fontSize: 10.5, color: r.tagColor, fontWeight: 700, marginTop: 2 }}>{r.tag}</div>}
               </div>
             </div>

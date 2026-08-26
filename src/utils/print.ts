@@ -88,20 +88,23 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
 
   /* Real physical size: 100mm × 20mm, exactly — 2 cols × 14 rows fills an A4 page (28
      labels), so every sheet prints the same known size regardless of how many meds are
-     in the run (the last page just has empty grid cells). */
-  .strip { width: 100mm; height: 20mm; display: flex; align-items: stretch; border: 0.3mm solid #999; overflow: hidden; break-inside: avoid; }
-  .strip .bin { flex: none; width: 13mm; background: #f5c518; color: #1a1a1a; font-weight: 800; font-size: 13pt; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.05; padding: 1mm; }
-  .strip .qr { flex: none; width: 13mm; height: 13mm; margin: 3.5mm 1.5mm; }
-  .strip .meta { flex: 1; min-width: 0; padding: 0 2.5mm; display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
+     in the run (the last page just has empty grid cells). QR is sized to fill the strip's
+     full height (minus a hair of margin) — a QR shrunk to make room for bigger name text
+     stops scanning reliably once it's out of a lab's ideal lighting/printer, so the QR's
+     physical size wins that trade-off, not the name text. */
+  .strip { width: 100mm; height: 20mm; display: flex; align-items: stretch; border: 0.3mm solid #999; border-radius: 1mm; overflow: hidden; break-inside: avoid; }
+  .strip .bin { flex: none; width: 11.5mm; background: #f5c518; color: #1a1a1a; font-weight: 800; font-size: 12.5pt; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.05; padding: 1mm; border-right: 0.3mm solid #d9ac00; }
+  .strip .qr { flex: none; width: 16.6mm; height: 16.6mm; margin: 1.4mm 1.4mm 1.4mm 1.7mm; }
+  .strip .meta { flex: 1; min-width: 0; padding: 0 2.8mm; display: flex; flex-direction: column; justify-content: center; overflow: hidden; border-left: 0.25mm solid #e5e5e0; }
 
   .qr svg { width: 100%; height: 100%; }
   .title { font-size: 8pt; font-weight: 700; line-height: 1.2; margin-top: .5mm; }
   /* Drug name + strength is the thing staff actually read at a glance while shelving — one
      line only (name is pre-shortened to "generic + strength", packaging detail like "Vial"/
      "(2 mL.)" trimmed off — see shortLabelName()), sized as large as that comfortably fits. */
-  .strip .title { font-size: 17pt; font-weight: 800; margin-top: 0; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .strip .title { font-size: 17pt; font-weight: 800; margin-top: 0; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #14231a; }
   .tag { font-size: 6pt; font-weight: 700; color: #b3261e; margin-top: .5mm; }
-  .strip .tag { font-size: 8.5pt; margin-top: .8mm; }
+  .strip .tag { font-size: 8.5pt; margin-top: .8mm; letter-spacing: .02em; }
 
   @media screen {
     body { background: #eee; padding: 10mm; }
