@@ -944,22 +944,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setUserRole = useCallback(async (id: string, role: Role) => {
     const u = state.users.find((x) => x.id === id);
     if (!u || u.role === role) return;
+    // Demoting the last active admin would lock the hospital out of admin functions
+    // entirely (nobody left to approve accounts or promote anyone back) — the only recovery
+    // would be hand-editing Firestore in the Firebase console again, same as first bootstrap.
+    if (u.role === 'admin' && role !== 'admin') {
+      const activeAdmins = state.users.filter((x) => x.role === 'admin' && x.active).length;
+      if (activeAdmins <= 1) { toast('เปลี่ยนไม่ได้ — นี่คือ Admin ที่ใช้งานอยู่คนสุดท้าย ต้องมี Admin อย่างน้อย 1 คนเสมอ'); return; }
+    }
+    if (id === state.myUid && !window.confirm('คุณกำลังจะเปลี่ยนบทบาทของตัวเอง จาก ' + roleLabelFor(u.role) + ' เป็น ' + roleLabelFor(role) + ' — ยืนยันหรือไม่?')) return;
     try {
       await updateDoc(doc(db, 'users', id), { role });
       logAudit({ type: 'user_role_changed', note: 'เปลี่ยนบทบาท ' + u.name + ' จาก ' + roleLabelFor(u.role) + ' เป็น ' + roleLabelFor(role) });
     } catch (e) { console.error(e); toast('เปลี่ยนบทบาทไม่สำเร็จ'); }
-  }, [state.users, logAudit, toast]);
+  }, [state.users, state.myUid, logAudit, toast]);
 
   const toggleUserActive = useCallback(async (id: string) => {
     const u = state.users.find((x) => x.id === id);
     if (!u) return;
     const next = !u.active;
+    if (!next && u.role === 'admin') {
+      const activeAdmins = state.users.filter((x) => x.role === 'admin' && x.active).length;
+      if (activeAdmins <= 1) { toast('ปิดใช้งานไม่ได้ — นี่คือ Admin ที่ใช้งานอยู่คนสุดท้าย ต้องมี Admin อย่างน้อย 1 คนเสมอ'); return; }
+    }
+    if (id === state.myUid && !next && !window.confirm('คุณกำลังจะปิดใช้งานบัญชีของตัวเอง — จะออกจากระบบทันที และต้องให้ Admin คนอื่นเปิดให้ใหม่ ยืนยันหรือไม่?')) return;
     try {
       await updateDoc(doc(db, 'users', id), { active: next });
       logAudit({ type: u.active ? 'user_status_changed' : 'user_approved', note: (next ? (u.active === false && u.createdAt ? 'อนุมัติบัญชี ' : 'เปิดใช้งานบัญชี ') : 'ปิดใช้งานบัญชี ') + u.name });
       toast((next ? 'เปิดใช้งาน' : 'ปิดใช้งาน') + 'บัญชี ' + u.name + ' แล้ว');
     } catch (e) { console.error(e); toast('เปลี่ยนสถานะไม่สำเร็จ'); }
-  }, [state.users, logAudit, toast]);
+  }, [state.users, state.myUid, logAudit, toast]);
 
   const exportAudit = useCallback(async () => {
     const typeLabel: Record<string, string> = {

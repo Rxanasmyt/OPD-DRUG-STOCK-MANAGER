@@ -65,7 +65,10 @@ export default function AdminScreen() {
                 <div key={u.id} style={{ padding: '12px 13px', borderBottom: '1px solid var(--border-soft)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }}>{u.name}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }}>
+                        {u.name}
+                        {u.id === state.myUid && <span style={{ color: 'var(--green)', fontWeight: 700 }}> (คุณ)</span>}
+                      </div>
                       <div className="muted" style={{ fontSize: 11.5, marginTop: 1 }}>{u.dept} · @{u.username} · {u.lastLogin ? 'ล็อกอินล่าสุด ' + thDate(u.lastLogin) : 'ยังไม่เคยล็อกอิน'}</div>
                     </div>
                     <span style={{ flex: 'none', fontSize: 11, fontWeight: 700, color: 'var(--green)', background: 'var(--green-tint)', padding: '4px 9px', borderRadius: 20 }}>ใช้งานอยู่</span>

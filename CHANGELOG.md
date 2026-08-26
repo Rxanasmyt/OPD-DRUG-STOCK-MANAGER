@@ -7,6 +7,19 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.9.2] - 2026-08-25
+
+### Fixed
+- **fix:** an admin could demote or deactivate their own account (or the last remaining admin
+  account) with one tap and no confirmation — no warning, and nothing stopping it from being
+  the *only* admin, which would lock the hospital out of admin functions entirely (nobody left
+  to approve accounts or promote anyone back) short of hand-editing Firestore in the Firebase
+  console again, same as the very first bootstrap step. Now:
+  - changing your own role, or deactivating your own account, asks for confirmation first
+  - demoting or deactivating the last active admin is blocked outright, with an explanation
+  - your own row in Admin → ผู้ใช้งาน is now marked "(คุณ)" so it's obvious at a glance which
+    one is you before tapping a role button
+
 ## [2.9.1] - 2026-08-25
 
 ### Fixed
