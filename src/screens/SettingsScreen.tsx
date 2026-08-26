@@ -1,13 +1,10 @@
-import { useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { suggestPar } from '../store/selectors';
-import { nf, digitsOnly } from '../utils/format';
 
 export default function SettingsScreen() {
-  const { state, warn, applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats } = useApp();
+  const { state, warn, applyAllSuggested, recomputeUsageStats, go } = useApp();
   const canEdit = state.role !== 'tech';
-  const [q, setQ] = useState('');
-  const meds = state.meds.filter((m) => m.active && (!q.trim() || m.name.toLowerCase().indexOf(q.trim().toLowerCase()) >= 0));
+  const meds = state.meds.filter((m) => m.active);
 
   const suggestDiffCount = meds.filter((m) => {
     const s = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
@@ -38,61 +35,16 @@ export default function SettingsScreen() {
         <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 8 }}>อัตราการใช้คำนวณจากประวัติ "นำเข้าจาก HOSxP" เท่านั้น ไม่ได้อัปเดตอัตโนมัติทุกวัน — ควรกด "คำนวณสถิติการใช้ใหม่" เป็นระยะ (เช่น เดือนละครั้ง) หลังจากใช้งานนำเข้า HOSxP มาสม่ำเสมอแล้ว ถ้ากดตอนที่ยังไม่มีประวัติ HOSxP เลย ค่าจะกลายเป็น 0 ทั้งหมด</div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', margin: '0 2px 8px' }}>
-        <div style={{ fontSize: 13.5, fontWeight: 600 }}>Par level และชั้นวาง ต่อรายการ</div>
-        <div className="muted" style={{ fontSize: 11.5 }}>{meds.length} รายการ</div>
-      </div>
-      <input
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="ค้นหาชื่อยา เพื่อแก้ par หรือชั้นวาง"
-        style={{ width: '100%', border: '1px solid var(--border)', background: '#fff', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44, marginBottom: 10 }}
-      />
-      <div className="card" style={{ overflow: 'hidden' }}>
-        {meds.slice(0, 120).map((m) => {
-          const sug = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
-          const trendPct = Math.round(((m.used30 - m.usedPrev30) / Math.max(1, m.usedPrev30)) * 100);
-          const trendText = trendPct > 4 ? '↑ ใช้เพิ่มขึ้น ' + trendPct + '%' : trendPct < -4 ? '↓ ใช้ลดลง ' + Math.abs(trendPct) + '%' : '≈ ใช้คงที่';
-          const trendTone = trendPct > 4 ? 'var(--red)' : trendPct < -4 ? 'var(--green)' : 'var(--muted)';
-          const inStyle = { width: '100%', border: '1px solid ' + (canEdit ? 'var(--border)' : '#e6e7e0'), background: canEdit ? '#fff' : '#f2f3ee', color: canEdit ? 'var(--ink)' : '#8b9186', borderRadius: 8, padding: '8px 6px', fontSize: 13, textAlign: 'center' as const, minHeight: 40 };
-          return (
-            <div key={m.id} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)' }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginBottom: 7 }}>
-                <span style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1.3 }}>{m.name}</span>
-                <span style={{ flex: 'none', fontSize: 11, fontWeight: 700, color: trendTone }}>{trendText}</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 0.7fr', gap: 8 }}>
-                <div>
-                  <div className="muted" style={{ fontSize: 10.5, marginBottom: 3 }}>par substock</div>
-                  <input value={m.parSub} onChange={(e) => setParSub(m.id, digitsOnly(e.target.value))} readOnly={!canEdit} inputMode="numeric" style={inStyle} />
-                  {canEdit && sug.sub !== m.parSub && (
-                    <button onClick={() => applyOnePar(m.id, 'sub')} style={{ width: '100%', border: 0, background: 'transparent', color: 'var(--green)', fontSize: 10.5, fontWeight: 600, padding: '3px 0', textAlign: 'center' }}>แนะนำ {nf(sug.sub)} ↺</button>
-                  )}
-                </div>
-                <div>
-                  <div className="muted" style={{ fontSize: 10.5, marginBottom: 3 }}>par หน้างาน</div>
-                  <input value={m.parFloor} onChange={(e) => setParFloor(m.id, digitsOnly(e.target.value))} readOnly={!canEdit} inputMode="numeric" style={inStyle} />
-                  {canEdit && sug.floor !== m.parFloor && (
-                    <button onClick={() => applyOnePar(m.id, 'floor')} style={{ width: '100%', border: 0, background: 'transparent', color: 'var(--green)', fontSize: 10.5, fontWeight: 600, padding: '3px 0', textAlign: 'center' }}>แนะนำ {nf(sug.floor)} ↺</button>
-                  )}
-                </div>
-                <div>
-                  <div className="muted" style={{ fontSize: 10.5, marginBottom: 3 }}>ชั้นวาง</div>
-                  <input
-                    value={m.bin}
-                    onChange={(e) => setMedBin(m.id, e.target.value)}
-                    readOnly={!canEdit}
-                    placeholder="เช่น J4"
-                    style={{ ...inStyle, fontWeight: 700, textTransform: 'uppercase' as const }}
-                  />
-                </div>
-              </div>
-            </div>
-          );
-        })}
-        {meds.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ไม่พบยาที่ค้นหา</div>}
-      </div>
-      {meds.length > 120 && <div className="muted" style={{ fontSize: 11.5, textAlign: 'center', marginTop: 10 }}>แสดง 120 รายการแรก — ค้นหาชื่อยาเพื่อหารายการอื่น</div>}
+      <button
+        onClick={() => go('meds')}
+        style={{ width: '100%', textAlign: 'left', border: '1px solid var(--border)', background: '#fff', borderRadius: 12, padding: '13px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, minHeight: 56 }}
+      >
+        <span>
+          <span style={{ fontSize: 13.5, fontWeight: 600 }}>แก้ par substock / par หน้างาน / ชั้นวาง รายตัว</span>
+          <span className="muted" style={{ display: 'block', fontSize: 11.5, marginTop: 2 }}>ไปที่ "จัดการรายการยา" — แก้ได้ทุกฟิลด์ของยาแต่ละตัวในที่เดียว ({meds.length} รายการ)</span>
+        </span>
+        <span style={{ color: 'var(--green)', fontSize: 16, flex: 'none' }}>→</span>
+      </button>
     </div>
   );
 }

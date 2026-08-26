@@ -7,6 +7,26 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.10.1] - 2026-08-26
+
+### Changed
+- **refactor:** removed the now-duplicated per-item par/ชั้นวาง editing list from "ตั้งค่า
+  par level และชั้นวาง" — since v2.10.0 added full per-med editing (ชื่อ/ขนาด/หน่วย/ราคา/par/
+  ชั้นวาง) to จัดการรายการยา, having the same par+bin fields editable in two separate screens
+  was confusing and risked the two forms drifting apart. Settings screen now keeps only what
+  จัดการรายการยา doesn't cover — the global "par อัตโนมัติจากสถิติการใช้" bulk actions and the
+  expiry-warning-days display — plus a link into จัดการรายการยา for per-item edits. Renamed the
+  More-screen menu entry to "par อัตโนมัติ & เกณฑ์แจ้งเตือน" so it no longer reads as a duplicate
+  of "จัดการรายการยา"
+
+### Verified (no code change)
+- **QR-to-data real-time:** confirmed printed QR labels always resolve against live data —
+  the QR only encodes the med's stable `code` (e.g. `MED-0035`), never a snapshot of its
+  name/price/par, and scanning always looks it up in `state.meds`, which is kept live by an
+  always-on Firestore `onSnapshot` listener. So editing a med in จัดการรายการยา and then
+  re-scanning its already-printed label shows the update immediately, with no re-print needed —
+  this was already true by construction, not a new fix
+
 ## [2.10.0] - 2026-08-25
 
 ### Added
