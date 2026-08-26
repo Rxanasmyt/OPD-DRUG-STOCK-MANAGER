@@ -42,6 +42,8 @@ function freshState(): AppState {
 
     countInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false,
 
+    medsFocusId: null,
+
     adminTab: 'users', auditFilter: 'all',
     historyFrom: '', historyTo: '', historyResults: null, historyLoading: false,
 
@@ -123,8 +125,10 @@ export interface AppCtx {
 
   // meds (formulary) management
   addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number }) => void;
+  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number }) => void;
   toggleMedActive: (medId: string) => void;
   deleteMed: (medId: string) => void;
+  setMedsFocusId: (id: string | null) => void;
 
   // count
   setCountInput: (medId: string, v: string) => void;
@@ -767,6 +771,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { console.error(e); toast('เพิ่มยาไม่สำเร็จ'); }
   }, [canEditPar, state.meds, logAudit, toast]);
 
+  // One consolidated save for everything about a med someone would want to fix in one place
+  // — name/strength (kept together in `name`, same as everywhere else), dosage form, unit,
+  // price, high-alert flag, shelf/bin, and both par levels — instead of hunting across
+  // separate screens. `code` (the QR/label identifier) is deliberately never touched here —
+  // labels already printed with it must keep resolving to this med.
+  const updateMedFull = useCallback(async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number }) => {
+    if (!canEditPar) return;
+    const name = input.name.trim();
+    if (!name) { toast('กรอกชื่อยาก่อน'); return; }
+    const patch = {
+      name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
+      price: input.price || 0, had: input.had,
+      bin: input.bin.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8),
+      parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0),
+    };
+    try {
+      await updateDoc(doc(db, 'meds', medId), patch);
+      logAudit({ type: 'med_edited', note: 'แก้ไขข้อมูลยา ' + name });
+      toast('บันทึกข้อมูล ' + name + ' แล้ว');
+    } catch (e) { console.error(e); toast('บันทึกไม่สำเร็จ'); }
+  }, [canEditPar, logAudit, toast]);
+
   const toggleMedActive = useCallback(async (medId: string) => {
     if (!canEditPar) return;
     const m = state.meds.find((x) => x.id === medId);
@@ -795,6 +821,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast('ลบ ' + m.name + ' แล้ว');
     } catch (e) { console.error(e); toast('ลบไม่สำเร็จ'); }
   }, [canEditPar, state, logAudit, toast]);
+
+  const setMedsFocusId = useCallback((id: string | null) => patch({ medsFocusId: id }), [patch]);
 
   // ---------- count ----------
   const setCountInput = useCallback((medId: string, v: string) => patch((st) => ({ countInputs: { ...st.countInputs, [medId]: digitsOnly(v) } })), [patch]);
@@ -921,6 +949,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    if (purpose === 'viewMed') {
+      if (payload.t === 'loc') { toast('QR นี้เป็นตำแหน่งชั้นวาง ไม่ใช่ตัวยา — สแกนที่ฉลากตัวยาแทน'); return; }
+      const med = resolveMed(payload);
+      if (!med) { toast('ไม่พบรายการนี้ในระบบ — QR อาจมาจากฉลากรุ่นเก่า ลองพิมพ์ฉลากใหม่'); return; }
+      patch({ qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', screen: 'meds', medsFocusId: med.id });
+      return;
+    }
+
     // forcing function: qrPurpose holds the exact medId that must be scanned
     const target = state.meds.find((m) => m.id === purpose);
     if (target) {
@@ -988,7 +1024,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const exportAudit = useCallback(async () => {
     const typeLabel: Record<string, string> = {
       login: 'เข้าสู่ระบบ', user_registered: 'สมัครสมาชิก', user_approved: 'อนุมัติบัญชี', user_role_changed: 'เปลี่ยนบทบาท', user_status_changed: 'เปิด/ปิดบัญชี', par_updated: 'ปรับ par level', qr_manual: 'กรอกรหัส QR ด้วยมือ',
-      med_added: 'เพิ่มยาใหม่', med_status_changed: 'เปิด/ปิดใช้งานยา', med_deleted: 'ลบยาถาวร',
+      med_added: 'เพิ่มยาใหม่', med_edited: 'แก้ไขข้อมูลยา', med_status_changed: 'เปิด/ปิดใช้งานยา', med_deleted: 'ลบยาถาวร',
       receive_from_central: 'รับเข้า substock', receive_pending: 'รับเข้า (รออนุมัติ)', transfer_to_floor: 'เติมหน้างาน',
       adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP',
     };
@@ -1057,7 +1093,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setReportTab, exportReportCsv,
     setLabelType, printLabels,
     applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats,
-    addMed, toggleMedActive, deleteMed,
+    addMed, updateMedFull, toggleMedActive, deleteMed, setMedsFocusId,
     setCountInput, commitCount,
     setHosxpText, processHosxp, setHosxpConfirmFuzzy, commitReconcile,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,

@@ -8,14 +8,14 @@ export default function QrModal() {
 
   const isReceive = state.qrPurpose === 'receive';
   const isTransfer = state.qrPurpose === 'transfer';
-  const isSearch = state.qrPurpose === 'search';
-  const title = isReceive ? 'สแกน QR ยาที่ substock' : isTransfer ? 'สแกน QR ยาที่ชั้นจ่ายยา' : isSearch ? 'สแกนฉลากยา / ชั้นวาง' : 'ยืนยันยา high alert';
+  const isViewMed = state.qrPurpose === 'viewMed';
+  const title = isReceive ? 'สแกน QR ยาที่ substock' : isTransfer ? 'สแกน QR ยาที่ชั้นจ่ายยา' : isViewMed ? 'สแกนดูข้อมูลยา' : 'ยืนยันยา high alert';
   const desc = isReceive
     ? 'สแกน QR ที่ติดหน้ายาในชั้น substock — ระบบจะระบุตัวยาให้ทันที แล้วกรอก lot วันหมดอายุ และจำนวนที่รับ'
     : isTransfer
     ? 'สแกน QR ที่ติดชั้นจ่ายยา — ระบบจะเปิดรายการยานั้นให้ปรับจำนวนที่จะเติม'
-    : isSearch
-    ? 'จ่อกล้องที่ QR บนกล่องยาหรือขอบชั้น ระบบจะเปิดรายการนั้นให้ทันที'
+    : isViewMed
+    ? 'สแกน QR ที่ฉลากตัวยาหรือ lot — ระบบจะเปิดข้อมูลยารายการนั้นให้แก้ไขได้ทันที'
     : 'forcing function — ต้องสแกน QR ที่ตัวยาให้ตรงกับรายการก่อนทำรายการต่อ';
 
   const corner = (top: boolean, left: boolean): CSSProperties => ({

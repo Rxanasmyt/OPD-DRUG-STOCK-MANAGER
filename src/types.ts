@@ -167,6 +167,8 @@ export interface AppState {
   hosxpRows: { name: string; qty: number; match: HosxpMatch }[] | null;
   hosxpConfirmFuzzy: boolean;
 
+  medsFocusId: string | null;
+
   adminTab: AdminTab;
   auditFilter: AuditFilter;
   historyFrom: string;

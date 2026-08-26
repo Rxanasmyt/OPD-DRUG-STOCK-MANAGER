@@ -7,6 +7,21 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.10.0] - 2026-08-25
+
+### Added
+- **feat:** full medication editing, all in one place — จัดการรายการยา now has "แก้ไขข้อมูล" per
+  row, opening the same form used to add a new med (pre-filled): ชื่อยา+ขนาด, รูปแบบยา, หน่วย,
+  ราคา/หน่วย, high-alert flag, ชั้นวาง, and both par levels, saved together in one write.
+  Previously name/dosage form/unit/price could only be set once at creation — there was no way
+  to fix a typo, a price change, or a wrong unit on an existing med short of deleting and
+  re-adding it (which itself only works at zero stock). `code` (the identifier already printed
+  on QR labels) is never touched by an edit, so existing labels keep resolving correctly
+- **feat:** "สแกนดูข้อมูลยา" (▣ button, จัดการรายการยา) — scan a med or lot label's real QR and
+  jump straight to that med's edit panel, scrolled into view, instead of hunting through the
+  list. Connects the QR labels actually to something: print → stick on the shelf → scan →
+  see/edit that exact drug's full record
+
 ## [2.9.3] - 2026-08-25
 
 ### Fixed
