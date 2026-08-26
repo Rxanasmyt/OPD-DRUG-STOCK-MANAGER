@@ -7,6 +7,15 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.8.2] - 2026-08-25
+
+### Changed
+- **feat:** larger drug name/strength text on the shelf-tag label — bumped from 12pt to
+  15.5pt (up in the on-screen preview too), by shrinking the bin-code chip and QR modestly
+  (still 13mm, comfortably scannable at arm's length) to give the name more width. Verified
+  with a headless render that the larger text still fits its two-line limit cleanly at the
+  label's real 20×100mm print size
+
 ## [2.8.1] - 2026-08-25
 
 ### Added

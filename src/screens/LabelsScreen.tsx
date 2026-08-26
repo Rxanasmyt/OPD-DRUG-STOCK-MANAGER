@@ -35,12 +35,12 @@ export default function LabelsScreen() {
       {state.labelType === 'med' ? (
         <div style={{ marginBottom: 14 }}>
           {rows.map((r, i) => (
-            <div key={i} style={{ background: '#fff', border: '1px solid #999', borderRadius: 6, marginBottom: 6, display: 'flex', alignItems: 'stretch', height: 54, overflow: 'hidden' }}>
-              <div style={{ flex: 'none', width: 44, background: '#f5c518', color: '#1a1a1a', fontWeight: 800, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', lineHeight: 1.1 }}>{r.bin}</div>
-              <div style={{ flex: 'none', padding: 6, display: 'flex', alignItems: 'center' }}><QrCode value={r.payload} size={40} /></div>
+            <div key={i} style={{ background: '#fff', border: '1px solid #999', borderRadius: 6, marginBottom: 6, display: 'flex', alignItems: 'stretch', height: 58, overflow: 'hidden' }}>
+              <div style={{ flex: 'none', width: 38, background: '#f5c518', color: '#1a1a1a', fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', lineHeight: 1.1 }}>{r.bin}</div>
+              <div style={{ flex: 'none', padding: 8, display: 'flex', alignItems: 'center' }}><QrCode value={r.payload} size={34} /></div>
               <div style={{ minWidth: 0, padding: '4px 10px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.25 }}>{r.title}</div>
-                {r.tag && <div style={{ fontSize: 10, color: r.tagColor, fontWeight: 700, marginTop: 2 }}>{r.tag}</div>}
+                <div style={{ fontSize: 15.5, fontWeight: 800, lineHeight: 1.2 }}>{r.title}</div>
+                {r.tag && <div style={{ fontSize: 10.5, color: r.tagColor, fontWeight: 700, marginTop: 2 }}>{r.tag}</div>}
               </div>
             </div>
           ))}

@@ -81,15 +81,17 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
      labels), so every sheet prints the same known size regardless of how many meds are
      in the run (the last page just has empty grid cells). */
   .strip { width: 100mm; height: 20mm; display: flex; align-items: stretch; border: 0.3mm solid #999; overflow: hidden; break-inside: avoid; }
-  .strip .bin { flex: none; width: 15mm; background: #f5c518; color: #1a1a1a; font-weight: 800; font-size: 13.5pt; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.05; padding: 1mm; }
-  .strip .qr { flex: none; width: 16mm; height: 16mm; margin: 2mm 1.5mm; }
+  .strip .bin { flex: none; width: 13mm; background: #f5c518; color: #1a1a1a; font-weight: 800; font-size: 13pt; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.05; padding: 1mm; }
+  .strip .qr { flex: none; width: 13mm; height: 13mm; margin: 3.5mm 1.5mm; }
   .strip .meta { flex: 1; min-width: 0; padding: 0 2.5mm; display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
 
   .qr svg { width: 100%; height: 100%; }
   .title { font-size: 8pt; font-weight: 700; line-height: 1.2; margin-top: .5mm; }
-  .strip .title { font-size: 12pt; font-weight: 800; margin-top: 0; line-height: 1.15; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  /* Drug name + strength is the thing staff actually read at a glance while shelving —
+     sized as large as the strip comfortably fits, bin code and QR shrunk to make room. */
+  .strip .title { font-size: 15.5pt; font-weight: 800; margin-top: 0; line-height: 1.12; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .tag { font-size: 6pt; font-weight: 700; color: #b3261e; margin-top: .5mm; }
-  .strip .tag { font-size: 8pt; margin-top: .8mm; }
+  .strip .tag { font-size: 8.5pt; margin-top: .8mm; }
 
   @media screen {
     body { background: #eee; padding: 10mm; }
