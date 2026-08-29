@@ -8,7 +8,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
-  AppState, Med, Role, Screen, AdjType, RecvItem, TxType, User, AuthMode,
+  AppState, Med, Role, Screen, AdjType, RecvItem, TxType, User, AuthMode, PendingReceive,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY } from './selectors';
@@ -31,6 +31,7 @@ function freshState(): AppState {
     cart: {}, search: '', filter: 'low',
 
     recvNo: 'REQ-6908-' + (140 + (Date.now() % 9)), recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
+    pendingReceives: [],
 
     adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '',
 
@@ -95,6 +96,8 @@ export interface AppCtx {
   addRecv: () => void;
   removeRecvItem: (i: number) => void;
   commitReceive: () => void;
+  approvePendingReceive: (id: string) => void;
+  rejectPendingReceive: (id: string, reason: string) => void;
   goReceiveFor: (medId: string) => void;
 
   // adjust
@@ -258,6 +261,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       onSnapshot(query(collection(db, 'auditLog'), orderBy('ts', 'desc'), limit(300)), (snap) => {
         patch({ authLog: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as AppState['authLog'] });
       }),
+      // Receives submitted by a ผู้ช่วยเภสัชกร (tech) sit here until a pharmacist/admin
+      // approves them — everyone who can see the receive screen needs the live list (tech
+      // to see their own request's status, pharm/admin to actually act on it).
+      onSnapshot(query(collection(db, 'pendingReceives'), orderBy('ts', 'desc'), limit(200)), (snap) => {
+        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as PendingReceive[];
+        patch({ pendingReceives: rows, pending: rows.filter((r) => r.status === 'pending').length });
+      }),
     ];
     if (myProfile?.role === 'admin') {
       unsubs.push(onSnapshot(collection(db, 'users'), (snap) => {
@@ -270,6 +280,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const sub = useCallback((medId: string) => subQty(state, medId), [state]);
   const fefo = useCallback((medId: string) => fefoLot(state, medId), [state]);
   const userName = useCallback(() => myProfile?.name || '', [myProfile]);
+  const canEditPar = myProfile?.role !== 'tech';
   const roleLabel = useCallback(() => roleLabelFor(state.role), [state.role]);
   const roleLabelOf = useCallback((r: Role) => roleLabelFor(r), []);
   const warn = useCallback(() => state.expiryWarnDays, [state.expiryWarnDays]);
@@ -496,13 +507,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const batch = writeBatch(db);
       if (!approve) {
+        // Structured pending record per item — carries the actual medId/lot/exp/qty needed
+        // to create real stock later, not just a human-readable note. A pharmacist/admin
+        // approves each one from the "รออนุมัติ" list on this same screen (or rejects it
+        // with a reason); nothing here touches meds/lots stock until that happens.
         items.forEach((it) => {
-          batch.set(doc(collection(db, 'txs')), {
-            type: 'receive_pending' as TxType, name: it.name, qty: it.qty, unit: it.unit,
-            note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' — รออนุมัติ', loc: 'substock', by: userName(), ts: Date.now(),
+          batch.set(doc(collection(db, 'pendingReceives')), {
+            recvNo: state.recvNo, medId: it.medId, name: it.name, unit: it.unit, lotNo: it.lotNo, exp: it.exp, qty: it.qty,
+            requestedBy: userName(), requestedByUid: state.myUid, status: 'pending', ts: Date.now(),
           });
         });
         await batch.commit();
+        await logAudit({ type: 'receive_pending', note: 'ใบเบิก ' + state.recvNo + ' · ' + items.length + ' รายการ — รออนุมัติ' });
         setState((st) => ({
           ...st, screen: 'done', prevScreen: st.screen, doneKind: 'recvPending',
           doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + it.lotNo + ' · exp ' + thDate(it.exp), qty: nf(it.qty) + ' ' + it.unit })),
@@ -527,7 +543,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       console.error(e);
       toast('บันทึกใบรับไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }, [state.recvItems, state.recvNo, myProfile, userName, toast]);
+  }, [state.recvItems, state.recvNo, state.myUid, myProfile, userName, toast, logAudit]);
+
+  // Approve a pending receive — creates the real lot + receive_from_central tx, exactly
+  // what the immediate (pharm/admin) receive path does. Wrapped in a transaction so two
+  // people approving the same request at once can't both create the stock twice: the
+  // second one sees status is no longer 'pending' and aborts cleanly.
+  const approvePendingReceive = useCallback(async (id: string) => {
+    if (!canEditPar) return;
+    try {
+      await runTransaction(db, async (trx) => {
+        const ref = doc(db, 'pendingReceives', id);
+        const snap = await trx.get(ref);
+        const pr = snap.data() as PendingReceive | undefined;
+        if (!pr || pr.status !== 'pending') throw new Error('already-resolved');
+        trx.set(doc(collection(db, 'lots')), { code: 'LOT-' + pr.medId.slice(1) + '-n' + Date.now(), medId: pr.medId, lotNo: pr.lotNo, exp: pr.exp, qty: pr.qty, loc: 'ชั้น bulk' });
+        trx.set(doc(collection(db, 'txs')), {
+          type: 'receive_from_central' as TxType, name: pr.name, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'substock',
+          note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + ' — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
+        });
+        trx.update(ref, { status: 'approved', resolvedBy: userName(), resolvedTs: Date.now() });
+      });
+      toast('อนุมัติรับเข้าแล้ว');
+    } catch (e) {
+      if ((e as Error)?.message === 'already-resolved') { toast('รายการนี้ถูกอนุมัติหรือปฏิเสธไปแล้ว'); return; }
+      console.error(e); toast('อนุมัติไม่สำเร็จ ลองใหม่อีกครั้ง');
+    }
+  }, [canEditPar, userName, toast]);
+
+  const rejectPendingReceive = useCallback(async (id: string, reason: string) => {
+    if (!canEditPar) return;
+    const pr = state.pendingReceives.find((r) => r.id === id);
+    if (!pr) return;
+    try {
+      await runTransaction(db, async (trx) => {
+        const ref = doc(db, 'pendingReceives', id);
+        const snap = await trx.get(ref);
+        const cur = snap.data() as PendingReceive | undefined;
+        if (!cur || cur.status !== 'pending') throw new Error('already-resolved');
+        trx.update(ref, { status: 'rejected', resolvedBy: userName(), resolvedTs: Date.now(), rejectReason: reason || '—' });
+      });
+      await logAudit({ type: 'receive_rejected', note: 'ปฏิเสธใบเบิก ' + pr.recvNo + ' · ' + pr.name + ' ' + nf(pr.qty) + ' ' + pr.unit + ' (คำขอของ ' + pr.requestedBy + ') — เหตุผล: ' + (reason || '—') });
+      toast('ปฏิเสธรายการแล้ว');
+    } catch (e) {
+      if ((e as Error)?.message === 'already-resolved') { toast('รายการนี้ถูกอนุมัติหรือปฏิเสธไปแล้ว'); return; }
+      console.error(e); toast('ปฏิเสธไม่สำเร็จ ลองใหม่อีกครั้ง');
+    }
+  }, [canEditPar, state.pendingReceives, userName, toast, logAudit]);
 
   // ---------- adjust ----------
   const pickAdjType = useCallback((t: AdjType) => patch({ adjType: t, adjMed: null, adjReason: '' }), [patch]);
@@ -643,8 +705,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.meds, state.lots, state.labelType, state.expiryWarnDays, toast]);
 
   // ---------- settings / par ----------
-  const canEditPar = myProfile?.role !== 'tech';
-
   const applyOnePar = useCallback(async (medId: string, which: 'sub' | 'floor') => {
     if (!canEditPar) return;
     const m = state.meds.find((x) => x.id === medId);
@@ -1025,7 +1085,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const typeLabel: Record<string, string> = {
       login: 'เข้าสู่ระบบ', user_registered: 'สมัครสมาชิก', user_approved: 'อนุมัติบัญชี', user_role_changed: 'เปลี่ยนบทบาท', user_status_changed: 'เปิด/ปิดบัญชี', par_updated: 'ปรับ par level', qr_manual: 'กรอกรหัส QR ด้วยมือ',
       med_added: 'เพิ่มยาใหม่', med_edited: 'แก้ไขข้อมูลยา', med_status_changed: 'เปิด/ปิดใช้งานยา', med_deleted: 'ลบยาถาวร',
-      receive_from_central: 'รับเข้า substock', receive_pending: 'รับเข้า (รออนุมัติ)', transfer_to_floor: 'เติมหน้างาน',
+      receive_from_central: 'รับเข้า substock', receive_pending: 'รับเข้า (รออนุมัติ)', receive_rejected: 'ปฏิเสธคำขอรับเข้า', transfer_to_floor: 'เติมหน้างาน',
       adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP',
     };
     // Same reasoning as exportReportCsv — the live subscriptions are capped at 300 each for
@@ -1088,7 +1148,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     state, myProfile, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, go, back,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, signIn, signUp, logout, setDevice, seedDatabase,
     setSearch, setFilter, bump, setCartQty, fillAll, removeFromCart, commitTransfer,
-    setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, goReceiveFor,
+    setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive,
+    approvePendingReceive, rejectPendingReceive, goReceiveFor,
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
     setReportTab, exportReportCsv,
     setLabelType, printLabels,

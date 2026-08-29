@@ -64,6 +64,7 @@ export type AuthMode = 'login' | 'register';
 
 export type AuditType =
   | 'login' | 'user_registered' | 'user_approved' | 'user_role_changed' | 'user_status_changed' | 'par_updated'
+  | 'receive_rejected'
   | TxType;
 
 export interface AuditEntry {
@@ -81,6 +82,28 @@ export interface RecvItem {
   lotNo: string;
   exp: number;
   qty: number;
+}
+
+/** A receive submitted by a ผู้ช่วยเภสัชกร (tech) — doesn't touch stock until a pharmacist/
+ * admin approves it. Lives in its own collection (not just an audit-log line) so there's
+ * something structured enough to actually approve: the real medId/lot/exp/qty needed to
+ * create the lot once approved, not just a human-readable note. */
+export interface PendingReceive {
+  id: string;
+  recvNo: string;
+  medId: string;
+  name: string;
+  unit: string;
+  lotNo: string;
+  exp: number;
+  qty: number;
+  requestedBy: string;
+  requestedByUid: string;
+  ts: number;
+  status: 'pending' | 'approved' | 'rejected';
+  resolvedBy?: string;
+  resolvedTs?: number;
+  rejectReason?: string;
 }
 
 export type Screen =
@@ -140,6 +163,7 @@ export interface AppState {
   recvExp: string;
   recvQty: string;
   recvItems: RecvItem[];
+  pendingReceives: PendingReceive[];
 
   adjType: AdjType | null;
   adjSearch: string;

@@ -27,9 +27,10 @@ export default function ReportScreen() {
   const maxVal = Math.max(1, ...buckets.map((b) => b.value));
   const riskValue = buckets[0].value + buckets[1].value + buckets[2].value;
 
+  const turnRate = (m: (typeof meds)[number]) => m.used30 / Math.max(1, m.parFloor);
   const turnRows = meds
     .slice()
-    .sort((a, b) => b.used30 / Math.max(1, a.parFloor) - a.used30 / Math.max(1, b.parFloor))
+    .sort((a, b) => turnRate(b) - turnRate(a))
     .slice(0, 30)
     .map((m) => {
       const onHand = m.floor + subQty(state, m.id);

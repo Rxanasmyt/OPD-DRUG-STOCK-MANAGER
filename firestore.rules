@@ -84,6 +84,21 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // ---- receives submitted by a ผู้ช่วยเภสัชกร (tech), waiting on a pharmacist/admin to
+    // approve before they touch real stock. Any active staff can read (a tech needs to see
+    // their own request's status) and create their own (status must start 'pending', and the
+    // requester field must be themself — no submitting on someone else's behalf, no
+    // pre-approving your own request). Only pharm/admin can update (approve/reject) — a tech
+    // is intentionally excluded even from touching their own submission after the fact. ----
+    match /pendingReceives/{id} {
+      allow read: if isActive();
+      allow create: if isActive()
+                    && request.resource.data.requestedByUid == request.auth.uid
+                    && request.resource.data.status == 'pending';
+      allow update: if isPharmOrAdmin();
+      allow delete: if false;
+    }
+
     // ---- shared settings (expiry warning days, par cover days) ----
     match /meta/{doc} {
       allow read: if isActive();

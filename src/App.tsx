@@ -106,13 +106,22 @@ export default function App() {
       <nav style={{ flex: 'none', display: 'flex', background: 'rgba(255,255,255,.88)', backdropFilter: 'blur(14px) saturate(1.5)', WebkitBackdropFilter: 'blur(14px) saturate(1.5)', borderTop: '1px solid var(--border)', boxShadow: '0 -4px 14px -8px rgba(18,33,26,.15)', position: 'relative', zIndex: 3, paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
         {NAV_DEF.map(([s, label, icon]) => {
           const active = state.screen === s;
+          // A pending receive is real, actionable work sitting on someone's desk — pharm/admin
+          // need to notice it without hunting for it, so badge the "รับเข้า" tab with a live
+          // count from the same subscription the receive screen's own list uses.
+          const badge = s === 'receive' && state.role !== 'tech' ? state.pending : 0;
           return (
             <button
               key={s}
               onClick={() => go(s)}
               style={{ flex: 1, border: 0, background: 'transparent', padding: '9px 2px 10px', minHeight: 66, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, position: 'relative' }}
             >
-              <span style={{ fontSize: 18, lineHeight: 1, color: active ? 'var(--green)' : '#8b9186', transform: active ? 'translateY(-1px) scale(1.08)' : 'none', transition: 'transform var(--dur) var(--ease-out), color var(--dur) var(--ease)' }}>{icon}</span>
+              <span style={{ position: 'relative', fontSize: 18, lineHeight: 1, color: active ? 'var(--green)' : '#8b9186', transform: active ? 'translateY(-1px) scale(1.08)' : 'none', transition: 'transform var(--dur) var(--ease-out), color var(--dur) var(--ease)' }}>
+                {icon}
+                {badge > 0 && (
+                  <span style={{ position: 'absolute', top: -5, right: -9, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 8, background: 'var(--amber)', color: '#1a1a1a', fontSize: 9.5, fontWeight: 800, lineHeight: '15px', textAlign: 'center' }}>{badge}</span>
+                )}
+              </span>
               <span style={{ fontSize: 11, fontWeight: 600, color: active ? 'var(--green)' : '#8b9186', whiteSpace: 'nowrap' }}>{label}</span>
               <span style={{ position: 'absolute', top: 0, left: '50%', width: active ? '56%' : 0, height: 2.5, background: 'var(--green)', borderRadius: '0 0 3px 3px', transform: 'translateX(-50%)', transition: 'width var(--dur) var(--ease-out)' }} />
             </button>

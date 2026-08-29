@@ -4,7 +4,7 @@ export default function DoneScreen() {
   const { state, go, doneAgain } = useApp();
   const title = state.doneKind === 'receive' ? 'รับเข้า substock สำเร็จ' : state.doneKind === 'recvPending' ? 'ส่งให้เภสัชกรอนุมัติแล้ว' : 'เติมหน้างานสำเร็จ';
   const sub = state.doneKind === 'recvPending'
-    ? 'ยอดจะเข้าสต็อกเมื่อเภสัชกรกดอนุมัติ · แจ้งเตือนถูกส่งไปแล้ว'
+    ? 'ยอดจะเข้าสต็อกก็ต่อเมื่อเภสัชกร/แอดมินกดอนุมัติในหน้า "รับยาเข้า" — รายการอยู่ในสถานะรออนุมัติแล้ว'
     : state.online ? 'บันทึกและ audit trail แล้ว' : 'บันทึกไว้ในเครื่อง จะ sync ให้เมื่อกลับมาออนไลน์';
 
   return (

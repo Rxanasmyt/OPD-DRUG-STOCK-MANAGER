@@ -7,6 +7,44 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.11.0] - 2026-08-26
+
+### ⚠️ Requires a manual step — Firestore rules
+This release adds a new `pendingReceives` collection. **`firestore.rules` must be
+re-published to the Firebase Console** (Firestore Database → Rules tab → paste the whole
+file → Publish) or the new approval feature below will fail with permission-denied for
+everyone. Same manual step as always — this session can't push Firestore rules itself.
+
+### Fixed
+- **fix (real bug, not cosmetic):** "รับยาเข้า substock" submitted by a ผู้ช่วยเภสัชกร (tech)
+  said "ส่งให้เภสัชกรอนุมัติแล้ว" (sent to a pharmacist for approval), but no approval screen,
+  button, or workflow existed anywhere in the app — the submission wrote a loose note into
+  the tx log and then went nowhere. The stock those items represented was never actually
+  added to substock, ever, for any tech-submitted receive since the app existed — a silent,
+  permanent stock-tracking gap with zero error or indication anything was wrong. Built the
+  real workflow: a submission now creates a structured `pendingReceives` record with the
+  actual medId/lot/exp/qty; a "รออนุมัติ" list on the same "รับเข้า" screen shows pharm/admin
+  every open request with อนุมัติ/ปฏิเสธ buttons (approve creates the real lot + tx, exactly
+  what the direct-approve path already did; reject asks for a reason and logs it to audit).
+  A tech sees their own pending requests and status on the same screen. Added a live count
+  badge on the "รับเข้า" bottom-nav tab for pharm/admin so an open request doesn't go
+  unnoticed. Both approve and reject run inside a Firestore transaction so two people acting
+  on the same request at once can't double-approve it
+- **fix:** Turnover report (รายงาน → Turnover) sorted by a cross-referenced ratio —
+  `b.used30 / a.parFloor` instead of each drug's own `used30 / parFloor` — so the "highest
+  turnover first" ordering was essentially random, not actually sorted by turnover. This was
+  a display-only bug (the CSV export was unaffected, and no stock numbers were wrong), but a
+  real one: a pharmacist scanning that screen top-to-bottom to prioritize stock reviews was
+  looking at the wrong order the whole time
+
+### Verified working (no change needed)
+- Self-audited the rest of the app's screens/actions against this same standard —
+  home dashboard tiles, transfer (FEFO + cart + high-alert QR gate), receive (direct path),
+  adjust/return/damaged/expired, count reconciliation, HOSxP reconcile + fuzzy-match
+  confirmation, CSV exports (aging/turnover/discrepancy/audit), labels/QR print+scan, par
+  suggestions, user approval + role/last-admin guards, audit history search — all wired to
+  real Firestore reads/writes with no dead-end buttons or silent no-ops found
+
 ## [2.10.3] - 2026-08-26
 
 ### Fixed

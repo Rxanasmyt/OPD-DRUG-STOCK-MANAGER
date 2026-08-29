@@ -1,10 +1,10 @@
 import { useApp } from '../store/AppContext';
-import { nf, thDate } from '../utils/format';
+import { nf, thDate, thTime } from '../utils/format';
 
 export default function ReceiveScreen() {
   const {
     state, sub, setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty,
-    addRecv, removeRecvItem, commitReceive, openScanSearch,
+    addRecv, removeRecvItem, commitReceive, approvePendingReceive, rejectPendingReceive, openScanSearch,
   } = useApp();
 
   const recvMed = state.recvMed ? state.meds.find((m) => m.id === state.recvMed) : null;
@@ -12,9 +12,45 @@ export default function ReceiveScreen() {
     ? state.meds.filter((m) => m.active && m.name.toLowerCase().indexOf(state.recvSearch.trim().toLowerCase()) >= 0).slice(0, 12)
     : [];
   const canApprove = state.role !== 'tech';
+  const pending = state.pendingReceives.filter((r) => r.status === 'pending');
+  const myPending = pending.filter((r) => r.requestedByUid === state.myUid);
 
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
+      {(canApprove ? pending.length > 0 : myPending.length > 0) && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 600, margin: '0 2px 8px', color: 'var(--amber-ink)' }}>
+            {canApprove ? `รออนุมัติ (${pending.length})` : `คำขอของคุณที่ยังรออนุมัติ (${myPending.length})`}
+          </div>
+          <div className="card" style={{ overflow: 'hidden', borderColor: 'var(--amber)' }}>
+            {(canApprove ? pending : myPending).map((r) => (
+              <div key={r.id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                  <span style={{ fontSize: 13.5, fontWeight: 600, minWidth: 0 }}>{r.name}</span>
+                  <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--green)', flex: 'none' }}>{nf(r.qty)} {r.unit}</span>
+                </div>
+                <div className="muted" style={{ fontSize: 11.5, marginTop: 3, lineHeight: 1.45 }}>
+                  ใบเบิก {r.recvNo} · lot {r.lotNo} · exp {thDate(r.exp)} · ขอโดย {r.requestedBy} เมื่อ {thDate(r.ts)} {thTime(r.ts)}
+                </div>
+                {canApprove ? (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <button onClick={() => approvePendingReceive(r.id)} style={{ flex: 1, border: 0, background: 'var(--green)', color: '#fff', padding: '8px 10px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}>อนุมัติ</button>
+                    <button
+                      onClick={() => { const reason = window.prompt('เหตุผลที่ปฏิเสธ (จะบันทึกลง audit log)'); if (reason !== null) rejectPendingReceive(r.id, reason.trim()); }}
+                      style={{ flex: 1, border: '1px solid var(--red)', background: '#fff', color: 'var(--red)', padding: '8px 10px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}
+                    >
+                      ปฏิเสธ
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11.5, color: 'var(--amber-ink)', marginTop: 6, fontWeight: 600 }}>รอเภสัชกร/แอดมินอนุมัติ</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid-2" style={{ marginBottom: 12 }}>
         <label>
           <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>เลขที่ใบเบิก</span>
