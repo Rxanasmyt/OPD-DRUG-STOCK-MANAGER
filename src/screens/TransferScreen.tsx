@@ -53,7 +53,7 @@ export default function TransferScreen() {
             placeholder="ค้นหาชื่อยา / สแกน QR"
             style={{ flex: 1, minWidth: 0, border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 13px', fontSize: 14, minHeight: 44 }}
           />
-          <button onClick={() => openScanSearch('transfer')} style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, width: 46, minHeight: 44, fontSize: 17, flex: 'none' }}>▣</button>
+          <button onClick={() => openScanSearch('transfer')} title="สแกน QR เติมหน้างาน" style={{ border: '1px solid var(--green)', background: 'var(--green-tint)', color: 'var(--green)', borderRadius: 10, width: 46, minHeight: 44, fontSize: 17, flex: 'none' }}>▣</button>
         </div>
         <div style={{ display: 'flex', gap: 7, marginTop: 9, overflowX: 'auto', paddingBottom: 2 }}>
           <button className="chip" style={chip(state.filter === 'low')} onClick={() => setFilter('low')}>ต่ำกว่า Min ({low.length})</button>

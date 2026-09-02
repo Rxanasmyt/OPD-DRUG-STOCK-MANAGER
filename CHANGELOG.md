@@ -7,6 +7,19 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.27.0] - 2026-09-02
+
+### Added
+- **feat:** the QR scanner camera view is now visually unmistakable about which mode it's in
+  — รับเข้า (คลังใหญ่ → substock) is amber with sharp-cornered brackets, เติมหน้างาน (substock
+  → ชั้นจ่ายยา) is green with rounded brackets, each with a colored icon+flow-direction badge
+  ("⬓ คลังใหญ่ → substock" / "⇄ substock → ชั้นจ่ายยา") right at the top of frame, plus a
+  colored border around the whole screen. Previously both modes looked identical (same black
+  background, same green frame) and only differed by title text, which is easy to miss
+  mid-scan — reported: "จพ.เภสัชสแกนแล้วไม่มึนว่าอยู่หน้าไหน". The ▣ scan buttons on รับเข้า
+  and เติมหน้างาน are now colored to match too, so the mode is visible before the camera even
+  opens
+
 ## [2.26.0] - 2026-09-02
 
 ### Added

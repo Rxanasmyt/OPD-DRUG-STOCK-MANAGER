@@ -111,7 +111,7 @@ export default function ReceiveScreen() {
         )}
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           <input value={state.recvSearch} onChange={(e) => setRecvSearch(e.target.value)} placeholder="ค้นหา / สแกนชื่อยา" style={{ ...inputStyle, flex: 1, minWidth: 0 }} />
-          <button onClick={() => openScanSearch('receive')} style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, width: 46, minHeight: 44, fontSize: 17, flex: 'none' }}>▣</button>
+          <button onClick={() => openScanSearch('receive')} title="สแกน QR รับเข้า substock" style={{ border: '1px solid var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', borderRadius: 10, width: 46, minHeight: 44, fontSize: 17, flex: 'none' }}>▣</button>
         </div>
 
         {options.length > 0 && (
