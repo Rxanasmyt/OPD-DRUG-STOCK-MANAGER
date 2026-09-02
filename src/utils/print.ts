@@ -123,3 +123,69 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
   win.document.close();
   return true;
 }
+
+export interface PickListRow {
+  bin: string;
+  name: string;
+  qty: number;
+  unit: string;
+}
+
+/**
+ * The "Auto Pick-List" for the morning shelf-fill routine — a plain, sorted-by-shelf-position
+ * A4 sheet someone can carry while walking the substock room, instead of trying to remember
+ * (or re-derive on a phone screen) what the app's suggested-fill cart said. Deliberately not a
+ * QR/label sheet — this is a checklist to work from and cross off, not something that gets cut
+ * up and stuck anywhere.
+ */
+export function printPickListSheet(rows: PickListRow[], heading: string, subheading: string, colLabels: { bin: string; qty: string } = { bin: 'ชั้น', qty: 'จำนวนที่ต้องหยิบ' }): boolean {
+  const sorted = rows.slice().sort((a, b) => a.bin.localeCompare(b.bin));
+  const body = sorted
+    .map((r, i) => `<tr>
+      <td class="n">${i + 1}</td>
+      <td class="bin">${escapeHtml(r.bin || '—')}</td>
+      <td class="name">${escapeHtml(r.name)}</td>
+      <td class="qty">${r.qty.toLocaleString('en-US')} ${escapeHtml(r.unit)}</td>
+      <td class="check">☐</td>
+    </tr>`)
+    .join('');
+
+  const html = `<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><title>${escapeHtml(heading)}</title>
+<style>
+  @page { size: A4; margin: 14mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Noto Sans Thai', system-ui, -apple-system, sans-serif; margin: 0; color: #12211a; }
+  h1 { font-size: 16pt; margin: 0 0 2mm; }
+  .meta { font-size: 10pt; color: #555; margin-bottom: 6mm; }
+  table { width: 100%; border-collapse: collapse; font-size: 11pt; }
+  th { text-align: left; font-size: 9pt; color: #666; border-bottom: 1.5pt solid #12211a; padding: 2mm 3mm; }
+  td { padding: 2.5mm 3mm; border-bottom: 0.4pt solid #ccc; }
+  .n { width: 8mm; color: #888; }
+  .bin { width: 26mm; font-weight: 800; white-space: nowrap; }
+  .qty { width: 32mm; font-weight: 700; text-align: right; }
+  .check { width: 12mm; text-align: center; font-size: 13pt; }
+  @media screen {
+    body { background: #eee; padding: 14mm; }
+    .sheet { background: #fff; padding: 14mm; margin: 0 auto; max-width: 210mm; box-shadow: 0 0 0 1px #ddd; }
+  }
+</style></head>
+<body>
+  <div class="sheet">
+    <h1>${escapeHtml(heading)}</h1>
+    <div class="meta">${escapeHtml(subheading)} · ${sorted.length} รายการ · พิมพ์เมื่อ ${new Date().toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}</div>
+    <table>
+      <thead><tr><th class="n">#</th><th class="bin">${escapeHtml(colLabels.bin)}</th><th class="name">รายการยา</th><th class="qty">${escapeHtml(colLabels.qty)}</th><th class="check">✓</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  </div>
+  <script>window.onload = function () { window.print(); };</script>
+</body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) return false;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  return true;
+}

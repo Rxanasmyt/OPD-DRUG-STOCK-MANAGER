@@ -1,22 +1,22 @@
 import { useApp } from '../store/AppContext';
-import { toneFor, wardOf, usesSubstock } from '../store/selectors';
+import { toneFor, wardOf, usesSubstock, floorMinOf } from '../store/selectors';
 import { nf, thDate, digitsOnly } from '../utils/format';
 import type { Ward } from '../types';
 
 const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: '#5a4fcf' };
 
 export default function TransferScreen() {
-  const { state, sub, fefo, setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, go, openScanSearch } = useApp();
+  const { state, sub, fefo, setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, printPickList, go, openScanSearch } = useApp();
   // noSubstock meds (liquids/sprays — received straight to the shelf, see ReceiveScreen)
   // have nothing to transfer from; showing them here with permanently-stuck-at-0 +/- buttons
   // would just be confusing clutter, not a real "เติมหน้างาน" candidate.
   const meds = state.meds.filter((m) => m.active && usesSubstock(m) && (state.wardFilter === 'all' || wardOf(m) === state.wardFilter));
-  const low = meds.filter((m) => m.floor < m.parFloor);
+  const low = meds.filter((m) => m.floor < floorMinOf(m));
   const q = state.search.trim().toLowerCase();
   const filtered = meds
     .filter((m) => {
       if (q && m.name.toLowerCase().indexOf(q) < 0) return false;
-      if (state.filter === 'low') return m.floor < m.parFloor;
+      if (state.filter === 'low') return m.floor < floorMinOf(m);
       if (state.filter === 'had') return m.had;
       return true;
     })
@@ -53,7 +53,7 @@ export default function TransferScreen() {
           <button onClick={() => openScanSearch('transfer')} style={{ border: '1px solid var(--border)', background: '#fff', borderRadius: 10, width: 46, minHeight: 44, fontSize: 17, flex: 'none' }}>▣</button>
         </div>
         <div style={{ display: 'flex', gap: 7, marginTop: 9, overflowX: 'auto', paddingBottom: 2 }}>
-          <button className="chip" style={chip(state.filter === 'low')} onClick={() => setFilter('low')}>ต่ำกว่า par ({low.length})</button>
+          <button className="chip" style={chip(state.filter === 'low')} onClick={() => setFilter('low')}>ต่ำกว่า Min ({low.length})</button>
           <button className="chip" style={chip(state.filter === 'all')} onClick={() => setFilter('all')}>ทั้งหมด</button>
           <button className="chip" style={chip(state.filter === 'had')} onClick={() => setFilter('had')}>High alert</button>
           <button className="chip" style={{ border: '1px dashed var(--green)', background: 'transparent', color: 'var(--green)' }} onClick={fillAll}>เติมตาม par ทั้งหมด</button>
@@ -73,7 +73,7 @@ export default function TransferScreen() {
                     {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}> HAD</span>}
                   </div>
                   <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>
-                    หน้างาน <span style={{ color: toneFor(m), fontWeight: 600 }}>{nf(m.floor)} {m.unit}</span> / par {nf(m.parFloor)} · substock {nf(sub(m.id))} {m.unit}
+                    หน้างาน <span style={{ color: toneFor(m), fontWeight: 600 }}>{nf(m.floor)} {m.unit}</span> · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock {nf(sub(m.id))} {m.unit}
                   </div>
                   <div style={{ fontSize: 11.5, color: 'var(--green)', marginTop: 3 }}>
                     FEFO: lot {f ? f.lotNo : '—'} · exp {f ? thDate(f.exp) : 'ไม่มีของใน substock'}
@@ -105,6 +105,7 @@ export default function TransferScreen() {
               <span style={{ display: 'block', color: 'var(--had)', fontWeight: 600 }}>มียา high alert — ต้องสแกน QR ยืนยัน</span>
             )}
           </div>
+          <button onClick={printPickList} title="พิมพ์ใบจัดยาเติมชั้น" style={{ flex: 'none', border: '1px solid var(--border)', background: '#fff', color: 'var(--ink)', width: 50, height: 50, borderRadius: 12, fontSize: 18 }}>🖨</button>
           <button onClick={() => go('tconfirm')} className="btn-primary" style={{ padding: '14px 22px', borderRadius: 12, fontSize: 15, fontWeight: 600, minHeight: 50, boxShadow: '0 6px 18px -6px rgba(23,85,47,.7)' }}>ตรวจสอบ →</button>
         </div>
       )}

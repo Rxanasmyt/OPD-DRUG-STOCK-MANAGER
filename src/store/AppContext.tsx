@@ -12,12 +12,12 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, User, AuthMode, PendingReceive, Ward,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
 import { shortLabelName } from '../utils/labelName';
-import { printLabelSheet, type PrintLabel } from '../utils/print';
+import { printLabelSheet, printPickListSheet, type PrintLabel } from '../utils/print';
 import { LOCS } from '../data/locations';
 
 function freshState(): AppState {
@@ -88,6 +88,8 @@ export interface AppCtx {
   bump: (id: string, d: number) => void;
   setCartQty: (id: string, raw: string) => void;
   fillAll: () => void;
+  printPickList: () => void;
+  printWarehouseRequestList: () => void;
   removeFromCart: (id: string) => void;
   commitTransfer: () => void;
 
@@ -141,13 +143,14 @@ export interface AppCtx {
   recomputeUsageStats: () => void;
 
   // meds (formulary) management
-  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; ward: Ward; noSubstock: boolean }) => void;
-  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; ward: Ward; noSubstock: boolean }) => void;
+  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean }) => void;
+  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean }) => void;
   toggleMedActive: (medId: string) => void;
   deleteMed: (medId: string) => void;
   setMedsFocusId: (id: string | null) => void;
 
   // count
+  fetchSubstockLedger: (medId: string) => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
   setCountInput: (medId: string, v: string) => void;
   commitCount: (medId: string) => void;
 
@@ -456,12 +459,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // 'all' (no ward filter applied) fills everything, matching the old behavior.
       st.meds.forEach((m) => {
         if (st.wardFilter !== 'all' && wardOf(m) !== st.wardFilter) return;
-        if (m.floor < m.parFloor) { const q = suggestTransferQty(st, m); if (q > 0) cart[m.id] = q; }
+        // Real min-max: only pick items actually at/below their reorder point (Min), not
+        // anything a hair under capacity (Max) — that's the whole point of having the two be
+        // different numbers instead of one target chasing two jobs.
+        if (m.floor < floorMinOf(m)) { const q = suggestTransferQty(st, m); if (q > 0) cart[m.id] = q; }
       });
       return { ...st, cart, filter: 'low' };
     });
     toast('ใส่จำนวนตาม par ให้ทุกรายการที่ต่ำกว่าเกณฑ์แล้ว — ปรับได้ก่อนยืนยัน');
   }, [toast]);
+
+  // "Auto Pick-List" — a printable, sorted-by-bin checklist of exactly what's in the current
+  // fill cart, meant to be carried while walking the substock shelves so nobody has to
+  // re-read the app screen-by-screen mid-walk (or worse, re-estimate by eye, the exact habit
+  // this whole cart/fillAll flow exists to replace).
+  const printPickList = useCallback(() => {
+    const ids = Object.keys(state.cart);
+    if (!ids.length) { toast('ยังไม่มีรายการในตะกร้า — เติมจำนวนหรือกด "เติมตาม par ทั้งหมด" ก่อน'); return; }
+    const rows = ids
+      .map((id) => state.meds.find((m) => m.id === id))
+      .filter((m): m is Med => !!m)
+      .map((m) => ({ bin: m.bin, name: m.name, qty: state.cart[m.id], unit: m.unit }));
+    const wardLabel = state.wardFilter === 'opd' ? 'OPD' : state.wardFilter === 'ipd' ? 'IPD' : 'ทุกหอผู้ป่วย';
+    const ok = printPickListSheet(rows, 'ใบจัดยาเติมชั้น — ' + wardLabel, 'หอผู้ป่วย: ' + wardLabel);
+    toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
+  }, [state.cart, state.meds, state.wardFilter, toast]);
+
+  // "ระบบเตือนเบิก Substock (2 Weeks Cycle)" — since central-warehouse pickup only happens
+  // once every two weeks (not daily like the shelf fill), what's actually needed is a
+  // standing requisition list of everything under its substock par right now, ready to bring
+  // along whenever that cycle comes up — not a scheduled notification demanding a specific
+  // day (nothing here can page anyone; this is a static site with no backend to run a timer).
+  const printWarehouseRequestList = useCallback(() => {
+    const items = state.meds.filter((m) => m.active && subQty(state, m.id) < m.parSub);
+    if (!items.length) { toast('ทุกรายการยังสูงกว่า par substock — ยังไม่ต้องเบิกเพิ่ม'); return; }
+    const rows = items.map((m) => ({ bin: m.code, name: m.name, qty: Math.max(0, m.parSub - subQty(state, m.id)), unit: m.unit }));
+    const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการที่ต่ำกว่า par substock ทั้งระบบ', { bin: 'รหัสยา', qty: 'จำนวนที่ควรเบิก' });
+    toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
+  }, [state, toast]);
 
   const commitTransfer = useCallback(async () => {
     const cart = { ...state.cart };
@@ -941,7 +976,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [canEditPar, state.meds, logAudit, toast]);
 
   // ---------- meds (formulary) management ----------
-  const addMed = useCallback(async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; ward: Ward; noSubstock: boolean }) => {
+  const addMed = useCallback(async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean }) => {
     if (!canEditPar) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
@@ -979,6 +1014,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           code: c, name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
           price: input.price || 0, had: input.had, active: true,
           parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0), floor: 0,
+          floorMin: Math.max(0, input.floorMin || 0),
           bin: input.bin.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8),
           used30: 0, usedPrev30: 0, volatility: 1.1, lastCountTs: Date.now(),
           ward: input.ward, noSubstock: input.noSubstock,
@@ -995,7 +1031,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // price, high-alert flag, shelf/bin, and both par levels — instead of hunting across
   // separate screens. `code` (the QR/label identifier) is deliberately never touched here —
   // labels already printed with it must keep resolving to this med.
-  const updateMedFull = useCallback(async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; ward: Ward; noSubstock: boolean }) => {
+  const updateMedFull = useCallback(async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean }) => {
     if (!canEditPar) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
@@ -1004,6 +1040,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       price: input.price || 0, had: input.had,
       bin: input.bin.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8),
       parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0),
+      floorMin: Math.max(0, input.floorMin || 0),
       ward: input.ward, noSubstock: input.noSubstock,
     };
     try {
@@ -1043,6 +1080,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [canEditPar, state, logAudit, toast]);
 
   const setMedsFocusId = useCallback((id: string | null) => patch({ medsFocusId: id }), [patch]);
+
+  // ---------- virtual substock card ----------
+  // Replaces the paper "ใบเบิกยาจากคลัง-จ่ายเข้าชั้นวางยา" ledger — รับ/จ่าย/คงเหลือ for one
+  // med's substock, computed from real tx history instead of a card someone updates by hand.
+  // Only these three tx types ever touch substock (adjust/return/damaged/count/reconcile_hosxp
+  // /ward_move all only ever touch หน้างาน — see their commit functions): a receive from the
+  // central warehouse (+), a FEFO transfer out to the shelf (-, though the tx itself stores a
+  // positive "amount moved" — flipped here to read as an outflow), and scrapping an expired
+  // lot (already stored negative). Fetched fresh each time (not the capped live 300) so the
+  // running balance is correct back to this med's very first substock transaction, however
+  // long ago that was.
+  const SUBSTOCK_LEDGER_TYPES = new Set(['receive_from_central', 'transfer_to_floor', 'expired']);
+  const fetchSubstockLedger = useCallback(async (medId: string) => {
+    const m = state.meds.find((x) => x.id === medId);
+    if (!m) return [];
+    const snap = await getDocs(query(collection(db, 'txs'), where('name', '==', m.name)));
+    const rows = snap.docs
+      .map((d) => d.data() as { type: string; ts: number; qty: number; note?: string; by: string; loc?: string })
+      .filter((x) => SUBSTOCK_LEDGER_TYPES.has(x.type) && (x.type !== 'expired' || x.loc === 'substock'))
+      .map((x) => ({ ts: x.ts, type: x.type, qty: x.type === 'transfer_to_floor' ? -Math.abs(x.qty) : x.qty, note: x.note || '', by: x.by }))
+      .sort((a, b) => a.ts - b.ts);
+    let bal = 0;
+    return rows.map((r) => { bal += r.qty; return { ...r, balance: bal }; });
+  }, [state.meds]);
 
   // ---------- count ----------
   const setCountInput = useCallback((medId: string, v: string) => patch((st) => ({ countInputs: { ...st.countInputs, [medId]: digitsOnly(v) } })), [patch]);
@@ -1150,7 +1211,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (payload.t === 'loc') {
         const bin = payload.id.replace(/^LOC-/, '');
         const pool = state.meds.filter((m) => m.active && m.bin === bin);
-        med = pool.find((m) => (purpose === 'receive' ? subQty(state, m.id) < m.parSub : m.floor < m.parFloor)) || pool[0] || null;
+        med = pool.find((m) => (purpose === 'receive' ? subQty(state, m.id) < m.parSub : m.floor < floorMinOf(m))) || pool[0] || null;
         if (!med) { toast('ไม่พบยาที่ผูกกับชั้น ' + bin + ' ในระบบ'); return; }
       } else {
         med = resolveMed(payload);
@@ -1308,8 +1369,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<AppCtx>(() => ({
     state, myProfile, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, go, back,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
-    setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, removeFromCart, commitTransfer,
-    setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive,
+    setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, printPickList, removeFromCart, commitTransfer,
+    setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, printWarehouseRequestList,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
@@ -1317,7 +1378,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setLabelType, printLabels,
     applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats,
     addMed, updateMedFull, toggleMedActive, deleteMed, setMedsFocusId,
-    setCountInput, commitCount,
+    fetchSubstockLedger, setCountInput, commitCount,
     setHosxpText, processHosxp, setHosxpConfirmFuzzy, commitReconcile,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     doneAgain,

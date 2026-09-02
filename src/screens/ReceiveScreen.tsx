@@ -6,6 +6,7 @@ export default function ReceiveScreen() {
   const {
     state, sub, setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty,
     addRecv, removeRecvItem, commitReceive, approvePendingReceive, rejectPendingReceive, openScanSearch,
+    printWarehouseRequestList,
   } = useApp();
 
   const recvMed = state.recvMed ? state.meds.find((m) => m.id === state.recvMed) : null;
@@ -18,6 +19,14 @@ export default function ReceiveScreen() {
 
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
+      <button
+        onClick={printWarehouseRequestList}
+        className="btn-outline"
+        style={{ width: '100%', padding: 12, borderRadius: 11, fontSize: 13.5, fontWeight: 600, minHeight: 46, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+      >
+        🖨 พิมพ์ใบขอเบิกจากคลังใหญ่ — รอบ 2 สัปดาห์
+      </button>
+
       {(canApprove ? pending.length > 0 : myPending.length > 0) && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 13.5, fontWeight: 600, margin: '0 2px 8px', color: 'var(--amber-ink)' }}>

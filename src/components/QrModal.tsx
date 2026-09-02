@@ -2,6 +2,12 @@ import type { CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
 import { QrScanner } from './QrScanner';
 
+/** The camera view fills almost the entire screen now — it used to be a ~172px box inside a
+ * bottom sheet, which on a real phone (reported: "กล้องเล็กมากถ้าเทียบกับหน้าจอโทรศัพท์") left
+ * so little of the frame actually scanning that getting a label centered in it took several
+ * tries. Everything else (title, hint, manual-entry fallback) is now a thin overlay on top of
+ * the camera instead of pushing it into a small box, so the thing people actually need — a
+ * big, well-lit view of the QR — gets almost the whole screen. */
 export default function QrModal() {
   const { state, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason } = useApp();
   if (!state.qrOpen) return null;
@@ -11,60 +17,80 @@ export default function QrModal() {
   const isViewMed = state.qrPurpose === 'viewMed';
   const title = isReceive ? 'สแกน QR ยาที่ substock' : isTransfer ? 'สแกน QR ยาที่ชั้นจ่ายยา' : isViewMed ? 'สแกนดูข้อมูลยา' : 'ยืนยันยา high alert';
   const desc = isReceive
-    ? 'สแกน QR ที่ติดหน้ายาในชั้น substock — ระบบจะระบุตัวยาให้ทันที แล้วกรอก lot วันหมดอายุ และจำนวนที่รับ'
+    ? 'สแกน QR ที่ติดหน้ายาในชั้น substock'
     : isTransfer
-    ? 'สแกน QR ที่ติดชั้นจ่ายยา — ระบบจะเปิดรายการยานั้นให้ปรับจำนวนที่จะเติม'
+    ? 'สแกน QR ที่ติดชั้นจ่ายยา'
     : isViewMed
-    ? 'สแกน QR ที่ฉลากตัวยาหรือ lot — ระบบจะเปิดข้อมูลยารายการนั้นให้แก้ไขได้ทันที'
-    : 'forcing function — ต้องสแกน QR ที่ตัวยาให้ตรงกับรายการก่อนทำรายการต่อ';
+    ? 'สแกน QR ที่ฉลากตัวยาหรือ lot'
+    : 'ต้องสแกน QR ที่ตัวยาให้ตรงกับรายการก่อนทำรายการต่อ';
 
   const corner = (top: boolean, left: boolean): CSSProperties => ({
     position: 'absolute',
     [top ? 'top' : 'bottom']: 0,
     [left ? 'left' : 'right']: 0,
-    width: 22, height: 22,
-    borderTop: top ? '2.5px solid #5adc8c' : 'none',
-    borderBottom: top ? 'none' : '2.5px solid #5adc8c',
-    borderLeft: left ? '2.5px solid #5adc8c' : 'none',
-    borderRight: left ? 'none' : '2.5px solid #5adc8c',
-    borderRadius: top && left ? '10px 0 0 0' : top ? '0 10px 0 0' : left ? '0 0 0 10px' : '0 0 10px 0',
+    width: 34, height: 34,
+    borderTop: top ? '3px solid #5adc8c' : 'none',
+    borderBottom: top ? 'none' : '3px solid #5adc8c',
+    borderLeft: left ? '3px solid #5adc8c' : 'none',
+    borderRight: left ? 'none' : '3px solid #5adc8c',
+    borderRadius: top && left ? '16px 0 0 0' : top ? '0 16px 0 0' : left ? '0 0 0 16px' : '0 0 16px 0',
   });
 
   return (
     <div
-      style={{
-        position: 'absolute', inset: 0, background: 'rgba(10,18,14,.72)',
-        backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)',
-        display: 'flex', alignItems: 'flex-end', zIndex: 20,
-        animation: 'backdropIn .2s var(--ease-out)',
-      }}
+      style={{ position: 'absolute', inset: 0, background: '#000', zIndex: 20, animation: 'fade .18s var(--ease-out)' }}
       onClick={(e) => { if (e.target === e.currentTarget) closeQr(); }}
     >
-      <div style={{ background: 'var(--ink)', color: 'var(--ink-soft)', width: '100%', borderRadius: '20px 20px 0 0', padding: '18px 18px 22px', animation: 'sheetIn .38s var(--ease-out)', boxShadow: '0 -16px 48px -8px rgba(0,0,0,.5)' }}>
-        <div style={{ width: 36, height: 4, borderRadius: 2, background: 'rgba(255,255,255,.22)', margin: '0 auto 14px' }} />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 4 }}>
-          <div style={{ fontSize: 16.5, fontWeight: 600 }}>{title}</div>
-          <button onClick={closeQr} style={{ border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 32, height: 32, borderRadius: 9, fontSize: 15 }}>✕</button>
+      {/* Camera fills the whole modal — everything else floats on top of it. */}
+      <div style={{ position: 'absolute', inset: 0 }}>
+        <QrScanner active={state.qrOpen} onDecode={qrDecoded} />
+      </div>
+
+      {/* Top bar — title/desc/close, on a gradient so it stays legible over any background. */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: 'calc(env(safe-area-inset-top, 0px) + 14px) 16px 40px', background: 'linear-gradient(to bottom, rgba(0,0,0,.75), rgba(0,0,0,0))', pointerEvents: 'none' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 16.5, fontWeight: 700, color: '#fff' }}>{title}</div>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,.75)', marginTop: 2 }}>{desc}</div>
+          </div>
+          <button onClick={closeQr} style={{ pointerEvents: 'auto', flex: 'none', border: 0, background: 'rgba(255,255,255,.18)', color: '#fff', width: 36, height: 36, borderRadius: 10, fontSize: 16 }}>✕</button>
         </div>
-        <div style={{ fontSize: 12.5, opacity: 0.7, lineHeight: 1.5, marginBottom: 4 }}>{desc}</div>
-        <div style={{ fontSize: 11.5, opacity: 0.55, lineHeight: 1.5, marginBottom: 14 }}>เข้าใกล้จนเห็น QR ดวงเดียวเต็มกรอบเขียว — ถ้าเห็นหลายดวงพร้อมกันในกรอบ แต่ละดวงจะเล็กเกินกล้องจะอ่าน</div>
-        <div style={{ position: 'relative', height: 172, borderRadius: 14, background: '#0a120e', overflow: 'hidden', marginBottom: 14 }}>
-          <QrScanner active={state.qrOpen} onDecode={qrDecoded} />
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-            <div style={{ position: 'relative', width: 120, height: 120 }}>
-              <div style={corner(true, true)} /><div style={corner(true, false)} />
-              <div style={corner(false, true)} /><div style={corner(false, false)} />
+      </div>
+
+      {/* Large centered viewfinder — the actual fix: this used to be 120x120 inside a 172px
+          box; now it scales to most of the screen width, so a label filling the frame reads
+          as genuinely large instead of a postage stamp in the middle of a tiny preview. */}
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+        <div style={{ position: 'relative', width: 'min(78vw, 78vh, 380px)', aspectRatio: '1 / 1' }}>
+          <div style={corner(true, true)} /><div style={corner(true, false)} />
+          <div style={corner(false, true)} /><div style={corner(false, false)} />
+          <div style={{ position: 'absolute', left: '4%', right: '4%', top: 0, height: '30%', background: 'linear-gradient(to bottom, rgba(90,220,140,0), rgba(90,220,140,.4))', animation: 'sweep 1.7s infinite ease-in-out' }} />
+        </div>
+      </div>
+
+      {/* Bottom bar — scan hint + manual-entry fallback, same gradient treatment as the top. */}
+      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '46px 16px calc(env(safe-area-inset-bottom, 0px) + 18px)', background: 'linear-gradient(to top, rgba(0,0,0,.8), rgba(0,0,0,0))' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 14, fontSize: 12, color: 'rgba(255,255,255,.85)', textShadow: '0 1px 4px rgba(0,0,0,.6)' }}>
+          <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: '#5adc8c', animation: 'pulse 1.6s infinite' }} />
+          เข้าใกล้จนเห็น QR ดวงเดียวเต็มกรอบเขียว — ถ้าเห็นหลายดวงพร้อมกัน แต่ละดวงจะเล็กเกินกล้องจะอ่าน
+        </div>
+        <button onClick={qrManual} style={{ width: '100%', border: '1px solid rgba(255,255,255,.35)', background: 'rgba(255,255,255,.1)', color: '#fff', padding: 13, borderRadius: 11, fontSize: 13.5, minHeight: 46, backdropFilter: 'blur(6px)' }}>
+          กรอกรหัสด้วยมือ (กรณีฉลากชำรุด)
+        </button>
+      </div>
+
+      {/* Manual-entry fallback — a real sheet over the camera, not squeezed underneath it. */}
+      {state.qrManualOpen && (
+        <div
+          style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'flex-end', animation: 'backdropIn .2s var(--ease-out)' }}
+          onClick={(e) => { if (e.target === e.currentTarget) qrManual(); }}
+        >
+          <div style={{ background: 'var(--ink)', color: 'var(--ink-soft)', width: '100%', borderRadius: '20px 20px 0 0', padding: '18px 18px calc(env(safe-area-inset-bottom, 0px) + 22px)', animation: 'sheetIn .3s var(--ease-out)' }}>
+            <div style={{ width: 36, height: 4, borderRadius: 2, background: 'rgba(255,255,255,.22)', margin: '0 auto 14px' }} />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>กรอกรหัสด้วยมือ</div>
+              <button onClick={qrManual} style={{ border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 30, height: 30, borderRadius: 8, fontSize: 14 }}>✕</button>
             </div>
-            <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: '34%', background: 'linear-gradient(to bottom, rgba(23,85,47,0), rgba(90,220,140,.35))', animation: 'sweep 1.7s infinite ease-in-out' }} />
-          </div>
-          <div style={{ position: 'absolute', bottom: 10, left: 0, right: 0, textAlign: 'center', fontSize: 11.5, opacity: 0.75, pointerEvents: 'none', textShadow: '0 1px 4px rgba(0,0,0,.6)' }}>
-            <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: '#5adc8c', marginRight: 6, verticalAlign: 'middle', animation: 'pulse 1.6s infinite' }} />
-            กำลังค้นหา QR ในกรอบ…
-          </div>
-        </div>
-        <button onClick={qrManual} style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'transparent', color: 'var(--ink-soft)', padding: 13, borderRadius: 11, fontSize: 13.5, minHeight: 46 }}>กรอกรหัสด้วยมือ (กรณีฉลากชำรุด)</button>
-        {state.qrManualOpen && (
-          <div style={{ marginTop: 10, animation: 'fade .2s var(--ease-out)' }}>
             <input
               value={state.qrCode}
               onChange={(e) => setQrCode(e.target.value)}
@@ -86,8 +112,8 @@ export default function QrModal() {
             </button>
             <div style={{ fontSize: 11.5, opacity: 0.6, marginTop: 6 }}>บันทึกการกรอกรหัสด้วยมือลง audit trail พร้อมเหตุผล</div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

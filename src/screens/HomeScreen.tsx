@@ -1,5 +1,5 @@
 import { useApp } from '../store/AppContext';
-import { toneFor, daysUntil, wardOf, usesSubstock } from '../store/selectors';
+import { toneFor, daysUntil, wardOf, usesSubstock, floorMinOf } from '../store/selectors';
 import { nf, thDate, isoDate } from '../utils/format';
 import type { Ward } from '../types';
 
@@ -29,7 +29,10 @@ export default function HomeScreen() {
 
   const allMeds = state.meds.filter((m) => m.active);
   const meds = allMeds.filter((m) => state.wardFilter === 'all' || wardOf(m) === state.wardFilter);
-  const low = meds.filter((m) => m.floor < m.parFloor);
+  // "Min" (reorder point) is a separate number from "Max" (parFloor, the shelf's fill
+  // target) — below Min is when it actually needs refilling this morning, not just "any bit
+  // under capacity".
+  const low = meds.filter((m) => m.floor < floorMinOf(m));
   // Meaningless for noSubstock meds (liquids/sprays) — they have no substock stage to be
   // low in; excluded here rather than always showing a permanent, unactionable "0/par" row.
   const lowSub = meds.filter((m) => usesSubstock(m) && sub(m.id) < m.parSub);
@@ -65,7 +68,7 @@ export default function HomeScreen() {
       </div>
 
       <div className="grid-2 tablet-4" style={{ marginBottom: 14 }}>
-        <StatTile label="ต่ำกว่า par หน้างาน" value={low.length} tone={low.length ? 'var(--red)' : 'var(--green)'} note="รายการ · ควรเติมวันนี้" />
+        <StatTile label="ต่ำกว่าจุดต้องเติม (Min)" value={low.length} tone={low.length ? 'var(--red)' : 'var(--green)'} note="รายการ · ควรเติมวันนี้" />
         <StatTile label={`ใกล้หมดอายุ < ${W} วัน`} value={expLots.length} tone={expLots.length ? 'var(--amber)' : 'var(--green)'} note={`lot · รวมที่หมดอายุแล้ว ${expiredCount}`} />
         <StatTile label="ธุรกรรมวันนี้" value={txToday} note="รายการ · audit trail ครบ" />
         <StatTile label="ต่ำกว่า par substock" value={lowSub.length} tone={lowSub.length ? 'var(--red)' : 'var(--green)'} note="รายการ · ควรเบิกจากคลังใหญ่" />
@@ -95,7 +98,7 @@ export default function HomeScreen() {
                 {m.name}
                 {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}> HAD</span>}
               </div>
-              <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>หน้างาน {nf(m.floor)} / par {nf(m.parFloor)} · substock {nf(sub(m.id))} {m.unit}</div>
+              <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>หน้างาน {nf(m.floor)} · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock {nf(sub(m.id))} {m.unit}</div>
               <div className="bar-track" style={{ height: 4, background: 'var(--border-soft)', borderRadius: 2, marginTop: 6 }}>
                 <div className="bar-fill" style={{ height: '100%', width: Math.max(3, Math.min(100, Math.round((m.floor / m.parFloor) * 100))) + '%', background: toneFor(m), borderRadius: 2 }} />
               </div>

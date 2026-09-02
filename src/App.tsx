@@ -23,6 +23,7 @@ const ReconcileScreen = lazy(() => import('./screens/ReconcileScreen'));
 const AdminScreen = lazy(() => import('./screens/AdminScreen'));
 const MedsScreen = lazy(() => import('./screens/MedsScreen'));
 const WardMoveScreen = lazy(() => import('./screens/WardMoveScreen'));
+const SubstockCardScreen = lazy(() => import('./screens/SubstockCardScreen'));
 // jsqr (camera decode) only matters once someone actually opens the scanner
 const QrModal = lazy(() => import('./components/QrModal'));
 
@@ -43,9 +44,10 @@ const TITLES: Record<Screen, [string, string]> = {
   admin: ['จัดการผู้ใช้งาน', 'Audit log ทั้งระบบ'],
   meds: ['จัดการรายการยา', 'เพิ่ม / ปิดใช้งาน / ลบ'],
   wardmove: ['ย้ายยาระหว่างชั้นวาง', 'เช่น ลิ้นชักฉีดยา IPD → stat OPD'],
+  substockcard: ['บัตรสต็อก substock', 'รับ-จ่าย-คงเหลือ real-time'],
 };
 
-const CAN_BACK: Screen[] = ['tconfirm', 'adjust', 'report', 'labels', 'settings', 'count', 'reconcile', 'admin', 'meds', 'wardmove'];
+const CAN_BACK: Screen[] = ['tconfirm', 'adjust', 'report', 'labels', 'settings', 'count', 'reconcile', 'admin', 'meds', 'wardmove', 'substockcard'];
 const NAV_DEF: [Screen, string, string][] = [
   ['home', 'หน้าหลัก', '▤'],
   ['transfer', 'เติมหน้างาน', '⇄'],
@@ -163,6 +165,7 @@ function Screens({ screen }: { screen: Screen }) {
     case 'admin': return <AdminScreen />;
     case 'meds': return <MedsScreen />;
     case 'wardmove': return <WardMoveScreen />;
+    case 'substockcard': return <SubstockCardScreen />;
     case 'more': return <MoreScreen />;
     default: return null;
   }

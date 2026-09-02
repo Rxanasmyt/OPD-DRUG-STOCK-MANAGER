@@ -7,6 +7,53 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.14.0] - 2026-08-26
+
+### Added — Smart Restock (Min-Max) + bigger scanner + virtual substock card
+No manual Firebase Console step needed for this release — everything here reads/writes
+collections already covered by the published firestore.rules.
+
+- **feat:** real Min-Max par per shelf — `floorMin` (reorder point) is now separate from
+  `parFloor` (shelf capacity / fill target). "ต่ำกว่า par หน้างาน" everywhere (dashboard,
+  เติมหน้างาน, "เติมตาม par ทั้งหมด", the loc-QR fallback match) now means "at/below Min",
+  not "a hair under Max" — the actual min-max method, not one number doing both jobs.
+  Existing meds default Min to 30% of their current Max (no migration needed); editable
+  per med in จัดการรายการยา. Since OPD and IPD copies of a drug are already separate med
+  records, Min-Max is already "per shelf location" by construction
+- **feat:** Auto Pick-List — "🖨" button next to เติมหน้างาน's cart prints an A4 checklist of
+  exactly what's queued, sorted by shelf/bin position, with a checkbox column — meant to be
+  carried while walking the substock room instead of re-reading a phone screen mid-walk
+- **feat:** ใบขอเบิกจากคลังใหญ่ (หน้ารับเข้า) — one button prints every item currently below
+  its substock par as a requisition checklist, ready whenever the 2-week warehouse pickup
+  cycle comes around. (No backend here to fire a scheduled reminder on a specific day — this
+  is the standing list to work from instead of a push notification)
+- **feat:** Virtual Substock Card (เพิ่มเติม → บัตรสต็อก substock) — replaces the paper
+  รับ-จ่าย-คงเหลือ ledger. Pick a med, see every substock receive/transfer-out/expiry-scrap
+  with a running balance, computed fresh from full tx history (not the capped live 300) so
+  the balance is right back to that med's very first transaction. Flags a mismatch against
+  the live substock total rather than silently showing two different numbers
+
+### Changed
+- **fix:** camera QR scanner was a ~172px box inside a bottom sheet — reported as too small
+  to use reliably ("กล้องตอนนี้ขนาดเล็กมากถ้าเทียบกับหน้าจอโทรศัพท์"). Rebuilt as a
+  near-fullscreen view: the camera fills the whole modal, with title/hint/manual-entry as
+  thin overlays instead of squeezing the camera into a small box. The scan target itself
+  scales to most of the screen width instead of a fixed 120×120 square
+
+### Clarifying what's already covered (asked about, not new this release)
+- **"ทำใบเบิกออนไลน์ในแอพ ดูสถานะได้เลย realtime ข้อมูลไม่สูญหาย"** — already true since
+  v2.11.0: หน้ารับเข้า is fully digital (no paper), a tech's submission shows live status
+  (รอ/อนุมัติ/ปฏิเสธ) to everyone who can see it, and it's Firestore-backed so nothing is
+  lost on refresh or between devices
+- **OPD/IPD deduction logic, injectable transfer, direct-to-shelf flag** — all already built
+  in v2.13.0 (ward-tagged meds, ย้ายยาระหว่างชั้นวาง, noSubstock). IPD D/C take-home dispensing
+  drawing from the OPD shelf doesn't need separate app logic — it's the same OPD med record
+  any other OPD dispensing already uses, since this app doesn't process patient dispensing
+  itself (HOSxP does — see "นำเข้า HOSxP")
+- **Different OPD/IPD bin codes for the same drug** — already resolved by having OPD/IPD be
+  separate med records (per the earlier decision): each carries its own free-text `bin`
+  field independently, so there's no shared code scheme to conflict
+
 ## [2.13.1] - 2026-08-26
 
 ### Added

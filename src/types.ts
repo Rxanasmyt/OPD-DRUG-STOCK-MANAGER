@@ -12,8 +12,13 @@ export interface Med {
   had: boolean;
   active: boolean; // false = not carried by this hospital (from CSV "ไม่มียาในรพ.กรงปินัง" notes)
   parSub: number;
-  parFloor: number;
+  parFloor: number; // shelf capacity target — "Max": เติมขึ้นไปถึงจุดนี้
   floor: number;
+  // Optional — missing on every med added before Min-Max existed; falls back to a fraction
+  // of parFloor via floorMinOf() in selectors.ts. "Min": ต่ำกว่าจุดนี้ถือว่าต้องเติมด่วน
+  // (separate from parFloor/"Max" since ต่ำกว่า par หน้างาน ≠ ถึงเวลาต้องเติมจริง ๆ — real
+  // min-max par has the two as different numbers, not one target doing both jobs).
+  floorMin?: number;
   bin: string;
   used30: number;
   usedPrev30: number;
@@ -118,7 +123,7 @@ export interface PendingReceive {
 
 export type Screen =
   | 'login' | 'home' | 'transfer' | 'tconfirm' | 'done' | 'receive' | 'adjust'
-  | 'report' | 'labels' | 'settings' | 'more' | 'count' | 'reconcile' | 'admin' | 'meds' | 'wardmove';
+  | 'report' | 'labels' | 'settings' | 'more' | 'count' | 'reconcile' | 'admin' | 'meds' | 'wardmove' | 'substockcard';
 
 export type AdjType = 'adjust' | 'return' | 'damaged' | 'expired';
 export type ReportTab = 'aging' | 'turn' | 'disc';

@@ -21,6 +21,14 @@ export function usesSubstock(m: Med): boolean {
   return !m.noSubstock;
 }
 
+/** Real min-max par: `parFloor` is the shelf's capacity ("Max" — fill up TO this), `floorMin`
+ * is the separate reorder point ("Min" — BELOW this is when it actually needs refilling).
+ * Every med added before Min-Max existed has no floorMin — default it to 30% of Max, a
+ * conventional reorder-point ratio, rather than requiring a one-time migration write. */
+export function floorMinOf(m: Med): number {
+  return typeof m.floorMin === 'number' ? m.floorMin : Math.round(m.parFloor * 0.3);
+}
+
 export function subQty(state: AppState, medId: string): number {
   let sum = 0;
   for (const l of state.lots) if (l.medId === medId) sum += l.qty;

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly } from '../utils/format';
-import { wardOf, wardLabel } from '../store/selectors';
+import { wardOf, wardLabel, floorMinOf } from '../store/selectors';
 import type { Med, Ward } from '../types';
 
 type Filter = 'active' | 'inactive' | 'all';
@@ -19,18 +19,19 @@ interface MedFormValues {
   bin: string;
   parSub: string;
   parFloor: string;
+  floorMin: string;
   ward: Ward;
   noSubstock: boolean;
 }
 
 function blankForm(): MedFormValues {
-  return { name: '', dosageForm: '', unit: '', price: '', had: false, bin: '', parSub: '', parFloor: '', ward: 'opd', noSubstock: false };
+  return { name: '', dosageForm: '', unit: '', price: '', had: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false };
 }
 
 function formFromMed(m: Med): MedFormValues {
   return {
     name: m.name, dosageForm: m.dosageForm, unit: m.unit, price: m.price ? String(m.price) : '',
-    had: m.had, bin: m.bin, parSub: String(m.parSub), parFloor: String(m.parFloor),
+    had: m.had, bin: m.bin, parSub: String(m.parSub), parFloor: String(m.parFloor), floorMin: String(floorMinOf(m)),
     ward: wardOf(m), noSubstock: !!m.noSubstock,
   };
 }
@@ -92,7 +93,7 @@ export default function MedsScreen() {
           submitLabel="บันทึก"
           onCancel={() => setAddOpen(false)}
           onSubmit={(v) => {
-            addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, ward: v.ward, noSubstock: v.noSubstock });
+            addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.ward, noSubstock: v.noSubstock });
             setAddOpen(false);
           }}
         />
@@ -153,7 +154,7 @@ export default function MedsScreen() {
                     submitLabel="บันทึกการแก้ไข"
                     onCancel={() => setEditingId(null)}
                     onSubmit={(v) => {
-                      updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, ward: v.ward, noSubstock: v.noSubstock });
+                      updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.ward, noSubstock: v.noSubstock });
                       setEditingId(null);
                     }}
                   />
@@ -224,10 +225,15 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit }: {
           <input value={v.parSub} onChange={(e) => set('parSub', digitsOnly(e.target.value))} inputMode="numeric" disabled={v.noSubstock} style={{ ...inputStyle, ...(v.noSubstock ? { background: '#f2f3ee', color: '#9aa199' } : {}) }} />
         </label>
         <label>
-          <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>par หน้างาน</span>
+          <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>par หน้างาน (Max — เติมขึ้นถึงจุดนี้)</span>
           <input value={v.parFloor} onChange={(e) => set('parFloor', digitsOnly(e.target.value))} inputMode="numeric" style={inputStyle} />
         </label>
       </div>
+      <label style={{ display: 'block', marginBottom: 9 }}>
+        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>จุดต่ำสุดต้องเติม (Min)</span>
+        <input value={v.floorMin} onChange={(e) => set('floorMin', digitsOnly(e.target.value))} placeholder={'ว่างไว้ = ' + Math.round((parseInt(v.parFloor, 10) || 0) * 0.3) + ' (30% ของ Max)'} inputMode="numeric" style={inputStyle} />
+        <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>ต่ำกว่าจุดนี้คือของจริงที่ต้องเติมตอนเช้า — คนละจุดกับ Max เพราะอัตราการใช้ OPD/IPD ไม่เท่ากัน แม้ยารหัสเดียวกันก็ตั้ง Min-Max ต่างกันได้ตามชั้นวางจริง</div>
+      </label>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <button onClick={() => set('had', !v.had)} className="chip" style={{ ...chip(v.had), flex: 1, textAlign: 'center' }}>{v.had ? '✓ ยา high alert' : 'ยา high alert?'}</button>
         <button onClick={() => set('noSubstock', !v.noSubstock)} className="chip" style={{ ...chip(v.noSubstock), flex: 1, textAlign: 'center' }}>{v.noSubstock ? '✓ ไม่มี substock' : 'ไม่มี substock?'}</button>
