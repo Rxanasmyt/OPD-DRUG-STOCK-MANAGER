@@ -5,7 +5,7 @@ import {
 } from 'firebase/auth';
 import {
   collection, doc, onSnapshot, query, orderBy, limit, where, writeBatch, addDoc, updateDoc, setDoc,
-  runTransaction, getDocs, getDoc, increment,
+  runTransaction, getDocs, getDoc, increment, type Transaction,
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
@@ -19,6 +19,7 @@ import { encodeQr, parseQr } from '../utils/qr';
 import { shortLabelName } from '../utils/labelName';
 import { printLabelSheet, printPickListSheet, type PrintLabel } from '../utils/print';
 import { LOCS } from '../data/locations';
+import { withTimeout, TimeoutError } from '../utils/timeout';
 
 function freshState(): AppState {
   return {
@@ -200,6 +201,7 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
   'auth/network-request-failed': 'เชื่อมต่อเครือข่ายไม่ได้ ลองใหม่อีกครั้ง',
 };
 function authErrorMessage(e: unknown): string {
+  if (e instanceof TimeoutError) return e.message;
   const code = (e as { code?: string })?.code || '';
   return AUTH_ERROR_MESSAGES[code] || 'เกิดข้อผิดพลาด ลองใหม่อีกครั้ง';
 }
@@ -210,6 +212,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const toastTimer = useRef<number | undefined>(undefined);
   const parDebounce = useRef<Record<string, number>>({});
   const binDebounce = useRef<Record<string, number>>({});
+
+  // Every write-side commit action below runs its Firestore work through this instead of
+  // calling runTransaction directly. A bare runTransaction can hang indefinitely when the
+  // browser reports "online" but can't actually reach Firestore (hospital wifi captive
+  // portal, a flaky access point) — the SDK just keeps retrying internally with no ceiling of
+  // its own, leaving a "กำลังบันทึก" action spinning forever with no way to know if it worked.
+  // withTimeout races it against a 15s clock so that failure mode surfaces as a clear error
+  // instead of a silent hang.
+  const runTx = useCallback(<T,>(fn: (trx: Transaction) => Promise<T>) => withTimeout(runTransaction(db, fn)), []);
 
   // ---------- theme (light/dark) — a per-device UI preference, not app data, so it lives in
   // localStorage rather than Firestore. Defaults to the OS/browser preference on first visit,
@@ -377,6 +388,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     catch (e) { console.error('tx log write failed:', e); toast('บันทึกประวัติธุรกรรมไม่สำเร็จ — ยอดสต็อกอัปเดตแล้ว แต่ไม่มีบันทึกรายการนี้ในประวัติ'); }
   }, [userName, toast]);
 
+  // Shared tail for every commit-style catch block below — logs the real error, but shows
+  // the person a TimeoutError's specific "connection stalled" message instead of the
+  // function's usual generic failure message, since that one case has a genuinely different
+  // recommended action (check your connection) than "something went wrong, try again".
+  const toastErr = useCallback((e: unknown, fallback: string) => {
+    console.error(e);
+    toast(e instanceof TimeoutError ? e.message : fallback);
+  }, [toast]);
+
   // ---------- auth actions ----------
   const setAuthMode = useCallback((m: AuthMode) => patch({ authMode: m, authError: null }), [patch]);
   const setAuthUsername = useCallback((v: string) => patch({ authUsername: v }), [patch]);
@@ -424,7 +444,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const batch = writeBatch(db);
         batch.set(doc(db, 'users', cred.user.uid), profile);
         batch.set(doc(db, 'usernames', username), { uid: cred.user.uid });
-        await batch.commit();
+        await withTimeout(batch.commit());
       } catch (inner) {
         // Someone else claimed this username in the split second between our
         // check and here — undo the orphaned Auth account so they can retry.
@@ -543,7 +563,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let resultRows: AppState['doneRows'] = [];
     const txPayloads: { name: string; qty: number; unit: string; used: string[] }[] = [];
     try {
-      await runTransaction(db, async (trx) => {
+      await runTx(async (trx) => {
         const rows: AppState['doneRows'] = [];
         const medReads: Record<string, number> = {};
         const lotReads: Record<string, { qty: number; lotNo: string }> = {};
@@ -586,13 +606,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           note: 'FEFO lot ' + p.used.join(', '), by: userName(), ts: Date.now(),
         } satisfies Omit<import('../types').Tx, 'id'>);
       });
-      await batch.commit();
+      await withTimeout(batch.commit());
       setState((st) => ({ ...st, cart: {}, hadOk: {}, screen: 'done', prevScreen: st.screen, doneKind: 'transfer', doneRows: resultRows }));
     } catch (e) {
-      console.error(e);
-      toast('เติมหน้างานไม่สำเร็จ ลองใหม่อีกครั้ง');
+      toastErr(e, 'เติมหน้างานไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }, [state.cart, state.meds, state.lots, userName, toast]);
+  }, [state.cart, state.meds, state.lots, userName, toastErr]);
 
   // ---------- receive ----------
   const setRecvNo = useCallback((v: string) => patch({ recvNo: v }), [patch]);
@@ -637,7 +656,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             requestedBy: userName(), requestedByUid: state.myUid, status: 'pending', ts: Date.now(),
           });
         });
-        await batch.commit();
+        await withTimeout(batch.commit());
         await logAudit({ type: 'receive_pending', note: 'ใบเบิก ' + state.recvNo + ' · ' + items.length + ' รายการ — รออนุมัติ' });
         setState((st) => ({
           ...st, screen: 'done', prevScreen: st.screen, doneKind: 'recvPending',
@@ -668,17 +687,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp), by: userName(), ts: Date.now(),
         });
       });
-      await batch.commit();
+      await withTimeout(batch.commit());
       setState((st) => ({
         ...st, screen: 'done', prevScreen: st.screen, doneKind: 'receive',
         doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + it.lotNo + ' · exp ' + thDate(it.exp), qty: nf(it.qty) + ' ' + it.unit })),
         recvItems: [],
       }));
     } catch (e) {
-      console.error(e);
-      toast('บันทึกใบรับไม่สำเร็จ ลองใหม่อีกครั้ง');
+      toastErr(e, 'บันทึกใบรับไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }, [state.recvItems, state.recvNo, state.myUid, state.meds, myProfile, userName, toast, logAudit]);
+  }, [state.recvItems, state.recvNo, state.myUid, state.meds, myProfile, userName, toastErr, logAudit]);
 
   // Approve a pending receive — creates the real lot + receive_from_central tx, exactly
   // what the immediate (pharm/admin) receive path does. Wrapped in a transaction so two
@@ -687,7 +705,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const approvePendingReceive = useCallback(async (id: string) => {
     if (!canEditPar) return;
     try {
-      await runTransaction(db, async (trx) => {
+      await runTx(async (trx) => {
         const ref = doc(db, 'pendingReceives', id);
         const snap = await trx.get(ref);
         const pr = snap.data() as PendingReceive | undefined;
@@ -711,16 +729,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast('อนุมัติรับเข้าแล้ว');
     } catch (e) {
       if ((e as Error)?.message === 'already-resolved') { toast('รายการนี้ถูกอนุมัติหรือปฏิเสธไปแล้ว'); return; }
-      console.error(e); toast('อนุมัติไม่สำเร็จ ลองใหม่อีกครั้ง');
+      toastErr(e, 'อนุมัติไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }, [canEditPar, state.meds, userName, toast]);
+  }, [canEditPar, state.meds, userName, toast, toastErr]);
 
   const rejectPendingReceive = useCallback(async (id: string, reason: string) => {
     if (!canEditPar) return;
     const pr = state.pendingReceives.find((r) => r.id === id);
     if (!pr) return;
     try {
-      await runTransaction(db, async (trx) => {
+      await runTx(async (trx) => {
         const ref = doc(db, 'pendingReceives', id);
         const snap = await trx.get(ref);
         const cur = snap.data() as PendingReceive | undefined;
@@ -731,9 +749,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast('ปฏิเสธรายการแล้ว');
     } catch (e) {
       if ((e as Error)?.message === 'already-resolved') { toast('รายการนี้ถูกอนุมัติหรือปฏิเสธไปแล้ว'); return; }
-      console.error(e); toast('ปฏิเสธไม่สำเร็จ ลองใหม่อีกครั้ง');
+      toastErr(e, 'ปฏิเสธไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }, [canEditPar, state.pendingReceives, userName, toast, logAudit]);
+  }, [canEditPar, state.pendingReceives, userName, toast, toastErr, logAudit]);
 
   // ---------- ward move (shelf-to-shelf, e.g. IPD injectable locked drawer -> OPD stat
   // drawer subset) — since OPD and IPD versions of the same drug are separate med records
@@ -764,7 +782,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (from.id === to.id) { toast('ต้นทางและปลายทางต้องเป็นคนละรายการ'); return; }
     if (!state.wmReason.trim()) { toast('กรอกเหตุผลก่อนบันทึก'); return; }
     try {
-      await runTransaction(db, async (trx) => {
+      await runTx(async (trx) => {
         const fromRef = doc(db, 'meds', from.id);
         const toRef = doc(db, 'meds', to.id);
         const fromSnap = await trx.get(fromRef);
@@ -785,9 +803,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       patch({ wmFromMed: null, wmFromSearch: '', wmToMed: null, wmToSearch: '', wmQty: '', wmReason: '' });
     } catch (e) {
       if ((e as Error)?.message === 'insufficient') { toast('ต้นทางมีไม่พอ — เหลือ ' + nf(from.floor) + ' ' + from.unit); return; }
-      console.error(e); toast('ย้ายไม่สำเร็จ ลองใหม่อีกครั้ง');
+      toastErr(e, 'ย้ายไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }, [state.meds, state.wmFromMed, state.wmToMed, state.wmQty, state.wmReason, userName, toast, patch]);
+  }, [state.meds, state.wmFromMed, state.wmToMed, state.wmQty, state.wmReason, userName, toast, toastErr, patch]);
 
   // ---------- adjust ----------
   const pickAdjType = useCallback((t: AdjType) => patch({ adjType: t, adjMed: null, adjReason: '' }), [patch]);
@@ -808,7 +826,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const t = state.adjType!;
     const sign = t === 'return' ? 1 : -1;
     try {
-      await runTransaction(db, async (trx) => {
+      await runTx(async (trx) => {
         const ref = doc(db, 'meds', m.id);
         const snap = await trx.get(ref);
         const curFloor = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
@@ -818,10 +836,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       patch({ adjQty: '', adjReason: '', adjNote: '', adjMed: null, adjSearch: '' });
       toast('บันทึกแล้ว · ' + m.name + ' ' + (sign > 0 ? '+' : '−') + nf(q) + ' ' + m.unit);
     } catch (e) {
-      console.error(e);
-      toast('บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
+      toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }, [state, logTx, toast, patch]);
+  }, [state, logTx, toast, toastErr, patch]);
 
   const scrapLot = useCallback(async (lotId: string) => {
     const l = state.lots.find((x) => x.id === lotId);
@@ -872,17 +889,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const types = ['adjust', 'return', 'damaged', 'expired', 'count', 'reconcile_hosxp'];
       let rows: (string | number)[][];
       try {
-        const snap = await getDocs(query(collection(db, 'txs'), orderBy('ts', 'desc')));
+        const snap = await withTimeout(getDocs(query(collection(db, 'txs'), orderBy('ts', 'desc'))));
         rows = snap.docs
           .map((d) => d.data() as { type: string; ts: number; name: string; qty: number; unit: string; loc?: string; reason?: string; note?: string; by: string })
           .filter((x) => types.indexOf(x.type) >= 0 && (st.wardFilter === 'all' || wardNames.has(x.name)))
           .map((x) => [isoDate(x.ts), x.name, x.type, x.qty, x.unit, x.loc || '', x.reason || '', x.note || '', x.by]);
-      } catch (e) { console.error(e); toast('ดึงประวัติไม่สำเร็จ ลองใหม่อีกครั้ง'); return; }
+      } catch (e) { toastErr(e, 'ดึงประวัติไม่สำเร็จ ลองใหม่อีกครั้ง'); return; }
       outcome = await downloadCsv([['date', 'medication', 'type', 'qty', 'unit', 'location', 'reason', 'note', 'performed_by'], ...rows], names.disc);
     }
     if (outcome === 'saved') toast('ดาวน์โหลด ' + names[state.reportTab] + ' แล้ว');
     else if (outcome === 'unavailable') toast('ดาวน์โหลดไฟล์ไม่ได้ในเบราว์เซอร์นี้');
-  }, [state, toast]);
+  }, [state, toast, toastErr]);
 
   // ---------- labels ----------
   const setLabelType = useCallback((t: AppState['labelType']) => patch({ labelType: t }), [patch]);
@@ -936,12 +953,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const sug = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
           batch.update(doc(db, 'meds', m.id), { parSub: sug.sub, parFloor: sug.floor });
         });
-        await batch.commit();
+        await withTimeout(batch.commit());
       }
       logAudit({ type: 'par_updated', note: 'ใช้ค่า par แนะนำจากสถิติทั้งหมด (' + targets.length + ' รายการเปลี่ยนแปลง)' });
       toast('ปรับ par ตามค่าแนะนำแล้ว ' + targets.length + ' รายการ');
-    } catch (e) { console.error(e); toast('ปรับ par ไม่สำเร็จ'); }
-  }, [canEditPar, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast]);
+    } catch (e) { toastErr(e, 'ปรับ par ไม่สำเร็จ'); }
+  }, [canEditPar, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast, toastErr]);
 
   const debouncedParWrite = useCallback((medId: string, field: 'parSub' | 'parFloor', val: number) => {
     window.clearTimeout(parDebounce.current[medId + field]);
@@ -987,7 +1004,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!canEditPar) return;
     toast('กำลังคำนวณสถิติการใช้ยาใหม่จากประวัติ HOSxP…');
     try {
-      const snap = await getDocs(query(collection(db, 'txs'), where('type', '==', 'reconcile_hosxp')));
+      const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('type', '==', 'reconcile_hosxp'))));
       const now = Date.now();
       const cur: Record<string, number> = {};
       const prev: Record<string, number> = {};
@@ -1005,12 +1022,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         targets.slice(i, i + 400).forEach((m) => {
           batch.update(doc(db, 'meds', m.id), { used30: Math.round(cur[m.name] || 0), usedPrev30: Math.round(prev[m.name] || 0) });
         });
-        await batch.commit();
+        await withTimeout(batch.commit());
       }
       logAudit({ type: 'par_updated', note: 'คำนวณสถิติการใช้ยาใหม่จากประวัติ HOSxP 60 วันล่าสุด (' + targets.length + ' รายการ)' });
       toast('คำนวณสถิติใหม่แล้ว ' + targets.length + ' รายการ — กด "ใช้ค่าแนะนำทั้งหมด" ด้านบนอีกครั้งเพื่ออัปเดต par ตามสถิติใหม่');
-    } catch (e) { console.error(e); toast('คำนวณสถิติไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }, [canEditPar, state.meds, logAudit, toast]);
+    } catch (e) { toastErr(e, 'คำนวณสถิติไม่สำเร็จ ลองใหม่อีกครั้ง'); }
+  }, [canEditPar, state.meds, logAudit, toast, toastErr]);
 
   // ---------- meds (formulary) management ----------
   const addMed = useCallback(async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean }) => {
@@ -1026,7 +1043,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // code. A Firestore transaction against a single counter doc makes the increment atomic
       // regardless of how many people are adding meds at once — Firestore itself retries the
       // transaction if another client's commit lands first.
-      const code = await runTransaction(db, async (trx) => {
+      const code = await runTx(async (trx) => {
         const seqRef = doc(db, 'meta', 'medSeq');
         const seqSnap = await trx.get(seqRef);
         let next: number;
@@ -1060,8 +1077,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       logAudit({ type: 'med_added', note: 'เพิ่มยาใหม่ ' + name + ' (' + code + ')' });
       toast('เพิ่ม ' + name + ' แล้ว');
-    } catch (e) { console.error(e); toast('เพิ่มยาไม่สำเร็จ'); }
-  }, [canEditPar, state.meds, logAudit, toast]);
+    } catch (e) { toastErr(e, 'เพิ่มยาไม่สำเร็จ'); }
+  }, [canEditPar, state.meds, logAudit, toast, toastErr]);
 
   // One consolidated save for everything about a med someone would want to fix in one place
   // — name/strength (kept together in `name`, same as everywhere else), dosage form, unit,
@@ -1106,15 +1123,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (m.floor > 0 || subQty(state, medId) > 0) { toast('ลบไม่ได้ — ยังมียอดคงเหลือที่หน้างานหรือ substock ต้องปรับยอด/ตัดออกให้เป็น 0 ก่อน'); return; }
     if (!window.confirm('ลบ "' + m.name + '" ออกจากระบบถาวร? ย้อนกลับไม่ได้ — ถ้าแค่เลิกใช้ชั่วคราวแนะนำให้ "ปิดใช้งาน" แทน')) return;
     try {
-      const lotSnap = await getDocs(query(collection(db, 'lots'), where('medId', '==', medId)));
+      const lotSnap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', '==', medId))));
       const batch = writeBatch(db);
       lotSnap.docs.forEach((d) => batch.delete(d.ref));
       batch.delete(doc(db, 'meds', medId));
-      await batch.commit();
+      await withTimeout(batch.commit());
       logAudit({ type: 'med_deleted', note: 'ลบยา ' + m.name + ' (' + m.code + ') ออกจากระบบถาวร' });
       toast('ลบ ' + m.name + ' แล้ว');
-    } catch (e) { console.error(e); toast('ลบไม่สำเร็จ'); }
-  }, [canEditPar, state, logAudit, toast]);
+    } catch (e) { toastErr(e, 'ลบไม่สำเร็จ'); }
+  }, [canEditPar, state, logAudit, toast, toastErr]);
 
   const setMedsFocusId = useCallback((id: string | null) => patch({ medsFocusId: id }), [patch]);
 
@@ -1132,7 +1149,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const fetchSubstockLedger = useCallback(async (medId: string) => {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return [];
-    const snap = await getDocs(query(collection(db, 'txs'), where('name', '==', m.name)));
+    const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('name', '==', m.name))));
     const rows = snap.docs
       .map((d) => d.data() as { type: string; ts: number; qty: number; note?: string; by: string; loc?: string })
       .filter((x) => SUBSTOCK_LEDGER_TYPES.has(x.type) && (x.type !== 'expired' || x.loc === 'substock'))
@@ -1153,7 +1170,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!m) return;
     try {
       let delta = 0;
-      await runTransaction(db, async (trx) => {
+      await runTx(async (trx) => {
         const ref = doc(db, 'meds', medId);
         const snap = await trx.get(ref);
         const curFloor = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
@@ -1166,8 +1183,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ควรตรวจสอบย้อนหลัง' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
       await logTx({ type: 'count', name: m.name, qty: delta, unit: m.unit, reason: 'นับสต็อกหน้างานประจำรอบ', note, loc: 'floor' });
       toast(m.name + ' — ' + note);
-    } catch (e) { console.error(e); toast('บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }, [state.countInputs, state.meds, logTx, toast, patch]);
+    } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
+  }, [state.countInputs, state.meds, logTx, toast, toastErr, patch]);
 
   // ---------- hosxp reconcile ----------
   const setHosxpText = useCallback((v: string) => patch({ hosxpText: v }), [patch]);
@@ -1203,7 +1220,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const m = medId ? meds.find((x) => x.id === medId) : null;
         if (!m) { skipped++; continue; }
         let after = 0, before = 0;
-        await runTransaction(db, async (trx) => {
+        await runTx(async (trx) => {
           const ref = doc(db, 'meds', m.id);
           const snap = await trx.get(ref);
           before = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
@@ -1215,8 +1232,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       patch({ hosxpRows: null, hosxpText: '', hosxpConfirmFuzzy: false });
       toast('ตัดยอดหน้างานตามไฟล์แล้ว ' + applied + ' รายการ' + (skipped ? ' · ข้าม ' + skipped + ' รายการที่จับคู่ไม่ได้' : '') + ' — บันทึกลง discrepancy log');
-    } catch (e) { console.error(e); toast('ประมวลผลไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }, [state.hosxpRows, state.hosxpConfirmFuzzy, state.meds, logTx, toast, patch]);
+    } catch (e) {
+      // A failure partway through leaves earlier rows in this same loop already committed —
+      // same partial-progress behavior as before this change, just now also reachable via a
+      // timeout instead of only a hard Firestore error. `applied` still reflects how many
+      // rows actually landed, worth telling the person rather than implying nothing happened.
+      toastErr(e, 'ประมวลผลไม่สำเร็จ' + (applied > 0 ? ' — ตัดยอดไปแล้ว ' + applied + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง'));
+    }
+  }, [state.hosxpRows, state.hosxpConfirmFuzzy, state.meds, logTx, toast, toastErr, patch]);
 
   // ---------- qr ----------
   const openScanSearch = useCallback((purpose: string) => patch({ qrOpen: true, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: purpose }), [patch]);
@@ -1353,19 +1376,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     type Entry = { type: string; by: string; ts: number; note: string };
     let all: Entry[];
     try {
-      const [auditSnap, txSnap] = await Promise.all([
+      const [auditSnap, txSnap] = await withTimeout(Promise.all([
         getDocs(query(collection(db, 'auditLog'), orderBy('ts', 'desc'))),
         getDocs(query(collection(db, 'txs'), orderBy('ts', 'desc'))),
-      ]);
+      ]));
       all = [
         ...auditSnap.docs.map((d) => d.data() as Entry),
         ...txSnap.docs.map((d) => d.data() as { type: string; by: string; ts: number; name?: string; note?: string })
           .map((x) => ({ type: x.type, by: x.by, ts: x.ts, note: (x.name ? x.name + ' — ' : '') + (x.note || '') })),
       ];
-    } catch (e) { console.error(e); toast('ดึงประวัติไม่สำเร็จ ลองใหม่อีกครั้ง'); return; }
+    } catch (e) { toastErr(e, 'ดึงประวัติไม่สำเร็จ ลองใหม่อีกครั้ง'); return; }
     const outcome = await downloadCsv([['date_time', 'event', 'by', 'detail'], ...all.sort((a, b) => b.ts - a.ts).map((e) => [new Date(e.ts).toISOString(), typeLabel[e.type] || e.type, e.by, e.note])], 'audit_log.csv');
     if (outcome === 'saved') toast('ดาวน์โหลด audit_log.csv แล้ว');
-  }, [toast]);
+  }, [toast, toastErr]);
 
   // ---------- audit/tx history search (browse any date range, not just the live 300-cap) ----------
   const setHistoryFrom = useCallback((v: string) => patch({ historyFrom: v }), [patch]);
@@ -1380,10 +1403,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     patch({ historyLoading: true, historyResults: null });
     const CAP = 1500;
     try {
-      const [auditSnap, txSnap] = await Promise.all([
+      const [auditSnap, txSnap] = await withTimeout(Promise.all([
         getDocs(query(collection(db, 'auditLog'), where('ts', '>=', from), where('ts', '<=', to))),
         getDocs(query(collection(db, 'txs'), where('ts', '>=', from), where('ts', '<=', to))),
-      ]);
+      ]));
       const all = [
         ...auditSnap.docs.map((d) => d.data() as { type: string; by: string; ts: number; note: string }),
         ...txSnap.docs
@@ -1397,11 +1420,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           : 'พบ ' + all.length + ' รายการในช่วงวันที่เลือก'
       );
     } catch (e) {
-      console.error(e);
       patch({ historyLoading: false });
-      toast('ค้นหาไม่สำเร็จ ลองใหม่อีกครั้ง');
+      toastErr(e, 'ค้นหาไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }, [state.historyFrom, state.historyTo, patch, toast]);
+  }, [state.historyFrom, state.historyTo, patch, toast, toastErr]);
 
   const value = useMemo<AppCtx>(() => ({
     state, myProfile, theme, toggleTheme, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, go, back,

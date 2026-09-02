@@ -7,6 +7,26 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.19.0] - 2026-09-02
+
+### Fixed
+- **fix:** every Firestore transaction and multi-doc fetch in the app (เติมหน้างาน, รับเข้า,
+  อนุมัติ/ปฏิเสธคำขอรับเข้า, ย้ายยาระหว่างชั้นวาง, ปรับยอด, นับสต็อกหน้างาน, นำเข้า HOSxP,
+  เพิ่ม/ลบยา, ใช้ค่า par แนะนำทั้งหมด, คำนวณสถิติการใช้ใหม่, export CSV/audit log, ค้นหา
+  ประวัติ) could previously hang indefinitely on a connection that's "online" per the browser
+  but can't actually reach Firestore — a captive portal on hospital wifi, a flaky access
+  point, a dead DNS lookup. Firestore's own SDK has no ceiling on this and just keeps
+  retrying silently, which left a "กำลังบันทึก" action spinning forever with zero feedback:
+  the person at the counter had no way to know whether it worked, whether to keep waiting, or
+  whether to try again. Every one of these calls now races against a 15-second clock — if it
+  fires, the action fails fast with a clear "ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่" message instead of
+  hanging; a real Firestore error still surfaces as itself
+- verified the timing/cleanup logic of the new safety net with a standalone test (fast success
+  still resolves normally, a genuinely slow call times out and rejects distinctly from a real
+  error, no leaked timer afterward) — this class of failure isn't safely reproducible against
+  the live Firestore project from here, so this is a logic-level verification, not an
+  end-to-end one
+
 ## [2.18.0] - 2026-09-02
 
 ### Fixed
