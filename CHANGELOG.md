@@ -7,6 +7,20 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.29.0] - 2026-09-02
+
+### Fixed
+- **fix:** none of the 9 commit-style buttons in the app (ยืนยันการเติมหน้างาน, ยืนยันรับเข้า,
+  อนุมัติ/ปฏิเสธรับเข้าที่รอ, ย้ายยาข้ามหอผู้ป่วย, บันทึกปรับยอด, ตัดจำหน่าย lot, บันทึกนับสต็อก,
+  ตัดยอดตามไฟล์ HOSxP) disabled themselves while their Firestore transaction was in flight — a
+  fast double-tap (very plausible on a touchscreen at a busy counter, more so with any network
+  latency before the screen navigates away) could fire the same commit function twice before
+  React ever re-rendered the button, running two independent transactions against the same
+  cart/lot/floor and silently double-deducting or double-adding real stock. Each of these 9
+  actions is now wrapped in a reentrancy guard keyed by action + target id, so a repeat
+  invocation while the first is still running is silently ignored instead of running twice —
+  unrelated items (e.g. approving two different pending receives at once) are unaffected
+
 ## [2.28.0] - 2026-09-02
 
 ### Fixed

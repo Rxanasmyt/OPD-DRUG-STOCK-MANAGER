@@ -234,6 +234,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // instead of a silent hang.
   const runTx = useCallback(<T,>(fn: (trx: Transaction) => Promise<T>) => withTimeout(runTransaction(db, fn)), []);
 
+  // None of the commit-style buttons (ยืนยันการเติมหน้างาน, อนุมัติรับเข้า, บันทึกปรับยอด,
+  // etc.) disabled themselves while their async Firestore work was in flight — a fast double
+  // tap (very real on a touchscreen, more likely still with any network latency before the
+  // screen navigates away) could fire the same commit function twice before React ever
+  // re-renders, running two independent transactions against the same cart/lot/floor and
+  // silently double-deducting real stock. Wrapping the function itself (not just the button)
+  // closes this regardless of how a second invocation might happen — a stray double bind, a
+  // second event listener, not just a literal double-tap. Keyed so unrelated items (e.g.
+  // approving two different pending receives) don't block each other, only a genuine repeat
+  // of the exact same action.
+  const busyKeys = useRef<Set<string>>(new Set());
+  const guardOnce = useCallback(<A extends unknown[]>(key: string, fn: (...args: A) => Promise<void>) => {
+    return async (...args: A) => {
+      const k = args.length ? key + ':' + String(args[0]) : key;
+      if (busyKeys.current.has(k)) return;
+      busyKeys.current.add(k);
+      try { await fn(...args); } finally { busyKeys.current.delete(k); }
+    };
+  }, []);
+
   // ---------- theme (light/dark) — a per-device UI preference, not app data, so it lives in
   // localStorage rather than Firestore. Defaults to the OS/browser preference on first visit,
   // then whatever the person picked via the toggle from then on. ----------
@@ -587,7 +607,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state, toast]);
 
-  const commitTransfer = useCallback(async () => {
+  const commitTransfer = useCallback(guardOnce('transfer', async () => {
     const cart = { ...state.cart };
     const ids = Object.keys(cart);
     if (!ids.length) return;
@@ -643,7 +663,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       toastErr(e, 'เติมหน้างานไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }, [state.cart, state.meds, state.lots, userName, toastErr]);
+  }), [state.cart, state.meds, state.lots, userName, toastErr, guardOnce]);
 
   // ---------- receive ----------
   const setRecvNo = useCallback((v: string) => patch({ recvNo: v }), [patch]);
@@ -671,7 +691,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const removeRecvItem = useCallback((i: number) => patch((st) => ({ recvItems: st.recvItems.filter((_, j) => j !== i) })), [patch]);
 
-  const commitReceive = useCallback(async () => {
+  const commitReceive = useCallback(guardOnce('receive', async () => {
     const approve = myProfile?.role !== 'tech';
     const items = state.recvItems;
     if (!items.length) return;
@@ -728,13 +748,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       toastErr(e, 'บันทึกใบรับไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }, [state.recvItems, state.recvNo, state.myUid, state.meds, myProfile, userName, toastErr, logAudit]);
+  }), [state.recvItems, state.recvNo, state.myUid, state.meds, myProfile, userName, toastErr, logAudit, guardOnce]);
 
   // Approve a pending receive — creates the real lot + receive_from_central tx, exactly
   // what the immediate (pharm/admin) receive path does. Wrapped in a transaction so two
   // people approving the same request at once can't both create the stock twice: the
   // second one sees status is no longer 'pending' and aborts cleanly.
-  const approvePendingReceive = useCallback(async (id: string) => {
+  const approvePendingReceive = useCallback(guardOnce('approveReceive', async (id: string) => {
     if (!canEditPar) return;
     try {
       await runTx(async (trx) => {
@@ -763,9 +783,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if ((e as Error)?.message === 'already-resolved') { toast('รายการนี้ถูกอนุมัติหรือปฏิเสธไปแล้ว'); return; }
       toastErr(e, 'อนุมัติไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }, [canEditPar, state.meds, userName, toast, toastErr]);
+  }), [canEditPar, state.meds, userName, toast, toastErr, guardOnce]);
 
-  const rejectPendingReceive = useCallback(async (id: string, reason: string) => {
+  const rejectPendingReceive = useCallback(guardOnce('rejectReceive', async (id: string, reason: string) => {
     if (!canEditPar) return;
     const pr = state.pendingReceives.find((r) => r.id === id);
     if (!pr) return;
@@ -783,7 +803,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if ((e as Error)?.message === 'already-resolved') { toast('รายการนี้ถูกอนุมัติหรือปฏิเสธไปแล้ว'); return; }
       toastErr(e, 'ปฏิเสธไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }, [canEditPar, state.pendingReceives, userName, toast, toastErr, logAudit]);
+  }), [canEditPar, state.pendingReceives, userName, toast, toastErr, logAudit, guardOnce]);
 
   // ---------- ward move (shelf-to-shelf, e.g. IPD injectable locked drawer -> OPD stat
   // drawer subset) — since OPD and IPD versions of the same drug are separate med records
@@ -809,7 +829,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setWmQty = useCallback((v: string) => patch({ wmQty: digitsOnly(v) }), [patch]);
   const setWmReason = useCallback((v: string) => patch({ wmReason: v }), [patch]);
 
-  const commitWardMove = useCallback(async () => {
+  const commitWardMove = useCallback(guardOnce('wardMove', async () => {
     const from = state.meds.find((x) => x.id === state.wmFromMed);
     const to = state.meds.find((x) => x.id === state.wmToMed);
     const q = parseIntSafe(state.wmQty);
@@ -840,7 +860,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if ((e as Error)?.message === 'insufficient') { toast('ต้นทางมีไม่พอ — เหลือ ' + nf(from.floor) + ' ' + from.unit); return; }
       toastErr(e, 'ย้ายไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }, [state.meds, state.wmFromMed, state.wmToMed, state.wmQty, state.wmReason, userName, toast, toastErr, patch]);
+  }), [state.meds, state.wmFromMed, state.wmToMed, state.wmQty, state.wmReason, userName, toast, toastErr, patch, guardOnce]);
 
   // ---------- adjust ----------
   const pickAdjType = useCallback((t: AdjType) => patch({ adjType: t, adjMed: null, adjReason: '' }), [patch]);
@@ -858,7 +878,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setAdjReason = useCallback((v: string) => patch({ adjReason: v }), [patch]);
   const setAdjNote = useCallback((v: string) => patch({ adjNote: v }), [patch]);
 
-  const commitAdjust = useCallback(async () => {
+  const commitAdjust = useCallback(guardOnce('adjust', async () => {
     const m = state.meds.find((x) => x.id === state.adjMed);
     const q = parseIntSafe(state.adjQty);
     if (!m || !q || !state.adjReason) { toast('ต้องเลือกยา จำนวน และเหตุผลให้ครบ'); return; }
@@ -877,9 +897,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }, [state, logTx, toast, toastErr, patch]);
+  }), [state, logTx, toast, toastErr, patch, guardOnce]);
 
-  const scrapLot = useCallback(async (lotId: string) => {
+  const scrapLot = useCallback(guardOnce('scrapLot', async (lotId: string) => {
     const l = state.lots.find((x) => x.id === lotId);
     if (!l) return;
     const m = state.meds.find((x) => x.id === l.medId);
@@ -892,7 +912,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       console.error(e);
       toast('ตัด lot ไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }, [state.lots, state.meds, logTx, toast]);
+  }), [state.lots, state.meds, logTx, toast, guardOnce]);
 
   // ---------- report ----------
   const setReportTab = useCallback((t: AppState['reportTab']) => patch({ reportTab: t }), [patch]);
@@ -1290,7 +1310,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---------- count ----------
   const setCountInput = useCallback((medId: string, v: string) => patch((st) => ({ countInputs: { ...st.countInputs, [medId]: digitsOnly(v) } })), [patch]);
 
-  const commitCount = useCallback(async (medId: string) => {
+  const commitCount = useCallback(guardOnce('count', async (medId: string) => {
     const raw = state.countInputs[medId];
     const q = parseInt(raw, 10);
     if (isNaN(q)) return;
@@ -1312,7 +1332,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await logTx({ type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit, reason: 'นับสต็อกหน้างานประจำรอบ', note, loc: 'floor' });
       toast(m.name + ' — ' + note);
     } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }, [state.countInputs, state.meds, logTx, toast, toastErr, patch]);
+  }), [state.countInputs, state.meds, logTx, toast, toastErr, patch, guardOnce]);
 
   // ---------- hosxp reconcile ----------
   const setHosxpText = useCallback((v: string) => patch({ hosxpText: v }), [patch]);
@@ -1332,7 +1352,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setHosxpConfirmFuzzy = useCallback((v: boolean) => patch({ hosxpConfirmFuzzy: v }), [patch]);
 
-  const commitReconcile = useCallback(async () => {
+  const commitReconcile = useCallback(guardOnce('reconcile', async () => {
     const rows = state.hosxpRows || [];
     const meds = state.meds;
     const hasFuzzy = rows.some((r) => r.match.kind === 'fuzzy');
@@ -1376,7 +1396,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // rows actually landed, worth telling the person rather than implying nothing happened.
       toastErr(e, 'ประมวลผลไม่สำเร็จ' + (applied > 0 ? ' — ตัดยอดไปแล้ว ' + applied + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง'));
     }
-  }, [state.hosxpRows, state.hosxpConfirmFuzzy, state.meds, logTx, toast, toastErr, patch]);
+  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.meds, logTx, toast, toastErr, patch, guardOnce]);
 
   // ---------- qr ----------
   const openScanSearch = useCallback((purpose: string) => patch({ qrOpen: true, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: purpose }), [patch]);
