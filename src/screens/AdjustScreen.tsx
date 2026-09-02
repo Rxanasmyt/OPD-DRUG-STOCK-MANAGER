@@ -1,8 +1,9 @@
 import { useApp } from '../store/AppContext';
-import { subQty, daysUntil, toneFor } from '../store/selectors';
+import { subQty, daysUntil, toneFor, wardOf } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
+import { WardBadge } from '../components/WardBadge';
 import type { AdjType } from '../types';
 
 const TYPES: [AdjType, string, string][] = [
@@ -21,12 +22,15 @@ const REASONS: Record<AdjType, string[]> = {
 
 export default function AdjustScreen() {
   const {
-    state, pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
+    state, pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot, setWardFilter,
   } = useApp();
   const meds = state.meds.filter((m) => m.active);
   const adjMed = state.adjMed ? meds.find((m) => m.id === state.adjMed) : null;
+  // Same shared ward filter as ReceiveScreen/TransferScreen/HomeScreen/MedsScreen — scopes
+  // the picker to one zone by default so an OPD/IPD name-twin pair doesn't show side by side
+  // unless "ทุกหอผู้ป่วย" is deliberately picked.
   const options = !state.adjMed && state.adjSearch.trim()
-    ? meds.filter((m) => m.name.toLowerCase().indexOf(state.adjSearch.trim().toLowerCase()) >= 0).slice(0, 10)
+    ? meds.filter((m) => (state.wardFilter === 'all' || wardOf(m) === state.wardFilter) && m.name.toLowerCase().indexOf(state.adjSearch.trim().toLowerCase()) >= 0).slice(0, 10)
     : [];
 
   const scrapRows = state.lots
@@ -61,7 +65,7 @@ export default function AdjustScreen() {
             return (
               <div key={l.id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', display: 'flex', gap: 10, alignItems: 'center' }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{m.name}</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>{m.name} <WardBadge med={m} /></div>
                   <div style={{ fontSize: 11.5, marginTop: 2, color: d < 0 ? 'var(--red)' : 'var(--amber)' }}>lot {l.lotNo} · exp {thDate(l.exp)} · {nf(l.qty)} {m.unit} · มูลค่า {nf(l.qty * m.price)} บาท</div>
                 </div>
                 <button onClick={() => scrapLot(l.id)} style={{ border: '1px solid var(--red)', background: 'var(--red-bg)', color: 'var(--red)', padding: '9px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, flex: 'none', minHeight: 40 }}>ตัดออก</button>
@@ -77,13 +81,30 @@ export default function AdjustScreen() {
           <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 9 }}>
             {state.adjType === 'adjust' ? 'ปรับยอดตามที่นับได้' : state.adjType === 'return' ? 'รับคืนยาเข้าหน้างาน' : 'ตัดยาเสีย / ชำรุด'}
           </div>
+          {!adjMed && (
+            <div style={{ display: 'flex', gap: 2, background: 'var(--border-soft)', padding: 3, borderRadius: 11, marginBottom: 9 }}>
+              {(['all', 'opd', 'ipd'] as const).map((w) => {
+                const active = state.wardFilter === w;
+                const tone = w === 'opd' ? 'var(--green)' : w === 'ipd' ? 'var(--ipd)' : 'var(--ink)';
+                return (
+                  <button
+                    key={w}
+                    onClick={() => setWardFilter(w)}
+                    style={{ flex: 1, border: 0, background: active ? 'var(--bg-card)' : 'transparent', color: active ? tone : 'var(--muted)', padding: '8px 0', borderRadius: 8, fontSize: 12.5, fontWeight: 600, boxShadow: active ? 'var(--shadow-xs)' : 'none', transition: 'background var(--dur) var(--ease), color var(--dur) var(--ease)' }}
+                  >
+                    {w === 'all' ? 'ทุกหอผู้ป่วย' : w === 'opd' ? 'OPD' : 'IPD'}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <input value={state.adjSearch} onChange={(e) => setAdjSearch(e.target.value)} placeholder="ค้นหาชื่อยา" style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44, marginBottom: 9 }} />
 
           {options.length > 0 && (
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 158, overflowY: 'auto', marginBottom: 9 }}>
               {options.map((m) => (
                 <button key={m.id} onClick={() => pickAdjMed(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
-                  <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name}</span>
+                  <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name} <WardBadge med={m} /></span>
                   <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={11.5} /> · substock {nf(subQty(state, m.id))} {m.unit}</span>
                 </button>
               ))}
@@ -93,7 +114,7 @@ export default function AdjustScreen() {
           {adjMed && (
             <>
               <div style={{ background: 'var(--green-tint)', borderRadius: 10, padding: '9px 11px', fontSize: 13.5, fontWeight: 600, marginBottom: 9 }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={adjMed.code} /> {adjMed.name}</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={adjMed.code} /> {adjMed.name} <WardBadge med={adjMed} size="md" /></span>
                 <span className="muted" style={{ display: 'block', fontSize: 11.5, fontWeight: 400 }}>หน้างาน <Qty value={adjMed.floor} tone={toneFor(adjMed)} size={11.5} /> · substock {nf(subQty(state, adjMed.id))} {adjMed.unit}</span>
               </div>
               <label style={{ display: 'block', marginBottom: 9 }}>

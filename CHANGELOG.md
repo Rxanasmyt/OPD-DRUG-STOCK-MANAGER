@@ -7,6 +7,22 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.25.0] - 2026-09-02
+
+### Added
+- **feat:** every screen that lets someone search for and pick a drug (รับเข้า, ปรับยอด,
+  บัตรสต็อก substock, ย้ายยาระหว่างชั้นวาง) now shows a colored OPD/IPD badge on every result
+  row and on the selected-med chip — the point of the OPD/IPD split is that the same drug can
+  exist as two separate shelf records sharing a name (own bin/QR/par each), and a plain
+  name-only list genuinely can't tell those two apart. รับเข้า and ปรับยอด also gained a
+  ward filter tab (ทุกหอผู้ป่วย/OPD/IPD, same shared filter หน้าหลัก/เติมหน้างาน/จัดการ
+  รายการยา already use) so the picker can be scoped to one zone at a time by default —
+  directly answers "แยกโซนของ substock OPD และ IPD ให้ชัดเจน เพื่อป้องกันความสับสน"
+- confirmed the underlying model already supports "ยา 1 ตัวมีชั้นวางได้ 2 จุด" — OPD and IPD
+  versions of the same drug are separate records from the start (see the OPD/IPD workflow
+  work earlier this session), each with exactly one bin/QR of its own; this release is about
+  making that already-correct separation visible everywhere it was previously invisible
+
 ## [2.24.0] - 2026-09-02
 
 ### Added

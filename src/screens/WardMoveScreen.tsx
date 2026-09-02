@@ -3,6 +3,7 @@ import { wardOf, wardLabel, toneFor } from '../store/selectors';
 import { nf, digitsOnly } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
+import { WardBadge } from '../components/WardBadge';
 import type { Med } from '../types';
 
 const inputStyle = { width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
@@ -111,7 +112,7 @@ function PickerCard({ label, med, search, onSearch, options, onPick }: {
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 158, overflowY: 'auto', marginTop: 8 }}>
               {options.map((m) => (
                 <button key={m.id} onClick={() => onPick(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
-                  <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name}</span>
+                  <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name} <WardBadge med={m} /></span>
                   <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>ชั้น {m.bin || '—'} · หน้างาน <Qty value={m.floor} unit={m.unit} tone={toneFor(m)} size={11} /></span>
                 </button>
               ))}

@@ -4,6 +4,7 @@ import { subQty } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
 import { printSubstockCardSheet } from '../utils/print';
 import { MedDot } from '../components/MedDot';
+import { WardBadge } from '../components/WardBadge';
 
 const inputStyle = { width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
 
@@ -80,7 +81,7 @@ export default function SubstockCardScreen() {
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 280, overflowY: 'auto', marginTop: 9 }}>
               {options.map((m) => (
                 <button key={m.id} onClick={() => openCard(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
-                  <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name}</span>
+                  <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name} <WardBadge med={m} /></span>
                   <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock ปัจจุบัน {nf(subQty(state, m.id))} {m.unit}</span>
                 </button>
               ))}
@@ -101,7 +102,7 @@ export default function SubstockCardScreen() {
               <button onClick={() => { setMedId(null); setSearch(''); setRows(null); }} style={{ border: '1px solid rgba(42,31,10,.35)', background: 'rgba(255,255,255,.35)', color: '#2a1f0a', padding: '5px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 600 }}>เปลี่ยนยา</button>
             </div>
             <div style={{ background: 'var(--amber-bg)', display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
-              <Field label="ชื่อยา" full><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MedDot code={med.code} size={9} />{med.name}</span></Field>
+              <Field label="ชื่อยา" full><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MedDot code={med.code} size={9} />{med.name} <WardBadge med={med} size="md" /></span></Field>
               <Field label="รหัสยา">{med.code}</Field>
               <Field label="หน่วยนับ" noBorderRight>{med.unit}</Field>
               <Field label="par substock" noBorder>{nf(med.parSub)} {med.unit}</Field>
