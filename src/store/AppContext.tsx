@@ -221,28 +221,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---------- auth: my own profile doc (works even before approval) ----------
   useEffect(() => {
     if (!state.myUid) return;
+    // The Firestore client here runs on a persistent (IndexedDB) local cache, which can
+    // legitimately serve a STALE or incomplete cached copy of this exact doc for the very
+    // first snapshot — e.g. cached from before this account was approved on this device, or
+    // a partial write that hadn't fully synced — and correct itself moments later once the
+    // real server snapshot arrives. Left ungated, that shows "รอ Admin อนุมัติบัญชี" for a
+    // flash on every single login before self-correcting into the app, which reads as a bug
+    // even though it resolves on its own. So: a snapshot that upgrades to signedIn applies
+    // immediately (no reason to delay good news), but one that downgrades to pendingApproval/
+    // signedOut is debounced — only committed if a better snapshot doesn't show up shortly
+    // after to cancel it. A genuine pending/deactivated account still lands there correctly,
+    // just ~0.6s later; nothing here can mask a real, lasting deactivation.
+    let downgradeTimer: number | undefined;
+    const clearDowngrade = () => window.clearTimeout(downgradeTimer);
     const unsub = onSnapshot(
       doc(db, 'users', state.myUid),
       (snap) => {
-        if (!snap.exists()) { patch({ authStatus: 'signedOut' }); return; }
+        if (!snap.exists()) {
+          clearDowngrade();
+          downgradeTimer = window.setTimeout(() => patch({ authStatus: 'signedOut' }), 600);
+          return;
+        }
         const profile = { id: snap.id, ...snap.data() } as User;
-        setMyProfile(profile);
-        // Bug: authStatus flipping to 'signedIn' never moved `screen` off its initial/post-
-        // logout value of 'login' — the Screens() switch in App.tsx has no case for 'login'
-        // (LoginScreen renders separately, gated on authStatus), so it fell through to
-        // `default: return null`, i.e. a blank home screen on every login until the person
-        // happened to tap "หน้าหลัก" themselves. Land on 'home' only from that specific state,
-        // so it doesn't stomp on wherever they already are (e.g. a live profile update while
-        // mid-workflow shouldn't yank them back to the home screen).
-        patch((st) => ({
-          role: profile.active ? profile.role : null,
-          authStatus: profile.active ? 'signedIn' : 'pendingApproval',
-          screen: profile.active && st.screen === 'login' ? 'home' : st.screen,
-        }));
+        if (profile.active) {
+          clearDowngrade();
+          setMyProfile(profile);
+          // Bug fixed previously: authStatus flipping to 'signedIn' never moved `screen` off
+          // its initial/post-logout value of 'login', landing on a blank home screen until
+          // the person tapped "หน้าหลัก" themselves. Land on 'home' only from that specific
+          // state, so a live profile update mid-workflow doesn't yank them back to home.
+          patch((st) => ({ role: profile.role, authStatus: 'signedIn', screen: st.screen === 'login' ? 'home' : st.screen }));
+          return;
+        }
+        clearDowngrade();
+        downgradeTimer = window.setTimeout(() => {
+          setMyProfile(profile);
+          patch({ role: null, authStatus: 'pendingApproval' });
+        }, 600);
       },
-      () => patch({ authStatus: 'signedOut' }),
+      () => { clearDowngrade(); patch({ authStatus: 'signedOut' }); },
     );
-    return unsub;
+    return () => { clearDowngrade(); unsub(); };
   }, [state.myUid, patch]);
 
   // ---------- live data: only once approved ----------

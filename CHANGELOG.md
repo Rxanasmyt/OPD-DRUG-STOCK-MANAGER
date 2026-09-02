@@ -7,6 +7,23 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.11.2] - 2026-08-26
+
+### Fixed
+- **fix:** logging in flashed "รอ Admin อนุมัติบัญชี" (waiting for approval) for a moment
+  even on an already-approved account (confirmed by screenshot — the account name/username
+  rendered blank during the flash, then the app opened normally right after). Root cause:
+  the Firestore client here runs on a persistent (IndexedDB) local cache, and the very first
+  snapshot for the profile listener can legitimately be a stale or incomplete cached copy of
+  that doc — e.g. cached from before this exact account was approved, on a device that had
+  its site data cleared recently — corrected moments later by the real server snapshot. The
+  profile listener applied every snapshot immediately, including that stale first one, so it
+  visibly (if briefly) downgraded the screen before self-correcting. Now a snapshot that
+  upgrades to signed-in applies immediately, but one that downgrades to pending/signed-out is
+  debounced ~0.6s — only committed if a better snapshot doesn't arrive in that window to
+  cancel it. A genuinely pending or deactivated account still lands on that screen correctly,
+  just very slightly later; nothing here can mask a real, lasting deactivation
+
 ## [2.11.1] - 2026-08-26
 
 ### Fixed
