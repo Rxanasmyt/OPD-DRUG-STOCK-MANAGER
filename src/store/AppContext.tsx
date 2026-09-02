@@ -962,12 +962,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let labels: PrintLabel[] = [];
     let heading = 'ฉลากตัวยา';
     if (state.labelType === 'med') {
-      labels = meds.map((m) => ({ payload: encodeQr('med', m.code), id: m.code, title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + m.bin, tag: m.had ? 'HIGH ALERT' : undefined, bin: m.bin }));
+      labels = meds.map((m) => ({ payload: encodeQr('med', m.code), id: m.code, title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + m.bin, tag: m.had ? 'HIGH ALERT' : undefined, bin: m.bin, ward: wardOf(m) }));
     } else if (state.labelType === 'lot') {
       heading = 'ฉลาก lot';
-      labels = state.lots.map((l) => {
-        const m = meds.find((x) => x.id === l.medId);
-        return { payload: encodeQr('lot', l.code), id: l.code, title: m ? m.name : '—', sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: daysUntil(l.exp) < state.expiryWarnDays ? 'ใกล้หมดอายุ' : undefined };
+      // Bug fix: this used to iterate state.lots directly, ignoring both the active-only and
+      // ward-scoped `meds` set the med-label branch already correctly used — printing "ฉลาก
+      // lot" while the OPD tab was open would still include IPD (and inactive-med) lots on
+      // the same sheet, silently ignoring the ward tab shown right above the print button.
+      const medIds = new Set(meds.map((m) => m.id));
+      labels = state.lots.filter((l) => medIds.has(l.medId)).map((l) => {
+        const m = meds.find((x) => x.id === l.medId)!;
+        return { payload: encodeQr('lot', l.code), id: l.code, title: m.name, sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: daysUntil(l.exp) < state.expiryWarnDays ? 'ใกล้หมดอายุ' : undefined, ward: wardOf(m) };
       });
     } else {
       heading = 'ฉลากชั้นวาง';

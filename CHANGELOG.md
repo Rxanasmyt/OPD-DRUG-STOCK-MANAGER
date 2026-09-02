@@ -7,6 +7,22 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.28.0] - 2026-09-02
+
+### Fixed
+- **fix:** printing "ฉลาก lot" ignored the OPD/IPD ward tab shown right above the print
+  button — it read from the full unfiltered lots collection instead of the same ward-scoped
+  active-meds list the "ฉลากตัวยา" tab already correctly used, so a sheet printed with "OPD"
+  selected could silently include IPD (and inactive-med) lots on the same page
+
+### Added
+- **feat:** every printed label (ฉลากตัวยา shelf strip, ฉลาก lot) now shows the drug's code
+  (e.g. MED-0123) and a colored OPD/IPD badge — previously a printed strip carried only the
+  QR and the drug name, so two labels reading the identical name (OPD and IPD versions of the
+  same drug deliberately share a name — own bin/QR/par each) were indistinguishable once cut
+  apart from the app, and if a QR ever got damaged/faded there was no human-readable code to
+  fall back to. On-screen label previews updated to match exactly what prints
+
 ## [2.27.0] - 2026-09-02
 
 ### Added

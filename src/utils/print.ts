@@ -12,6 +12,11 @@ export interface PrintLabel {
    * (bin code + QR + name) matching the hospital's existing paper labels, instead of
    * the generic card layout used for lot/location sheets. */
   bin?: string;
+  /** OPD and IPD versions of a drug deliberately share a name (own record, own bin/QR/par —
+   * see wardOf/Ward) — printed without this, two labels reading the same name at a glance
+   * would be indistinguishable once cut apart from their on-screen context. Shown on both
+   * layouts whenever present. */
+  ward?: 'opd' | 'ipd';
 }
 
 function escapeHtml(s: string): string {
@@ -44,6 +49,13 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
   // known-size labels that cut cleanly and line up with the shelf edge.
   const qrPx = isStrip ? 300 : 120;
 
+  // Same OPD/green · IPD/purple convention used everywhere in the app (on-screen WardBadge,
+  // HomeScreen, TransferScreen, etc.) — printed here as literal ink colors since paper
+  // doesn't have a theme.
+  const wardBadge = (w: PrintLabel['ward']) => w
+    ? `<span class="wardtag" style="background:${w === 'ipd' ? '#e9e6fb' : '#e1efe5'};color:${w === 'ipd' ? '#4a3fb5' : '#0e3a20'}">${w === 'ipd' ? 'IPD' : 'OPD'}</span>`
+    : '';
+
   const items = labels
     .map((l) => {
       if (isStrip) {
@@ -52,6 +64,7 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
           <div class="qr">${qrSvgMarkup(l.payload, qrPx)}</div>
           <div class="meta">
             <div class="title" style="font-size:${titleFontSizePt(l.title)}pt">${escapeHtml(l.title)}</div>
+            <div class="idline">${escapeHtml(l.id)}${wardBadge(l.ward)}</div>
             ${l.tag ? `<div class="tag">${escapeHtml(l.tag)}</div>` : ''}
           </div>
         </div>`;
@@ -59,7 +72,7 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
       return `<div class="lbl">
         <div class="qr">${qrSvgMarkup(l.payload, qrPx)}</div>
         <div class="meta">
-          <div class="code">${escapeHtml(l.id)}</div>
+          <div class="code">${escapeHtml(l.id)}${wardBadge(l.ward)}</div>
           <div class="title">${escapeHtml(l.title)}</div>
           <div class="sub">${escapeHtml(l.sub)}</div>
           ${l.tag ? `<div class="tag">${escapeHtml(l.tag)}</div>` : ''}
@@ -84,8 +97,10 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
   .lbl { border: 1px solid #999; border-radius: 2mm; padding: 2.5mm; display: flex; gap: 2mm; align-items: center; break-inside: avoid; }
   .lbl .qr { flex: none; width: 16mm; height: 16mm; }
   .lbl .meta { min-width: 0; }
-  .code { font-size: 6.5pt; letter-spacing: .05em; color: #666; font-weight: 600; }
+  .code { font-size: 6.5pt; letter-spacing: .05em; color: #666; font-weight: 600; display: flex; align-items: center; gap: 1.2mm; }
   .sub { font-size: 6.5pt; color: #666; margin-top: .5mm; }
+  .wardtag { font-size: 5.5pt; font-weight: 800; padding: .3mm 1.4mm; border-radius: 3mm; letter-spacing: .03em; }
+  .idline { font-size: 6.5pt; color: #555; font-weight: 700; letter-spacing: .04em; margin-top: .6mm; display: flex; align-items: center; gap: 1.4mm; }
 
   /* Real physical size: 100mm × 20mm, exactly — 2 cols × 14 rows fills an A4 page (28
      labels), so every sheet prints the same known size regardless of how many meds are

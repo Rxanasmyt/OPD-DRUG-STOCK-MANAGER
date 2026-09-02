@@ -15,6 +15,20 @@ import type { LabelType, Ward } from '../types';
 const TABS: [LabelType, string][] = [['med', 'ฉลากตัวยา'], ['lot', 'ฉลาก lot'], ['loc', 'ฉลากชั้นวาง']];
 const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: 'var(--ipd)' };
 
+// These preview cards are deliberately styled with literal colors (white background, #999
+// borders) since they represent actual printed paper, not themed app chrome — this badge
+// matches that same literal palette (and the literal ink colors print.ts uses for the same
+// badge on the real printout), rather than the app's dark-mode-aware --ipd/--green tokens.
+function printWardBadge(ward?: Ward) {
+  if (!ward) return null;
+  const ipd = ward === 'ipd';
+  return (
+    <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: '.03em', padding: '1px 5px', borderRadius: 10, background: ipd ? '#e9e6fb' : '#e1efe5', color: ipd ? '#4a3fb5' : '#0e3a20' }}>
+      {ipd ? 'IPD' : 'OPD'}
+    </span>
+  );
+}
+
 export default function LabelsScreen() {
   const { state, setLabelType, setWardFilter, printLabels, warn } = useApp();
   const meds = state.meds.filter((m) => m.active && (state.wardFilter === 'all' || wardOf(m) === state.wardFilter));
@@ -23,13 +37,13 @@ export default function LabelsScreen() {
   const medIds = new Set(meds.map((m) => m.id));
   const wardLots = state.lots.filter((l) => medIds.has(l.medId));
   const rows = state.labelType === 'med'
-    ? meds.slice(0, 8).map((m) => ({ code: m.code, bin: m.bin, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + m.bin, tag: m.had ? 'HIGH ALERT' : '', tagColor: 'var(--had)' }))
+    ? meds.slice(0, 8).map((m) => ({ code: m.code, bin: m.bin, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + m.bin, tag: m.had ? 'HIGH ALERT' : '', tagColor: 'var(--had)', ward: wardOf(m) as Ward | undefined }))
     : state.labelType === 'lot'
     ? wardLots.slice(0, 8).map((l) => {
         const m = meds.find((x) => x.id === l.medId);
-        return { code: l.code, bin: undefined as string | undefined, payload: encodeQr('lot', l.code), title: m ? m.name : '—', sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: daysUntil(l.exp) < warn() ? 'ใกล้หมดอายุ' : '', tagColor: 'var(--amber)' };
+        return { code: l.code, bin: undefined as string | undefined, payload: encodeQr('lot', l.code), title: m ? m.name : '—', sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: daysUntil(l.exp) < warn() ? 'ใกล้หมดอายุ' : '', tagColor: 'var(--amber)', ward: m ? wardOf(m) : undefined };
       })
-    : LOCS.map((b) => ({ code: 'LOC-' + b, bin: undefined as string | undefined, payload: encodeQr('loc', 'LOC-' + b), title: 'ชั้นจ่ายยา ' + b, sub: 'หน้างาน OPD · สแกนเพื่อเปิดรายการในชั้นนี้', tag: '', tagColor: 'var(--muted)' }));
+    : LOCS.map((b) => ({ code: 'LOC-' + b, bin: undefined as string | undefined, payload: encodeQr('loc', 'LOC-' + b), title: 'ชั้นจ่ายยา ' + b, sub: 'หน้างาน OPD · สแกนเพื่อเปิดรายการในชั้นนี้', tag: '', tagColor: 'var(--muted)', ward: undefined as Ward | undefined }));
 
   const labelCount = state.labelType === 'loc' ? LOCS.length : state.labelType === 'lot' ? wardLots.length : meds.length;
 
@@ -66,6 +80,10 @@ export default function LabelsScreen() {
               <div style={{ flex: 'none', padding: '0 9px', display: 'flex', alignItems: 'center' }}><QrCode value={r.payload} size={46} /></div>
               <div style={{ minWidth: 0, padding: '4px 10px', display: 'flex', flexDirection: 'column', justifyContent: 'center', borderLeft: '1px solid #e5e5e0' }}>
                 <div style={{ fontSize: TITLE_PX_BY_STEP[titleSizeStep(r.title)], fontWeight: 800, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#14231a' }}>{r.title}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
+                  <span style={{ fontSize: 9, color: '#777', fontWeight: 600, letterSpacing: '.03em' }}>{r.code}</span>
+                  {printWardBadge(r.ward)}
+                </div>
                 {r.tag && <div style={{ fontSize: 10.5, color: r.tagColor, fontWeight: 700, marginTop: 2 }}>{r.tag}</div>}
               </div>
             </div>
@@ -77,7 +95,10 @@ export default function LabelsScreen() {
             <div key={i} style={{ background: '#fff', border: '1px solid #cfd1c8', borderRadius: 8, padding: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
               <div style={{ flex: 'none' }}><QrCode value={r.payload} size={52} /></div>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 9.5, letterSpacing: '.08em', color: 'var(--muted)', fontWeight: 600 }}>{r.code}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ fontSize: 9.5, letterSpacing: '.08em', color: 'var(--muted)', fontWeight: 600 }}>{r.code}</span>
+                  {printWardBadge(r.ward)}
+                </div>
                 <div style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1.25, marginTop: 2 }}>{r.title}</div>
                 <div className="muted" style={{ fontSize: 10.5, marginTop: 2 }}>{r.sub}</div>
                 {r.tag && <div style={{ fontSize: 10, color: r.tagColor, fontWeight: 700, marginTop: 2 }}>{r.tag}</div>}
