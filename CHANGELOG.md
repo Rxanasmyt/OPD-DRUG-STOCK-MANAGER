@@ -7,6 +7,19 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.23.0] - 2026-09-02
+
+### Added
+- **feat:** stock numbers on หน้าหลัก and เติมหน้างาน now color-code by severity (แดง = ต่ำ
+  กว่า Min ครึ่งหนึ่ง, ส้ม = ต่ำกว่า Min, เขียว = ปกติ) and print bold/larger so "เหลือยาเท่าไร"
+  reads at a glance instead of blending into the surrounding gray text
+- **feat:** every low-stock row now shows a colored "▲ ต้องเติม N หน่วย" pill naming exactly
+  how much is needed to reach full (Max/par) — answers "ต้องเพิ่มเท่าไร" directly on the row
+  instead of making someone do the subtraction themselves. Only appears when there's an
+  actual deficit, so a fully-stocked row stays clean
+- new shared `<Qty>`/`<DeficitBadge>` components so this stays visually consistent everywhere
+  it's used instead of each screen inlining its own styling
+
 ## [2.22.1] - 2026-09-02
 
 ### Fixed

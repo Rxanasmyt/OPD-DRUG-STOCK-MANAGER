@@ -2,6 +2,7 @@ import { useApp } from '../store/AppContext';
 import { toneFor, daysUntil, wardOf, usesSubstock, floorMinOf } from '../store/selectors';
 import { nf, thDate, isoDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
+import { Qty, DeficitBadge } from '../components/Qty';
 import type { Ward } from '../types';
 
 const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: 'var(--ipd)' };
@@ -100,9 +101,14 @@ export default function HomeScreen() {
                 <span>{m.name}</span>
                 {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
               </div>
-              <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>หน้างาน {nf(m.floor)} · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock {nf(sub(m.id))} {m.unit}</div>
+              <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
+                หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={12.5} /> · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock {nf(sub(m.id))} {m.unit}
+              </div>
               <div className="bar-track" style={{ height: 4, background: 'var(--border-soft)', borderRadius: 2, marginTop: 6 }}>
                 <div className="bar-fill" style={{ height: '100%', width: Math.max(3, Math.min(100, Math.round((m.floor / m.parFloor) * 100))) + '%', background: toneFor(m), borderRadius: 2 }} />
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={m.floor < floorMinOf(m) * 0.5} />
               </div>
             </div>
             {usesSubstock(m) ? (
@@ -138,7 +144,12 @@ export default function HomeScreen() {
                 <span>{m.name}</span>
                 {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
               </div>
-              <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>substock {nf(sub(m.id))} / par {nf(m.parSub)} · ควรเบิกเพิ่ม {nf(Math.max(0, m.parSub - sub(m.id)))} {m.unit}</div>
+              <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
+                substock <Qty value={sub(m.id)} tone="var(--red)" size={12.5} /> / par {nf(m.parSub)}
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <DeficitBadge amount={Math.max(0, m.parSub - sub(m.id))} unit={m.unit} urgent={sub(m.id) === 0} />
+              </div>
             </div>
             <button onClick={() => goReceiveFor(m.id)} className="btn-outline" style={{ padding: '9px 13px', borderRadius: 9, fontSize: 13, fontWeight: 600, flex: 'none', minHeight: 40, border: '1px solid var(--green)' }}>รับเข้า</button>
           </div>

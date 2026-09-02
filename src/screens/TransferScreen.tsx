@@ -3,6 +3,7 @@ import { toneFor, wardOf, usesSubstock, floorMinOf } from '../store/selectors';
 import { nf, thDate, digitsOnly } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
+import { Qty, DeficitBadge } from '../components/Qty';
 import type { Ward } from '../types';
 
 const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: 'var(--ipd)' };
@@ -83,11 +84,14 @@ export default function TransferScreen() {
                     {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
                   </div>
                   <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>
-                    หน้างาน <span style={{ color: toneFor(m), fontWeight: 600 }}>{nf(m.floor)} {m.unit}</span> · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock {nf(sub(m.id))} {m.unit}
+                    หน้างาน <Qty value={m.floor} unit={m.unit} tone={toneFor(m)} size={12.5} /> · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock {nf(sub(m.id))} {m.unit}
                   </div>
                   <div style={{ fontSize: 11.5, color: 'var(--green)', marginTop: 3 }}>
                     FEFO: lot {f ? f.lotNo : '—'} · exp {f ? thDate(f.exp) : 'ไม่มีของใน substock'}
                     {f && <span className="muted"> (เหลือ {nf(f.qty)})</span>}
+                  </div>
+                  <div style={{ marginTop: 5 }}>
+                    <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={m.floor < floorMinOf(m) * 0.5} />
                   </div>
                 </div>
                 <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
