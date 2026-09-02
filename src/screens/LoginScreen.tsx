@@ -97,7 +97,7 @@ export default function LoginScreen() {
                 <Field icon="▤" label="แผนก" value={state.authDept} onChange={setAuthDept} placeholder="เภสัชกรรม" />
               </>
             )}
-            <Field icon="◎" label="ชื่อผู้ใช้ / Username" value={state.authUsername} onChange={(v) => setAuthUsername(v.toLowerCase())} placeholder="เช่น nurhayati" autoComplete="username" />
+            <Field icon="◎" label="ชื่อผู้ใช้ / Username" value={state.authUsername} onChange={(v) => setAuthUsername(v.toLowerCase())} autoComplete="username" />
             {isRegister && <div style={{ fontSize: 11, opacity: 0.55, margin: '-4px 0 0' }}>ตัวอักษรอังกฤษเล็ก ตัวเลข . หรือ _ เท่านั้น (3-20 ตัว)</div>}
             <PasswordField value={state.authPassword} onChange={setAuthPassword} placeholder={isRegister ? 'อย่างน้อย 6 ตัวอักษร' : '••••••••'} autoComplete={isRegister ? 'new-password' : 'current-password'} />
 

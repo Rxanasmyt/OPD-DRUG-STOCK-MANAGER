@@ -7,6 +7,13 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.17.1] - 2026-09-02
+
+### Changed
+- **fix:** removed the "เช่น nurhayati" example placeholder on the login username field
+  (reported: "ไม่สวยเลยยย") — a real-looking sample username sitting in a field labeled with
+  a name field's icon read as someone's actual account, not a hint
+
 ## [2.17.0] - 2026-09-02
 
 ### Added
