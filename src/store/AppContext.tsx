@@ -212,6 +212,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const toastTimer = useRef<number | undefined>(undefined);
   const parDebounce = useRef<Record<string, number>>({});
   const binDebounce = useRef<Record<string, number>>({});
+  // par/bin edits are debounced 500ms so typing a new number doesn't fire a write per
+  // keystroke — but a debounce is a real data-loss window: someone types a new par level,
+  // taps back or locks the phone within that 500ms, and on many mobile browsers a
+  // backgrounded tab's pending setTimeout just never fires. Every debounced write below
+  // registers its not-yet-fired callback here (keyed the same as its timer) so the
+  // visibility/pagehide flush effect further down can run it immediately instead of losing
+  // it, whenever the page is about to actually disappear.
+  const pendingFlush = useRef<Record<string, () => void>>({});
 
   // Every write-side commit action below runs its Firestore work through this instead of
   // calling runTransaction directly. A bare runTransaction can hang indefinitely when the
@@ -250,6 +258,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener('offline', off);
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, [patch]);
+
+  // ---------- flush any debounced par/bin write immediately once the page is about to
+  // disappear (tab closed, app backgrounded, phone locked) — see pendingFlush above. This is
+  // the only defense against losing the tail end of a 500ms debounce; 'pagehide' covers the
+  // actual close/navigate-away, 'visibilitychange' additionally covers a phone browser that
+  // suspends timers the instant a tab is backgrounded, before pagehide would otherwise fire.
+  useEffect(() => {
+    const flushAll = () => {
+      const fns = Object.values(pendingFlush.current);
+      pendingFlush.current = {};
+      fns.forEach((fn) => fn());
+    };
+    const onVisibility = () => { if (document.visibilityState === 'hidden') flushAll(); };
+    window.addEventListener('pagehide', flushAll);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('pagehide', flushAll);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
 
   // ---------- auth: who is signed in ----------
   useEffect(() => {
@@ -961,10 +989,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [canEditPar, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast, toastErr]);
 
   const debouncedParWrite = useCallback((medId: string, field: 'parSub' | 'parFloor', val: number) => {
+    const key = 'par:' + medId + field;
     window.clearTimeout(parDebounce.current[medId + field]);
-    parDebounce.current[medId + field] = window.setTimeout(() => {
+    const fire = () => {
+      delete pendingFlush.current[key];
       updateDoc(doc(db, 'meds', medId), { [field]: val }).catch(() => toast('บันทึกค่า par ไม่สำเร็จ'));
-    }, 500);
+    };
+    pendingFlush.current[key] = fire;
+    parDebounce.current[medId + field] = window.setTimeout(fire, 500);
   }, [toast]);
 
   const setParSub = useCallback((medId: string, v: string) => {
@@ -985,10 +1017,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!canEditPar) return;
     const val = v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
     setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, bin: val } : x)) }));
+    const key = 'bin:' + medId;
     window.clearTimeout(binDebounce.current[medId]);
-    binDebounce.current[medId] = window.setTimeout(() => {
+    const fire = () => {
+      delete pendingFlush.current[key];
       updateDoc(doc(db, 'meds', medId), { bin: val }).catch(() => toast('บันทึกชั้นวางไม่สำเร็จ'));
-    }, 500);
+    };
+    pendingFlush.current[key] = fire;
+    binDebounce.current[medId] = window.setTimeout(fire, 500);
   }, [canEditPar, toast]);
 
   /**

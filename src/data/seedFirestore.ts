@@ -1,6 +1,7 @@
 import { collection, doc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
 import { loadMasterMeds, seedLots } from './seed';
+import { withTimeout } from '../utils/timeout';
 
 const CHUNK = 400; // stay under Firestore's 500-writes-per-batch limit
 
@@ -11,7 +12,9 @@ async function writeInChunks(colName: string, docs: { id: string; [k: string]: u
       const { id, ...rest } = d;
       batch.set(doc(collection(db, colName), id), rest);
     }
-    await batch.commit();
+    // Same hang risk as every other Firestore write in this app (see utils/timeout.ts) — a
+    // ~585-med seed is ~2 chunks, each one a real chance to stall on a flaky connection.
+    await withTimeout(batch.commit());
   }
 }
 

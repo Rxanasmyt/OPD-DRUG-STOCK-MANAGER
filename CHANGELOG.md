@@ -7,6 +7,31 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.19.1] - 2026-09-02
+
+### Audit — realtime sync & data-loss review
+Went through every live Firestore listener, every write path, and `firestore.rules` field by
+field to check the realtime connection is sound and nothing can silently lose data:
+
+- **fix:** two settings edits (par level, shelf bin — currently only reachable through an old
+  code path with no screen wired to it since "จัดการรายการยา" replaced the standalone par
+  editor) were debounced 500ms before writing to Firestore, with no protection if the tab
+  closed or the phone backgrounded the page inside that window — some mobile browsers suspend
+  pending timers immediately on backgrounding, which would drop the edit entirely. Hardened
+  with a page-hide/visibility flush that fires any pending debounced write immediately the
+  moment the page is about to disappear, so this can't bite if that code path is ever wired
+  back up
+- **fix:** the initial 585-med database seed had the same unbounded-hang risk as every other
+  Firestore write fixed last release — now timeout-guarded too
+- verified every field written by every commit action against `firestore.rules` line by line —
+  no mismatches found (a mismatch would silently permission-deny a write, which is exactly the
+  "looks fine, data didn't save" failure mode this audit was checking for)
+- confirmed the initial-seed writes use fixed, deterministic doc IDs (not auto-generated) — so
+  seeding twice (e.g. two admins both seeing an empty formulary at once) overwrites the same
+  585 docs with identical data rather than creating duplicates
+- confirmed every live listener (added last release) and every transaction/fetch (timeout-
+  guarded last release) are still in place and correctly wired
+
 ## [2.19.0] - 2026-09-02
 
 ### Fixed
