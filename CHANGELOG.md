@@ -7,6 +7,18 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.26.0] - 2026-09-02
+
+### Added
+- **feat:** เสร็จสิ้น (after รับเข้า substock / เติมหน้างาน) now shows each drug's live
+  substock balance right there — real-time, no navigation needed — plus a "ดูบัตรสต็อก →"
+  link straight into its full บัตรคุมสต็อกยา (already scrolled/loaded, no re-searching for
+  the drug). Tagged with the current ปีงบประมาณ, since the substock card is always kept per
+  fiscal year on the paper original. A drug received with no substock stage (see noSubstock)
+  correctly skips this line instead of showing a misleading "0"
+- new shared `fiscalYear()` util (previously computed inline only inside the print sheet) —
+  used by both the print sheet and this new on-screen badge so they can never drift apart
+
 ## [2.25.0] - 2026-09-02
 
 ### Added

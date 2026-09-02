@@ -1,7 +1,7 @@
-import { useState, type ReactNode, type CSSProperties } from 'react';
+import { useState, useEffect, type ReactNode, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
 import { subQty } from '../store/selectors';
-import { nf, thDate } from '../utils/format';
+import { nf, thDate, fiscalYear } from '../utils/format';
 import { printSubstockCardSheet } from '../utils/print';
 import { MedDot } from '../components/MedDot';
 import { WardBadge } from '../components/WardBadge';
@@ -16,7 +16,7 @@ interface LedgerRow { ts: number; type: string; qty: number; note: string; by: s
  * live, or print an A4 sheet in the same shape as the card for anyone who still wants a
  * physical printout on file. */
 export default function SubstockCardScreen() {
-  const { state, fetchSubstockLedger, toast } = useApp();
+  const { state, fetchSubstockLedger, toast, setSubstockFocusId } = useApp();
   const [search, setSearch] = useState('');
   const [medId, setMedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -44,6 +44,16 @@ export default function SubstockCardScreen() {
       setLoading(false);
     }
   };
+
+  // Arrived here from DoneScreen's "ดูบัตรสต็อก" right after a receive/transfer — open that
+  // med's card immediately instead of landing on an empty search box.
+  useEffect(() => {
+    if (!state.substockFocusId) return;
+    const id = state.substockFocusId;
+    setSubstockFocusId(null);
+    openCard(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.substockFocusId]);
 
   const liveBalance = med ? subQty(state, med.id) : 0;
   const lastLedgerBalance = rows && rows.length ? rows[rows.length - 1].balance : 0;
@@ -98,7 +108,10 @@ export default function SubstockCardScreen() {
               this is a skin over the same real-time subQty()/fetchSubstockLedger() plumbing. */}
           <div style={{ border: '1.5px solid var(--amber)', borderRadius: 14, overflow: 'hidden', marginBottom: 14, boxShadow: 'var(--shadow-sm)' }}>
             <div style={{ background: 'var(--amber)', color: '#2a1f0a', padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 13.5, fontWeight: 800, letterSpacing: '.01em' }}>บัตรคุมสต็อกยา</span>
+              <span style={{ fontSize: 13.5, fontWeight: 800, letterSpacing: '.01em', display: 'flex', alignItems: 'center', gap: 8 }}>
+                บัตรคุมสต็อกยา
+                <span style={{ fontSize: 10.5, fontWeight: 700, background: 'rgba(42,31,10,.14)', padding: '2px 8px', borderRadius: 20 }}>ปีงบประมาณ {fiscalYear()}</span>
+              </span>
               <button onClick={() => { setMedId(null); setSearch(''); setRows(null); }} style={{ border: '1px solid rgba(42,31,10,.35)', background: 'rgba(255,255,255,.35)', color: '#2a1f0a', padding: '5px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 600 }}>เปลี่ยนยา</button>
             </div>
             <div style={{ background: 'var(--amber-bg)', display: 'grid', gridTemplateColumns: '1fr 1fr' }}>

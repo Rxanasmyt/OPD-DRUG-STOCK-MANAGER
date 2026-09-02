@@ -213,7 +213,9 @@ export interface AppState {
   hadOk: Record<string, boolean>;
 
   doneKind: 'transfer' | 'receive' | 'recvPending' | null;
-  doneRows: { name: string; sub: string; qty: string }[];
+  // medId is optional — a done row always has one going forward, but keeping it optional
+  // avoids a false sense that every historical code path is guaranteed to set it.
+  doneRows: { name: string; sub: string; qty: string; medId?: string }[];
   toast: string | null;
 
   countInputs: Record<string, string>;
@@ -222,6 +224,7 @@ export interface AppState {
   hosxpConfirmFuzzy: boolean;
 
   medsFocusId: string | null;
+  substockFocusId: string | null;
 
   adminTab: AdminTab;
   auditFilter: AuditFilter;

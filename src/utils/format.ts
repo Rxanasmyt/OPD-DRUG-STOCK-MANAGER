@@ -21,6 +21,15 @@ export function daysUntil(ms: number): number {
   return Math.floor((ms - Date.now()) / DAY);
 }
 
+/** Thai fiscal year (ปีงบประมาณ) — runs Oct-Sep, named for the Buddhist-era year it ends in.
+ * The substock card (บัตรคุมสต็อกยา) is always kept per fiscal year on the paper original, so
+ * every place that shows or prints one needs this same number. */
+export function fiscalYear(ms: number = Date.now()): number {
+  const d = new Date(ms);
+  const buddhistYear = d.getFullYear() + 543;
+  return d.getMonth() >= 9 ? buddhistYear + 1 : buddhistYear;
+}
+
 /** Deterministic pseudo-random generator (mulberry32), seeded per-index so seed data is stable across reloads. */
 export function mulberry32(seed: number) {
   let a = seed >>> 0;

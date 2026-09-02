@@ -1,5 +1,6 @@
 import { qrSvgMarkup } from './qr';
 import { titleSizeStep } from './labelName';
+import { fiscalYear } from './format';
 
 export interface PrintLabel {
   payload: string;
@@ -206,9 +207,7 @@ export interface SubstockCardRow {
  */
 export function printSubstockCardSheet(med: { code: string; name: string; parSub: number; unit: string }, rows: SubstockCardRow[]): boolean {
   const now = new Date();
-  const buddhistYear = now.getFullYear() + 543;
-  // Thai fiscal year runs Oct-Sep, named for the year it ends in.
-  const fiscalYear = (now.getMonth() >= 9 ? buddhistYear + 1 : buddhistYear) % 100;
+  const fy = fiscalYear(now.getTime()) % 100;
   const body = rows
     .map((r, i) => `<tr>
       <td class="no">${i + 1}</td>
@@ -259,7 +258,7 @@ export function printSubstockCardSheet(med: { code: string; name: string; parSub
 <body>
   <div class="sheet">
     <div class="card">
-      <div class="band"><span class="title">บัตรคุมสต็อกยา (Substock)</span><span class="fy">ปีงบประมาณ ${fiscalYear}</span></div>
+      <div class="band"><span class="title">บัตรคุมสต็อกยา (Substock)</span><span class="fy">ปีงบประมาณ ${fy}</span></div>
       <div class="fields">
         <div class="field"><span class="lbl">ชื่อยา</span><span class="val">${escapeHtml(med.name)}</span></div>
         <div class="field"><span class="lbl">รหัสยา</span><span class="val">${escapeHtml(med.code)}</span></div>

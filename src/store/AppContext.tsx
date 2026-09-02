@@ -48,6 +48,7 @@ function freshState(): AppState {
     countInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false,
 
     medsFocusId: null,
+    substockFocusId: null,
 
     adminTab: 'users', auditFilter: 'all',
     historyFrom: '', historyTo: '', historyResults: null, historyLoading: false,
@@ -152,6 +153,8 @@ export interface AppCtx {
   deleteMed: (medId: string) => void;
   deleteAllInactiveMeds: (medIds?: string[]) => void;
   setMedsFocusId: (id: string | null) => void;
+  goSubstockCardFor: (medId: string) => void;
+  setSubstockFocusId: (id: string | null) => void;
 
   // count
   fetchSubstockLedger: (medId: string) => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
@@ -623,7 +626,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
           const m = meds.find((x) => x.id === medId)!;
           trx.update(doc(db, 'meds', medId), { floor: medReads[medId] + cart[medId] });
-          rows.push({ name: m.name, sub: 'lot ' + used.join(', '), qty: nf(cart[medId]) + ' ' + m.unit });
+          rows.push({ name: m.name, sub: 'lot ' + used.join(', '), qty: nf(cart[medId]) + ' ' + m.unit, medId });
           txPayloads.push({ medId, name: m.name, qty: cart[medId], unit: m.unit, used });
         }
         resultRows = rows;
@@ -689,7 +692,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await logAudit({ type: 'receive_pending', note: 'ใบเบิก ' + state.recvNo + ' · ' + items.length + ' รายการ — รออนุมัติ' });
         setState((st) => ({
           ...st, screen: 'done', prevScreen: st.screen, doneKind: 'recvPending',
-          doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + it.lotNo + ' · exp ' + thDate(it.exp), qty: nf(it.qty) + ' ' + it.unit })),
+          doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + it.lotNo + ' · exp ' + thDate(it.exp), qty: nf(it.qty) + ' ' + it.unit, medId: it.medId })),
           recvItems: [],
         }));
         return;
@@ -719,7 +722,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await withTimeout(batch.commit());
       setState((st) => ({
         ...st, screen: 'done', prevScreen: st.screen, doneKind: 'receive',
-        doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + it.lotNo + ' · exp ' + thDate(it.exp), qty: nf(it.qty) + ' ' + it.unit })),
+        doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + it.lotNo + ' · exp ' + thDate(it.exp), qty: nf(it.qty) + ' ' + it.unit, medId: it.medId })),
         recvItems: [],
       }));
     } catch (e) {
@@ -1238,6 +1241,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setMedsFocusId = useCallback((id: string | null) => patch({ medsFocusId: id }), [patch]);
 
+  // Jump straight into บัตรสต็อก substock for one med, already open — used from เสร็จสิ้น
+  // (DoneScreen) so "รับเข้า/เติมหน้างานสำเร็จ แล้วอยากดูบัตรตอนนี้เลย" is one tap instead of
+  // navigating to the screen and searching for the drug by name again.
+  const goSubstockCardFor = useCallback((medId: string) => {
+    setState((st) => ({ ...st, screen: 'substockcard', prevScreen: st.screen, substockFocusId: medId }));
+  }, []);
+  const setSubstockFocusId = useCallback((id: string | null) => patch({ substockFocusId: id }), [patch]);
+
   // ---------- virtual substock card ----------
   // Replaces the paper "ใบเบิกยาจากคลัง-จ่ายเข้าชั้นวางยา" ledger — รับ/จ่าย/คงเหลือ for one
   // med's substock, computed from real tx history instead of a card someone updates by hand.
@@ -1558,6 +1569,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setLabelType, printLabels,
     applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats,
     addMed, updateMedFull, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId,
+    goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, setCountInput, commitCount,
     setHosxpText, processHosxp, setHosxpConfirmFuzzy, commitReconcile,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
