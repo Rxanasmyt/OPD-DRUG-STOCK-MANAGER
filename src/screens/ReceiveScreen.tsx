@@ -2,6 +2,14 @@ import { useApp } from '../store/AppContext';
 import { usesSubstock } from '../store/selectors';
 import { nf, thDate, thTime } from '../utils/format';
 import { MedDot } from '../components/MedDot';
+import { Qty } from '../components/Qty';
+
+// Same severity bands as toneFor(), applied to substock/par instead of floor/parFloor —
+// this screen is about substock, so that's the ratio a pharmacist actually cares about here.
+function subTone(cur: number, par: number): string {
+  const r = cur / Math.max(1, par);
+  return r < 0.34 ? 'var(--red)' : r < 0.75 ? 'var(--amber)' : 'var(--green)';
+}
 
 export default function ReceiveScreen() {
   const {
@@ -86,7 +94,7 @@ export default function ReceiveScreen() {
             {options.map((m) => (
               <button key={m.id} onClick={() => pickRecvMed(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
                 <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name}</span>
-                <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock {nf(sub(m.id))} · par {nf(m.parSub)}</span>
+                <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={11.5} /> · par {nf(m.parSub)}</span>
               </button>
             ))}
           </div>

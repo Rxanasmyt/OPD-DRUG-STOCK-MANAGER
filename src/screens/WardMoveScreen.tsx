@@ -1,7 +1,8 @@
 import { useApp } from '../store/AppContext';
-import { wardOf, wardLabel } from '../store/selectors';
+import { wardOf, wardLabel, toneFor } from '../store/selectors';
 import { nf, digitsOnly } from '../utils/format';
 import { MedDot } from '../components/MedDot';
+import { Qty } from '../components/Qty';
 import type { Med } from '../types';
 
 const inputStyle = { width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
@@ -98,7 +99,7 @@ function PickerCard({ label, med, search, onSearch, options, onPick }: {
           <span style={{ minWidth: 0 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={med.code} /> {med.name}</span>
             <span className="muted" style={{ display: 'block', fontSize: 11, fontWeight: 400, marginTop: 1 }}>
-              {wardLabel(wardOf(med))} · ชั้น {med.bin || '—'} · หน้างานตอนนี้ {nf(med.floor)} {med.unit}
+              {wardLabel(wardOf(med))} · ชั้น {med.bin || '—'} · หน้างานตอนนี้ <Qty value={med.floor} unit={med.unit} tone={toneFor(med)} size={11} />
             </span>
           </span>
           <button onClick={() => onSearch('')} style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--red)', fontSize: 12 }}>เปลี่ยน</button>
@@ -111,7 +112,7 @@ function PickerCard({ label, med, search, onSearch, options, onPick }: {
               {options.map((m) => (
                 <button key={m.id} onClick={() => onPick(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
                   <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name}</span>
-                  <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>ชั้น {m.bin || '—'} · หน้างาน {nf(m.floor)} {m.unit}</span>
+                  <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>ชั้น {m.bin || '—'} · หน้างาน <Qty value={m.floor} unit={m.unit} tone={toneFor(m)} size={11} /></span>
                 </button>
               ))}
             </div>

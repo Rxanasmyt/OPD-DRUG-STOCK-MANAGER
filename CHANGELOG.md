@@ -7,6 +7,21 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.24.0] - 2026-09-02
+
+### Added
+- **feat:** the color-coded stock number treatment from 2.23.0 now also applies to ปรับยอด,
+  รับเข้า, ย้ายยาระหว่างชั้นวาง, and จัดการรายการยา — every screen that shows a หน้างาน/
+  substock figure next to a drug name colors it the same way now, not just หน้าหลัก/
+  เติมหน้างาน
+- **feat:** จัดการรายการยา's list now shows each active drug's current หน้างาน/substock right
+  in the row, color-coded — previously you had to open every item's edit form just to see its
+  numbers
+- **feat:** หน้าหลัก's stat tiles ("ต่ำกว่าจุดต้องเติม (Min)", "ใกล้หมดอายุ", "ต่ำกว่า par
+  substock") are now tappable when there's something to act on — jump straight to เติมหน้างาน/
+  รับเข้า, or scroll straight to the ใกล้หมดอายุ list on the same screen, instead of the
+  number being a dead end you then have to go find yourself
+
 ## [2.23.0] - 2026-09-02
 
 ### Added

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly } from '../utils/format';
-import { wardOf, wardLabel, floorMinOf } from '../store/selectors';
+import { wardOf, wardLabel, floorMinOf, toneFor } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
+import { Qty } from '../components/Qty';
 import type { Med, Ward } from '../types';
 
 type Filter = 'active' | 'inactive' | 'all';
@@ -137,6 +138,11 @@ export default function MedsScreen() {
                       {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
                     </div>
                     <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{m.code} · ชั้น {m.bin || '—'} · {m.unit} · {nf(m.price)} บาท</div>
+                    {m.active && (
+                      <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                        หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={11} /> · substock {nf(sub(m.id))} {m.unit}
+                      </div>
+                    )}
                     <div style={{ display: 'flex', gap: 5, marginTop: 5 }}>
                       <span style={{ fontSize: 10, fontWeight: 700, color: WARD_COLOR[wardOf(m)], background: WARD_BG[wardOf(m)], padding: '2px 7px', borderRadius: 20 }}>{wardOf(m) === 'opd' ? 'OPD' : 'IPD'}</span>
                       {m.noSubstock && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--amber-ink)', background: 'var(--amber-bg)', padding: '2px 7px', borderRadius: 20 }}>ไม่มี substock</span>}

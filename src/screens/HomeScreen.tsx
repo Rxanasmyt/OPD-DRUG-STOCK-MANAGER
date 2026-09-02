@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { useApp } from '../store/AppContext';
 import { toneFor, daysUntil, wardOf, usesSubstock, floorMinOf } from '../store/selectors';
 import { nf, thDate, isoDate } from '../utils/format';
@@ -9,6 +10,7 @@ const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: 'var(--ipd)
 
 export default function HomeScreen() {
   const { state, myProfile, sub, fefo, bump, goReceiveFor, go, warn, pickAdjType, seedDatabase, setWardFilter } = useApp();
+  const expRef = useRef<HTMLDivElement>(null);
 
   if (state.meds.length === 0) {
     return (
@@ -70,10 +72,10 @@ export default function HomeScreen() {
       </div>
 
       <div className="grid-2 tablet-4" style={{ marginBottom: 14 }}>
-        <StatTile label="ต่ำกว่าจุดต้องเติม (Min)" value={low.length} tone={low.length ? 'var(--red)' : 'var(--green)'} note="รายการ · ควรเติมวันนี้" />
-        <StatTile label={`ใกล้หมดอายุ < ${W} วัน`} value={expLots.length} tone={expLots.length ? 'var(--amber)' : 'var(--green)'} note={`lot · รวมที่หมดอายุแล้ว ${expiredCount}`} />
+        <StatTile label="ต่ำกว่าจุดต้องเติม (Min)" value={low.length} tone={low.length ? 'var(--red)' : 'var(--green)'} note="รายการ · ควรเติมวันนี้" onClick={low.length ? () => go('transfer') : undefined} />
+        <StatTile label={`ใกล้หมดอายุ < ${W} วัน`} value={expLots.length} tone={expLots.length ? 'var(--amber)' : 'var(--green)'} note={`lot · รวมที่หมดอายุแล้ว ${expiredCount}`} onClick={expLots.length ? () => expRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) : undefined} />
         <StatTile label="ธุรกรรมวันนี้" value={txToday} note="รายการ · audit trail ครบ" />
-        <StatTile label="ต่ำกว่า par substock" value={lowSub.length} tone={lowSub.length ? 'var(--red)' : 'var(--green)'} note="รายการ · ควรเบิกจากคลังใหญ่" />
+        <StatTile label="ต่ำกว่า par substock" value={lowSub.length} tone={lowSub.length ? 'var(--red)' : 'var(--green)'} note="รายการ · ควรเบิกจากคลังใหญ่" onClick={lowSub.length ? () => go('receive') : undefined} />
       </div>
 
       <div style={{ background: 'var(--amber-bg)', border: '1px solid var(--amber-border)', borderRadius: 12, padding: '11px 13px', marginBottom: 13, fontSize: 12, color: 'var(--amber-ink)', lineHeight: 1.5 }}>
@@ -157,7 +159,7 @@ export default function HomeScreen() {
         {lowSub.length === 0 && <div style={{ padding: 16, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>substock ยังสูงกว่า par ทุกรายการ</div>}
       </div>
 
-      <div style={{ fontSize: 14.5, fontWeight: 600, margin: '0 2px 8px' }}>ใกล้หมดอายุ</div>
+      <div ref={expRef} style={{ fontSize: 14.5, fontWeight: 600, margin: '0 2px 8px' }}>ใกล้หมดอายุ</div>
       <div className="card stagger" style={{ overflow: 'hidden' }}>
         {expLots.slice(0, 5).map((l) => {
           const m = meds.find((x) => x.id === l.medId);
@@ -191,13 +193,24 @@ export default function HomeScreen() {
   );
 }
 
-function StatTile({ label, value, tone, note }: { label: string; value: number; tone?: string; note: string }) {
+// Clickable whenever there's actually something to jump to (onClick passed) — the exact
+// number a person wants to act on shouldn't be a dead end; tapping it should go straight to
+// the list behind it instead of making them scroll to find the same information again.
+function StatTile({ label, value, tone, note, onClick }: { label: string; value: number; tone?: string; note: string; onClick?: () => void }) {
+  const Tag = onClick ? 'button' : 'div';
   return (
-    <div className="card stat-tile" style={{ padding: '12px 13px' }}>
-      <div className="muted" style={{ fontSize: 12, marginBottom: 3 }}>{label}</div>
+    <Tag
+      className={'card stat-tile' + (onClick ? ' press-spring' : '')}
+      onClick={onClick}
+      style={{ padding: '12px 13px', textAlign: 'left', border: onClick ? '1px solid var(--border)' : '1px solid var(--border)', background: 'var(--bg-card)', width: '100%', cursor: onClick ? 'pointer' : 'default' }}
+    >
+      <div className="muted" style={{ fontSize: 12, marginBottom: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
+        <span>{label}</span>
+        {onClick && <span style={{ color: 'var(--green)', fontSize: 13, flex: 'none' }}>→</span>}
+      </div>
       <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, color: tone || 'var(--ink)' }}>{value.toLocaleString('en-US')}</div>
       <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>{note}</div>
-    </div>
+    </Tag>
   );
 }
 
