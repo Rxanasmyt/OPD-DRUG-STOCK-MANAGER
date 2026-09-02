@@ -53,7 +53,7 @@ export default function AdjustScreen() {
       </div>
 
       {state.adjType === 'expired' && (
-        <div className="card" style={{ overflow: 'hidden', marginBottom: 13 }}>
+        <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 13 }}>
           <div style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', fontSize: 13, color: 'var(--muted)' }}>lot ที่หมดอายุแล้วหรือเหลือไม่เกิน 30 วัน — ตัดออกจาก substock พร้อมบันทึกเหตุผล</div>
           {scrapRows.map(({ l, m }) => {
             const d = daysUntil(l.exp);

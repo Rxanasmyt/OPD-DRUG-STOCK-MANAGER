@@ -33,7 +33,7 @@ export default function ReceiveScreen() {
           <div style={{ fontSize: 13.5, fontWeight: 600, margin: '0 2px 8px', color: 'var(--amber-ink)' }}>
             {canApprove ? `รออนุมัติ (${pending.length})` : `คำขอของคุณที่ยังรออนุมัติ (${myPending.length})`}
           </div>
-          <div className="card" style={{ overflow: 'hidden', borderColor: 'var(--amber)' }}>
+          <div className="card stagger" style={{ overflow: 'hidden', borderColor: 'var(--amber)' }}>
             {(canApprove ? pending : myPending).map((r) => (
               <div key={r.id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
@@ -121,7 +121,7 @@ export default function ReceiveScreen() {
 
       {state.recvItems.length > 0 && (
         <>
-          <div className="card" style={{ overflow: 'hidden', marginBottom: 12 }}>
+          <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 12 }}>
             {state.recvItems.map((it, i) => (
               <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                 <div style={{ minWidth: 0, flex: 1 }}>

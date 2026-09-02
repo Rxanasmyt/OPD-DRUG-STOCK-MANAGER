@@ -63,7 +63,7 @@ export default function LoginScreen() {
           column, since a split layout only makes sense wider than this app is ever opened). */}
       <div style={{ position: 'relative', padding: 'calc(env(safe-area-inset-top, 0px) + 22px) 26px 4px', maxWidth: 440, margin: '0 auto', width: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 22, animation: 'fade .4s var(--ease-out) both' }}>
-          <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(255,255,255,.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, flex: 'none' }}>💊</div>
+          <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(255,255,255,.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, flex: 'none', animation: 'glowPulse 3.2s infinite' }}>💊</div>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--ink-soft)', lineHeight: 1.25 }}>ระบบจัดการสต็อกยา OPD</div>
             <div style={{ fontSize: 11.5, color: 'rgba(242,245,239,.65)' }}>รพ.กรงปินัง · ห้องยาผู้ป่วยนอก</div>
@@ -81,9 +81,10 @@ export default function LoginScreen() {
             {isRegister ? 'สมัครด้วยบัญชีเจ้าหน้าที่ห้องยา — รออนุมัติก่อนเข้าใช้งาน' : 'ลงชื่อเข้าใช้ด้วยบัญชีเจ้าหน้าที่ห้องยา'}
           </div>
 
-          <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,.09)', padding: 3, borderRadius: 11, marginBottom: 18 }}>
-            <button onClick={() => setAuthMode('login')} style={{ flex: 1, border: 0, background: !isRegister ? 'var(--ink-soft)' : 'transparent', color: !isRegister ? 'var(--ink)' : 'rgba(242,245,239,.75)', padding: '10px 0', borderRadius: 8, fontSize: 13.5, fontWeight: 600 }}>เข้าสู่ระบบ</button>
-            <button onClick={() => setAuthMode('register')} style={{ flex: 1, border: 0, background: isRegister ? 'var(--ink-soft)' : 'transparent', color: isRegister ? 'var(--ink)' : 'rgba(242,245,239,.75)', padding: '10px 0', borderRadius: 8, fontSize: 13.5, fontWeight: 600 }}>สมัครสมาชิก</button>
+          <div style={{ position: 'relative', display: 'flex', gap: 2, background: 'rgba(255,255,255,.09)', padding: 3, borderRadius: 11, marginBottom: 18 }}>
+            <span style={{ position: 'absolute', top: 3, bottom: 3, left: isRegister ? '50%' : 3, width: 'calc(50% - 3px)', background: 'var(--ink-soft)', borderRadius: 8, transition: 'left var(--dur-slow) var(--ease-spring)' }} />
+            <button onClick={() => setAuthMode('login')} className="press-spring" style={{ position: 'relative', flex: 1, border: 0, background: 'transparent', color: !isRegister ? 'var(--ink)' : 'rgba(242,245,239,.75)', padding: '10px 0', borderRadius: 8, fontSize: 13.5, fontWeight: 600 }}>เข้าสู่ระบบ</button>
+            <button onClick={() => setAuthMode('register')} className="press-spring" style={{ position: 'relative', flex: 1, border: 0, background: 'transparent', color: isRegister ? 'var(--ink)' : 'rgba(242,245,239,.75)', padding: '10px 0', borderRadius: 8, fontSize: 13.5, fontWeight: 600 }}>สมัครสมาชิก</button>
           </div>
 
           <form
@@ -134,9 +135,9 @@ export default function LoginScreen() {
           )}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20, animation: 'fade .4s var(--ease-out) both', animationDelay: '120ms' }}>
-          {FEATURES.map(([icon, title, sub]) => (
-            <div key={title} style={{ display: 'flex', gap: 11, alignItems: 'flex-start' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
+          {FEATURES.map(([icon, title, sub], i) => (
+            <div key={title} style={{ display: 'flex', gap: 11, alignItems: 'flex-start', animation: 'fade .4s var(--ease-out) both', animationDelay: `${120 + i * 70}ms` }}>
               <div style={{ width: 30, height: 30, borderRadius: 9, background: 'rgba(255,255,255,.1)', color: 'var(--ink-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flex: 'none' }}>{icon}</div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink-soft)' }}>{title}</div>

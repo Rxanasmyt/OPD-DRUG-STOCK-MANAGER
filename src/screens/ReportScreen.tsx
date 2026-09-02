@@ -79,7 +79,7 @@ export default function ReportScreen() {
 
         {state.reportTab === 'aging' && (
           <>
-            <div className="card" style={{ overflow: 'hidden', marginBottom: 14 }}>
+            <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 14 }}>
               {buckets.map((b) => (
                 <div key={b.label} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
@@ -99,7 +99,7 @@ export default function ReportScreen() {
         )}
 
         {state.reportTab === 'turn' && (
-          <div className="card" style={{ overflow: 'hidden' }}>
+          <div className="card stagger" style={{ overflow: 'hidden' }}>
             <div style={{ display: 'flex', padding: '9px 13px', background: 'var(--bg-subtle)', fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>
               <span style={{ flex: 1 }}>รายการยา</span><span style={{ width: 64, textAlign: 'right', flex: 'none' }}>จ่าย 30 วัน</span><span style={{ width: 52, textAlign: 'right', flex: 'none' }}>วันคงคลัง</span>
             </div>
@@ -114,7 +114,7 @@ export default function ReportScreen() {
         )}
 
         {state.reportTab === 'disc' && (
-          <div className="card" style={{ overflow: 'hidden' }}>
+          <div className="card stagger" style={{ overflow: 'hidden' }}>
             {discRows.map((x) => (
               <div key={x.id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>

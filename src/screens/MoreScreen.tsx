@@ -54,15 +54,15 @@ export default function MoreScreen() {
       {groups.map((g) => (
         <div key={g.title} style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.03em', margin: '0 3px 7px' }}>{g.title.toUpperCase()}</div>
-          <div className="card" style={{ overflow: 'hidden' }}>
+          <div className="card stagger" style={{ overflow: 'hidden' }}>
             {g.items.map((m) => (
-              <button key={m.label} onClick={() => go(m.screen)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '13px 13px', minHeight: 58, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button key={m.label} onClick={() => go(m.screen)} className="row-interactive" style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '13px 13px', minHeight: 58, display: 'flex', alignItems: 'center', gap: 12 }}>
                 <span style={{ flex: 'none', width: 34, height: 34, borderRadius: 10, background: 'var(--green-tint)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>{m.icon}</span>
                 <span style={{ minWidth: 0, flex: 1 }}>
                   <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{m.label}</span>
                   <span className="muted" style={{ display: 'block', fontSize: 11, marginTop: 1, lineHeight: 1.35 }}>{m.sub}</span>
                 </span>
-                <span style={{ color: 'var(--green)', fontSize: 16, flex: 'none' }}>→</span>
+                <span className="row-arrow" style={{ color: 'var(--green)', fontSize: 16, flex: 'none' }}>→</span>
               </button>
             ))}
           </div>

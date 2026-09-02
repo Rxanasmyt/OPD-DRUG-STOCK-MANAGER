@@ -91,7 +91,7 @@ export default function HomeScreen() {
       </div>
 
       <SectionHeader title="ต้องเติมหน้างาน" actionLabel="ดูทั้งหมด" onAction={() => go('transfer')} />
-      <div className="card" style={{ overflow: 'hidden', marginBottom: 18 }}>
+      <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 18 }}>
         {low.slice(0, 5).map((m) => (
           <div key={m.id} className="row-interactive" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}>
             <div style={{ minWidth: 0, flex: 1 }}>
@@ -129,7 +129,7 @@ export default function HomeScreen() {
       </div>
 
       <SectionHeader title="ควรเบิกจากคลังยาใหญ่" actionLabel="ไปหน้ารับเข้า" onAction={() => go('receive')} />
-      <div className="card" style={{ overflow: 'hidden', marginBottom: 18 }}>
+      <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 18 }}>
         {lowSub.slice(0, 5).map((m) => (
           <div key={m.id} className="row-interactive" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}>
             <div style={{ minWidth: 0, flex: 1 }}>
@@ -147,7 +147,7 @@ export default function HomeScreen() {
       </div>
 
       <div style={{ fontSize: 14.5, fontWeight: 600, margin: '0 2px 8px' }}>ใกล้หมดอายุ</div>
-      <div className="card" style={{ overflow: 'hidden' }}>
+      <div className="card stagger" style={{ overflow: 'hidden' }}>
         {expLots.slice(0, 5).map((l) => {
           const m = meds.find((x) => x.id === l.medId);
           if (!m) return null;

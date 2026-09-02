@@ -37,13 +37,14 @@ export default function SettingsScreen() {
 
       <button
         onClick={() => go('meds')}
+        className="row-interactive"
         style={{ width: '100%', textAlign: 'left', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 12, padding: '13px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, minHeight: 56 }}
       >
         <span>
           <span style={{ fontSize: 13.5, fontWeight: 600 }}>แก้ par substock / par หน้างาน / ชั้นวาง รายตัว</span>
           <span className="muted" style={{ display: 'block', fontSize: 11.5, marginTop: 2 }}>ไปที่ "จัดการรายการยา" — แก้ได้ทุกฟิลด์ของยาแต่ละตัวในที่เดียว ({meds.length} รายการ)</span>
         </span>
-        <span style={{ color: 'var(--green)', fontSize: 16, flex: 'none' }}>→</span>
+        <span className="row-arrow" style={{ color: 'var(--green)', fontSize: 16, flex: 'none' }}>→</span>
       </button>
     </div>
   );

@@ -79,14 +79,14 @@ export default function AdminScreen() {
             {pending.length > 0 && (
               <>
                 <div style={{ fontSize: 13.5, fontWeight: 600, margin: '0 2px 8px', color: 'var(--amber-ink)' }}>รออนุมัติ ({pending.length})</div>
-                <div className="card" style={{ overflow: 'hidden', marginBottom: 16, borderColor: 'var(--amber)' }}>
+                <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 16, borderColor: 'var(--amber)' }}>
                   {pending.map((u) => <PendingRow key={u.id} u={u} onApprove={() => toggleUserActive(u.id)} roleLabelOf={roleLabelOf} />)}
                 </div>
               </>
             )}
 
             <div style={{ fontSize: 13.5, fontWeight: 600, margin: '0 2px 8px' }}>บัญชีผู้ใช้งานทั้งหมด ({approved.length})</div>
-            <div className="card" style={{ overflow: 'hidden' }}>
+            <div className="card stagger" style={{ overflow: 'hidden' }}>
               {approved.map((u) => {
                 const isMe = u.id === state.myUid;
                 return (
@@ -155,7 +155,7 @@ export default function AdminScreen() {
             {isHistory && (
               <div className="muted" style={{ fontSize: 11.5, marginBottom: 9 }}>ผลค้นหา {thDate(new Date(state.historyFrom).getTime())} – {thDate(new Date(state.historyTo).getTime())} · {filtered.length} รายการ{filtered.length === 300 ? '+ (แสดงสูงสุด 300 รายการ ลองย่อช่วงวันที่)' : ''}</div>
             )}
-            <div className="card" style={{ overflow: 'hidden' }}>
+            <div className="card stagger" style={{ overflow: 'hidden' }}>
               {filtered.map((e, i) => (
                 <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>

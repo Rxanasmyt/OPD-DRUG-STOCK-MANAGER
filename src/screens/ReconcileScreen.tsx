@@ -33,7 +33,7 @@ export default function ReconcileScreen() {
 
       {reconcileRows.length > 0 && (
         <>
-          <div className="card" style={{ overflow: 'hidden', marginBottom: 13 }}>
+          <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 13 }}>
             <div style={{ display: 'flex', padding: '9px 13px', background: 'var(--bg-subtle)', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
               <span style={{ flex: 1 }}>รายการยา</span><span style={{ width: 70, textAlign: 'right', flex: 'none' }}>จ่ายจริง</span><span style={{ width: 70, textAlign: 'right', flex: 'none' }}>ก่อน → หลัง</span>
             </div>

@@ -7,6 +7,21 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.17.0] - 2026-09-02
+
+### Added
+- **feat:** full-app UI/UX/animation pass — every screen, not just the shared chrome from the
+  previous release. List cards across เติมหน้างาน, รับเข้า, ปรับยอด, นำเข้า HOSxP, นับสต็อก,
+  รายงาน, บัตรสต็อก, จัดการรายการยา, จัดการผู้ใช้/audit log, and เพิ่มเติม now ripple in with a
+  quick staggered fade instead of appearing all at once
+- **feat:** every button in the app now presses with a snappier spring easing (was a flat
+  scale-down) — a small, app-wide tactile upgrade rather than a one-screen tweak
+- **feat:** login screen's เข้าสู่ระบบ/สมัครสมาชิก tab switch now has a sliding pill background
+  instead of an instant color swap, feature list items fade in one after another instead of as
+  one block, and the logo badge has a slow breathing glow
+- **feat:** "เพิ่มเติม" menu rows and the settings → "จัดการรายการยา" link row now have a hover/
+  press lift with the arrow nudging forward, matching the tactile feel used elsewhere
+
 ## [2.16.0] - 2026-09-02
 
 ### Added

@@ -134,7 +134,7 @@ button:disabled { cursor: default; opacity: .55; filter: none !important; transf
 @media (hover: hover) {
   button:not(:disabled):hover { filter: brightness(1.04); }
 }
-button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); }
+button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); transition-timing-function: var(--ease-spring); }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #c9cbc2; border-radius: 4px; }
@@ -200,6 +200,7 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); }
 .btn { border: 0; border-radius: 12px; font-weight: 600; cursor: pointer; }
 .btn-primary { background: var(--green); color: var(--ink-soft); box-shadow: var(--shadow-sm); }
 .btn-primary:not(:disabled):hover { box-shadow: 0 8px 20px -8px rgba(var(--green-rgb), .55); }
+.btn-primary:not(:disabled):active { transform: scale(.95); transition: transform .08s var(--ease-spring); }
 .btn-outline { background: #fff; border: 1px solid var(--green); color: var(--green); }
 .muted { color: var(--muted); }
 
@@ -221,6 +222,10 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); }
   .row-interactive:hover { background-color: var(--green-tint); }
 }
 .row-interactive:active { transform: scale(.99); }
+.row-arrow { display: inline-block; transition: transform var(--dur) var(--ease-out); }
+@media (hover: hover) {
+  .row-interactive:hover .row-arrow { transform: translateX(3px); }
+}
 
 .login-btn { transition: background-color var(--dur) var(--ease), transform var(--dur-fast) var(--ease-out); }
 .login-arrow { display: inline-block; transition: transform var(--dur) var(--ease-out); }
@@ -231,7 +236,23 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); }
 .stat-tile { transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease); }
 @media (hover: hover) {
   .stat-tile:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); }
+  .card:hover { box-shadow: var(--shadow-sm); }
 }
+
+/* Auto-staggers the fade-in of a list's direct children on mount — a cheap alternative to
+   hand-writing animationDelay on every row. Flattens to one shared delay past the 9th child
+   so a 150-row list doesn't keep animating for two seconds; the point is a quick ripple
+   across the first screenful, not a slow reveal of everything below the fold. */
+.stagger > * { animation: fade .32s var(--ease-out) both; }
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 28ms; }
+.stagger > *:nth-child(3) { animation-delay: 56ms; }
+.stagger > *:nth-child(4) { animation-delay: 84ms; }
+.stagger > *:nth-child(5) { animation-delay: 112ms; }
+.stagger > *:nth-child(6) { animation-delay: 140ms; }
+.stagger > *:nth-child(7) { animation-delay: 168ms; }
+.stagger > *:nth-child(8) { animation-delay: 196ms; }
+.stagger > *:nth-child(n+9) { animation-delay: 224ms; }
 
 /* Sticky sub-headers (screen tab bars, search bars) — frosted-glass blur instead of a flat
  * opaque fill, so content scrolling underneath still reads as "underneath" rather than

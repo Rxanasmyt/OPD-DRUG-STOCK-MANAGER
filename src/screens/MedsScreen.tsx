@@ -112,7 +112,7 @@ export default function MedsScreen() {
       </div>
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาชื่อยา" style={{ ...inputStyle, marginBottom: 10 }} />
 
-      <div className="card" style={{ overflow: 'hidden' }}>
+      <div className="card stagger" style={{ overflow: 'hidden' }}>
         {meds.slice(0, 150).map((m) => {
           const stockLeft = m.floor > 0 || sub(m.id) > 0;
           const isEditing = editingId === m.id;

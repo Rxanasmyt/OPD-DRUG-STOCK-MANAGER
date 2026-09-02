@@ -20,7 +20,7 @@ export default function CountScreen() {
         placeholder="ค้นหาชื่อยา"
         style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44, marginBottom: 12 }}
       />
-      <div className="card" style={{ overflow: 'hidden' }}>
+      <div className="card stagger" style={{ overflow: 'hidden' }}>
         {meds.map((m) => {
           const typed = state.countInputs[m.id] ?? '';
           const q = parseInt(typed, 10);

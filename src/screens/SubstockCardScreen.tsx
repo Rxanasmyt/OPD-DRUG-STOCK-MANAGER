@@ -114,7 +114,7 @@ export default function SubstockCardScreen() {
           {loading && <div style={{ textAlign: 'center', padding: 20, color: 'var(--muted)', fontSize: 13 }}>กำลังโหลดประวัติ…</div>}
 
           {rows && !loading && (
-            <div className="card" style={{ overflow: 'hidden' }}>
+            <div className="card stagger" style={{ overflow: 'hidden' }}>
               {/* Same shape as the physical card: วันที่ / รับ / จ่าย / คงเหลือ, chronological
                   (oldest first) — this is a ledger meant to be read top-to-bottom, same as the
                   paper it replaces, not a "recent activity" feed. */}
