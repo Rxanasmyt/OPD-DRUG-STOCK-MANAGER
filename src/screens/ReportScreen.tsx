@@ -41,12 +41,19 @@ export default function ReportScreen() {
       return { name: m.name, used: nf(m.used30), doh: isFinite(doh) ? nf(doh) : '—', tone: doh < 14 ? 'var(--red)' : doh > 120 ? 'var(--amber)' : 'var(--green)' };
     });
 
-  // txs don't carry medId (only the drug's name at the time), so ward-scoping here is a
-  // best-effort match by name against the current ward's meds — exact whenever the OPD and
-  // IPD copies of a drug are named differently (as pharmacy does it, e.g. distinguishing
-  // strength/pack), ambiguous only in the rare case two wards' meds share an identical name.
+  // txs now carry medId going forward (see Tx type) — trust that for ward-scoping when
+  // present. A row from before medId existed falls back to matching by name, but only when
+  // that name is unambiguous for this ward filter; a name shared with a med in the other
+  // ward (OPD and IPD copies of the same drug deliberately can share a name) is excluded
+  // rather than risking pulling in the wrong ward's history.
   const wardNames = new Set(meds.map((m) => m.name));
-  const discRows = state.txs.filter((x) => DISC_TYPES.indexOf(x.type) >= 0 && (state.wardFilter === 'all' || wardNames.has(x.name))).slice(0, 30);
+  const otherWardNames = new Set(state.meds.filter((m) => state.wardFilter !== 'all' && wardOf(m) !== state.wardFilter).map((m) => m.name));
+  const discRows = state.txs.filter((x) => {
+    if (DISC_TYPES.indexOf(x.type) < 0) return false;
+    if (state.wardFilter === 'all') return true;
+    if (x.medId) return medIds.has(x.medId);
+    return wardNames.has(x.name) && !otherWardNames.has(x.name);
+  }).slice(0, 30);
 
   return (
     <div style={{ animation: 'fade .18s' }}>

@@ -7,6 +7,43 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.20.0] - 2026-09-02
+
+### Audit — QR scanning + same-drug-two-bin-codes (OPD/IPD)
+Verified both explicitly:
+
+- **QR:** re-ran the full encode → print-size render → simulated camera capture (blur +
+  distance downscale) → jsQR decode → parse round-trip that originally caught the too-small
+  print bug this session. Still passes cleanly at the shipped 16.6mm strip size; a
+  deliberately harsher blur than any realistic phone-focus case is where it finally stops
+  decoding, which is the expected physical limit, not a regression. Every med/lot/loc record
+  gets its own unique printed code and QR (see `code`, minted from an atomic counter) — so a
+  drug existing as separate OPD and IPD shelf records always gets two genuinely distinct bin
+  codes and two genuinely distinct scannable QR labels, never a collision, by construction
+- **Two bin codes for one drug (OPD + IPD):** the shelf/QR side of this was already correct —
+  found instead that several places elsewhere still assumed a drug's *name* was a unique
+  pointer back to one record, which stopped being true the moment OPD and IPD versions of the
+  same drug (deliberately, same name, separate records) were allowed to exist. Three real
+  spots fixed:
+
+### Fixed
+- **fix:** the daily HOSxP reconcile matcher (`matchHosxpMed`) picked the *first* exact
+  name match with `.find()` instead of checking for more than one — a drug named identically
+  on both OPD and IPD shelves would always silently deduct from the same one of the two,
+  regardless of which ward actually dispensed it. Now detects this and reports it 'ambiguous'
+  (same as its own fuzzy-match branch already did), which the existing UI already presents as
+  "skip, resolve by hand" rather than ever guessing. The reconcile screen also now names this
+  specific case directly ("ยานี้มีทั้งชั้น OPD และ IPD ชื่อเดียวกัน...") instead of a generic
+  "found several similarly-named drugs" message
+- **fix:** every transaction record now also carries the specific `medId` it belongs to (it
+  previously stored only the drug's name at the time) — the substock card ledger and the
+  ward-filtered discrepancy report/export both used to match transaction history purely by
+  name, which would silently merge OPD's and IPD's history together for any drug that exists
+  on both shelves. Both now trust `medId` when present; a transaction logged before this
+  field existed falls back to name-matching only when that name is unambiguous for the ward
+  in question. Substock card also now explains this specific case when the running balance
+  doesn't match live stock, instead of pointing at a generic "check the audit log"
+
 ## [2.19.1] - 2026-09-02
 
 ### Audit — realtime sync & data-loss review

@@ -82,8 +82,15 @@ export function matchHosxpMed(meds: Med[], rawName: string): HosxpMatch {
   const n = rawName.trim().toLowerCase();
   if (!n) return { kind: 'none' };
 
-  const exact = active.find((m) => m.name.trim().toLowerCase() === n);
-  if (exact) return { kind: 'exact', medId: exact.id };
+  // A name is no longer guaranteed unique across the whole formulary — OPD and IPD versions
+  // of the same drug are deliberately separate records that can share an identical name (see
+  // wardOf/Ward). .find() alone would silently always pick whichever one happens to be first
+  // in the array, deducting HOSxP-reported dispensing from the wrong ward's shelf every time
+  // that drug is reconciled. Treat two-or-more exact matches the same as the fuzzy branch
+  // below already does: 'ambiguous', not a silent guess.
+  const exactMatches = active.filter((m) => m.name.trim().toLowerCase() === n);
+  if (exactMatches.length === 1) return { kind: 'exact', medId: exactMatches[0].id };
+  if (exactMatches.length > 1) return { kind: 'ambiguous', candidateIds: exactMatches.map((m) => m.id) };
 
   const candidates = active.filter((m) => {
     const mn = m.name.toLowerCase();

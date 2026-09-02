@@ -589,7 +589,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!ids.length) return;
     const meds = state.meds, lotsCache = state.lots;
     let resultRows: AppState['doneRows'] = [];
-    const txPayloads: { name: string; qty: number; unit: string; used: string[] }[] = [];
+    const txPayloads: { medId: string; name: string; qty: number; unit: string; used: string[] }[] = [];
     try {
       await runTx(async (trx) => {
         const rows: AppState['doneRows'] = [];
@@ -623,14 +623,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const m = meds.find((x) => x.id === medId)!;
           trx.update(doc(db, 'meds', medId), { floor: medReads[medId] + cart[medId] });
           rows.push({ name: m.name, sub: 'lot ' + used.join(', '), qty: nf(cart[medId]) + ' ' + m.unit });
-          txPayloads.push({ name: m.name, qty: cart[medId], unit: m.unit, used });
+          txPayloads.push({ medId, name: m.name, qty: cart[medId], unit: m.unit, used });
         }
         resultRows = rows;
       });
       const batch = writeBatch(db);
       txPayloads.forEach((p) => {
         batch.set(doc(collection(db, 'txs')), {
-          type: 'transfer_to_floor', name: p.name, qty: p.qty, unit: p.unit, from: 'substock', to: 'floor',
+          type: 'transfer_to_floor', name: p.name, medId: p.medId, qty: p.qty, unit: p.unit, from: 'substock', to: 'floor',
           note: 'FEFO lot ' + p.used.join(', '), by: userName(), ts: Date.now(),
         } satisfies Omit<import('../types').Tx, 'id'>);
       });
@@ -704,14 +704,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (m && !usesSubstock(m)) {
           batch.update(doc(db, 'meds', it.medId), { floor: increment(it.qty) });
           batch.set(doc(collection(db, 'txs')), {
-            type: 'receive_from_central', name: it.name, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'floor',
+            type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'floor',
             note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp) + ' — ไม่มี substock ขึ้นหน้างานทันที', by: userName(), ts: Date.now(),
           });
           return;
         }
         batch.set(doc(collection(db, 'lots')), { code: 'LOT-' + it.medId.slice(1) + '-n' + i, medId: it.medId, lotNo: it.lotNo, exp: it.exp, qty: it.qty, loc: 'ชั้น bulk' });
         batch.set(doc(collection(db, 'txs')), {
-          type: 'receive_from_central', name: it.name, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'substock',
+          type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'substock',
           note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp), by: userName(), ts: Date.now(),
         });
       });
@@ -742,13 +742,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (m && !usesSubstock(m)) {
           trx.update(doc(db, 'meds', pr.medId), { floor: increment(pr.qty) });
           trx.set(doc(collection(db, 'txs')), {
-            type: 'receive_from_central' as TxType, name: pr.name, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'floor',
+            type: 'receive_from_central' as TxType, name: pr.name, medId: pr.medId, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'floor',
             note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + ' — ไม่มี substock ขึ้นหน้างานทันที — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
           });
         } else {
           trx.set(doc(collection(db, 'lots')), { code: 'LOT-' + pr.medId.slice(1) + '-n' + Date.now(), medId: pr.medId, lotNo: pr.lotNo, exp: pr.exp, qty: pr.qty, loc: 'ชั้น bulk' });
           trx.set(doc(collection(db, 'txs')), {
-            type: 'receive_from_central' as TxType, name: pr.name, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'substock',
+            type: 'receive_from_central' as TxType, name: pr.name, medId: pr.medId, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'substock',
             note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + ' — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
           });
         }
@@ -819,11 +819,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         trx.update(fromRef, { floor: curFloor - q });
         trx.update(toRef, { floor: increment(q) });
         trx.set(doc(collection(db, 'txs')), {
-          type: 'ward_move_out' as TxType, name: from.name, qty: -q, unit: from.unit, to: to.name,
+          type: 'ward_move_out' as TxType, name: from.name, medId: from.id, qty: -q, unit: from.unit, to: to.name,
           reason: state.wmReason.trim(), note: 'ย้ายไป ' + to.name + ' — ' + state.wmReason.trim(), by: userName(), ts: Date.now(), loc: 'floor',
         });
         trx.set(doc(collection(db, 'txs')), {
-          type: 'ward_move_in' as TxType, name: to.name, qty: q, unit: to.unit, from: from.name,
+          type: 'ward_move_in' as TxType, name: to.name, medId: to.id, qty: q, unit: to.unit, from: from.name,
           reason: state.wmReason.trim(), note: 'ย้ายมาจาก ' + from.name + ' — ' + state.wmReason.trim(), by: userName(), ts: Date.now(), loc: 'floor',
         });
       });
@@ -860,7 +860,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const curFloor = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
         trx.update(ref, { floor: Math.max(0, curFloor + sign * q) });
       });
-      await logTx({ type: t, name: m.name, qty: sign * q, unit: m.unit, reason: state.adjReason, note: state.adjNote || '—', loc: 'floor' });
+      await logTx({ type: t, name: m.name, medId: m.id, qty: sign * q, unit: m.unit, reason: state.adjReason, note: state.adjNote || '—', loc: 'floor' });
       patch({ adjQty: '', adjReason: '', adjNote: '', adjMed: null, adjSearch: '' });
       toast('บันทึกแล้ว · ' + m.name + ' ' + (sign > 0 ? '+' : '−') + nf(q) + ' ' + m.unit);
     } catch (e) {
@@ -875,7 +875,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!m) return;
     try {
       await updateDoc(doc(db, 'lots', lotId), { qty: 0 });
-      await logTx({ type: 'expired', name: m.name, qty: -l.qty, unit: m.unit, reason: 'หมดอายุ / ใกล้หมดอายุ', note: 'lot ' + l.lotNo + ' exp ' + thDate(l.exp) + ' · มูลค่า ' + nf(l.qty * m.price) + ' บาท', loc: 'substock' });
+      await logTx({ type: 'expired', name: m.name, medId: m.id, qty: -l.qty, unit: m.unit, reason: 'หมดอายุ / ใกล้หมดอายุ', note: 'lot ' + l.lotNo + ' exp ' + thDate(l.exp) + ' · มูลค่า ' + nf(l.qty * m.price) + ' บาท', loc: 'substock' });
       toast('ตัด lot ' + l.lotNo + ' ออกจาก substock แล้ว · บันทึกลง discrepancy log');
     } catch (e) {
       console.error(e);
@@ -894,6 +894,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const wardMeds = st.meds.filter((m) => st.wardFilter === 'all' || wardOf(m) === st.wardFilter);
     const wardMedIds = new Set(wardMeds.map((m) => m.id));
     const wardNames = new Set(wardMeds.map((m) => m.name));
+    // A name in wardNames isn't necessarily ward-exclusive — OPD and IPD versions of the same
+    // drug deliberately share a name (see wardOf/Ward), so a plain name-set filter would also
+    // pull in the OTHER ward's tx rows for any name that happens to exist on both shelves.
+    // Only drop into name-matching for a name that's genuinely unambiguous; an ambiguous name
+    // is trusted only via its tagged medId (see Tx.medId — older rows predating that field
+    // just won't appear for an ambiguous name, same tradeoff as the substock ledger).
+    const otherWardNames = new Set(st.meds.filter((m) => st.wardFilter !== 'all' && wardOf(m) !== st.wardFilter).map((m) => m.name));
     let outcome: Awaited<ReturnType<typeof downloadCsv>>;
     if (st.reportTab === 'aging') {
       const bDef: [string, number, number][] = [['หมดอายุแล้ว', -99999, 0], ['เหลือ ≤ 30 วัน', 0, 30], ['31–90 วัน', 30, 90], ['91–180 วัน', 90, 180], ['มากกว่า 180 วัน', 180, 99999]];
@@ -919,8 +926,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const snap = await withTimeout(getDocs(query(collection(db, 'txs'), orderBy('ts', 'desc'))));
         rows = snap.docs
-          .map((d) => d.data() as { type: string; ts: number; name: string; qty: number; unit: string; loc?: string; reason?: string; note?: string; by: string })
-          .filter((x) => types.indexOf(x.type) >= 0 && (st.wardFilter === 'all' || wardNames.has(x.name)))
+          .map((d) => d.data() as { type: string; ts: number; name: string; qty: number; unit: string; loc?: string; reason?: string; note?: string; by: string; medId?: string })
+          .filter((x) => {
+            if (types.indexOf(x.type) < 0) return false;
+            if (st.wardFilter === 'all') return true;
+            if (x.medId) return wardMedIds.has(x.medId);
+            return wardNames.has(x.name) && !otherWardNames.has(x.name);
+          })
           .map((x) => [isoDate(x.ts), x.name, x.type, x.qty, x.unit, x.loc || '', x.reason || '', x.note || '', x.by]);
       } catch (e) { toastErr(e, 'ดึงประวัติไม่สำเร็จ ลองใหม่อีกครั้ง'); return; }
       outcome = await downloadCsv([['date', 'medication', 'type', 'qty', 'unit', 'location', 'reason', 'note', 'performed_by'], ...rows], names.disc);
@@ -1185,10 +1197,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const fetchSubstockLedger = useCallback(async (medId: string) => {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return [];
+    // A name query alone would merge two drugs' history the moment OPD and IPD versions of
+    // the same drug share a name (see wardOf/Ward) — every tx write now also tags `medId`
+    // (see the Tx type), so when this med has a same-name "twin" in the other ward, trust
+    // only rows explicitly tagged for THIS med instead of everything with a matching name.
+    // Older tx rows written before medId existed have none, so this narrows to nothing older
+    // than that migration for a name-duplicated drug — showing an incomplete-but-correct
+    // ledger beats a complete-but-wrong one that silently mixes in the other ward's stock.
+    const hasNameTwin = state.meds.some((x) => x.id !== m.id && x.name === m.name);
     const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('name', '==', m.name))));
     const rows = snap.docs
-      .map((d) => d.data() as { type: string; ts: number; qty: number; note?: string; by: string; loc?: string })
+      .map((d) => d.data() as { type: string; ts: number; qty: number; note?: string; by: string; loc?: string; medId?: string })
       .filter((x) => SUBSTOCK_LEDGER_TYPES.has(x.type) && (x.type !== 'expired' || x.loc === 'substock'))
+      .filter((x) => !hasNameTwin || x.medId === m.id)
       .map((x) => ({ ts: x.ts, type: x.type, qty: x.type === 'transfer_to_floor' ? -Math.abs(x.qty) : x.qty, note: x.note || '', by: x.by }))
       .sort((a, b) => a.ts - b.ts);
     let bal = 0;
@@ -1217,7 +1238,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const note = delta < 0
         ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — คาดว่าจ่ายผ่าน HOSxP แต่ยังไม่ reconcile'
         : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ควรตรวจสอบย้อนหลัง' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
-      await logTx({ type: 'count', name: m.name, qty: delta, unit: m.unit, reason: 'นับสต็อกหน้างานประจำรอบ', note, loc: 'floor' });
+      await logTx({ type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit, reason: 'นับสต็อกหน้างานประจำรอบ', note, loc: 'floor' });
       toast(m.name + ' — ' + note);
     } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
   }, [state.countInputs, state.meds, logTx, toast, toastErr, patch]);
@@ -1263,7 +1284,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           after = Math.max(0, before - r.qty);
           trx.update(ref, { floor: after });
         });
-        await logTx({ type: 'reconcile_hosxp', name: m.name, qty: -(before - after), unit: m.unit, reason: 'นำเข้าจากไฟล์ HOSxP', note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP' + (r.match.kind === 'fuzzy' ? ' (จับคู่ชื่อแบบไม่ตรงเป๊ะ — ยืนยันโดยผู้ใช้แล้ว)' : ''), loc: 'floor' });
+        await logTx({ type: 'reconcile_hosxp', name: m.name, medId: m.id, qty: -(before - after), unit: m.unit, reason: 'นำเข้าจากไฟล์ HOSxP', note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP' + (r.match.kind === 'fuzzy' ? ' (จับคู่ชื่อแบบไม่ตรงเป๊ะ — ยืนยันโดยผู้ใช้แล้ว)' : ''), loc: 'floor' });
         applied++;
       }
       patch({ hosxpRows: null, hosxpText: '', hosxpConfirmFuzzy: false });

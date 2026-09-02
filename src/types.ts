@@ -52,6 +52,12 @@ export interface Tx {
   id: string;
   type: TxType;
   name: string;
+  // Optional because every tx logged before this field existed has none — always fall back
+  // to matching by `name` for those. Added because `name` alone stopped being a unique
+  // pointer back to one Med the moment the OPD/IPD ward split let two Med records share a
+  // name (see wardOf/Ward) — anything that needs "which exact drug record was this?" (the
+  // substock card ledger, a future audit drill-down) should prefer medId when present.
+  medId?: string;
   qty: number;
   unit: string;
   by: string;

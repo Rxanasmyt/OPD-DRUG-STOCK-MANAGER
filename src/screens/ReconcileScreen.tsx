@@ -1,6 +1,7 @@
 import { useApp } from '../store/AppContext';
+import { wardOf } from '../store/selectors';
 import { nf } from '../utils/format';
-import type { HosxpMatch } from '../types';
+import type { HosxpMatch, Med } from '../types';
 
 export default function ReconcileScreen() {
   const { state, setHosxpText, processHosxp, setHosxpConfirmFuzzy, commitReconcile } = useApp();
@@ -67,14 +68,27 @@ export default function ReconcileScreen() {
   );
 }
 
-function MatchBadge({ match, fileText, medById }: { match: HosxpMatch; fileText: string; medById: (id: string) => { name: string } | undefined }) {
+function MatchBadge({ match, fileText, medById }: { match: HosxpMatch; fileText: string; medById: (id: string) => Med | undefined }) {
   if (match.kind === 'exact') return null; // clean match — no need to draw attention
   if (match.kind === 'fuzzy') {
     return <div style={{ fontSize: 10.5, color: 'var(--amber-ink)', fontWeight: 600, marginTop: 3 }}>⚠ ไม่ตรงชื่อเป๊ะ — ไฟล์เขียนว่า "{fileText}"</div>;
   }
   if (match.kind === 'ambiguous') {
-    const names = match.candidateIds.map((id) => medById(id)?.name).filter(Boolean).join(', ');
-    return <div style={{ fontSize: 10.5, color: 'var(--red)', fontWeight: 600, marginTop: 3 }}>✕ พบยาที่ชื่อใกล้เคียงกันหลายรายการ — ข้าม ({names})</div>;
+    const candidates = match.candidateIds.map((id) => medById(id)).filter((m): m is Med => !!m);
+    const names = candidates.map((m) => m.name).join(', ');
+    // The common real case: the exact same drug exists as separate OPD and IPD shelf
+    // records (same name, different bin/par) — HOSxP's plain "ชื่อยา,จำนวน" export has no
+    // ward info to say which one this row belongs to, so it can never be auto-resolved
+    // safely. Name a specific reason instead of a generic "found several" — this is the one
+    // case a pharmacist will hit often and should recognize immediately, not puzzle over.
+    const isOpdIpdPair = candidates.length === 2 && candidates[0].name === candidates[1].name && wardOf(candidates[0]) !== wardOf(candidates[1]);
+    return (
+      <div style={{ fontSize: 10.5, color: 'var(--red)', fontWeight: 600, marginTop: 3 }}>
+        {isOpdIpdPair
+          ? '✕ ยานี้มีทั้งชั้น OPD และ IPD ชื่อเดียวกัน — HOSxP บอกไม่ได้ว่าจ่ายจากฝั่งไหน ต้องปรับยอดด้วยมือแยกราย ward'
+          : '✕ พบยาที่ชื่อใกล้เคียงกันหลายรายการ — ข้าม (' + names + ')'}
+      </div>
+    );
   }
   return <div style={{ fontSize: 10.5, color: 'var(--red)', fontWeight: 600, marginTop: 3 }}>✕ ไม่พบยานี้ในระบบ — ข้าม</div>;
 }

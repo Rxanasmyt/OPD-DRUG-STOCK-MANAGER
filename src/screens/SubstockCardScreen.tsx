@@ -51,6 +51,12 @@ export default function SubstockCardScreen() {
   // touched outside the normal receive/transfer/scrap paths. Surface the mismatch rather
   // than silently showing two different numbers.
   const mismatch = rows && rows.length > 0 && liveBalance !== lastLedgerBalance;
+  // Same drug on both OPD and IPD shelves (same name, separate records — see wardOf) means
+  // the ledger only trusts tx rows explicitly tagged with this med's id, so anything logged
+  // before that tagging existed won't appear here even though it's the right drug's history.
+  // Worth naming specifically — it looks identical to a real discrepancy otherwise, and "check
+  // the audit log" (the generic mismatch message) isn't the actual right next step for it.
+  const hasNameTwin = med ? state.meds.some((x) => x.id !== med.id && x.name === med.name) : false;
 
   const printCard = () => {
     if (!med || !rows) return;
@@ -109,7 +115,9 @@ export default function SubstockCardScreen() {
             </div>
             {mismatch && (
               <div style={{ fontSize: 11, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 8, padding: '7px 10px', marginTop: 9, lineHeight: 1.5 }}>
-                ยอดจากประวัติธุรกรรม ({nf(lastLedgerBalance)} {med.unit}) ไม่ตรงกับยอดจริงตอนนี้ — อาจมีการปรับยอดนอกช่องทางปกติ ลองตรวจสอบใน Audit log
+                {hasNameTwin
+                  ? `ยานี้มีทั้งชั้น OPD และ IPD ชื่อเดียวกัน — ยอดจากประวัติ (${nf(lastLedgerBalance)} ${med.unit}) อาจไม่ครบตั้งแต่ก่อนระบบแยกประวัติตาม ward ได้ ยอดคงเหลือจริงด้านบนยังถูกต้องเสมอ`
+                  : `ยอดจากประวัติธุรกรรม (${nf(lastLedgerBalance)} ${med.unit}) ไม่ตรงกับยอดจริงตอนนี้ — อาจมีการปรับยอดนอกช่องทางปกติ ลองตรวจสอบใน Audit log`}
               </div>
             )}
           </div>
