@@ -772,17 +772,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const exportReportCsv = useCallback(async () => {
     const st = state;
     const names = { aging: 'stock_aging.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv' };
+    // Matches whatever ward tab is open on screen — exporting "everything" while the screen
+    // shows only OPD (or vice versa) would be a silently misleading report.
+    const wardMeds = st.meds.filter((m) => st.wardFilter === 'all' || wardOf(m) === st.wardFilter);
+    const wardMedIds = new Set(wardMeds.map((m) => m.id));
+    const wardNames = new Set(wardMeds.map((m) => m.name));
     let outcome: Awaited<ReturnType<typeof downloadCsv>>;
     if (st.reportTab === 'aging') {
       const bDef: [string, number, number][] = [['หมดอายุแล้ว', -99999, 0], ['เหลือ ≤ 30 วัน', 0, 30], ['31–90 วัน', 30, 90], ['91–180 วัน', 90, 180], ['มากกว่า 180 วัน', 180, 99999]];
       const rows = bDef.map(([label, lo, hi]) => {
-        const ls = st.lots.filter((l) => l.qty > 0 && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
+        const ls = st.lots.filter((l) => wardMedIds.has(l.medId) && l.qty > 0 && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
         const val = ls.reduce((s, l) => s + l.qty * (st.meds.find((m) => m.id === l.medId)?.price || 0), 0);
         return [label, ls.length, Math.round(val)];
       });
       outcome = await downloadCsv([['bucket', 'lots', 'value_thb'], ...rows], names.aging);
     } else if (st.reportTab === 'turn') {
-      const rows = st.meds.filter((m) => m.active).map((m) => {
+      const rows = wardMeds.filter((m) => m.active).map((m) => {
         const oh = m.floor + subQty(st, m.id);
         return [m.name, m.unit, oh, m.used30, Math.round(oh / (m.used30 / 30))];
       });
@@ -798,7 +803,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const snap = await getDocs(query(collection(db, 'txs'), orderBy('ts', 'desc')));
         rows = snap.docs
           .map((d) => d.data() as { type: string; ts: number; name: string; qty: number; unit: string; loc?: string; reason?: string; note?: string; by: string })
-          .filter((x) => types.indexOf(x.type) >= 0)
+          .filter((x) => types.indexOf(x.type) >= 0 && (st.wardFilter === 'all' || wardNames.has(x.name)))
           .map((x) => [isoDate(x.ts), x.name, x.type, x.qty, x.unit, x.loc || '', x.reason || '', x.note || '', x.by]);
       } catch (e) { console.error(e); toast('ดึงประวัติไม่สำเร็จ ลองใหม่อีกครั้ง'); return; }
       outcome = await downloadCsv([['date', 'medication', 'type', 'qty', 'unit', 'location', 'reason', 'note', 'performed_by'], ...rows], names.disc);

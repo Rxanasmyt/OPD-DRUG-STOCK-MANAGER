@@ -1,10 +1,11 @@
 import { useApp } from '../store/AppContext';
-import { subQty, daysUntil } from '../store/selectors';
+import { subQty, daysUntil, wardOf } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
-import type { ReportTab } from '../types';
+import type { ReportTab, Ward } from '../types';
 
 const TABS: [ReportTab, string][] = [['aging', 'Stock aging'], ['turn', 'Turnover'], ['disc', 'Discrepancy log']];
 const REPORT_NAMES: Record<ReportTab, string> = { aging: 'stock_aging.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv' };
+const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: '#5a4fcf' };
 const AGING_BUCKETS: [string, number, number, string][] = [
   ['หมดอายุแล้ว', -99999, 0, 'var(--red)'],
   ['เหลือ ≤ 30 วัน', 0, 30, 'var(--red)'],
@@ -15,12 +16,14 @@ const AGING_BUCKETS: [string, number, number, string][] = [
 const DISC_TYPES = ['adjust', 'return', 'damaged', 'expired', 'count', 'reconcile_hosxp'];
 
 export default function ReportScreen() {
-  const { state, setReportTab, exportReportCsv } = useApp();
-  const meds = state.meds.filter((m) => m.active);
+  const { state, setReportTab, setWardFilter, exportReportCsv } = useApp();
+  const meds = state.meds.filter((m) => m.active && (state.wardFilter === 'all' || wardOf(m) === state.wardFilter));
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : '#fff', color: active ? '#fff' : 'var(--ink)' });
 
+  const medIds = new Set(meds.map((m) => m.id));
+  const wardLots = state.lots.filter((l) => medIds.has(l.medId));
   const buckets = AGING_BUCKETS.map(([label, lo, hi, fg]) => {
-    const ls = state.lots.filter((l) => l.qty > 0 && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
+    const ls = wardLots.filter((l) => l.qty > 0 && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
     const value = ls.reduce((s, l) => s + l.qty * (meds.find((m) => m.id === l.medId)?.price || 0), 0);
     return { label, fg, lots: ls.length, value };
   });
@@ -38,14 +41,36 @@ export default function ReportScreen() {
       return { name: m.name, used: nf(m.used30), doh: isFinite(doh) ? nf(doh) : '—', tone: doh < 14 ? 'var(--red)' : doh > 120 ? 'var(--amber)' : 'var(--green)' };
     });
 
-  const discRows = state.txs.filter((x) => DISC_TYPES.indexOf(x.type) >= 0).slice(0, 30);
+  // txs don't carry medId (only the drug's name at the time), so ward-scoping here is a
+  // best-effort match by name against the current ward's meds — exact whenever the OPD and
+  // IPD copies of a drug are named differently (as pharmacy does it, e.g. distinguishing
+  // strength/pack), ambiguous only in the rare case two wards' meds share an identical name.
+  const wardNames = new Set(meds.map((m) => m.name));
+  const discRows = state.txs.filter((x) => DISC_TYPES.indexOf(x.type) >= 0 && (state.wardFilter === 'all' || wardNames.has(x.name))).slice(0, 30);
 
   return (
     <div style={{ animation: 'fade .18s' }}>
-      <div style={{ display: 'flex', gap: 7, padding: '12px 14px 10px', overflowX: 'auto', position: 'sticky', top: 0, zIndex: 2 }} className="sticky-bar">
-        {TABS.map(([t, label]) => (
-          <button key={t} className="chip" style={{ ...chip(state.reportTab === t), minHeight: 38 }} onClick={() => setReportTab(t)}>{label}</button>
-        ))}
+      <div style={{ padding: '12px 14px 10px', position: 'sticky', top: 0, zIndex: 2 }} className="sticky-bar">
+        <div style={{ display: 'flex', gap: 7, overflowX: 'auto', marginBottom: 9 }}>
+          {TABS.map(([t, label]) => (
+            <button key={t} className="chip" style={{ ...chip(state.reportTab === t), minHeight: 38 }} onClick={() => setReportTab(t)}>{label}</button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 2, background: 'var(--border-soft)', padding: 3, borderRadius: 11 }}>
+          {(['all', 'opd', 'ipd'] as const).map((w) => {
+            const active = state.wardFilter === w;
+            const tone = w === 'opd' ? WARD_COLOR.opd : w === 'ipd' ? WARD_COLOR.ipd : 'var(--ink)';
+            return (
+              <button
+                key={w}
+                onClick={() => setWardFilter(w)}
+                style={{ flex: 1, border: 0, background: active ? '#fff' : 'transparent', color: active ? tone : 'var(--muted)', padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: active ? 'var(--shadow-xs)' : 'none', transition: 'background var(--dur) var(--ease), color var(--dur) var(--ease)' }}
+              >
+                {w === 'all' ? 'ทุกหอผู้ป่วย' : w === 'opd' ? 'OPD' : 'IPD'}
+              </button>
+            );
+          })}
+        </div>
       </div>
       <div style={{ padding: '12px 14px 24px' }}>
         <button onClick={exportReportCsv} className="btn-outline" style={{ width: '100%', padding: 12, borderRadius: 11, fontSize: 14, fontWeight: 600, minHeight: 46, marginBottom: 12 }}>

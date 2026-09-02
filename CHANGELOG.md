@@ -7,6 +7,18 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.13.1] - 2026-08-26
+
+### Added
+- **feat:** ward tabs (ทุกหอผู้ป่วย / OPD / IPD) on รายงาน (Stock aging / Turnover /
+  Discrepancy log) — the one screen left out of the previous ward pass. CSV export now
+  matches whatever ward tab is open on screen instead of always exporting everything
+  regardless of the visible filter, which would have been a silently misleading report.
+  Discrepancy log ward-filters by matching each transaction's recorded drug name against
+  the current ward's meds (txs don't carry a medId, only the name at the time) — exact
+  whenever OPD/IPD copies of a drug are named distinctly, as pharmacy's own convention
+  already does; only ambiguous in the unlikely case both wards have an identically-named med
+
 ## [2.13.0] - 2026-08-26
 
 ### Added — OPD/IPD ward workflow
