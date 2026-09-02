@@ -144,6 +144,7 @@ export interface AppState {
   authDept: string;
   authError: string | null;
   authBusy: boolean;
+  authRemember: boolean;
 
   screen: Screen;
   prevScreen: Screen;

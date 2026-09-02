@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
+  setPersistence, browserLocalPersistence, browserSessionPersistence,
 } from 'firebase/auth';
 import {
   collection, doc, onSnapshot, query, orderBy, limit, where, writeBatch, addDoc, updateDoc, setDoc,
@@ -24,7 +25,7 @@ function freshState(): AppState {
     meds: [], lots: [], txs: [], users: [], authLog: [], dbReady: false,
 
     authStatus: 'loading', authMode: 'login', myUid: null,
-    authUsername: '', authPassword: '', authName: '', authDept: 'เภสัชกรรม', authError: null, authBusy: false,
+    authUsername: '', authPassword: '', authName: '', authDept: 'เภสัชกรรม', authError: null, authBusy: false, authRemember: true,
 
     screen: 'login', prevScreen: 'home', role: null, online: navigator.onLine, device: 'phone', pending: 0,
 
@@ -71,6 +72,7 @@ export interface AppCtx {
   setAuthPassword: (v: string) => void;
   setAuthName: (v: string) => void;
   setAuthDept: (v: string) => void;
+  setAuthRemember: (v: boolean) => void;
   signIn: () => void;
   signUp: () => void;
   logout: () => void;
@@ -329,6 +331,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setAuthPassword = useCallback((v: string) => patch({ authPassword: v }), [patch]);
   const setAuthName = useCallback((v: string) => patch({ authName: v }), [patch]);
   const setAuthDept = useCallback((v: string) => patch({ authDept: v }), [patch]);
+  const setAuthRemember = useCallback((v: boolean) => patch({ authRemember: v }), [patch]);
 
   const signIn = useCallback(async () => {
     const username = normalizeUsername(state.authUsername);
@@ -336,6 +339,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!username || !password) { patch({ authError: 'กรอกชื่อผู้ใช้และรหัสผ่าน' }); return; }
     patch({ authBusy: true, authError: null });
     try {
+      // "จดจำการเข้าใช้" — a real choice, not decoration: local persistence survives closing
+      // the browser/tab (the default, and what most shared ward devices want); session
+      // persistence signs out the moment the tab/browser closes, for a shared/kiosk device
+      // where staying logged in would hand the next person someone else's session.
+      await setPersistence(auth, state.authRemember ? browserLocalPersistence : browserSessionPersistence);
       const cred = await signInWithEmailAndPassword(auth, usernameToEmail(username), password);
       await setDoc(doc(db, 'users', cred.user.uid), { lastLogin: Date.now() }, { merge: true });
     } catch (e) {
@@ -343,7 +351,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } finally {
       patch({ authBusy: false });
     }
-  }, [state.authUsername, state.authPassword, patch]);
+  }, [state.authUsername, state.authPassword, state.authRemember, patch]);
 
   const signUp = useCallback(async () => {
     const username = normalizeUsername(state.authUsername);
@@ -1189,7 +1197,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<AppCtx>(() => ({
     state, myProfile, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, go, back,
-    setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, signIn, signUp, logout, setDevice, seedDatabase,
+    setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
     setSearch, setFilter, bump, setCartQty, fillAll, removeFromCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,

@@ -7,6 +7,25 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.12.0] - 2026-08-26
+
+### Added
+- **feat:** redesigned login screen — icon-prefixed inputs, a real password show/hide
+  toggle, and a "จดจำการเข้าใช้ในเครื่องนี้" checkbox that's an actual working setting (not
+  decoration): checked keeps the session across app restarts (Firebase local persistence,
+  the previous unconditional default), unchecked signs out the moment the tab/browser closes
+  — useful on a shared/kiosk device where staying logged in would hand the next person
+  someone else's session. Added a short "what this app actually protects" strip (role-based
+  access, audit log, expiry alerts) below the form — all three are real, already-shipped
+  features, not marketing copy. Replaced with an honest note in place of a "ลืมรหัสผ่าน?" link:
+  this app's usernames map to synthetic addresses with no real inbox behind them, so an
+  email-based reset link would silently go nowhere — it now says to contact the pharmacist/
+  admin directly instead of implying a self-service flow that doesn't exist
+- **feat:** redesigned "จัดการผู้ใช้งาน" (admin users tab) — stat tiles at the top (count per
+  role + total active accounts), and each user row now shows a colored avatar (role-tinted,
+  initials from their name) instead of a bare list, with the role picker recolored to match
+  so the currently-assigned role is visually obvious at a glance instead of just bold/green
+
 ## [2.11.2] - 2026-08-26
 
 ### Fixed

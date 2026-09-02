@@ -4,6 +4,12 @@ import type { AdminTab, AuditFilter, Role, User } from '../types';
 
 const ADMIN_TABS: [AdminTab, string][] = [['users', 'ผู้ใช้งาน'], ['audit', 'Audit log']];
 const ROLES: Role[] = ['pharm', 'tech', 'admin'];
+const ROLE_COLOR: Record<Role, string> = { admin: 'var(--red)', pharm: 'var(--green)', tech: 'var(--amber-ink)' };
+const ROLE_BG: Record<Role, string> = { admin: 'var(--red-bg)', pharm: 'var(--green-tint)', tech: 'var(--amber-bg)' };
+function initialsOf(name: string): string {
+  const cleaned = name.replace(/^(ภญ\.|ภก\.|จพ\.|กภ\.|นาง|นางสาว|นาย)\s*/, '').trim();
+  return (cleaned[0] || name[0] || '?').toUpperCase();
+}
 const AUDIT_FILTERS: [AuditFilter, string][] = [['all', 'ทั้งหมด'], ['users', 'บัญชีผู้ใช้'], ['stock', 'สต็อก/ธุรกรรม']];
 const USER_TYPES = ['login', 'user_registered', 'user_approved', 'user_role_changed', 'user_status_changed'];
 const TYPE_LABEL: Record<string, string> = {
@@ -22,6 +28,7 @@ export default function AdminScreen() {
 
   const pending = state.users.filter((u) => !u.active).sort((a, b) => b.createdAt - a.createdAt);
   const approved = state.users.filter((u) => u.active).sort((a, b) => a.name.localeCompare(b.name, 'th'));
+  const countByRole = (r: Role) => approved.filter((u) => u.role === r).length;
 
   // The live subscriptions only carry the most recent 300 (kept small on purpose, for a
   // real-time "recent activity" feed) — a date-range search below queries Firestore directly
@@ -50,6 +57,24 @@ export default function AdminScreen() {
       <div style={{ padding: '12px 14px 24px' }}>
         {state.adminTab === 'users' && (
           <>
+            <div className="grid-2 tablet-4" style={{ marginBottom: 16 }}>
+              {(['admin', 'pharm', 'tech'] as Role[]).map((r) => (
+                <div key={r} className="card stat-tile" style={{ padding: '12px 13px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+                    <span className="muted" style={{ fontSize: 12 }}>{roleLabelOf(r)}</span>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: ROLE_COLOR[r], flex: 'none' }} />
+                  </div>
+                  <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, color: ROLE_COLOR[r] }}>{countByRole(r)}</div>
+                  <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>บัญชี</div>
+                </div>
+              ))}
+              <div className="card stat-tile" style={{ padding: '12px 13px' }}>
+                <div className="muted" style={{ fontSize: 12, marginBottom: 3 }}>ทั้งหมด</div>
+                <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1 }}>{approved.length}</div>
+                <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>บัญชีที่ใช้งานอยู่</div>
+              </div>
+            </div>
+
             {pending.length > 0 && (
               <>
                 <div style={{ fontSize: 13.5, fontWeight: 600, margin: '0 2px 8px', color: 'var(--amber-ink)' }}>รออนุมัติ ({pending.length})</div>
@@ -59,29 +84,37 @@ export default function AdminScreen() {
               </>
             )}
 
-            <div style={{ fontSize: 13.5, fontWeight: 600, margin: '0 2px 8px' }}>ผู้ใช้งาน ({approved.length})</div>
+            <div style={{ fontSize: 13.5, fontWeight: 600, margin: '0 2px 8px' }}>บัญชีผู้ใช้งานทั้งหมด ({approved.length})</div>
             <div className="card" style={{ overflow: 'hidden' }}>
-              {approved.map((u) => (
-                <div key={u.id} style={{ padding: '12px 13px', borderBottom: '1px solid var(--border-soft)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }}>
-                        {u.name}
-                        {u.id === state.myUid && <span style={{ color: 'var(--green)', fontWeight: 700 }}> (คุณ)</span>}
+              {approved.map((u) => {
+                const isMe = u.id === state.myUid;
+                return (
+                  <div key={u.id} style={{ padding: '12px 13px', borderBottom: '1px solid var(--border-soft)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 9 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: '50%', background: ROLE_BG[u.role], color: ROLE_COLOR[u.role], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13.5, fontWeight: 700, flex: 'none' }}>
+                        {initialsOf(u.name)}
                       </div>
-                      <div className="muted" style={{ fontSize: 11.5, marginTop: 1 }}>{u.dept} · @{u.username} · {u.lastLogin ? 'ล็อกอินล่าสุด ' + thDate(u.lastLogin) : 'ยังไม่เคยล็อกอิน'}</div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</span>
+                          {isMe && <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: 'var(--green)', background: 'var(--green-tint)', padding: '2px 7px', borderRadius: 20 }}>คุณ</span>}
+                        </div>
+                        <div className="muted" style={{ fontSize: 11.5, marginTop: 1 }}>@{u.username} · {u.dept}</div>
+                      </div>
+                      <span style={{ flex: 'none', fontSize: 10.5, color: 'var(--green)', textAlign: 'right' }}>
+                        {u.lastLogin ? thDate(u.lastLogin) : 'ยังไม่เคยเข้าระบบ'}
+                      </span>
                     </div>
-                    <span style={{ flex: 'none', fontSize: 11, fontWeight: 700, color: 'var(--green)', background: 'var(--green-tint)', padding: '4px 9px', borderRadius: 20 }}>ใช้งานอยู่</span>
+                    <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
+                      {ROLES.map((r) => {
+                        const active = u.role === r;
+                        return <button key={r} onClick={() => setUserRole(u.id, r)} style={{ flex: 1, border: active ? '1px solid ' + ROLE_COLOR[r] : '1px solid var(--border)', background: active ? ROLE_BG[r] : '#fff', color: active ? ROLE_COLOR[r] : 'var(--ink)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 38 }}>{roleLabelOf(r)}</button>;
+                      })}
+                      <button onClick={() => toggleUserActive(u.id)} title="ปิดใช้งานบัญชี" style={{ flex: 'none', border: '1px solid var(--border)', background: '#fff', color: 'var(--red)', width: 38, height: 38, borderRadius: 9, fontSize: 15 }}>⏻</button>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
-                    {ROLES.map((r) => {
-                      const active = u.role === r;
-                      return <button key={r} onClick={() => setUserRole(u.id, r)} style={{ flex: 1, border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : '#fff', color: active ? '#fff' : 'var(--ink)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 38 }}>{roleLabelOf(r)}</button>;
-                    })}
-                    <button onClick={() => toggleUserActive(u.id)} style={{ flex: 'none', border: '1px solid var(--border)', background: '#fff', color: 'var(--red)', padding: '8px 11px', borderRadius: 9, fontSize: 12, minHeight: 38, whiteSpace: 'nowrap' }}>ปิดใช้งาน</button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               {approved.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ยังไม่มีผู้ใช้งานที่อนุมัติแล้ว</div>}
             </div>
           </>
