@@ -811,21 +811,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!canEditPar) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
-    let max = 0;
-    state.meds.forEach((m) => {
-      const mm = /^MED-(\d+)$/.exec(m.code);
-      if (mm) max = Math.max(max, parseInt(mm[1], 10));
-    });
-    const code = 'MED-' + String(max + 1).padStart(4, '0');
-    const med = {
-      code, name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
-      price: input.price || 0, had: input.had, active: true,
-      parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0), floor: 0,
-      bin: input.bin.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8),
-      used30: 0, usedPrev30: 0, volatility: 1.1, lastCountTs: Date.now(),
-    };
     try {
-      await addDoc(collection(db, 'meds'), med);
+      // The QR printed on a shelf label encodes this `code` — two meds ever ending up with
+      // the same code would mean two different drugs' labels both resolve to whichever one
+      // got queried first. Computing "current max + 1" from the client's own local `meds`
+      // list (the old approach) has a real race: two people adding a med at nearly the same
+      // moment can both read the same max before either write lands, and both mint the same
+      // code. A Firestore transaction against a single counter doc makes the increment atomic
+      // regardless of how many people are adding meds at once — Firestore itself retries the
+      // transaction if another client's commit lands first.
+      const code = await runTransaction(db, async (trx) => {
+        const seqRef = doc(db, 'meta', 'medSeq');
+        const seqSnap = await trx.get(seqRef);
+        let next: number;
+        if (seqSnap.exists()) {
+          next = (seqSnap.data() as { next?: number }).next || 1;
+        } else {
+          // First ever add since this counter existed — seed it from the highest code
+          // already in the (locally-synced, presumed up to date) formulary. Safe even under
+          // a concurrent race: if two clients hit this branch at once, Firestore's
+          // transaction retry re-reads seqRef after the loser's next attempt and takes the
+          // branch above instead, using the winner's freshly-written value.
+          let max = 0;
+          state.meds.forEach((m) => {
+            const mm = /^MED-(\d+)$/.exec(m.code);
+            if (mm) max = Math.max(max, parseInt(mm[1], 10));
+          });
+          next = max + 1;
+        }
+        trx.set(seqRef, { next: next + 1 }, { merge: true });
+        const c = 'MED-' + String(next).padStart(4, '0');
+        trx.set(doc(collection(db, 'meds')), {
+          code: c, name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
+          price: input.price || 0, had: input.had, active: true,
+          parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0), floor: 0,
+          bin: input.bin.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8),
+          used30: 0, usedPrev30: 0, volatility: 1.1, lastCountTs: Date.now(),
+        });
+        return c;
+      });
       logAudit({ type: 'med_added', note: 'เพิ่มยาใหม่ ' + name + ' (' + code + ')' });
       toast('เพิ่ม ' + name + ' แล้ว');
     } catch (e) { console.error(e); toast('เพิ่มยาไม่สำเร็จ'); }

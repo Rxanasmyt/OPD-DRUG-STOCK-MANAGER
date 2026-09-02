@@ -7,6 +7,19 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.11.1] - 2026-08-26
+
+### Fixed
+- **fix:** new-med code assignment (`MED-####`, the identifier printed on every QR label) was
+  computed client-side as "current max + 1" — two people adding a new med at close to the
+  same moment could both read the same max before either write landed, and both mint the
+  *same* code, meaning two different drugs' labels would both resolve to whichever med
+  happened to come first in a lookup. Rare, but a real gap given "the QR must always point to
+  the right, and only the right, drug" is the whole point of the label system. Now assigns the
+  code atomically via a Firestore transaction against a counter doc (`meta/medSeq`) — Firestore
+  itself retries the transaction if two clients race, so no two adds can ever land on the same
+  next number, however close together they happen
+
 ## [2.11.0] - 2026-08-26
 
 ### ⚠️ Requires a manual step — Firestore rules
