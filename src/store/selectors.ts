@@ -1,7 +1,25 @@
-import type { AppState, HosxpMatch, Med, Role } from '../types';
+import type { AppState, HosxpMatch, Med, Role, Ward } from '../types';
 import { DAY, daysUntil } from '../utils/format';
 
 /** Pure, stateless helpers derived from AppState — no mutation, safe to call during render. */
+
+/** `ward` is optional on Med — every drug seeded before wards existed has none. Default to
+ * 'opd' rather than requiring a one-time migration write: this whole formulary was OPD-only
+ * before IPD support existed, so that default is also just... correct. Always go through
+ * this instead of reading `m.ward` directly. */
+export function wardOf(m: Med): Ward {
+  return m.ward === 'ipd' ? 'ipd' : 'opd';
+}
+
+export function wardLabel(w: Ward): string {
+  return w === 'ipd' ? 'ผู้ป่วยใน (IPD)' : 'ผู้ป่วยนอก (OPD)';
+}
+
+/** Same optional-field-with-a-default pattern as wardOf() — most meds do have a substock
+ * stage between the central warehouse and the shelf; only liquids/inhalers/sprays skip it. */
+export function usesSubstock(m: Med): boolean {
+  return !m.noSubstock;
+}
 
 export function subQty(state: AppState, medId: string): number {
   let sum = 0;

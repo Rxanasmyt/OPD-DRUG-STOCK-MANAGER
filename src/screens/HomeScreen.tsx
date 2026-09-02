@@ -1,9 +1,12 @@
 import { useApp } from '../store/AppContext';
-import { toneFor, daysUntil } from '../store/selectors';
+import { toneFor, daysUntil, wardOf, usesSubstock } from '../store/selectors';
 import { nf, thDate, isoDate } from '../utils/format';
+import type { Ward } from '../types';
+
+const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: '#5a4fcf' };
 
 export default function HomeScreen() {
-  const { state, myProfile, sub, fefo, bump, goReceiveFor, go, warn, pickAdjType, seedDatabase } = useApp();
+  const { state, myProfile, sub, fefo, bump, goReceiveFor, go, warn, pickAdjType, seedDatabase, setWardFilter } = useApp();
 
   if (state.meds.length === 0) {
     return (
@@ -24,14 +27,19 @@ export default function HomeScreen() {
     );
   }
 
-  const meds = state.meds.filter((m) => m.active);
+  const allMeds = state.meds.filter((m) => m.active);
+  const meds = allMeds.filter((m) => state.wardFilter === 'all' || wardOf(m) === state.wardFilter);
   const low = meds.filter((m) => m.floor < m.parFloor);
-  const lowSub = meds.filter((m) => sub(m.id) < m.parSub);
+  // Meaningless for noSubstock meds (liquids/sprays) — they have no substock stage to be
+  // low in; excluded here rather than always showing a permanent, unactionable "0/par" row.
+  const lowSub = meds.filter((m) => usesSubstock(m) && sub(m.id) < m.parSub);
   const W = warn();
-  const expLots = state.lots
+  const medIds = new Set(meds.map((m) => m.id));
+  const wardLots = state.lots.filter((l) => medIds.has(l.medId));
+  const expLots = wardLots
     .filter((l) => l.qty > 0 && daysUntil(l.exp) < W)
     .sort((a, b) => a.exp - b.exp);
-  const expiredCount = state.lots.filter((l) => l.qty > 0 && daysUntil(l.exp) < 0).length;
+  const expiredCount = wardLots.filter((l) => l.qty > 0 && daysUntil(l.exp) < 0).length;
   // Bug fix: daysUntil() computes days remaining until a *future* timestamp (right for
   // expiry dates) — for a tx.ts, which is always in the past, it was always negative, so
   // this tile silently showed 0 for every transaction ever logged. Compare calendar dates.
@@ -40,6 +48,22 @@ export default function HomeScreen() {
 
   return (
     <div style={{ padding: '14px 14px 20px', animation: 'fade .18s' }}>
+      <div style={{ display: 'flex', gap: 2, background: 'var(--border-soft)', padding: 3, borderRadius: 11, marginBottom: 13 }}>
+        {(['all', 'opd', 'ipd'] as const).map((w) => {
+          const active = state.wardFilter === w;
+          const tone = w === 'opd' ? WARD_COLOR.opd : w === 'ipd' ? WARD_COLOR.ipd : 'var(--ink)';
+          return (
+            <button
+              key={w}
+              onClick={() => setWardFilter(w)}
+              style={{ flex: 1, border: 0, background: active ? '#fff' : 'transparent', color: active ? tone : 'var(--muted)', padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: active ? 'var(--shadow-xs)' : 'none', transition: 'background var(--dur) var(--ease), color var(--dur) var(--ease)' }}
+            >
+              {w === 'all' ? 'ทุกหอผู้ป่วย' : w === 'opd' ? 'OPD' : 'IPD'}
+            </button>
+          );
+        })}
+      </div>
+
       <div className="grid-2 tablet-4" style={{ marginBottom: 14 }}>
         <StatTile label="ต่ำกว่า par หน้างาน" value={low.length} tone={low.length ? 'var(--red)' : 'var(--green)'} note="รายการ · ควรเติมวันนี้" />
         <StatTile label={`ใกล้หมดอายุ < ${W} วัน`} value={expLots.length} tone={expLots.length ? 'var(--amber)' : 'var(--green)'} note={`lot · รวมที่หมดอายุแล้ว ${expiredCount}`} />
@@ -76,13 +100,24 @@ export default function HomeScreen() {
                 <div className="bar-fill" style={{ height: '100%', width: Math.max(3, Math.min(100, Math.round((m.floor / m.parFloor) * 100))) + '%', background: toneFor(m), borderRadius: 2 }} />
               </div>
             </div>
-            <button
-              onClick={() => { bump(m.id, 1); go('transfer'); }}
-              className="btn-outline"
-              style={{ padding: '9px 13px', borderRadius: 9, fontSize: 13, fontWeight: 600, flex: 'none', minHeight: 40, border: '1px solid var(--green)' }}
-            >
-              {state.cart[m.id] ? 'ในรายการ' : '+ ' + nf(Math.min(sub(m.id), m.parFloor - m.floor))}
-            </button>
+            {usesSubstock(m) ? (
+              <button
+                onClick={() => { bump(m.id, 1); go('transfer'); }}
+                className="btn-outline"
+                style={{ padding: '9px 13px', borderRadius: 9, fontSize: 13, fontWeight: 600, flex: 'none', minHeight: 40, border: '1px solid var(--green)' }}
+              >
+                {state.cart[m.id] ? 'ในรายการ' : '+ ' + nf(Math.min(sub(m.id), m.parFloor - m.floor))}
+              </button>
+            ) : (
+              <button
+                onClick={() => goReceiveFor(m.id)}
+                className="btn-outline"
+                title="ยานี้ไม่มี substock — รับเข้าแล้วขึ้นหน้างานทันที"
+                style={{ padding: '9px 13px', borderRadius: 9, fontSize: 13, fontWeight: 600, flex: 'none', minHeight: 40, border: '1px solid var(--amber)' }}
+              >
+                รับเข้า
+              </button>
+            )}
           </div>
         ))}
         {low.length === 0 && <div style={{ padding: 16, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ไม่มีรายการต่ำกว่า par หน้างาน</div>}

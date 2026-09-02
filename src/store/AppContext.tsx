@@ -5,14 +5,14 @@ import {
 } from 'firebase/auth';
 import {
   collection, doc, onSnapshot, query, orderBy, limit, where, writeBatch, addDoc, updateDoc, setDoc,
-  runTransaction, getDocs, getDoc,
+  runTransaction, getDocs, getDoc, increment,
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
-  AppState, Med, Role, Screen, AdjType, RecvItem, TxType, User, AuthMode, PendingReceive,
+  AppState, Med, Role, Screen, AdjType, RecvItem, TxType, User, AuthMode, PendingReceive, Ward,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -29,7 +29,9 @@ function freshState(): AppState {
 
     screen: 'login', prevScreen: 'home', role: null, online: navigator.onLine, device: 'phone', pending: 0,
 
-    cart: {}, search: '', filter: 'low',
+    cart: {}, search: '', filter: 'low', wardFilter: 'all',
+
+    wmFromSearch: '', wmFromMed: null, wmToSearch: '', wmToMed: null, wmQty: '', wmReason: '',
 
     recvNo: 'REQ-6908-' + (140 + (Date.now() % 9)), recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
     pendingReceives: [],
@@ -82,6 +84,7 @@ export interface AppCtx {
   // transfer
   setSearch: (v: string) => void;
   setFilter: (f: AppState['filter']) => void;
+  setWardFilter: (w: AppState['wardFilter']) => void;
   bump: (id: string, d: number) => void;
   setCartQty: (id: string, raw: string) => void;
   fillAll: () => void;
@@ -101,6 +104,15 @@ export interface AppCtx {
   approvePendingReceive: (id: string) => void;
   rejectPendingReceive: (id: string, reason: string) => void;
   goReceiveFor: (medId: string) => void;
+
+  // ward move
+  setWmFromSearch: (v: string) => void;
+  pickWmFromMed: (medId: string) => void;
+  setWmToSearch: (v: string) => void;
+  pickWmToMed: (medId: string) => void;
+  setWmQty: (v: string) => void;
+  setWmReason: (v: string) => void;
+  commitWardMove: () => void;
 
   // adjust
   pickAdjType: (t: AdjType) => void;
@@ -129,8 +141,8 @@ export interface AppCtx {
   recomputeUsageStats: () => void;
 
   // meds (formulary) management
-  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number }) => void;
-  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number }) => void;
+  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; ward: Ward; noSubstock: boolean }) => void;
+  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; ward: Ward; noSubstock: boolean }) => void;
   toggleMedActive: (medId: string) => void;
   deleteMed: (medId: string) => void;
   setMedsFocusId: (id: string | null) => void;
@@ -403,6 +415,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---------- transfer ----------
   const setSearch = useCallback((v: string) => patch({ search: v }), [patch]);
   const setFilter = useCallback((f: AppState['filter']) => patch({ filter: f }), [patch]);
+  const setWardFilter = useCallback((w: AppState['wardFilter']) => patch({ wardFilter: w }), [patch]);
 
   const bump = useCallback((id: string, d: number) => {
     setState((st) => {
@@ -436,7 +449,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const fillAll = useCallback(() => {
     setState((st) => {
       const cart = { ...st.cart };
-      st.meds.forEach((m) => { if (m.floor < m.parFloor) { const q = suggestTransferQty(st, m); if (q > 0) cart[m.id] = q; } });
+      // Ward-scoped on purpose: OPD and IPD shelves are stocked by different people at
+      // different times with different drugs (this is the actual morning routine being
+      // digitized) — "เติมตาม par ทั้งหมด" while looking at the IPD tab should never quietly
+      // queue up OPD items too, or vice versa. Respects whatever ward tab is currently open;
+      // 'all' (no ward filter applied) fills everything, matching the old behavior.
+      st.meds.forEach((m) => {
+        if (st.wardFilter !== 'all' && wardOf(m) !== st.wardFilter) return;
+        if (m.floor < m.parFloor) { const q = suggestTransferQty(st, m); if (q > 0) cart[m.id] = q; }
+      });
       return { ...st, cart, filter: 'low' };
     });
     toast('ใส่จำนวนตาม par ให้ทุกรายการที่ต่ำกว่าเกณฑ์แล้ว — ปรับได้ก่อนยืนยัน');
@@ -554,6 +575,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       items.forEach((it, i) => {
+        // Liquids/inhalers/sprays — some meds skip substock entirely and go straight from
+        // the central warehouse to the shelf (see noSubstock on Med). No lot is created for
+        // these (the floor number already carries no per-lot expiry tracking of its own,
+        // same limitation the rest of the app already accepts for regular transferred
+        // stock) — just credit the shelf directly instead of a substock lot nobody would
+        // ever transfer out of.
+        const m = state.meds.find((x) => x.id === it.medId);
+        if (m && !usesSubstock(m)) {
+          batch.update(doc(db, 'meds', it.medId), { floor: increment(it.qty) });
+          batch.set(doc(collection(db, 'txs')), {
+            type: 'receive_from_central', name: it.name, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'floor',
+            note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp) + ' — ไม่มี substock ขึ้นหน้างานทันที', by: userName(), ts: Date.now(),
+          });
+          return;
+        }
         batch.set(doc(collection(db, 'lots')), { code: 'LOT-' + it.medId.slice(1) + '-n' + i, medId: it.medId, lotNo: it.lotNo, exp: it.exp, qty: it.qty, loc: 'ชั้น bulk' });
         batch.set(doc(collection(db, 'txs')), {
           type: 'receive_from_central', name: it.name, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'substock',
@@ -570,7 +606,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       console.error(e);
       toast('บันทึกใบรับไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }, [state.recvItems, state.recvNo, state.myUid, myProfile, userName, toast, logAudit]);
+  }, [state.recvItems, state.recvNo, state.myUid, state.meds, myProfile, userName, toast, logAudit]);
 
   // Approve a pending receive — creates the real lot + receive_from_central tx, exactly
   // what the immediate (pharm/admin) receive path does. Wrapped in a transaction so two
@@ -584,11 +620,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const snap = await trx.get(ref);
         const pr = snap.data() as PendingReceive | undefined;
         if (!pr || pr.status !== 'pending') throw new Error('already-resolved');
-        trx.set(doc(collection(db, 'lots')), { code: 'LOT-' + pr.medId.slice(1) + '-n' + Date.now(), medId: pr.medId, lotNo: pr.lotNo, exp: pr.exp, qty: pr.qty, loc: 'ชั้น bulk' });
-        trx.set(doc(collection(db, 'txs')), {
-          type: 'receive_from_central' as TxType, name: pr.name, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'substock',
-          note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + ' — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
-        });
+        const m = state.meds.find((x) => x.id === pr.medId);
+        if (m && !usesSubstock(m)) {
+          trx.update(doc(db, 'meds', pr.medId), { floor: increment(pr.qty) });
+          trx.set(doc(collection(db, 'txs')), {
+            type: 'receive_from_central' as TxType, name: pr.name, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'floor',
+            note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + ' — ไม่มี substock ขึ้นหน้างานทันที — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
+          });
+        } else {
+          trx.set(doc(collection(db, 'lots')), { code: 'LOT-' + pr.medId.slice(1) + '-n' + Date.now(), medId: pr.medId, lotNo: pr.lotNo, exp: pr.exp, qty: pr.qty, loc: 'ชั้น bulk' });
+          trx.set(doc(collection(db, 'txs')), {
+            type: 'receive_from_central' as TxType, name: pr.name, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'substock',
+            note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + ' — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
+          });
+        }
         trx.update(ref, { status: 'approved', resolvedBy: userName(), resolvedTs: Date.now() });
       });
       toast('อนุมัติรับเข้าแล้ว');
@@ -596,7 +641,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if ((e as Error)?.message === 'already-resolved') { toast('รายการนี้ถูกอนุมัติหรือปฏิเสธไปแล้ว'); return; }
       console.error(e); toast('อนุมัติไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }, [canEditPar, userName, toast]);
+  }, [canEditPar, state.meds, userName, toast]);
 
   const rejectPendingReceive = useCallback(async (id: string, reason: string) => {
     if (!canEditPar) return;
@@ -617,6 +662,60 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       console.error(e); toast('ปฏิเสธไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
   }, [canEditPar, state.pendingReceives, userName, toast, logAudit]);
+
+  // ---------- ward move (shelf-to-shelf, e.g. IPD injectable locked drawer -> OPD stat
+  // drawer subset) — since OPD and IPD versions of the same drug are separate med records
+  // (separate QR/bin/par each), physically moving units from one shelf to the other means
+  // decrementing one med's floor and incrementing another's. Not a receive (nothing new
+  // entered the hospital) and not a substock transfer (neither side is substock) — its own
+  // small flow, logged as a linked pair of tx entries so the audit trail shows both sides. ----
+  const setWmFromSearch = useCallback((v: string) => patch({ wmFromSearch: v, wmFromMed: v ? null : null }), [patch]);
+  const pickWmFromMed = useCallback((medId: string) => {
+    const m = state.meds.find((x) => x.id === medId);
+    if (!m) return;
+    patch({ wmFromMed: medId, wmFromSearch: m.name });
+  }, [patch, state.meds]);
+  const setWmToSearch = useCallback((v: string) => patch({ wmToSearch: v, wmToMed: v ? null : null }), [patch]);
+  const pickWmToMed = useCallback((medId: string) => {
+    const m = state.meds.find((x) => x.id === medId);
+    if (!m) return;
+    patch({ wmToMed: medId, wmToSearch: m.name });
+  }, [patch, state.meds]);
+  const setWmQty = useCallback((v: string) => patch({ wmQty: digitsOnly(v) }), [patch]);
+  const setWmReason = useCallback((v: string) => patch({ wmReason: v }), [patch]);
+
+  const commitWardMove = useCallback(async () => {
+    const from = state.meds.find((x) => x.id === state.wmFromMed);
+    const to = state.meds.find((x) => x.id === state.wmToMed);
+    const q = parseIntSafe(state.wmQty);
+    if (!from || !to || !q) { toast('เลือกยาต้นทาง ปลายทาง และจำนวนให้ครบ'); return; }
+    if (from.id === to.id) { toast('ต้นทางและปลายทางต้องเป็นคนละรายการ'); return; }
+    if (!state.wmReason.trim()) { toast('กรอกเหตุผลก่อนบันทึก'); return; }
+    try {
+      await runTransaction(db, async (trx) => {
+        const fromRef = doc(db, 'meds', from.id);
+        const toRef = doc(db, 'meds', to.id);
+        const fromSnap = await trx.get(fromRef);
+        const curFloor = (fromSnap.data() as { floor?: number } | undefined)?.floor ?? from.floor;
+        if (curFloor < q) throw new Error('insufficient');
+        trx.update(fromRef, { floor: curFloor - q });
+        trx.update(toRef, { floor: increment(q) });
+        trx.set(doc(collection(db, 'txs')), {
+          type: 'ward_move_out' as TxType, name: from.name, qty: -q, unit: from.unit, to: to.name,
+          reason: state.wmReason.trim(), note: 'ย้ายไป ' + to.name + ' — ' + state.wmReason.trim(), by: userName(), ts: Date.now(), loc: 'floor',
+        });
+        trx.set(doc(collection(db, 'txs')), {
+          type: 'ward_move_in' as TxType, name: to.name, qty: q, unit: to.unit, from: from.name,
+          reason: state.wmReason.trim(), note: 'ย้ายมาจาก ' + from.name + ' — ' + state.wmReason.trim(), by: userName(), ts: Date.now(), loc: 'floor',
+        });
+      });
+      toast('ย้าย ' + nf(q) + ' ' + from.unit + ' จาก ' + from.name + ' ไป ' + to.name + ' แล้ว');
+      patch({ wmFromMed: null, wmFromSearch: '', wmToMed: null, wmToSearch: '', wmQty: '', wmReason: '' });
+    } catch (e) {
+      if ((e as Error)?.message === 'insufficient') { toast('ต้นทางมีไม่พอ — เหลือ ' + nf(from.floor) + ' ' + from.unit); return; }
+      console.error(e); toast('ย้ายไม่สำเร็จ ลองใหม่อีกครั้ง');
+    }
+  }, [state.meds, state.wmFromMed, state.wmToMed, state.wmQty, state.wmReason, userName, toast, patch]);
 
   // ---------- adjust ----------
   const pickAdjType = useCallback((t: AdjType) => patch({ adjType: t, adjMed: null, adjReason: '' }), [patch]);
@@ -711,7 +810,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---------- labels ----------
   const setLabelType = useCallback((t: AppState['labelType']) => patch({ labelType: t }), [patch]);
   const printLabels = useCallback(() => {
-    const meds = state.meds.filter((m) => m.active);
+    // OPD and IPD shelves are physically different rooms with different bin codes — printing
+    // a combined batch would mix labels meant for two different places onto one sheet.
+    // Respects whatever ward tab the labels screen currently has open ('all' prints both).
+    const meds = state.meds.filter((m) => m.active && (state.wardFilter === 'all' || wardOf(m) === state.wardFilter));
     let labels: PrintLabel[] = [];
     let heading = 'ฉลากตัวยา';
     if (state.labelType === 'med') {
@@ -729,7 +831,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!labels.length) { toast('ไม่มีรายการให้พิมพ์ฉลาก'); return; }
     const ok = printLabelSheet(labels, heading);
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว — เลือกกระดาษสติกเกอร์ A4 แล้วสั่งพิมพ์' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
-  }, [state.meds, state.lots, state.labelType, state.expiryWarnDays, toast]);
+  }, [state.meds, state.lots, state.labelType, state.wardFilter, state.expiryWarnDays, toast]);
 
   // ---------- settings / par ----------
   const applyOnePar = useCallback(async (medId: string, which: 'sub' | 'floor') => {
@@ -834,7 +936,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [canEditPar, state.meds, logAudit, toast]);
 
   // ---------- meds (formulary) management ----------
-  const addMed = useCallback(async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number }) => {
+  const addMed = useCallback(async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; ward: Ward; noSubstock: boolean }) => {
     if (!canEditPar) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
@@ -874,6 +976,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0), floor: 0,
           bin: input.bin.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8),
           used30: 0, usedPrev30: 0, volatility: 1.1, lastCountTs: Date.now(),
+          ward: input.ward, noSubstock: input.noSubstock,
         });
         return c;
       });
@@ -887,7 +990,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // price, high-alert flag, shelf/bin, and both par levels — instead of hunting across
   // separate screens. `code` (the QR/label identifier) is deliberately never touched here —
   // labels already printed with it must keep resolving to this med.
-  const updateMedFull = useCallback(async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number }) => {
+  const updateMedFull = useCallback(async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; ward: Ward; noSubstock: boolean }) => {
     if (!canEditPar) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
@@ -896,6 +999,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       price: input.price || 0, had: input.had,
       bin: input.bin.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8),
       parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0),
+      ward: input.ward, noSubstock: input.noSubstock,
     };
     try {
       await updateDoc(doc(db, 'meds', medId), patch);
@@ -1138,6 +1242,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       med_added: 'เพิ่มยาใหม่', med_edited: 'แก้ไขข้อมูลยา', med_status_changed: 'เปิด/ปิดใช้งานยา', med_deleted: 'ลบยาถาวร',
       receive_from_central: 'รับเข้า substock', receive_pending: 'รับเข้า (รออนุมัติ)', receive_rejected: 'ปฏิเสธคำขอรับเข้า', transfer_to_floor: 'เติมหน้างาน',
       adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP',
+      ward_move_out: 'ย้ายชั้นวาง (ต้นทาง)', ward_move_in: 'ย้ายชั้นวาง (ปลายทาง)',
     };
     // Same reasoning as exportReportCsv — the live subscriptions are capped at 300 each for
     // the on-screen "recent activity" feed; a real audit export needs the full history.
@@ -1198,9 +1303,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<AppCtx>(() => ({
     state, myProfile, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, go, back,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
-    setSearch, setFilter, bump, setCartQty, fillAll, removeFromCart, commitTransfer,
+    setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, removeFromCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
+    setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
     setReportTab, exportReportCsv,
     setLabelType, printLabels,

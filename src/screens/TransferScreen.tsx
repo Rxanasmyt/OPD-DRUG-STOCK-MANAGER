@@ -1,10 +1,16 @@
 import { useApp } from '../store/AppContext';
-import { toneFor } from '../store/selectors';
+import { toneFor, wardOf, usesSubstock } from '../store/selectors';
 import { nf, thDate, digitsOnly } from '../utils/format';
+import type { Ward } from '../types';
+
+const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: '#5a4fcf' };
 
 export default function TransferScreen() {
-  const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, go, openScanSearch } = useApp();
-  const meds = state.meds.filter((m) => m.active);
+  const { state, sub, fefo, setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, go, openScanSearch } = useApp();
+  // noSubstock meds (liquids/sprays — received straight to the shelf, see ReceiveScreen)
+  // have nothing to transfer from; showing them here with permanently-stuck-at-0 +/- buttons
+  // would just be confusing clutter, not a real "เติมหน้างาน" candidate.
+  const meds = state.meds.filter((m) => m.active && usesSubstock(m) && (state.wardFilter === 'all' || wardOf(m) === state.wardFilter));
   const low = meds.filter((m) => m.floor < m.parFloor);
   const q = state.search.trim().toLowerCase();
   const filtered = meds
@@ -22,6 +28,21 @@ export default function TransferScreen() {
   return (
     <div style={{ animation: 'fade .18s' }}>
       <div style={{ padding: '12px 14px 10px' }} className="sticky-bar">
+        <div style={{ display: 'flex', gap: 2, background: 'var(--border-soft)', padding: 3, borderRadius: 11, marginBottom: 9 }}>
+          {(['all', 'opd', 'ipd'] as const).map((w) => {
+            const active = state.wardFilter === w;
+            const tone = w === 'opd' ? WARD_COLOR.opd : w === 'ipd' ? WARD_COLOR.ipd : 'var(--ink)';
+            return (
+              <button
+                key={w}
+                onClick={() => setWardFilter(w)}
+                style={{ flex: 1, border: 0, background: active ? '#fff' : 'transparent', color: active ? tone : 'var(--muted)', padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: active ? 'var(--shadow-xs)' : 'none', transition: 'background var(--dur) var(--ease), color var(--dur) var(--ease)' }}
+              >
+                {w === 'all' ? 'ทุกหอผู้ป่วย' : w === 'opd' ? 'OPD' : 'IPD'}
+              </button>
+            );
+          })}
+        </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <input
             value={state.search}

@@ -7,6 +7,33 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.13.0] - 2026-08-26
+
+### Added — OPD/IPD ward workflow
+Modeled the real ward split described by pharmacy staff: OPD and IPD shelves use different
+bin codes, stock at different rates, and OPD carries far more line items than IPD. The same
+drug stocked on both shelves is deliberately two separate med records (own QR/bin/par each,
+per pharmacy's own call) — `ward` (`opd`/`ipd`) is a new optional field on every med,
+defaulting to `opd` for the ~585 pre-existing meds (this whole formulary was OPD-only before
+IPD support existed) with no migration needed.
+
+- **feat:** ward tabs (ทุกหอผู้ป่วย / OPD / IPD) on หน้าหลัก, เติมหน้างาน, ระบบฉลาก QR, and
+  จัดการรายการยา — a shared filter so switching ward context in one place carries through
+  print batches, the fill-suggestion cart, and the low-stock dashboard together
+- **feat:** "เติมตาม par ทั้งหมด" (the auto-fill-suggestion that replaces eyeballing shelf
+  levels every morning) is now ward-scoped — filling the OPD tab only ever queues OPD items,
+  never quietly pulls in IPD's cart too, and vice versa. This is the actual fix for "ยาไม่พอ
+  ใช้หน้างานจริงเพราะกะสายตา" — the suggested-quantity math already existed, it just wasn't
+  ward-aware, so a real morning fill session couldn't use it cleanly
+- **feat:** per-med "ไม่มี substock" flag (จัดการรายการยา) for liquids/inhalers/sprays that go
+  straight from the central warehouse to the shelf — receiving one now credits หน้างาน
+  directly instead of landing in a substock stage nobody would ever transfer out of, and
+  these meds no longer clutter เติมหน้างาน with a permanently-stuck "0" fill button
+- **feat:** "ย้ายยาระหว่างชั้นวาง" (เพิ่มเติม menu) — for the locked injectable drawer in IPD
+  with a subset kept in an OPD stat drawer: moves floor stock from one med record to another
+  (decrement source / increment destination, atomic, reason required, logged as a linked tx
+  pair) — not a receive (nothing new entered the hospital) and not a substock transfer
+
 ## [2.12.0] - 2026-08-26
 
 ### Added

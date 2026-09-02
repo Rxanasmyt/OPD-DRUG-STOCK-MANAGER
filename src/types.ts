@@ -1,5 +1,7 @@
 export type Role = 'pharm' | 'tech' | 'admin';
 
+export type Ward = 'opd' | 'ipd';
+
 export interface Med {
   id: string;
   code: string;
@@ -17,6 +19,13 @@ export interface Med {
   usedPrev30: number;
   volatility: number;
   lastCountTs: number;
+  // Optional — missing on every med seeded before wards existed. Never read `.ward`/
+  // `.noSubstock` directly; always go through `wardOf()`/`usesSubstock()` in selectors.ts so
+  // old docs default correctly (opd / has substock) without a one-time migration write.
+  ward?: Ward;
+  // ยาน้ำ/ยาพ่นบางตัวไม่มีขั้น substock เลย — เบิกจากคลังใหญ่มาลงชั้นวางหน้างานตรง ๆ. Toggled
+  // per med (see MedsScreen), not a whole drug-class rule, since it varies item by item.
+  noSubstock?: boolean;
 }
 
 export interface Lot {
@@ -31,7 +40,8 @@ export interface Lot {
 
 export type TxType =
   | 'adjust' | 'return' | 'damaged' | 'expired' | 'count' | 'reconcile_hosxp'
-  | 'transfer_to_floor' | 'receive_from_central' | 'receive_pending';
+  | 'transfer_to_floor' | 'receive_from_central' | 'receive_pending'
+  | 'ward_move_out' | 'ward_move_in';
 
 export interface Tx {
   id: string;
@@ -108,7 +118,7 @@ export interface PendingReceive {
 
 export type Screen =
   | 'login' | 'home' | 'transfer' | 'tconfirm' | 'done' | 'receive' | 'adjust'
-  | 'report' | 'labels' | 'settings' | 'more' | 'count' | 'reconcile' | 'admin' | 'meds';
+  | 'report' | 'labels' | 'settings' | 'more' | 'count' | 'reconcile' | 'admin' | 'meds' | 'wardmove';
 
 export type AdjType = 'adjust' | 'return' | 'damaged' | 'expired';
 export type ReportTab = 'aging' | 'turn' | 'disc';
@@ -156,6 +166,14 @@ export interface AppState {
   cart: Record<string, number>;
   search: string;
   filter: TransferFilter;
+  wardFilter: 'all' | Ward;
+
+  wmFromSearch: string;
+  wmFromMed: string | null;
+  wmToSearch: string;
+  wmToMed: string | null;
+  wmQty: string;
+  wmReason: string;
 
   recvNo: string;
   recvSearch: string;

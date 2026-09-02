@@ -1,5 +1,5 @@
 import { useApp } from '../store/AppContext';
-import { daysUntil } from '../store/selectors';
+import { daysUntil, wardOf } from '../store/selectors';
 import { thDate } from '../utils/format';
 import { QrCode } from '../components/QrCode';
 import { encodeQr } from '../utils/qr';
@@ -10,34 +10,54 @@ import { shortLabelName, titleSizeStep } from '../utils/labelName';
 // stretched full mobile-width here vs a fixed 100mm print card).
 const TITLE_PX_BY_STEP = [17, 16, 14.5, 13, 11.5, 10.5];
 import { LOCS } from '../data/locations';
-import type { LabelType } from '../types';
+import type { LabelType, Ward } from '../types';
 
 const TABS: [LabelType, string][] = [['med', 'ฉลากตัวยา'], ['lot', 'ฉลาก lot'], ['loc', 'ฉลากชั้นวาง']];
+const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: '#5a4fcf' };
 
 export default function LabelsScreen() {
-  const { state, setLabelType, printLabels, warn } = useApp();
-  const meds = state.meds.filter((m) => m.active);
+  const { state, setLabelType, setWardFilter, printLabels, warn } = useApp();
+  const meds = state.meds.filter((m) => m.active && (state.wardFilter === 'all' || wardOf(m) === state.wardFilter));
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : '#fff', color: active ? '#fff' : 'var(--ink)' });
 
+  const medIds = new Set(meds.map((m) => m.id));
+  const wardLots = state.lots.filter((l) => medIds.has(l.medId));
   const rows = state.labelType === 'med'
     ? meds.slice(0, 8).map((m) => ({ code: m.code, bin: m.bin, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + m.bin, tag: m.had ? 'HIGH ALERT' : '', tagColor: 'var(--had)' }))
     : state.labelType === 'lot'
-    ? state.lots.slice(0, 8).map((l) => {
+    ? wardLots.slice(0, 8).map((l) => {
         const m = meds.find((x) => x.id === l.medId);
         return { code: l.code, bin: undefined as string | undefined, payload: encodeQr('lot', l.code), title: m ? m.name : '—', sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: daysUntil(l.exp) < warn() ? 'ใกล้หมดอายุ' : '', tagColor: 'var(--amber)' };
       })
     : LOCS.map((b) => ({ code: 'LOC-' + b, bin: undefined as string | undefined, payload: encodeQr('loc', 'LOC-' + b), title: 'ชั้นจ่ายยา ' + b, sub: 'หน้างาน OPD · สแกนเพื่อเปิดรายการในชั้นนี้', tag: '', tagColor: 'var(--muted)' }));
 
-  const labelCount = state.labelType === 'loc' ? LOCS.length : state.labelType === 'lot' ? state.lots.length : meds.length;
+  const labelCount = state.labelType === 'loc' ? LOCS.length : state.labelType === 'lot' ? wardLots.length : meds.length;
 
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
       <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 12 }}>ยังไม่มี QR ติดที่ยาและชั้นวาง — เริ่มจากพิมพ์ฉลาก 3 ชนิดนี้ รหัสถูกสร้างจาก master data โดยตรง เป็น QR จริงที่กล้องมือถือ/แท็บเล็ตสแกนได้ทันทีหลังติด</div>
-      <div style={{ display: 'flex', gap: 7, marginBottom: 13 }}>
+      <div style={{ display: 'flex', gap: 7, marginBottom: 9 }}>
         {TABS.map(([t, label]) => (
           <button key={t} className="chip" style={{ ...chip(state.labelType === t), flex: 1, textAlign: 'center', minHeight: 42 }} onClick={() => setLabelType(t)}>{label}</button>
         ))}
       </div>
+      {state.labelType !== 'loc' && (
+        <div style={{ display: 'flex', gap: 2, background: 'var(--border-soft)', padding: 3, borderRadius: 11, marginBottom: 13 }}>
+          {(['all', 'opd', 'ipd'] as const).map((w) => {
+            const active = state.wardFilter === w;
+            const tone = w === 'opd' ? WARD_COLOR.opd : w === 'ipd' ? WARD_COLOR.ipd : 'var(--ink)';
+            return (
+              <button
+                key={w}
+                onClick={() => setWardFilter(w)}
+                style={{ flex: 1, border: 0, background: active ? '#fff' : 'transparent', color: active ? tone : 'var(--muted)', padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: active ? 'var(--shadow-xs)' : 'none', transition: 'background var(--dur) var(--ease), color var(--dur) var(--ease)' }}
+              >
+                {w === 'all' ? 'ทุกหอผู้ป่วย' : w === 'opd' ? 'OPD' : 'IPD'}
+              </button>
+            );
+          })}
+        </div>
+      )}
       {state.labelType === 'med' ? (
         <div style={{ marginBottom: 14 }}>
           {rows.map((r, i) => (

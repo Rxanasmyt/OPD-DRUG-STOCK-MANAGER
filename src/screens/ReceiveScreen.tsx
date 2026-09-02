@@ -1,4 +1,5 @@
 import { useApp } from '../store/AppContext';
+import { usesSubstock } from '../store/selectors';
 import { nf, thDate, thTime } from '../utils/format';
 
 export default function ReceiveScreen() {
@@ -83,7 +84,12 @@ export default function ReceiveScreen() {
 
         {recvMed && (
           <>
-            <div style={{ background: 'var(--green-tint)', borderRadius: 10, padding: '9px 11px', fontSize: 13.5, fontWeight: 600, marginBottom: 9 }}>{recvMed.name}</div>
+            <div style={{ background: 'var(--green-tint)', borderRadius: 10, padding: '9px 11px', fontSize: 13.5, fontWeight: 600, marginBottom: 9 }}>
+              {recvMed.name}
+              {!usesSubstock(recvMed) && (
+                <span style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--amber-ink)', marginTop: 3 }}>ไม่มี substock — รับเข้าแล้วขึ้นหน้างานทันที ไม่ต้องเติมอีกขั้น</span>
+              )}
+            </div>
             <div className="grid-2" style={{ marginBottom: 9 }}>
               <label>
                 <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Lot no.</span>

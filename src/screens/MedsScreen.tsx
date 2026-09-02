@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly } from '../utils/format';
-import type { Med } from '../types';
+import { wardOf, wardLabel } from '../store/selectors';
+import type { Med, Ward } from '../types';
 
 type Filter = 'active' | 'inactive' | 'all';
 
 const inputStyle = { width: '100%', border: '1px solid var(--border)', background: '#fff', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
+const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: '#5a4fcf' };
+const WARD_BG: Record<Ward, string> = { opd: 'var(--green-tint)', ipd: '#eeecfb' };
 
 interface MedFormValues {
   name: string;
@@ -16,16 +19,19 @@ interface MedFormValues {
   bin: string;
   parSub: string;
   parFloor: string;
+  ward: Ward;
+  noSubstock: boolean;
 }
 
 function blankForm(): MedFormValues {
-  return { name: '', dosageForm: '', unit: '', price: '', had: false, bin: '', parSub: '', parFloor: '' };
+  return { name: '', dosageForm: '', unit: '', price: '', had: false, bin: '', parSub: '', parFloor: '', ward: 'opd', noSubstock: false };
 }
 
 function formFromMed(m: Med): MedFormValues {
   return {
     name: m.name, dosageForm: m.dosageForm, unit: m.unit, price: m.price ? String(m.price) : '',
     had: m.had, bin: m.bin, parSub: String(m.parSub), parFloor: String(m.parFloor),
+    ward: wardOf(m), noSubstock: !!m.noSubstock,
   };
 }
 
@@ -34,6 +40,7 @@ export default function MedsScreen() {
   const canEdit = state.role !== 'tech';
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('active');
+  const [wardTab, setWardTab] = useState<'all' | Ward>('all');
   const [addOpen, setAddOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -53,6 +60,7 @@ export default function MedsScreen() {
 
   const meds = state.meds
     .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : !m.active))
+    .filter((m) => wardTab === 'all' || wardOf(m) === wardTab)
     .filter((m) => !q.trim() || m.name.toLowerCase().indexOf(q.trim().toLowerCase()) >= 0)
     .sort((a, b) => a.name.localeCompare(b.name, 'th'));
 
@@ -84,12 +92,17 @@ export default function MedsScreen() {
           submitLabel="บันทึก"
           onCancel={() => setAddOpen(false)}
           onSubmit={(v) => {
-            addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0 });
+            addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, ward: v.ward, noSubstock: v.noSubstock });
             setAddOpen(false);
           }}
         />
       )}
 
+      <div style={{ display: 'flex', gap: 7, marginBottom: 8 }}>
+        <button className="chip" style={{ ...chip(wardTab === 'all'), flex: 1, textAlign: 'center' }} onClick={() => setWardTab('all')}>ทุกหอผู้ป่วย</button>
+        <button className="chip" style={{ ...chip(wardTab === 'opd'), flex: 1, textAlign: 'center', ...(wardTab === 'opd' ? { background: WARD_COLOR.opd, borderColor: WARD_COLOR.opd } : {}) }} onClick={() => setWardTab('opd')}>OPD</button>
+        <button className="chip" style={{ ...chip(wardTab === 'ipd'), flex: 1, textAlign: 'center', ...(wardTab === 'ipd' ? { background: WARD_COLOR.ipd, borderColor: WARD_COLOR.ipd } : {}) }} onClick={() => setWardTab('ipd')}>IPD</button>
+      </div>
       <div style={{ display: 'flex', gap: 7, marginBottom: 10 }}>
         <button className="chip" style={chip(filter === 'active')} onClick={() => setFilter('active')}>ใช้งานอยู่</button>
         <button className="chip" style={chip(filter === 'inactive')} onClick={() => setFilter('inactive')}>ปิดใช้งาน</button>
@@ -108,6 +121,10 @@ export default function MedsScreen() {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>{m.name}{m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}> HAD</span>}</div>
                     <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{m.code} · ชั้น {m.bin || '—'} · {m.unit} · {nf(m.price)} บาท</div>
+                    <div style={{ display: 'flex', gap: 5, marginTop: 5 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: WARD_COLOR[wardOf(m)], background: WARD_BG[wardOf(m)], padding: '2px 7px', borderRadius: 20 }}>{wardOf(m) === 'opd' ? 'OPD' : 'IPD'}</span>
+                      {m.noSubstock && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--amber-ink)', background: 'var(--amber-bg)', padding: '2px 7px', borderRadius: 20 }}>ไม่มี substock</span>}
+                    </div>
                   </div>
                   <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: m.active ? 'var(--green)' : 'var(--muted)', background: m.active ? 'var(--green-tint)' : '#f2f3ee', padding: '4px 8px', borderRadius: 20 }}>{m.active ? 'ใช้งานอยู่' : 'ปิดใช้งาน'}</span>
                 </div>
@@ -136,7 +153,7 @@ export default function MedsScreen() {
                     submitLabel="บันทึกการแก้ไข"
                     onCancel={() => setEditingId(null)}
                     onSubmit={(v) => {
-                      updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0 });
+                      updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, ward: v.ward, noSubstock: v.noSubstock });
                       setEditingId(null);
                     }}
                   />
@@ -193,17 +210,33 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit }: {
           <input value={v.bin} onChange={(e) => set('bin', e.target.value)} placeholder="เช่น J4" style={{ ...inputStyle, textTransform: 'uppercase' as const }} />
         </label>
       </div>
+      <div style={{ marginBottom: 9 }}>
+        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>หอผู้ป่วยที่ใช้ชั้นวางนี้</span>
+        <div style={{ display: 'flex', gap: 7 }}>
+          <button onClick={() => set('ward', 'opd')} style={{ flex: 1, border: v.ward === 'opd' ? '1px solid ' + WARD_COLOR.opd : '1px solid var(--border)', background: v.ward === 'opd' ? WARD_BG.opd : '#fff', color: v.ward === 'opd' ? WARD_COLOR.opd : 'var(--ink)', padding: '10px 4px', borderRadius: 9, fontSize: 13, fontWeight: 600, minHeight: 42 }}>ผู้ป่วยนอก (OPD)</button>
+          <button onClick={() => set('ward', 'ipd')} style={{ flex: 1, border: v.ward === 'ipd' ? '1px solid ' + WARD_COLOR.ipd : '1px solid var(--border)', background: v.ward === 'ipd' ? WARD_BG.ipd : '#fff', color: v.ward === 'ipd' ? WARD_COLOR.ipd : 'var(--ink)', padding: '10px 4px', borderRadius: 9, fontSize: 13, fontWeight: 600, minHeight: 42 }}>ผู้ป่วยใน (IPD)</button>
+        </div>
+        <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 5 }}>ยาตัวเดียวกันที่วางทั้งสองชั้น (เช่น ยาฉีดในลิ้นชักล็อก IPD ที่แบ่งมาวาง stat ที่ OPD) ให้สร้างเป็นคนละรายการ แล้วใช้ "ย้ายยาระหว่างชั้นวาง" ตอนโยกของจริง</div>
+      </div>
       <div className="grid-2" style={{ marginBottom: 9 }}>
         <label>
           <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>par substock</span>
-          <input value={v.parSub} onChange={(e) => set('parSub', digitsOnly(e.target.value))} inputMode="numeric" style={inputStyle} />
+          <input value={v.parSub} onChange={(e) => set('parSub', digitsOnly(e.target.value))} inputMode="numeric" disabled={v.noSubstock} style={{ ...inputStyle, ...(v.noSubstock ? { background: '#f2f3ee', color: '#9aa199' } : {}) }} />
         </label>
         <label>
           <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>par หน้างาน</span>
           <input value={v.parFloor} onChange={(e) => set('parFloor', digitsOnly(e.target.value))} inputMode="numeric" style={inputStyle} />
         </label>
       </div>
-      <button onClick={() => set('had', !v.had)} className="chip" style={{ ...chip(v.had), width: '100%', marginBottom: 12, textAlign: 'center' }}>{v.had ? '✓ ยา high alert' : 'ยา high alert?'}</button>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <button onClick={() => set('had', !v.had)} className="chip" style={{ ...chip(v.had), flex: 1, textAlign: 'center' }}>{v.had ? '✓ ยา high alert' : 'ยา high alert?'}</button>
+        <button onClick={() => set('noSubstock', !v.noSubstock)} className="chip" style={{ ...chip(v.noSubstock), flex: 1, textAlign: 'center' }}>{v.noSubstock ? '✓ ไม่มี substock' : 'ไม่มี substock?'}</button>
+      </div>
+      {v.noSubstock && (
+        <div style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 9, padding: '8px 10px', marginTop: -6, marginBottom: 12 }}>
+          เช่น ยาน้ำ/ยาพ่น — รับยาเข้าแล้วขึ้นหน้างานทันที ไม่ต้องเติมจาก substock อีกขั้น (par substock ปิดใช้งานให้อัตโนมัติ)
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={onCancel} className="btn-outline" style={{ flex: 1, padding: 12, borderRadius: 10, fontSize: 13.5, minHeight: 46 }}>ยกเลิก</button>
         <button onClick={() => onSubmit(v)} disabled={!v.name.trim()} className="btn-primary" style={{ flex: 1, padding: 12, borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 46, opacity: v.name.trim() ? 1 : 0.5 }}>{submitLabel}</button>
