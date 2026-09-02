@@ -48,7 +48,7 @@ export default function ReceiveScreen() {
                     <button onClick={() => approvePendingReceive(r.id)} style={{ flex: 1, border: 0, background: 'var(--green)', color: '#fff', padding: '8px 10px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}>อนุมัติ</button>
                     <button
                       onClick={() => { const reason = window.prompt('เหตุผลที่ปฏิเสธ (จะบันทึกลง audit log)'); if (reason !== null) rejectPendingReceive(r.id, reason.trim()); }}
-                      style={{ flex: 1, border: '1px solid var(--red)', background: '#fff', color: 'var(--red)', padding: '8px 10px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}
+                      style={{ flex: 1, border: '1px solid var(--red)', background: 'var(--bg-card)', color: 'var(--red)', padding: '8px 10px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}
                     >
                       ปฏิเสธ
                     </button>
@@ -78,13 +78,13 @@ export default function ReceiveScreen() {
         <div className="muted" style={{ fontSize: 11.5, marginBottom: 9 }}>สแกน QR ที่ติดหน้ายาใน substock เพื่อระบุตัวยาอัตโนมัติ หรือค้นหาด้วยชื่อ</div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           <input value={state.recvSearch} onChange={(e) => setRecvSearch(e.target.value)} placeholder="ค้นหา / สแกนชื่อยา" style={{ ...inputStyle, flex: 1, minWidth: 0 }} />
-          <button onClick={() => openScanSearch('receive')} style={{ border: '1px solid var(--border)', background: '#fff', borderRadius: 10, width: 46, minHeight: 44, fontSize: 17, flex: 'none' }}>▣</button>
+          <button onClick={() => openScanSearch('receive')} style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, width: 46, minHeight: 44, fontSize: 17, flex: 'none' }}>▣</button>
         </div>
 
         {options.length > 0 && (
           <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 172, overflowY: 'auto', marginBottom: 9 }}>
             {options.map((m) => (
-              <button key={m.id} onClick={() => pickRecvMed(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid #f2f3ee', background: '#fff', padding: '10px 12px', minHeight: 44 }}>
+              <button key={m.id} onClick={() => pickRecvMed(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
                 <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name}</span>
                 <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock {nf(sub(m.id))} · par {nf(m.parSub)}</span>
               </button>
@@ -147,4 +147,4 @@ export default function ReceiveScreen() {
 }
 
 import type { CSSProperties } from 'react';
-const inputStyle: CSSProperties = { width: '100%', border: '1px solid var(--border)', background: '#fff', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
+const inputStyle: CSSProperties = { width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };

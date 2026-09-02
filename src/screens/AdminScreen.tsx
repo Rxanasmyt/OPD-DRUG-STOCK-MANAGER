@@ -25,7 +25,7 @@ export default function AdminScreen() {
     state, setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit, roleLabelOf,
     setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch,
   } = useApp();
-  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : '#fff', color: active ? '#fff' : 'var(--ink)' });
+  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
 
   const pending = state.users.filter((u) => !u.active).sort((a, b) => b.createdAt - a.createdAt);
   const approved = state.users.filter((u) => u.active).sort((a, b) => a.name.localeCompare(b.name, 'th'));
@@ -109,9 +109,9 @@ export default function AdminScreen() {
                     <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
                       {ROLES.map((r) => {
                         const active = u.role === r;
-                        return <button key={r} onClick={() => setUserRole(u.id, r)} style={{ flex: 1, border: active ? '1px solid ' + ROLE_COLOR[r] : '1px solid var(--border)', background: active ? ROLE_BG[r] : '#fff', color: active ? ROLE_COLOR[r] : 'var(--ink)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 38 }}>{roleLabelOf(r)}</button>;
+                        return <button key={r} onClick={() => setUserRole(u.id, r)} style={{ flex: 1, border: active ? '1px solid ' + ROLE_COLOR[r] : '1px solid var(--border)', background: active ? ROLE_BG[r] : 'var(--bg-card)', color: active ? ROLE_COLOR[r] : 'var(--ink)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 38 }}>{roleLabelOf(r)}</button>;
                       })}
-                      <button onClick={() => toggleUserActive(u.id)} title="ปิดใช้งานบัญชี" style={{ flex: 'none', border: '1px solid var(--border)', background: '#fff', color: 'var(--red)', width: 38, height: 38, borderRadius: 9, fontSize: 15 }}>⏻</button>
+                      <button onClick={() => toggleUserActive(u.id)} title="ปิดใช้งานบัญชี" style={{ flex: 'none', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--red)', width: 38, height: 38, borderRadius: 9, fontSize: 15 }}>⏻</button>
                     </div>
                   </div>
                 );
@@ -141,7 +141,7 @@ export default function AdminScreen() {
                   {state.historyLoading ? 'กำลังค้นหา…' : 'ค้นหา'}
                 </button>
                 {isHistory && (
-                  <button onClick={clearHistorySearch} style={{ flex: 'none', border: '1px solid var(--border)', background: '#fff', color: 'var(--ink)', padding: '10px 14px', borderRadius: 9, fontSize: 13, minHeight: 40 }}>กลับไปดูล่าสุด</button>
+                  <button onClick={clearHistorySearch} style={{ flex: 'none', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '10px 14px', borderRadius: 9, fontSize: 13, minHeight: 40 }}>กลับไปดูล่าสุด</button>
                 )}
               </div>
             </div>

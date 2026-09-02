@@ -5,7 +5,7 @@ import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
 import type { Ward } from '../types';
 
-const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: '#5a4fcf' };
+const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: 'var(--ipd)' };
 
 export default function TransferScreen() {
   const { state, sub, fefo, setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, printPickList, go, openScanSearch } = useApp();
@@ -25,7 +25,7 @@ export default function TransferScreen() {
     .sort((a, b) => a.floor / a.parFloor - b.floor / b.parFloor);
 
   const cartIds = Object.keys(state.cart);
-  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : '#fff', color: active ? '#fff' : 'var(--ink)' });
+  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
 
   return (
     <div style={{ animation: 'fade .18s' }}>
@@ -38,7 +38,7 @@ export default function TransferScreen() {
               <button
                 key={w}
                 onClick={() => setWardFilter(w)}
-                style={{ flex: 1, border: 0, background: active ? '#fff' : 'transparent', color: active ? tone : 'var(--muted)', padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: active ? 'var(--shadow-xs)' : 'none', transition: 'background var(--dur) var(--ease), color var(--dur) var(--ease)' }}
+                style={{ flex: 1, border: 0, background: active ? 'var(--bg-card)' : 'transparent', color: active ? tone : 'var(--muted)', padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: active ? 'var(--shadow-xs)' : 'none', transition: 'background var(--dur) var(--ease), color var(--dur) var(--ease)' }}
               >
                 {w === 'all' ? 'ทุกหอผู้ป่วย' : w === 'opd' ? 'OPD' : 'IPD'}
               </button>
@@ -50,9 +50,9 @@ export default function TransferScreen() {
             value={state.search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="ค้นหาชื่อยา / สแกน QR"
-            style={{ flex: 1, minWidth: 0, border: '1px solid var(--border)', background: '#fff', borderRadius: 10, padding: '11px 13px', fontSize: 14, minHeight: 44 }}
+            style={{ flex: 1, minWidth: 0, border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 13px', fontSize: 14, minHeight: 44 }}
           />
-          <button onClick={() => openScanSearch('transfer')} style={{ border: '1px solid var(--border)', background: '#fff', borderRadius: 10, width: 46, minHeight: 44, fontSize: 17, flex: 'none' }}>▣</button>
+          <button onClick={() => openScanSearch('transfer')} style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, width: 46, minHeight: 44, fontSize: 17, flex: 'none' }}>▣</button>
         </div>
         <div style={{ display: 'flex', gap: 7, marginTop: 9, overflowX: 'auto', paddingBottom: 2 }}>
           <button className="chip" style={chip(state.filter === 'low')} onClick={() => setFilter('low')}>ต่ำกว่า Min ({low.length})</button>
@@ -91,7 +91,7 @@ export default function TransferScreen() {
                   </div>
                 </div>
                 <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <button onClick={() => bump(m.id, -1)} style={{ border: '1px solid var(--border)', background: '#fff', width: 40, height: 40, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>−</button>
+                  <button onClick={() => bump(m.id, -1)} style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', width: 40, height: 40, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>−</button>
                   <input
                     value={state.cart[m.id] || ''}
                     onChange={(e) => setCartQty(m.id, digitsOnly(e.target.value))}
@@ -115,7 +115,7 @@ export default function TransferScreen() {
               <span style={{ display: 'block', color: 'var(--had)', fontWeight: 600 }}>มียา high alert — ต้องสแกน QR ยืนยัน</span>
             )}
           </div>
-          <button onClick={printPickList} title="พิมพ์ใบจัดยาเติมชั้น" style={{ flex: 'none', border: '1px solid var(--border)', background: '#fff', color: 'var(--ink)', width: 50, height: 50, borderRadius: 12, fontSize: 18 }}>🖨</button>
+          <button onClick={printPickList} title="พิมพ์ใบจัดยาเติมชั้น" style={{ flex: 'none', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', width: 50, height: 50, borderRadius: 12, fontSize: 18 }}>🖨</button>
           <button onClick={() => go('tconfirm')} className="btn-primary" style={{ padding: '14px 22px', borderRadius: 12, fontSize: 15, fontWeight: 600, minHeight: 50, boxShadow: '0 6px 18px -6px rgba(23,85,47,.7)' }}>ตรวจสอบ →</button>
         </div>
       )}

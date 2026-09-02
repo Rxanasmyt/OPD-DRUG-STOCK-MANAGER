@@ -13,12 +13,12 @@ import { LOCS } from '../data/locations';
 import type { LabelType, Ward } from '../types';
 
 const TABS: [LabelType, string][] = [['med', 'ฉลากตัวยา'], ['lot', 'ฉลาก lot'], ['loc', 'ฉลากชั้นวาง']];
-const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: '#5a4fcf' };
+const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: 'var(--ipd)' };
 
 export default function LabelsScreen() {
   const { state, setLabelType, setWardFilter, printLabels, warn } = useApp();
   const meds = state.meds.filter((m) => m.active && (state.wardFilter === 'all' || wardOf(m) === state.wardFilter));
-  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : '#fff', color: active ? '#fff' : 'var(--ink)' });
+  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
 
   const medIds = new Set(meds.map((m) => m.id));
   const wardLots = state.lots.filter((l) => medIds.has(l.medId));
@@ -50,7 +50,7 @@ export default function LabelsScreen() {
               <button
                 key={w}
                 onClick={() => setWardFilter(w)}
-                style={{ flex: 1, border: 0, background: active ? '#fff' : 'transparent', color: active ? tone : 'var(--muted)', padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: active ? 'var(--shadow-xs)' : 'none', transition: 'background var(--dur) var(--ease), color var(--dur) var(--ease)' }}
+                style={{ flex: 1, border: 0, background: active ? 'var(--bg-card)' : 'transparent', color: active ? tone : 'var(--muted)', padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: active ? 'var(--shadow-xs)' : 'none', transition: 'background var(--dur) var(--ease), color var(--dur) var(--ease)' }}
               >
                 {w === 'all' ? 'ทุกหอผู้ป่วย' : w === 'opd' ? 'OPD' : 'IPD'}
               </button>

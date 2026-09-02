@@ -58,6 +58,8 @@ function freshState(): AppState {
 export interface AppCtx {
   state: AppState;
   myProfile: User | null;
+  theme: 'light' | 'dark';
+  toggleTheme: () => void;
   sub: (medId: string) => number;
   fefo: (medId: string) => ReturnType<typeof fefoLot>;
   userName: () => string;
@@ -208,6 +210,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const toastTimer = useRef<number | undefined>(undefined);
   const parDebounce = useRef<Record<string, number>>({});
   const binDebounce = useRef<Record<string, number>>({});
+
+  // ---------- theme (light/dark) — a per-device UI preference, not app data, so it lives in
+  // localStorage rather than Firestore. Defaults to the OS/browser preference on first visit,
+  // then whatever the person picked via the toggle from then on. ----------
+  const [theme, setThemeState] = useState<'light' | 'dark'>(() => {
+    try {
+      const saved = localStorage.getItem('opd-theme');
+      if (saved === 'light' || saved === 'dark') return saved;
+    } catch { /* localStorage unavailable (private mode etc.) — fall through to OS preference */ }
+    return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    try { localStorage.setItem('opd-theme', theme); } catch { /* ignore */ }
+  }, [theme]);
+  const toggleTheme = useCallback(() => setThemeState((t) => (t === 'dark' ? 'light' : 'dark')), []);
 
   const patch = useCallback((p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => {
     setState((s) => ({ ...s, ...(typeof p === 'function' ? p(s) : p) }));
@@ -1367,7 +1385,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.historyFrom, state.historyTo, patch, toast]);
 
   const value = useMemo<AppCtx>(() => ({
-    state, myProfile, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, go, back,
+    state, myProfile, theme, toggleTheme, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, go, back,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
     setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, printPickList, removeFromCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, printWarehouseRequestList,
@@ -1385,7 +1403,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit,
     setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [state, myProfile]);
+  }), [state, myProfile, theme, toggleTheme]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

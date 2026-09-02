@@ -43,7 +43,7 @@ export default function AdjustScreen() {
             <button
               key={t}
               onClick={() => pickAdjType(t)}
-              style={{ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : '#fff', color: active ? '#fff' : 'var(--ink)', padding: '13px 12px', borderRadius: 12, textAlign: 'left', minHeight: 64 }}
+              style={{ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)', padding: '13px 12px', borderRadius: 12, textAlign: 'left', minHeight: 64 }}
             >
               <div style={{ fontSize: 14.5, fontWeight: 600 }}>{label}</div>
               <div style={{ fontSize: 11.5, opacity: 0.72, lineHeight: 1.35 }}>{sub}</div>
@@ -81,7 +81,7 @@ export default function AdjustScreen() {
           {options.length > 0 && (
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 158, overflowY: 'auto', marginBottom: 9 }}>
               {options.map((m) => (
-                <button key={m.id} onClick={() => pickAdjMed(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid #f2f3ee', background: '#fff', padding: '10px 12px', minHeight: 44 }}>
+                <button key={m.id} onClick={() => pickAdjMed(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
                   <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name}</span>
                   <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>หน้างาน {nf(m.floor)} · substock {nf(subQty(state, m.id))} {m.unit}</span>
                 </button>
@@ -104,7 +104,7 @@ export default function AdjustScreen() {
                 {REASONS[state.adjType].map((r) => {
                   const active = state.adjReason === r;
                   return (
-                    <button key={r} onClick={() => setAdjReason(r)} className="chip" style={{ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green-tint)' : '#fff', color: active ? 'var(--green)' : 'var(--ink)', minHeight: 38 }}>{r}</button>
+                    <button key={r} onClick={() => setAdjReason(r)} className="chip" style={{ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green-tint)' : 'var(--bg-card)', color: active ? 'var(--green)' : 'var(--ink)', minHeight: 38 }}>{r}</button>
                   );
                 })}
               </div>
@@ -117,7 +117,7 @@ export default function AdjustScreen() {
               <button
                 onClick={commitAdjust}
                 disabled={!state.adjReason || !state.adjQty}
-                style={{ width: '100%', border: 0, background: state.adjReason && state.adjQty ? 'var(--green)' : '#a9b0a6', color: '#fff', padding: 15, borderRadius: 11, fontSize: 15.5, fontWeight: 600, minHeight: 52, marginTop: 10 }}
+                style={{ width: '100%', border: 0, background: state.adjReason && state.adjQty ? 'var(--green)' : 'var(--border-strong)', color: '#fff', padding: 15, borderRadius: 11, fontSize: 15.5, fontWeight: 600, minHeight: 52, marginTop: 10 }}
               >
                 {state.adjType === 'return' ? 'บันทึกรับคืน' : 'บันทึกปรับยอด'}
               </button>

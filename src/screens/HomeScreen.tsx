@@ -4,7 +4,7 @@ import { nf, thDate, isoDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import type { Ward } from '../types';
 
-const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: '#5a4fcf' };
+const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: 'var(--ipd)' };
 
 export default function HomeScreen() {
   const { state, myProfile, sub, fefo, bump, goReceiveFor, go, warn, pickAdjType, seedDatabase, setWardFilter } = useApp();
@@ -60,7 +60,7 @@ export default function HomeScreen() {
             <button
               key={w}
               onClick={() => setWardFilter(w)}
-              style={{ flex: 1, border: 0, background: active ? '#fff' : 'transparent', color: active ? tone : 'var(--muted)', padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: active ? 'var(--shadow-xs)' : 'none', transition: 'background var(--dur) var(--ease), color var(--dur) var(--ease)' }}
+              style={{ flex: 1, border: 0, background: active ? 'var(--bg-card)' : 'transparent', color: active ? tone : 'var(--muted)', padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: active ? 'var(--shadow-xs)' : 'none', transition: 'background var(--dur) var(--ease), color var(--dur) var(--ease)' }}
             >
               {w === 'all' ? 'ทุกหอผู้ป่วย' : w === 'opd' ? 'OPD' : 'IPD'}
             </button>
@@ -75,7 +75,7 @@ export default function HomeScreen() {
         <StatTile label="ต่ำกว่า par substock" value={lowSub.length} tone={lowSub.length ? 'var(--red)' : 'var(--green)'} note="รายการ · ควรเบิกจากคลังใหญ่" />
       </div>
 
-      <div style={{ background: 'var(--amber-bg)', border: '1px solid #f0dfbc', borderRadius: 12, padding: '11px 13px', marginBottom: 13, fontSize: 12, color: 'var(--amber-ink)', lineHeight: 1.5 }}>
+      <div style={{ background: 'var(--amber-bg)', border: '1px solid var(--amber-border)', borderRadius: 12, padding: '11px 13px', marginBottom: 13, fontSize: 12, color: 'var(--amber-ink)', lineHeight: 1.5 }}>
         แอปนี้ไม่บันทึกการจ่ายยา — การจ่ายจริงบันทึกใน HOSxP อยู่แล้ว ใช้แท็บ "นำเข้า HOSxP" เป็นประจำเพื่อตัดยอดหน้างานให้ตรง (เร็วกว่านับของจริง) ส่วน "นับสต็อกหน้างาน" เป็นฟังก์ชันเสริมไว้ใช้เมื่อสงสัยยอดคลาดเคลื่อน
       </div>
 
@@ -167,7 +167,7 @@ export default function HomeScreen() {
               </div>
               <button
                 onClick={() => { if (d < 0) { pickAdjType('expired'); go('adjust'); } else { bump(m.id, 1); go('transfer'); } }}
-                style={{ border: '1px solid var(--border)', background: '#fff', color: 'var(--ink)', padding: '8px 11px', borderRadius: 9, fontSize: 12.5, flex: 'none', minHeight: 38 }}
+                style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '8px 11px', borderRadius: 9, fontSize: 12.5, flex: 'none', minHeight: 38 }}
               >
                 {d < 0 ? 'ตัดออก' : 'ใช้ก่อน'}
               </button>

@@ -7,9 +7,9 @@ import type { Med, Ward } from '../types';
 
 type Filter = 'active' | 'inactive' | 'all';
 
-const inputStyle = { width: '100%', border: '1px solid var(--border)', background: '#fff', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
-const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: '#5a4fcf' };
-const WARD_BG: Record<Ward, string> = { opd: 'var(--green-tint)', ipd: '#eeecfb' };
+const inputStyle = { width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
+const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: 'var(--ipd)' };
+const WARD_BG: Record<Ward, string> = { opd: 'var(--green-tint)', ipd: 'var(--ipd-bg)' };
 
 interface MedFormValues {
   name: string;
@@ -66,7 +66,7 @@ export default function MedsScreen() {
     .filter((m) => !q.trim() || m.name.toLowerCase().indexOf(q.trim().toLowerCase()) >= 0)
     .sort((a, b) => a.name.localeCompare(b.name, 'th'));
 
-  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : '#fff', color: active ? '#fff' : 'var(--ink)' });
+  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
 
   if (!canEdit) {
     return (
@@ -132,20 +132,20 @@ export default function MedsScreen() {
                       {m.noSubstock && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--amber-ink)', background: 'var(--amber-bg)', padding: '2px 7px', borderRadius: 20 }}>ไม่มี substock</span>}
                     </div>
                   </div>
-                  <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: m.active ? 'var(--green)' : 'var(--muted)', background: m.active ? 'var(--green-tint)' : '#f2f3ee', padding: '4px 8px', borderRadius: 20 }}>{m.active ? 'ใช้งานอยู่' : 'ปิดใช้งาน'}</span>
+                  <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: m.active ? 'var(--green)' : 'var(--muted)', background: m.active ? 'var(--green-tint)' : 'var(--bg-subtle)', padding: '4px 8px', borderRadius: 20 }}>{m.active ? 'ใช้งานอยู่' : 'ปิดใช้งาน'}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 7 }}>
-                  <button onClick={() => { setEditingId(isEditing ? null : m.id); setAddOpen(false); }} style={{ flex: 1, border: '1px solid var(--green)', background: isEditing ? 'var(--green)' : '#fff', color: isEditing ? '#fff' : 'var(--green)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 38 }}>
+                  <button onClick={() => { setEditingId(isEditing ? null : m.id); setAddOpen(false); }} style={{ flex: 1, border: '1px solid var(--green)', background: isEditing ? 'var(--green)' : 'var(--bg-card)', color: isEditing ? '#fff' : 'var(--green)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 38 }}>
                     {isEditing ? 'ปิดฟอร์มแก้ไข' : 'แก้ไขข้อมูล'}
                   </button>
-                  <button onClick={() => toggleMedActive(m.id)} style={{ flex: 1, border: '1px solid var(--border)', background: '#fff', color: 'var(--ink)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 38 }}>
+                  <button onClick={() => toggleMedActive(m.id)} style={{ flex: 1, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 38 }}>
                     {m.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}
                   </button>
                   <button
                     onClick={() => deleteMed(m.id)}
                     disabled={stockLeft}
                     title={stockLeft ? 'ยังมียอดคงเหลือ ต้องปรับยอดให้เป็น 0 ก่อน' : 'ลบถาวร'}
-                    style={{ flex: 'none', border: '1px solid var(--border)', background: '#fff', color: stockLeft ? '#c3c7bc' : 'var(--red)', padding: '8px 11px', borderRadius: 9, fontSize: 12, minHeight: 38, whiteSpace: 'nowrap' }}
+                    style={{ flex: 'none', border: '1px solid var(--border)', background: 'var(--bg-card)', color: stockLeft ? 'var(--muted)' : 'var(--red)', padding: '8px 11px', borderRadius: 9, fontSize: 12, minHeight: 38, whiteSpace: 'nowrap' }}
                   >
                     ลบถาวร
                   </button>
@@ -187,7 +187,7 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit }: {
 }) {
   const [v, setV] = useState<MedFormValues>(initial);
   const set = <K extends keyof MedFormValues>(k: K, val: MedFormValues[K]) => setV((s) => ({ ...s, [k]: val }));
-  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : '#fff', color: active ? '#fff' : 'var(--ink)' });
+  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
 
   return (
     <div className="card" style={{ padding: 13, marginBottom: 14, animation: 'fade .16s var(--ease-out)' }}>
@@ -219,15 +219,15 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit }: {
       <div style={{ marginBottom: 9 }}>
         <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>หอผู้ป่วยที่ใช้ชั้นวางนี้</span>
         <div style={{ display: 'flex', gap: 7 }}>
-          <button onClick={() => set('ward', 'opd')} style={{ flex: 1, border: v.ward === 'opd' ? '1px solid ' + WARD_COLOR.opd : '1px solid var(--border)', background: v.ward === 'opd' ? WARD_BG.opd : '#fff', color: v.ward === 'opd' ? WARD_COLOR.opd : 'var(--ink)', padding: '10px 4px', borderRadius: 9, fontSize: 13, fontWeight: 600, minHeight: 42 }}>ผู้ป่วยนอก (OPD)</button>
-          <button onClick={() => set('ward', 'ipd')} style={{ flex: 1, border: v.ward === 'ipd' ? '1px solid ' + WARD_COLOR.ipd : '1px solid var(--border)', background: v.ward === 'ipd' ? WARD_BG.ipd : '#fff', color: v.ward === 'ipd' ? WARD_COLOR.ipd : 'var(--ink)', padding: '10px 4px', borderRadius: 9, fontSize: 13, fontWeight: 600, minHeight: 42 }}>ผู้ป่วยใน (IPD)</button>
+          <button onClick={() => set('ward', 'opd')} style={{ flex: 1, border: v.ward === 'opd' ? '1px solid ' + WARD_COLOR.opd : '1px solid var(--border)', background: v.ward === 'opd' ? WARD_BG.opd : 'var(--bg-card)', color: v.ward === 'opd' ? WARD_COLOR.opd : 'var(--ink)', padding: '10px 4px', borderRadius: 9, fontSize: 13, fontWeight: 600, minHeight: 42 }}>ผู้ป่วยนอก (OPD)</button>
+          <button onClick={() => set('ward', 'ipd')} style={{ flex: 1, border: v.ward === 'ipd' ? '1px solid ' + WARD_COLOR.ipd : '1px solid var(--border)', background: v.ward === 'ipd' ? WARD_BG.ipd : 'var(--bg-card)', color: v.ward === 'ipd' ? WARD_COLOR.ipd : 'var(--ink)', padding: '10px 4px', borderRadius: 9, fontSize: 13, fontWeight: 600, minHeight: 42 }}>ผู้ป่วยใน (IPD)</button>
         </div>
         <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 5 }}>ยาตัวเดียวกันที่วางทั้งสองชั้น (เช่น ยาฉีดในลิ้นชักล็อก IPD ที่แบ่งมาวาง stat ที่ OPD) ให้สร้างเป็นคนละรายการ แล้วใช้ "ย้ายยาระหว่างชั้นวาง" ตอนโยกของจริง</div>
       </div>
       <div className="grid-2" style={{ marginBottom: 9 }}>
         <label>
           <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>par substock</span>
-          <input value={v.parSub} onChange={(e) => set('parSub', digitsOnly(e.target.value))} inputMode="numeric" disabled={v.noSubstock} style={{ ...inputStyle, ...(v.noSubstock ? { background: '#f2f3ee', color: '#9aa199' } : {}) }} />
+          <input value={v.parSub} onChange={(e) => set('parSub', digitsOnly(e.target.value))} inputMode="numeric" disabled={v.noSubstock} style={{ ...inputStyle, ...(v.noSubstock ? { background: 'var(--bg-subtle)', color: 'var(--muted)' } : {}) }} />
         </label>
         <label>
           <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>par หน้างาน (Max — เติมขึ้นถึงจุดนี้)</span>

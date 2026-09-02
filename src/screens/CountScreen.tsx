@@ -18,7 +18,7 @@ export default function CountScreen() {
         value={q}
         onChange={(e) => setQ(e.target.value)}
         placeholder="ค้นหาชื่อยา"
-        style={{ width: '100%', border: '1px solid var(--border)', background: '#fff', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44, marginBottom: 12 }}
+        style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44, marginBottom: 12 }}
       />
       <div className="card" style={{ overflow: 'hidden' }}>
         {meds.map((m) => {
@@ -49,7 +49,7 @@ export default function CountScreen() {
                 <button
                   disabled={!has}
                   onClick={() => commitCount(m.id)}
-                  style={{ flex: 'none', border: 0, background: has ? 'var(--green)' : '#c7cbc0', color: '#fff', padding: '9px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 42 }}
+                  style={{ flex: 'none', border: 0, background: has ? 'var(--green)' : 'var(--border-strong)', color: '#fff', padding: '9px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 42 }}
                 >
                   บันทึก
                 </button>

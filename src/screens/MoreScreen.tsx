@@ -56,7 +56,7 @@ export default function MoreScreen() {
           <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.03em', margin: '0 3px 7px' }}>{g.title.toUpperCase()}</div>
           <div className="card" style={{ overflow: 'hidden' }}>
             {g.items.map((m) => (
-              <button key={m.label} onClick={() => go(m.screen)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: '#fff', padding: '13px 13px', minHeight: 58, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button key={m.label} onClick={() => go(m.screen)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '13px 13px', minHeight: 58, display: 'flex', alignItems: 'center', gap: 12 }}>
                 <span style={{ flex: 'none', width: 34, height: 34, borderRadius: 10, background: 'var(--green-tint)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>{m.icon}</span>
                 <span style={{ minWidth: 0, flex: 1 }}>
                   <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{m.label}</span>
@@ -75,7 +75,7 @@ export default function MoreScreen() {
         <div className="muted" style={{ fontSize: 12.5 }}>{roleLabel()} · ห้องยา OPD</div>
       </div>
 
-      <button onClick={logout} style={{ width: '100%', border: '1px solid var(--border)', background: '#fff', color: 'var(--red)', padding: 14, borderRadius: 11, fontSize: 14.5, fontWeight: 600, minHeight: 50 }}>ออกจากระบบ</button>
+      <button onClick={logout} style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--red)', padding: 14, borderRadius: 11, fontSize: 14.5, fontWeight: 600, minHeight: 50 }}>ออกจากระบบ</button>
       <div className="muted" style={{ textAlign: 'center', fontSize: 11, marginTop: 16 }}>เวอร์ชัน {APP_VERSION}</div>
     </div>
   );

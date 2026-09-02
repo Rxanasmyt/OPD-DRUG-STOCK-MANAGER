@@ -7,6 +7,25 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.16.0] - 2026-09-02
+
+### Added
+- **feat:** real light/dark mode — a moon/sun toggle in the header and on the login screen
+  switches the whole app instantly (persisted per-device, defaults to the phone's system
+  theme on first visit). Every screen was swept for hardcoded white/grey backgrounds and
+  moved onto the shared color-token system so dark mode is correct everywhere, not just on
+  a couple of screens — including a second pass to catch and fix places where the sweep had
+  wrongly converted button text that must stay white in both themes
+- **feat:** premium visual pass on the shared chrome — an animated soft-gradient mesh behind
+  the header and login screen, a floating glass bottom nav bar with a sliding pill that glides
+  to the active tab, a gentle pulse on the "ออนไลน์" status dot, and spring-based press
+  feedback on buttons
+
+### Changed
+- **fix:** IPD's ward color/badge (used on ป้ายชื่อ, จัดการรายการยา, รายงาน, เติมหน้างาน) was
+  a fixed purple hex that didn't adapt to dark mode — moved onto its own theme token so it
+  stays legible in both modes
+
 ## [2.15.0] - 2026-08-26
 
 ### Added

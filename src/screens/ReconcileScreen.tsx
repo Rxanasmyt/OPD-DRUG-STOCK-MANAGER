@@ -27,14 +27,14 @@ export default function ReconcileScreen() {
         value={state.hosxpText}
         onChange={(e) => setHosxpText(e.target.value)}
         placeholder={'วางข้อมูลจากไฟล์ HOSxP รูปแบบ "ชื่อยา,จำนวนที่จ่าย" บรรทัดละ 1 รายการ เช่น\nPARACETAMOL 500 mg,340\namlodipine 5 mg,120'}
-        style={{ width: '100%', minHeight: 120, border: '1px solid var(--border)', background: '#fff', borderRadius: 10, padding: '11px 12px', fontSize: 13, fontFamily: 'ui-monospace, monospace', resize: 'vertical', marginBottom: 10 }}
+        style={{ width: '100%', minHeight: 120, border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 13, fontFamily: 'ui-monospace, monospace', resize: 'vertical', marginBottom: 10 }}
       />
       <button onClick={processHosxp} className="btn-primary" style={{ width: '100%', padding: 11, borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 46, marginBottom: 14 }}>ประมวลผล</button>
 
       {reconcileRows.length > 0 && (
         <>
           <div className="card" style={{ overflow: 'hidden', marginBottom: 13 }}>
-            <div style={{ display: 'flex', padding: '9px 13px', background: '#f2f3ee', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+            <div style={{ display: 'flex', padding: '9px 13px', background: 'var(--bg-subtle)', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
               <span style={{ flex: 1 }}>รายการยา</span><span style={{ width: 70, textAlign: 'right', flex: 'none' }}>จ่ายจริง</span><span style={{ width: 70, textAlign: 'right', flex: 'none' }}>ก่อน → หลัง</span>
             </div>
             {reconcileRows.map((r, i) => (

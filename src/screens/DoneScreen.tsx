@@ -21,7 +21,7 @@ export default function DoneScreen() {
         ))}
       </div>
       <div style={{ display: 'flex', gap: 9 }}>
-        <button onClick={() => go('home')} style={{ flex: 1, border: '1px solid var(--border)', background: '#fff', padding: 14, borderRadius: 12, fontSize: 14.5, fontWeight: 600, minHeight: 50 }}>กลับหน้าหลัก</button>
+        <button onClick={() => go('home')} style={{ flex: 1, border: '1px solid var(--border)', background: 'var(--bg-card)', padding: 14, borderRadius: 12, fontSize: 14.5, fontWeight: 600, minHeight: 50 }}>กลับหน้าหลัก</button>
         <button onClick={doneAgain} className="btn-primary" style={{ flex: 1, padding: 14, borderRadius: 12, fontSize: 14.5, minHeight: 50 }}>ทำรายการต่อ</button>
       </div>
     </div>

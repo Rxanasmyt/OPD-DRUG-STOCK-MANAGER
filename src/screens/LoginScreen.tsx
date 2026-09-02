@@ -10,13 +10,25 @@ const FEATURES: [string, string, string][] = [
 export default function LoginScreen() {
   const {
     state, myProfile, setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept,
-    setAuthRemember, signIn, signUp, logout,
+    setAuthRemember, signIn, signUp, logout, theme, toggleTheme,
   } = useApp();
+
+  const ThemeToggleBtn = (
+    <button
+      onClick={toggleTheme}
+      className="theme-toggle press-spring"
+      style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', right: 20, zIndex: 2 }}
+      title={theme === 'dark' ? 'สลับเป็นโหมดสว่าง' : 'สลับเป็นโหมดมืด'}
+    >
+      <span key={theme} className="icon">{theme === 'dark' ? '☾' : '☀'}</span>
+    </button>
+  );
 
   if (state.authStatus === 'loading') {
     return (
       <div className="app-shell" style={{ justifyContent: 'center', alignItems: 'center', background: 'var(--login-bg)', overflowY: 'auto' }}>
-        <div style={{ color: 'var(--ink-soft)', opacity: 0.8, fontSize: 13 }}>กำลังเชื่อมต่อ…</div>
+        <div className="mesh-bg" aria-hidden="true" />
+        <div style={{ position: 'relative', color: 'var(--ink-soft)', opacity: 0.8, fontSize: 13 }}>กำลังเชื่อมต่อ…</div>
       </div>
     );
   }
@@ -24,15 +36,17 @@ export default function LoginScreen() {
   if (state.authStatus === 'pendingApproval') {
     return (
       <div className="app-shell" style={{ justifyContent: 'center', padding: 'calc(env(safe-area-inset-top, 0px) + 32px) 26px calc(env(safe-area-inset-bottom, 0px) + 32px)', background: 'var(--login-bg)', color: 'var(--ink-soft)', textAlign: 'center', overflowY: 'auto' }}>
-        <div style={{ width: 62, height: 62, borderRadius: '50%', background: 'rgba(242,245,239,.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, margin: '0 auto 18px' }}>⏳</div>
-        <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 6 }}>รอ Admin อนุมัติบัญชี</div>
-        <div style={{ fontSize: 13.5, opacity: 0.78, lineHeight: 1.6, marginBottom: 4 }}>
+        <div className="mesh-bg" aria-hidden="true" />
+        {ThemeToggleBtn}
+        <div style={{ position: 'relative', width: 62, height: 62, borderRadius: '50%', background: 'rgba(242,245,239,.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, margin: '0 auto 18px' }}>⏳</div>
+        <div style={{ position: 'relative', fontSize: 19, fontWeight: 700, marginBottom: 6 }}>รอ Admin อนุมัติบัญชี</div>
+        <div style={{ position: 'relative', fontSize: 13.5, opacity: 0.78, lineHeight: 1.6, marginBottom: 4 }}>
           บัญชี <b>{myProfile?.name}</b> (@{myProfile?.username}) สมัครสำเร็จแล้ว
         </div>
-        <div style={{ fontSize: 13, opacity: 0.65, lineHeight: 1.6, marginBottom: 26 }}>
+        <div style={{ position: 'relative', fontSize: 13, opacity: 0.65, lineHeight: 1.6, marginBottom: 26 }}>
           รอเภสัชกรหรือ Admin กดอนุมัติและกำหนดบทบาทให้ก่อน จึงจะเข้าใช้งานได้ — ลองเข้าสู่ระบบใหม่อีกครั้งภายหลัง
         </div>
-        <button onClick={logout} className="login-btn" style={{ width: '100%', border: '1px solid rgba(255,255,255,.3)', background: 'transparent', color: 'var(--ink-soft)', padding: 14, borderRadius: 12, fontSize: 14 }}>ออกจากระบบ</button>
+        <button onClick={logout} className="login-btn" style={{ position: 'relative', width: '100%', border: '1px solid rgba(255,255,255,.3)', background: 'transparent', color: 'var(--ink-soft)', padding: 14, borderRadius: 12, fontSize: 14 }}>ออกจากระบบ</button>
       </div>
     );
   }
@@ -41,11 +55,13 @@ export default function LoginScreen() {
 
   return (
     <div className="app-shell" style={{ background: 'var(--login-bg)', overflowY: 'auto' }}>
+      <div className="mesh-bg" aria-hidden="true" />
+      {ThemeToggleBtn}
       {/* Trust strip — real, already-shipped features, not decoration. Shown above the form
           on every screen size (a single column on phones, where this app is actually used;
           the extra width on a tablet just gives the card more breathing room, not a second
           column, since a split layout only makes sense wider than this app is ever opened). */}
-      <div style={{ padding: 'calc(env(safe-area-inset-top, 0px) + 22px) 26px 4px', maxWidth: 440, margin: '0 auto', width: '100%' }}>
+      <div style={{ position: 'relative', padding: 'calc(env(safe-area-inset-top, 0px) + 22px) 26px 4px', maxWidth: 440, margin: '0 auto', width: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 22, animation: 'fade .4s var(--ease-out) both' }}>
           <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(255,255,255,.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, flex: 'none' }}>💊</div>
           <div style={{ minWidth: 0 }}>
@@ -55,7 +71,7 @@ export default function LoginScreen() {
         </div>
       </div>
 
-      <div style={{ maxWidth: 440, margin: '0 auto', width: '100%', padding: '0 20px calc(env(safe-area-inset-bottom, 0px) + 28px)' }}>
+      <div style={{ position: 'relative', maxWidth: 440, margin: '0 auto', width: '100%', padding: '0 20px calc(env(safe-area-inset-bottom, 0px) + 28px)' }}>
         <div style={{ background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.14)', borderRadius: 20, padding: 24, animation: 'fade .4s var(--ease-out) both', animationDelay: '60ms', boxShadow: 'var(--shadow-lg)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
             <div style={{ width: 38, height: 38, borderRadius: 11, background: 'var(--ink-soft)', color: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17 }}>🔒</div>

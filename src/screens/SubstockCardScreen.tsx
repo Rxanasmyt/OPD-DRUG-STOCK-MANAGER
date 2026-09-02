@@ -5,7 +5,7 @@ import { nf, thDate } from '../utils/format';
 import { printSubstockCardSheet } from '../utils/print';
 import { MedDot } from '../components/MedDot';
 
-const inputStyle = { width: '100%', border: '1px solid var(--border)', background: '#fff', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
+const inputStyle = { width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
 
 interface LedgerRow { ts: number; type: string; qty: number; note: string; by: string; balance: number }
 
@@ -70,7 +70,7 @@ export default function SubstockCardScreen() {
           {options.length > 0 && (
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 280, overflowY: 'auto', marginTop: 9 }}>
               {options.map((m) => (
-                <button key={m.id} onClick={() => openCard(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid #f2f3ee', background: '#fff', padding: '10px 12px', minHeight: 44 }}>
+                <button key={m.id} onClick={() => openCard(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
                   <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name}</span>
                   <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock ปัจจุบัน {nf(subQty(state, m.id))} {m.unit}</span>
                 </button>
@@ -88,7 +88,7 @@ export default function SubstockCardScreen() {
                 <div style={{ fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}><MedDot code={med.code} size={11} /> {med.name}</div>
                 <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>{med.code} · par substock {nf(med.parSub)} {med.unit}</div>
               </div>
-              <button onClick={() => { setMedId(null); setSearch(''); setRows(null); }} style={{ flex: 'none', border: '1px solid var(--border)', background: '#fff', color: 'var(--ink)', padding: '7px 12px', borderRadius: 9, fontSize: 12 }}>เปลี่ยนยา</button>
+              <button onClick={() => { setMedId(null); setSearch(''); setRows(null); }} style={{ flex: 'none', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '7px 12px', borderRadius: 9, fontSize: 12 }}>เปลี่ยนยา</button>
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
               <div style={{ flex: 1, background: 'var(--green-tint)', borderRadius: 10, padding: '10px 12px' }}>
@@ -99,7 +99,7 @@ export default function SubstockCardScreen() {
                 onClick={printCard}
                 disabled={!rows}
                 title="พิมพ์บัตรสต็อก"
-                style={{ flex: 'none', width: 54, border: '1px solid var(--border)', background: '#fff', color: rows ? 'var(--ink)' : '#c3c7bc', borderRadius: 10, fontSize: 19 }}
+                style={{ flex: 'none', width: 54, border: '1px solid var(--border)', background: 'var(--bg-card)', color: rows ? 'var(--ink)' : 'var(--muted)', borderRadius: 10, fontSize: 19 }}
               >
                 🖨
               </button>
@@ -118,7 +118,7 @@ export default function SubstockCardScreen() {
               {/* Same shape as the physical card: วันที่ / รับ / จ่าย / คงเหลือ, chronological
                   (oldest first) — this is a ledger meant to be read top-to-bottom, same as the
                   paper it replaces, not a "recent activity" feed. */}
-              <div style={{ display: 'flex', padding: '9px 13px', background: '#f2f3ee', fontSize: 10.5, color: 'var(--muted)', fontWeight: 600 }}>
+              <div style={{ display: 'flex', padding: '9px 13px', background: 'var(--bg-subtle)', fontSize: 10.5, color: 'var(--muted)', fontWeight: 600 }}>
                 <span style={{ width: 62, flex: 'none' }}>วันที่</span>
                 <span style={{ width: 54, textAlign: 'right', flex: 'none' }}>รับ</span>
                 <span style={{ width: 54, textAlign: 'right', flex: 'none' }}>จ่าย</span>

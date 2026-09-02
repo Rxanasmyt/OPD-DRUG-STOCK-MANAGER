@@ -4,7 +4,7 @@ import { nf, digitsOnly } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import type { Med } from '../types';
 
-const inputStyle = { width: '100%', border: '1px solid var(--border)', background: '#fff', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
+const inputStyle = { width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
 
 /** For the case that prompted this screen: a drawer of injectables kept locked in the IPD
  * room, with a subset physically moved to an OPD stat drawer for frequent OPD codes/urgent
@@ -72,7 +72,7 @@ export default function WardMoveScreen() {
           <button
             onClick={commitWardMove}
             disabled={!canSubmit}
-            style={{ width: '100%', border: 0, background: canSubmit ? 'var(--green)' : '#a9b0a6', color: '#fff', padding: 15, borderRadius: 11, fontSize: 15, fontWeight: 600, minHeight: 52 }}
+            style={{ width: '100%', border: 0, background: canSubmit ? 'var(--green)' : 'var(--border-strong)', color: '#fff', padding: 15, borderRadius: 11, fontSize: 15, fontWeight: 600, minHeight: 52 }}
           >
             ย้าย {qty > 0 ? nf(qty) + ' ' + fromMed.unit : ''} จาก {fromMed.name} → {toMed.name}
           </button>
@@ -109,7 +109,7 @@ function PickerCard({ label, med, search, onSearch, options, onPick }: {
           {options.length > 0 && (
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 158, overflowY: 'auto', marginTop: 8 }}>
               {options.map((m) => (
-                <button key={m.id} onClick={() => onPick(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid #f2f3ee', background: '#fff', padding: '10px 12px', minHeight: 44 }}>
+                <button key={m.id} onClick={() => onPick(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
                   <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name}</span>
                   <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>ชั้น {m.bin || '—'} · หน้างาน {nf(m.floor)} {m.unit}</span>
                 </button>

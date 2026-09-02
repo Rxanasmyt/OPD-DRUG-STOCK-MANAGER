@@ -2,8 +2,11 @@
   --bg-page: #e7e6e0;
   --bg-app: #f7f6f2;
   --bg-card: #fff;
+  --bg-subtle: #f2f3ee;
+  --border-strong: #cfd1c8;
   --green: #17552f;
   --green-dark: #0e3a20;
+  --green-bright: #2fae63;
   --green-tint: #eef3ee;
   --green-rgb: 23, 85, 47;
   --ink: #12211a;
@@ -13,14 +16,18 @@
   --border-soft: #eeefe9;
   --amber: #b8710f;
   --amber-bg: #fdf3e2;
+  --amber-border: #f0dfbc;
   --amber-ink: #8a5407;
   --red: #a32b22;
   --red-bg: #fbeceb;
   --red-rgb: 163, 43, 34;
   --had: #8f1f4f;
+  --ipd: #5a4fcf;
+  --ipd-bg: #eeecfb;
 
   --ease: cubic-bezier(.2, .7, .3, 1);
   --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
   --dur-fast: .12s;
   --dur: .18s;
   --dur-slow: .32s;
@@ -29,8 +36,55 @@
   --shadow-sm: 0 2px 8px -2px rgba(18, 33, 26, .1);
   --shadow-md: 0 10px 28px -12px rgba(18, 33, 26, .22);
   --shadow-lg: 0 20px 48px -16px rgba(18, 33, 26, .32);
+  --shadow-glow: 0 0 0 1px rgba(var(--green-rgb), .12), 0 8px 24px -8px rgba(var(--green-rgb), .35);
 
   --login-bg: radial-gradient(120% 100% at 14% -10%, #1f6b3a 0%, var(--green) 46%, var(--green-dark) 100%);
+  --glass-bg: rgba(255, 255, 255, .88);
+  --sticky-glass: rgba(247, 246, 242, .82);
+}
+
+/* Dark mode — a real, toggleable theme (see ThemeToggle / useApp().theme), not just a
+   prefers-color-scheme freebie. Same token names throughout, so every screen that already
+   reads var(--bg-card)/var(--ink)/etc. themes correctly with zero per-screen changes; only
+   the handful of places still holding a literal hex needed a follow-up pass (see git log). */
+[data-theme='dark'] {
+  --bg-page: #0b1410;
+  --bg-app: #101a14;
+  --bg-card: #17231c;
+  --bg-subtle: #1e2b23;
+  --border-strong: #35473c;
+  --green: #3ecb78;
+  --green-dark: #2fae63;
+  --green-bright: #5adc8c;
+  --green-tint: rgba(62, 203, 120, .14);
+  --green-rgb: 62, 203, 120;
+  --ink: #eef3ee;
+  --ink-soft: #0e1a13;
+  --muted: #8fa197;
+  --border: #263229;
+  --border-soft: #1e2b23;
+  --amber: #e0a94a;
+  --amber-bg: rgba(224, 169, 74, .14);
+  --amber-border: rgba(224, 169, 74, .35);
+  --amber-ink: #f0c581;
+  --red: #ef6b60;
+  --red-bg: rgba(239, 107, 96, .14);
+  --red-rgb: 239, 107, 96;
+  --had: #e8639e;
+  --ipd: #9d8fff;
+  --ipd-bg: rgba(157, 143, 255, .16);
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, .3);
+  --shadow-sm: 0 2px 10px -2px rgba(0, 0, 0, .45);
+  --shadow-md: 0 12px 32px -12px rgba(0, 0, 0, .6);
+  --shadow-lg: 0 24px 56px -16px rgba(0, 0, 0, .7);
+  --shadow-glow: 0 0 0 1px rgba(var(--green-rgb), .25), 0 8px 28px -6px rgba(var(--green-rgb), .4);
+
+  --login-bg: radial-gradient(120% 100% at 14% -10%, #1a3d26 0%, #10241a 46%, #08130d 100%);
+  --glass-bg: rgba(23, 35, 28, .82);
+  --sticky-glass: rgba(16, 26, 20, .82);
+
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -186,15 +240,61 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); }
   position: sticky;
   top: 0;
   z-index: 2;
-  background: rgba(247, 246, 242, .82);
+  background: var(--sticky-glass);
   backdrop-filter: blur(10px) saturate(1.4);
   -webkit-backdrop-filter: blur(10px) saturate(1.4);
   border-bottom: 1px solid var(--border-soft);
 }
 
 .skeleton {
-  background: linear-gradient(90deg, var(--border-soft) 25%, #f5f6f2 37%, var(--border-soft) 63%);
+  background: linear-gradient(90deg, var(--border-soft) 25%, var(--bg-subtle) 37%, var(--border-soft) 63%);
   background-size: 400% 100%;
   animation: shimmer 1.4s ease infinite;
   border-radius: 6px;
 }
+
+/* ---------- premium chrome: gradient mesh header, floating glass nav, theme toggle ---------- */
+
+@keyframes meshDrift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-3%, 2%) scale(1.06); }
+}
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--green-rgb), .35); }
+  50% { box-shadow: 0 0 0 6px rgba(var(--green-rgb), 0); }
+}
+
+/* Animated gradient-mesh backdrop — two soft radial blobs drifting slowly behind the header
+   and login screen, instead of a flat gradient fill. Cheap (transform-only, GPU-composited)
+   and turns off cleanly under prefers-reduced-motion via the global rule above. */
+.mesh-bg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.mesh-bg::before, .mesh-bg::after {
+  content: ''; position: absolute; width: 140%; height: 140%; border-radius: 50%;
+  filter: blur(40px); opacity: .55; animation: meshDrift 14s ease-in-out infinite;
+}
+.mesh-bg::before { top: -60%; left: -30%; background: radial-gradient(circle, rgba(90,220,140,.5), transparent 60%); }
+.mesh-bg::after { bottom: -70%; right: -30%; background: radial-gradient(circle, rgba(20,120,70,.55), transparent 60%); animation-delay: -7s; }
+
+.theme-toggle {
+  position: relative; flex: none; width: 40px; height: 40px; border-radius: 12px; border: 0;
+  background: rgba(255,255,255,.14); color: var(--ink-soft); display: flex; align-items: center;
+  justify-content: center; font-size: 16px; overflow: hidden;
+}
+.theme-toggle .icon { display: inline-block; transition: transform var(--dur-slow) var(--ease-spring), opacity var(--dur) var(--ease); }
+
+/* Floating glass bottom nav — the pill indicator glides between tabs instead of just
+   fading, and the whole bar sits slightly clear of the edge with its own shadow so it reads
+   as a floating control, not a flat strip glued to the screen edge. */
+.nav-float {
+  margin: 0 10px calc(8px + env(safe-area-inset-bottom, 0px));
+  border-radius: 22px;
+  box-shadow: var(--shadow-md);
+}
+.nav-pill {
+  position: absolute; top: 6px; bottom: 6px; border-radius: 16px;
+  background: var(--green-tint);
+  transition: transform var(--dur-slow) var(--ease-spring), width var(--dur-slow) var(--ease-spring);
+}
+
+/* Buttons/cards that want the "premium" tactile press instead of the default flat scale */
+.press-spring:not(:disabled):active { transform: scale(.94); transition: transform .08s var(--ease-spring); }
