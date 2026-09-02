@@ -189,3 +189,81 @@ export function printPickListSheet(rows: PickListRow[], heading: string, subhead
   win.document.close();
   return true;
 }
+
+export interface SubstockCardRow {
+  ts: number;
+  received: number; // 0 when this row is a dispense/scrap line
+  dispensed: number; // 0 when this row is a receive line
+  balance: number;
+  by: string;
+}
+
+/**
+ * Digital replacement for the hand-written "บัตรคุมสต็อกยา" (yellow stock card) — same
+ * วันที่/รับ/จ่าย/คงเหลือ columns staff already read this off of, generated from real
+ * transaction history instead of copied by hand onto a card that can go missing, get a
+ * pen-run smudge, or just fall behind because nobody got around to writing today's line yet.
+ */
+export function printSubstockCardSheet(med: { code: string; name: string; parSub: number; unit: string }, rows: SubstockCardRow[]): boolean {
+  const now = new Date();
+  const buddhistYear = now.getFullYear() + 543;
+  // Thai fiscal year runs Oct-Sep, named for the year it ends in.
+  const fiscalYear = (now.getMonth() >= 9 ? buddhistYear + 1 : buddhistYear) % 100;
+  const body = rows
+    .map((r) => `<tr>
+      <td class="date">${escapeHtml(new Date(r.ts).toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: '2-digit' }))}</td>
+      <td class="num recv">${r.received ? r.received.toLocaleString('en-US') : ''}</td>
+      <td class="num disp">${r.dispensed ? r.dispensed.toLocaleString('en-US') : ''}</td>
+      <td class="num bal">${r.balance.toLocaleString('en-US')}</td>
+      <td class="by">${escapeHtml(r.by)}</td>
+    </tr>`)
+    .join('');
+
+  const html = `<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><title>บัตรสต็อก ${escapeHtml(med.name)}</title>
+<style>
+  @page { size: A4; margin: 14mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Noto Sans Thai', system-ui, -apple-system, sans-serif; margin: 0; color: #12211a; }
+  .head { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2pt solid #12211a; padding-bottom: 3mm; margin-bottom: 5mm; }
+  .head .code { font-size: 10pt; color: #666; }
+  .head h1 { font-size: 17pt; margin: 1mm 0 0; }
+  .head .meta { text-align: right; font-size: 10pt; color: #555; }
+  table { width: 100%; border-collapse: collapse; font-size: 11pt; }
+  th { text-align: left; font-size: 9pt; color: #666; border-bottom: 1.5pt solid #12211a; padding: 2mm 3mm; }
+  th.num, td.num { text-align: right; }
+  td { padding: 2mm 3mm; border-bottom: 0.4pt solid #ccc; }
+  .recv { color: #17552f; font-weight: 700; }
+  .disp { color: #a32b22; font-weight: 700; }
+  .bal { font-weight: 700; }
+  .by { font-size: 9pt; color: #777; }
+  @media screen {
+    body { background: #eee; padding: 14mm; }
+    .sheet { background: #fff; padding: 14mm; margin: 0 auto; max-width: 210mm; box-shadow: 0 0 0 1px #ddd; }
+  }
+</style></head>
+<body>
+  <div class="sheet">
+    <div class="head">
+      <div>
+        <div class="code">รหัส ${escapeHtml(med.code)} · ปีงบ ${fiscalYear}</div>
+        <h1>${escapeHtml(med.name)}</h1>
+      </div>
+      <div class="meta">par substock ${med.parSub.toLocaleString('en-US')} ${escapeHtml(med.unit)}<br/>พิมพ์ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</div>
+    </div>
+    <table>
+      <thead><tr><th>วันที่</th><th class="num">รับ</th><th class="num">จ่าย</th><th class="num">คงเหลือ</th><th>โดย</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+    ${rows.length === 0 ? '<div style="text-align:center;color:#888;padding:12mm 0;">ยานี้ยังไม่มีประวัติ substock</div>' : ''}
+  </div>
+  <script>window.onload = function () { window.print(); };</script>
+</body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) return false;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  return true;
+}

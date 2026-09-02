@@ -7,6 +7,17 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.14.1] - 2026-08-26
+
+### Changed
+- **feat:** บัตรสต็อก substock reshaped to match the actual paper stock card it replaces —
+  shown a photo of the real hand-written card (รหัสยา/ชื่อยา header, วันที่/รับ/จ่าย/คงเหลือ
+  columns, chronological oldest-to-newest). On-screen ledger now uses the same column split
+  (separate รับ/จ่าย columns instead of one +/- number) in that same reading order, and a new
+  🖨 print button generates an A4 sheet in the same layout for anyone who still wants a
+  physical printout on file — auto-filled from real transaction history instead of hand-copied
+  onto the card line by line
+
 ## [2.14.0] - 2026-08-26
 
 ### Added — Smart Restock (Min-Max) + bigger scanner + virtual substock card

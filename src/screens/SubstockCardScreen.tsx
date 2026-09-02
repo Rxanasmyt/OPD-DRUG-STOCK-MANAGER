@@ -1,23 +1,20 @@
 import { useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { subQty } from '../store/selectors';
-import { nf, thDate, thTime } from '../utils/format';
+import { nf, thDate } from '../utils/format';
+import { printSubstockCardSheet } from '../utils/print';
 
 const inputStyle = { width: '100%', border: '1px solid var(--border)', background: '#fff', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
 
-const TYPE_LABEL: Record<string, string> = {
-  receive_from_central: 'รับจากคลังใหญ่',
-  transfer_to_floor: 'เติมหน้างาน',
-  expired: 'ตัดหมดอายุ',
-};
-
 interface LedgerRow { ts: number; type: string; qty: number; note: string; by: string; balance: number }
 
-/** The digital replacement for the paper "ใบเบิกยาจากคลัง-จ่ายเข้าชั้นวางยา" ledger — pick a
- * med, see its substock รับ-จ่าย-คงเหลือ in real time instead of a physical card someone
- * updates by hand and can misplace, smudge, or forget to bring. */
+/** The digital replacement for the paper "บัตรคุมสต็อกยา" (yellow stock card) — same
+ * วันที่/รับ/จ่าย/คงเหลือ layout staff already read off the physical card, generated from real
+ * substock transaction history instead of copied there by hand. Pick a med, see it on screen
+ * live, or print an A4 sheet in the same shape as the card for anyone who still wants a
+ * physical printout on file. */
 export default function SubstockCardScreen() {
-  const { state, fetchSubstockLedger } = useApp();
+  const { state, fetchSubstockLedger, toast } = useApp();
   const [search, setSearch] = useState('');
   const [medId, setMedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -50,6 +47,15 @@ export default function SubstockCardScreen() {
   // touched outside the normal receive/transfer/scrap paths. Surface the mismatch rather
   // than silently showing two different numbers.
   const mismatch = rows && rows.length > 0 && liveBalance !== lastLedgerBalance;
+
+  const printCard = () => {
+    if (!med || !rows) return;
+    const cardRows = rows.map((r) => ({
+      ts: r.ts, received: r.qty > 0 ? r.qty : 0, dispensed: r.qty < 0 ? -r.qty : 0, balance: r.balance, by: r.by,
+    }));
+    const ok = printSubstockCardSheet({ code: med.code, name: med.name, parSub: med.parSub, unit: med.unit }, cardRows);
+    toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
+  };
 
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
@@ -88,6 +94,14 @@ export default function SubstockCardScreen() {
                 <div className="muted" style={{ fontSize: 11 }}>substock คงเหลือตอนนี้</div>
                 <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--green)' }}>{nf(liveBalance)} <span style={{ fontSize: 12, fontWeight: 500 }}>{med.unit}</span></div>
               </div>
+              <button
+                onClick={printCard}
+                disabled={!rows}
+                title="พิมพ์บัตรสต็อก"
+                style={{ flex: 'none', width: 54, border: '1px solid var(--border)', background: '#fff', color: rows ? 'var(--ink)' : '#c3c7bc', borderRadius: 10, fontSize: 19 }}
+              >
+                🖨
+              </button>
             </div>
             {mismatch && (
               <div style={{ fontSize: 11, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 8, padding: '7px 10px', marginTop: 9, lineHeight: 1.5 }}>
@@ -100,20 +114,23 @@ export default function SubstockCardScreen() {
 
           {rows && !loading && (
             <div className="card" style={{ overflow: 'hidden' }}>
-              <div style={{ display: 'flex', padding: '9px 13px', background: '#f2f3ee', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
-                <span style={{ flex: 1 }}>รายการ</span>
-                <span style={{ width: 60, textAlign: 'right', flex: 'none' }}>รับ/จ่าย</span>
-                <span style={{ width: 62, textAlign: 'right', flex: 'none' }}>คงเหลือ</span>
+              {/* Same shape as the physical card: วันที่ / รับ / จ่าย / คงเหลือ, chronological
+                  (oldest first) — this is a ledger meant to be read top-to-bottom, same as the
+                  paper it replaces, not a "recent activity" feed. */}
+              <div style={{ display: 'flex', padding: '9px 13px', background: '#f2f3ee', fontSize: 10.5, color: 'var(--muted)', fontWeight: 600 }}>
+                <span style={{ width: 62, flex: 'none' }}>วันที่</span>
+                <span style={{ width: 54, textAlign: 'right', flex: 'none' }}>รับ</span>
+                <span style={{ width: 54, textAlign: 'right', flex: 'none' }}>จ่าย</span>
+                <span style={{ width: 58, textAlign: 'right', flex: 'none' }}>คงเหลือ</span>
+                <span style={{ flex: 1, textAlign: 'right', minWidth: 0 }}>โดย</span>
               </div>
-              {rows.slice().reverse().map((r, i) => (
-                <div key={i} style={{ display: 'flex', padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', alignItems: 'center' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>{TYPE_LABEL[r.type] || r.type}</div>
-                    <div className="muted" style={{ fontSize: 10.5, marginTop: 1 }}>{thDate(r.ts)} {thTime(r.ts)} · {r.by}</div>
-                    {r.note && <div className="muted" style={{ fontSize: 10.5, marginTop: 1 }}>{r.note}</div>}
-                  </div>
-                  <span style={{ width: 60, textAlign: 'right', flex: 'none', fontSize: 13, fontWeight: 700, color: r.qty < 0 ? 'var(--red)' : 'var(--green)' }}>{(r.qty > 0 ? '+' : '') + nf(r.qty)}</span>
-                  <span style={{ width: 62, textAlign: 'right', flex: 'none', fontSize: 13, fontWeight: 600 }}>{nf(r.balance)}</span>
+              {rows.map((r, i) => (
+                <div key={i} style={{ display: 'flex', padding: '8px 13px', borderBottom: '1px solid var(--border-soft)', alignItems: 'center' }}>
+                  <span style={{ width: 62, flex: 'none', fontSize: 12 }}>{thDate(r.ts)}</span>
+                  <span style={{ width: 54, textAlign: 'right', flex: 'none', fontSize: 12.5, fontWeight: 700, color: 'var(--green)' }}>{r.qty > 0 ? nf(r.qty) : ''}</span>
+                  <span style={{ width: 54, textAlign: 'right', flex: 'none', fontSize: 12.5, fontWeight: 700, color: 'var(--red)' }}>{r.qty < 0 ? nf(-r.qty) : ''}</span>
+                  <span style={{ width: 58, textAlign: 'right', flex: 'none', fontSize: 12.5, fontWeight: 600 }}>{nf(r.balance)}</span>
+                  <span className="muted" style={{ flex: 1, textAlign: 'right', minWidth: 0, fontSize: 10.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.by}</span>
                 </div>
               ))}
               {rows.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ยานี้ยังไม่มีประวัติ substock</div>}
