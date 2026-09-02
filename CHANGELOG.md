@@ -7,6 +7,30 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.18.0] - 2026-09-02
+
+### Fixed
+- **fix:** every live Firestore listener (meds, lots, ธุรกรรม, audit log, คำขอรับเข้ารออนุมัติ,
+  ผู้ใช้) previously had no error handler — a permission error or a corrupted local cache
+  would fail the subscription completely silently, with the screen just quietly stopping to
+  update and nothing explaining why. Worst case: the "meds" listener is what flips the app
+  past "กำลังโหลดข้อมูล…" — a silent failure there could leave someone stuck on that loading
+  screen forever with no way out. Every listener now logs the failure and surfaces one
+  shared toast instead of several, and a meds-listener failure now still lets the app reach a
+  real screen instead of hanging indefinitely
+- **fix:** "บัตรสต็อก substock" silently showed nothing and left the loading state with no
+  explanation if the fetch failed (e.g. no internet) — now shows a toast and lets the person
+  retry
+- **fix:** the app is redeployed often, and each deploy renames every screen's JS chunk — a
+  device that's had the app open since before a deploy would hit an unexplained crash screen
+  the moment someone opened a screen loaded after that point (จัดการรายการยา, รายงาน, ตั้งค่า,
+  etc.), needing a manual reload to notice why. The app now recognizes this specific failure
+  and reloads itself once automatically to pick up the new build; a real, still-broken deploy
+  (the same failure right after that automatic reload) still falls back to the visible error
+  screen instead of reload-looping forever
+- **chore:** `.nojekyll` now lives in `public/` so every future GitHub Pages deploy carries
+  it automatically, instead of needing to be restored by hand after each deploy
+
 ## [2.17.1] - 2026-09-02
 
 ### Changed

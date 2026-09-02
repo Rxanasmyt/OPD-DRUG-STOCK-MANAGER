@@ -299,38 +299,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => { clearDowngrade(); unsub(); };
   }, [state.myUid, patch]);
 
-  // ---------- live data: only once approved ----------
-  useEffect(() => {
-    if (state.authStatus !== 'signedIn') return;
-    const unsubs = [
-      onSnapshot(collection(db, 'meds'), (snap) => {
-        patch({ meds: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Med[], dbReady: true });
-      }),
-      onSnapshot(collection(db, 'lots'), (snap) => {
-        patch({ lots: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as AppState['lots'] });
-      }),
-      onSnapshot(query(collection(db, 'txs'), orderBy('ts', 'desc'), limit(300)), (snap) => {
-        patch({ txs: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as AppState['txs'] });
-      }),
-      onSnapshot(query(collection(db, 'auditLog'), orderBy('ts', 'desc'), limit(300)), (snap) => {
-        patch({ authLog: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as AppState['authLog'] });
-      }),
-      // Receives submitted by a ผู้ช่วยเภสัชกร (tech) sit here until a pharmacist/admin
-      // approves them — everyone who can see the receive screen needs the live list (tech
-      // to see their own request's status, pharm/admin to actually act on it).
-      onSnapshot(query(collection(db, 'pendingReceives'), orderBy('ts', 'desc'), limit(200)), (snap) => {
-        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as PendingReceive[];
-        patch({ pendingReceives: rows, pending: rows.filter((r) => r.status === 'pending').length });
-      }),
-    ];
-    if (myProfile?.role === 'admin') {
-      unsubs.push(onSnapshot(collection(db, 'users'), (snap) => {
-        patch({ users: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as User[] });
-      }));
-    }
-    return () => unsubs.forEach((u) => u());
-  }, [state.authStatus, myProfile?.role, patch]);
-
   const sub = useCallback((medId: string) => subQty(state, medId), [state]);
   const fefo = useCallback((medId: string) => fefoLot(state, medId), [state]);
   const userName = useCallback(() => myProfile?.name || '', [myProfile]);
@@ -344,6 +312,57 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => patch({ toast: null }), 2600);
   }, [patch]);
+
+  // ---------- live data: only once approved ----------
+  useEffect(() => {
+    if (state.authStatus !== 'signedIn') return;
+    // Every listener here used to have no error callback — a permission-denied (e.g. rules
+    // edited without redeploying the app) or a persistent-cache fault would fail the
+    // subscription silently, with nothing on screen ever explaining why data stopped
+    // updating. The 'meds' one is the worst case: it's what flips dbReady, so a silent
+    // failure there left the person stuck on "กำลังโหลดข้อมูล…" forever with no way out
+    // short of knowing to reload — the same class of bug as the earlier stuck-loading report,
+    // just from a different cause. Now every listener logs and surfaces one shared toast (not
+    // one per collection, which would just be noise if several fail from the same root cause),
+    // and 'meds' failing still flips dbReady so the person at least reaches a real screen
+    // instead of an infinite spinner, where the "ยังไม่มีข้อมูลยาในระบบ"/reload path can recover.
+    let toasted = false;
+    const onErr = (label: string) => (e: unknown) => {
+      console.error(`onSnapshot(${label}) failed:`, e);
+      if (!toasted) {
+        toasted = true;
+        toast('เชื่อมต่อข้อมูลบางส่วนไม่สำเร็จ — ลองโหลดหน้าใหม่ ถ้ายังไม่หายให้แจ้งผู้ดูแลระบบ');
+      }
+      if (label === 'meds') patch({ dbReady: true });
+    };
+    const unsubs = [
+      onSnapshot(collection(db, 'meds'), (snap) => {
+        patch({ meds: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Med[], dbReady: true });
+      }, onErr('meds')),
+      onSnapshot(collection(db, 'lots'), (snap) => {
+        patch({ lots: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as AppState['lots'] });
+      }, onErr('lots')),
+      onSnapshot(query(collection(db, 'txs'), orderBy('ts', 'desc'), limit(300)), (snap) => {
+        patch({ txs: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as AppState['txs'] });
+      }, onErr('txs')),
+      onSnapshot(query(collection(db, 'auditLog'), orderBy('ts', 'desc'), limit(300)), (snap) => {
+        patch({ authLog: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as AppState['authLog'] });
+      }, onErr('auditLog')),
+      // Receives submitted by a ผู้ช่วยเภสัชกร (tech) sit here until a pharmacist/admin
+      // approves them — everyone who can see the receive screen needs the live list (tech
+      // to see their own request's status, pharm/admin to actually act on it).
+      onSnapshot(query(collection(db, 'pendingReceives'), orderBy('ts', 'desc'), limit(200)), (snap) => {
+        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as PendingReceive[];
+        patch({ pendingReceives: rows, pending: rows.filter((r) => r.status === 'pending').length });
+      }, onErr('pendingReceives')),
+    ];
+    if (myProfile?.role === 'admin') {
+      unsubs.push(onSnapshot(collection(db, 'users'), (snap) => {
+        patch({ users: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as User[] });
+      }, onErr('users')));
+    }
+    return () => unsubs.forEach((u) => u());
+  }, [state.authStatus, myProfile?.role, patch, toast]);
 
   const go = useCallback((s: Screen) => setState((st) => ({ ...st, screen: s, prevScreen: st.screen })), []);
   const back = useCallback(() => setState((st) => ({ ...st, screen: st.screen === 'tconfirm' ? 'transfer' : 'more', prevScreen: st.screen })), []);

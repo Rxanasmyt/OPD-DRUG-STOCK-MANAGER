@@ -36,6 +36,9 @@ export default function SubstockCardScreen() {
     try {
       const ledger = await fetchSubstockLedger(id);
       setRows(ledger);
+    } catch (e) {
+      console.error(e);
+      toast('ดึงประวัติบัตรสต็อกไม่สำเร็จ — ต้องใช้อินเทอร์เน็ต ลองใหม่อีกครั้ง');
     } finally {
       setLoading(false);
     }

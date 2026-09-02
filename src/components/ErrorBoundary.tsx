@@ -1,5 +1,16 @@
 import { Component, type ReactNode } from 'react';
 
+// This app's screens are code-split (see the lazy() imports in App.tsx) and gets redeployed
+// often — every hashed chunk filename changes on each deploy, and the service worker prunes
+// old ones (cleanupOutdatedCaches). A ward device that's had the app open since before the
+// last deploy will 404 the moment someone navigates to a screen whose chunk changed, which
+// throws here as an ordinary render error — not a bug in the screen, just a stale tab. Reload
+// once automatically to pick up the new build instead of showing a scary error for something
+// a plain refresh fixes; a session-storage guard stops a genuinely broken deploy from
+// reload-looping forever.
+const CHUNK_ERROR_RE = /dynamically imported module|Importing a module script failed|Loading chunk|Failed to fetch/i;
+const RELOAD_GUARD_KEY = 'opd-chunk-reload-ts';
+
 /**
  * Last-resort catch for an uncaught render error. Without this, any unexpected exception
  * (e.g. a malformed doc from a manual Firestore console edit) white-screens the whole app
@@ -17,6 +28,17 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
 
   componentDidCatch(error: Error, info: { componentStack: string }) {
     console.error('Uncaught render error:', error, info.componentStack);
+    if (CHUNK_ERROR_RE.test(error.message)) {
+      let lastReload = 0;
+      try { lastReload = Number(sessionStorage.getItem(RELOAD_GUARD_KEY)) || 0; } catch { /* ignore */ }
+      // Only auto-reload if we haven't just tried this — a fresh page load hitting the same
+      // error means the new build itself is broken, not a stale-tab mismatch, and needs the
+      // visible fallback + manual reload instead of silently looping.
+      if (Date.now() - lastReload > 15000) {
+        try { sessionStorage.setItem(RELOAD_GUARD_KEY, String(Date.now())); } catch { /* ignore */ }
+        window.location.reload();
+      }
+    }
   }
 
   render() {
