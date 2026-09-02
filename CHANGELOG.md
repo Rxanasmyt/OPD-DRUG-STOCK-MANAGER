@@ -7,6 +7,19 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.22.0] - 2026-09-02
+
+### Added
+- **feat:** "จัดการรายการยา" → tab "ปิดใช้งาน" now has a bulk-delete button — permanently
+  removes every currently-shown deactivated drug from the system in one go, for cleaning up
+  formulary entries the hospital doesn't actually carry (e.g. leftovers from the initial
+  585-item seed) without deactivating and deleting one at a time. Same safety rule as
+  deleting one med: only ever removes a drug that's both ปิดใช้งาน AND genuinely at 0 (shelf
+  and substock both empty) — anything with leftover stock is named and skipped rather than
+  silently discarded along with real inventory value, and the count on the button always
+  matches what's currently filtered on screen (ward tab + search), never a hidden
+  system-wide scope
+
 ## [2.21.0] - 2026-09-02
 
 ### Changed

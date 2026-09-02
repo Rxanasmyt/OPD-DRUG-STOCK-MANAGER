@@ -150,6 +150,7 @@ export interface AppCtx {
   updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean }) => void;
   toggleMedActive: (medId: string) => void;
   deleteMed: (medId: string) => void;
+  deleteAllInactiveMeds: (medIds?: string[]) => void;
   setMedsFocusId: (id: string | null) => void;
 
   // count
@@ -1181,6 +1182,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { toastErr(e, 'ลบไม่สำเร็จ'); }
   }, [canEditPar, state, logAudit, toast, toastErr]);
 
+  // One-shot cleanup for a formulary that's accumulated deactivated drugs the hospital
+  // doesn't actually carry (e.g. leftover from the initial 585-item seed) — same safety rule
+  // as the single-med delete: only ever removes a med that's both inactive AND genuinely
+  // empty (0 at the shelf and 0 in substock). A deactivated med someone forgot to zero out
+  // first is skipped and named, never silently discarded along with real inventory value.
+  // Scoped to whatever the caller passes (MedsScreen passes its currently filtered/searched
+  // "ปิดใช้งาน" list) rather than always every inactive med system-wide — the button's shown
+  // count and its actual effect need to match, or a ward/search filter on screen would be
+  // silently ignored by the delete itself.
+  const deleteAllInactiveMeds = useCallback(async (medIds?: string[]) => {
+    if (!canEditPar) return;
+    const scope = medIds ? new Set(medIds) : null;
+    const inactive = state.meds.filter((m) => !m.active && (!scope || scope.has(m.id)));
+    if (!inactive.length) { toast('ไม่มียาที่ปิดใช้งานอยู่'); return; }
+    const removable = inactive.filter((m) => m.floor === 0 && subQty(state, m.id) === 0);
+    const blocked = inactive.filter((m) => m.floor > 0 || subQty(state, m.id) > 0);
+    if (!removable.length) {
+      toast('ลบไม่ได้ — ยาที่ปิดใช้งานทั้ง ' + inactive.length + ' รายการยังมียอดคงเหลืออยู่ ต้องปรับยอดให้เป็น 0 ก่อน');
+      return;
+    }
+    const confirmMsg = 'ลบยาที่ปิดใช้งานและยอดเป็น 0 ทั้งหมด ' + removable.length + ' รายการออกจากระบบถาวร? ย้อนกลับไม่ได้'
+      + (blocked.length ? ' (อีก ' + blocked.length + ' รายการยังมียอดคงเหลือ จะไม่ถูกลบ)' : '');
+    if (!window.confirm(confirmMsg)) return;
+    try {
+      const lotSnap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', 'in', removable.slice(0, 30).map((m) => m.id)))));
+      // 'in' queries cap at 30 values — for a formulary-sized cleanup, fetch each remaining
+      // med's lots in its own chunk instead of one query that would silently miss the rest.
+      const lotDocs = lotSnap.docs.slice();
+      for (let i = 30; i < removable.length; i += 30) {
+        const chunkIds = removable.slice(i, i + 30).map((m) => m.id);
+        const snap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', 'in', chunkIds))));
+        lotDocs.push(...snap.docs);
+      }
+      // Combine into one flat list of refs before chunking — chunking meds and lots
+      // separately at 400 each could put up to 800 deletes in one batch, over Firestore's
+      // hard 500-per-commit limit.
+      const allRefs = [...removable.map((m) => doc(db, 'meds', m.id)), ...lotDocs.map((d) => d.ref)];
+      for (let i = 0; i < allRefs.length; i += 450) {
+        const batch = writeBatch(db);
+        allRefs.slice(i, i + 450).forEach((ref) => batch.delete(ref));
+        await withTimeout(batch.commit());
+      }
+      logAudit({ type: 'med_deleted', note: 'ลบยาที่ปิดใช้งานทั้งหมด ' + removable.length + ' รายการ (ยอดเป็น 0) ออกจากระบบถาวร: ' + removable.map((m) => m.name).join(', ') });
+      toast('ลบยาที่ปิดใช้งานแล้ว ' + removable.length + ' รายการ' + (blocked.length ? ' · ข้าม ' + blocked.length + ' รายการที่ยังมียอดคงเหลือ' : ''));
+    } catch (e) { toastErr(e, 'ลบไม่สำเร็จ'); }
+  }, [canEditPar, state, logAudit, toast, toastErr]);
+
   const setMedsFocusId = useCallback((id: string | null) => patch({ medsFocusId: id }), [patch]);
 
   // ---------- virtual substock card ----------
@@ -1493,7 +1541,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setReportTab, exportReportCsv,
     setLabelType, printLabels,
     applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats,
-    addMed, updateMedFull, toggleMedActive, deleteMed, setMedsFocusId,
+    addMed, updateMedFull, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId,
     fetchSubstockLedger, setCountInput, commitCount,
     setHosxpText, processHosxp, setHosxpConfirmFuzzy, commitReconcile,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,

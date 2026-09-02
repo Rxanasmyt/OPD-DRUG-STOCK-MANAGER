@@ -38,7 +38,7 @@ function formFromMed(m: Med): MedFormValues {
 }
 
 export default function MedsScreen() {
-  const { state, sub, addMed, updateMedFull, toggleMedActive, deleteMed, setMedsFocusId, openScanSearch } = useApp();
+  const { state, sub, addMed, updateMedFull, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId, openScanSearch } = useApp();
   const canEdit = state.role !== 'tech';
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('active');
@@ -110,6 +110,16 @@ export default function MedsScreen() {
         <button className="chip" style={chip(filter === 'inactive')} onClick={() => setFilter('inactive')}>ปิดใช้งาน</button>
         <button className="chip" style={chip(filter === 'all')} onClick={() => setFilter('all')}>ทั้งหมด</button>
       </div>
+
+      {filter === 'inactive' && meds.length > 0 && (
+        <button
+          onClick={() => deleteAllInactiveMeds(meds.map((m) => m.id))}
+          style={{ width: '100%', border: '1px solid var(--red)', background: 'var(--red-bg)', color: 'var(--red)', padding: '11px 14px', borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 46, marginBottom: 10 }}
+        >
+          ลบยาที่ปิดใช้งานและยอดเป็น 0 ทั้งหมดออกจากระบบถาวร ({meds.length} รายการ)
+        </button>
+      )}
+
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาชื่อยา" style={{ ...inputStyle, marginBottom: 10 }} />
 
       <div className="card stagger" style={{ overflow: 'hidden' }}>
