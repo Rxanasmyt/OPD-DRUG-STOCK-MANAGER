@@ -7,6 +7,18 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.14.2] - 2026-08-26
+
+### Changed
+- **fix:** "เพิ่มเติม" menu reorganized — every feature added this session landed as one more
+  row in a flat list (reported: "ฟังก์ชั่นเยอะแต่หายาก" — too many functions, hard to find).
+  It had grown to 8 undifferentiated rows mixing daily-use screens (ปรับยอด, นับสต็อก) with
+  once-a-fortnight admin tools (ย้ายยาระหว่างชั้นวาง, บัตรสต็อก, par อัตโนมัติ) with no
+  grouping. Regrouped into 4 labeled sections by how often/who actually opens each one
+  (งานประจำวัน / จัดการยาและชั้นวาง / รายงานและเอกสาร / ผู้ดูแลระบบ) and gave every row an
+  icon so scanning the list doesn't require reading each line of text. No feature removed —
+  same destinations, organized instead of dumped in one pile
+
 ## [2.14.1] - 2026-08-26
 
 ### Changed
