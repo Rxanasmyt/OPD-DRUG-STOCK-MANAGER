@@ -1,6 +1,7 @@
 import { useApp } from '../store/AppContext';
 import { usesSubstock } from '../store/selectors';
 import { nf, thDate, thTime } from '../utils/format';
+import { MedDot } from '../components/MedDot';
 
 export default function ReceiveScreen() {
   const {
@@ -84,7 +85,7 @@ export default function ReceiveScreen() {
           <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 172, overflowY: 'auto', marginBottom: 9 }}>
             {options.map((m) => (
               <button key={m.id} onClick={() => pickRecvMed(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid #f2f3ee', background: '#fff', padding: '10px 12px', minHeight: 44 }}>
-                <span style={{ fontSize: 13.5, fontWeight: 500 }}>{m.name}</span>
+                <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name}</span>
                 <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock {nf(sub(m.id))} · par {nf(m.parSub)}</span>
               </button>
             ))}
@@ -94,7 +95,7 @@ export default function ReceiveScreen() {
         {recvMed && (
           <>
             <div style={{ background: 'var(--green-tint)', borderRadius: 10, padding: '9px 11px', fontSize: 13.5, fontWeight: 600, marginBottom: 9 }}>
-              {recvMed.name}
+              <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={recvMed.code} /> {recvMed.name}</span>
               {!usesSubstock(recvMed) && (
                 <span style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--amber-ink)', marginTop: 3 }}>ไม่มี substock — รับเข้าแล้วขึ้นหน้างานทันที ไม่ต้องเติมอีกขั้น</span>
               )}

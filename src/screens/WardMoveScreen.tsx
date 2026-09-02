@@ -1,6 +1,7 @@
 import { useApp } from '../store/AppContext';
 import { wardOf, wardLabel } from '../store/selectors';
 import { nf, digitsOnly } from '../utils/format';
+import { MedDot } from '../components/MedDot';
 import type { Med } from '../types';
 
 const inputStyle = { width: '100%', border: '1px solid var(--border)', background: '#fff', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
@@ -95,7 +96,7 @@ function PickerCard({ label, med, search, onSearch, options, onPick }: {
       {med ? (
         <div style={{ background: 'var(--green-tint)', borderRadius: 10, padding: '9px 11px', fontSize: 13.5, fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
           <span style={{ minWidth: 0 }}>
-            {med.name}
+            <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={med.code} /> {med.name}</span>
             <span className="muted" style={{ display: 'block', fontSize: 11, fontWeight: 400, marginTop: 1 }}>
               {wardLabel(wardOf(med))} · ชั้น {med.bin || '—'} · หน้างานตอนนี้ {nf(med.floor)} {med.unit}
             </span>
@@ -109,7 +110,7 @@ function PickerCard({ label, med, search, onSearch, options, onPick }: {
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 158, overflowY: 'auto', marginTop: 8 }}>
               {options.map((m) => (
                 <button key={m.id} onClick={() => onPick(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid #f2f3ee', background: '#fff', padding: '10px 12px', minHeight: 44 }}>
-                  <span style={{ fontSize: 13.5 }}>{m.name}</span>
+                  <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name}</span>
                   <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>ชั้น {m.bin || '—'} · หน้างาน {nf(m.floor)} {m.unit}</span>
                 </button>
               ))}

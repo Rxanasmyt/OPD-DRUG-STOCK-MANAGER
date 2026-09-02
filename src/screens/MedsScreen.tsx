@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly } from '../utils/format';
 import { wardOf, wardLabel, floorMinOf } from '../store/selectors';
+import { MedDot } from '../components/MedDot';
 import type { Med, Ward } from '../types';
 
 type Filter = 'active' | 'inactive' | 'all';
@@ -120,7 +121,11 @@ export default function MedsScreen() {
               <div style={{ padding: '11px 13px', background: isEditing ? 'var(--green-tint)' : undefined }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>{m.name}{m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}> HAD</span>}</div>
+                    <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
+                      <MedDot code={m.code} />
+                      <span>{m.name}</span>
+                      {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
+                    </div>
                     <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{m.code} · ชั้น {m.bin || '—'} · {m.unit} · {nf(m.price)} บาท</div>
                     <div style={{ display: 'flex', gap: 5, marginTop: 5 }}>
                       <span style={{ fontSize: 10, fontWeight: 700, color: WARD_COLOR[wardOf(m)], background: WARD_BG[wardOf(m)], padding: '2px 7px', borderRadius: 20 }}>{wardOf(m) === 'opd' ? 'OPD' : 'IPD'}</span>

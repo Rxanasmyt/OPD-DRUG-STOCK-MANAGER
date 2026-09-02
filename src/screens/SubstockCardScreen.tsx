@@ -3,6 +3,7 @@ import { useApp } from '../store/AppContext';
 import { subQty } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
 import { printSubstockCardSheet } from '../utils/print';
+import { MedDot } from '../components/MedDot';
 
 const inputStyle = { width: '100%', border: '1px solid var(--border)', background: '#fff', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
 
@@ -70,7 +71,7 @@ export default function SubstockCardScreen() {
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 280, overflowY: 'auto', marginTop: 9 }}>
               {options.map((m) => (
                 <button key={m.id} onClick={() => openCard(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid #f2f3ee', background: '#fff', padding: '10px 12px', minHeight: 44 }}>
-                  <span style={{ fontSize: 13.5 }}>{m.name}</span>
+                  <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name}</span>
                   <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock ปัจจุบัน {nf(subQty(state, m.id))} {m.unit}</span>
                 </button>
               ))}
@@ -84,7 +85,7 @@ export default function SubstockCardScreen() {
           <div className="card" style={{ padding: 13, marginBottom: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 700 }}>{med.name}</div>
+                <div style={{ fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}><MedDot code={med.code} size={11} /> {med.name}</div>
                 <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>{med.code} · par substock {nf(med.parSub)} {med.unit}</div>
               </div>
               <button onClick={() => { setMedId(null); setSearch(''); setRows(null); }} style={{ flex: 'none', border: '1px solid var(--border)', background: '#fff', color: 'var(--ink)', padding: '7px 12px', borderRadius: 9, fontSize: 12 }}>เปลี่ยนยา</button>

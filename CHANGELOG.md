@@ -7,6 +7,22 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.15.0] - 2026-08-26
+
+### Added
+- **feat:** per-drug color coding — every med now gets its own stable color (a small dot
+  next to the name + a colored left border on the card), derived deterministically from its
+  code so the same drug shows the same color everywhere it appears: เติมหน้างาน, ตรวจสอบก่อน
+  ยืนยัน, รับเข้า, ปรับยอด, จัดการรายการยา, ย้ายยาระหว่างชั้นวาง, บัตรสต็อก, and the หน้าหลัก
+  lists. Meant as a fast visual "this is a different item" cue in lists full of similar or
+  look-alike/sound-alike drug names — real medication-error risk when two rows blur together.
+  Colors come from a proper hash (FNV-1a + a bit-mixing finalizer) rather than a naive one —
+  a naive `h*31+c` hash was tried first and failed exactly the case that mattered most:
+  sequential codes (MED-0001, MED-0002 — precisely the kind of pair that ends up sorted next
+  to each other) hashed to nearly-identical colors, defeating the point
+- **feat:** entrance animation on เติมหน้างาน's list and the ตรวจสอบก่อนยืนยัน confirmation
+  screen — cards fade/slide in with a slight stagger instead of appearing all at once
+
 ## [2.14.2] - 2026-08-26
 
 ### Changed

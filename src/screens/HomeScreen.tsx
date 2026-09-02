@@ -1,6 +1,7 @@
 import { useApp } from '../store/AppContext';
 import { toneFor, daysUntil, wardOf, usesSubstock, floorMinOf } from '../store/selectors';
 import { nf, thDate, isoDate } from '../utils/format';
+import { MedDot } from '../components/MedDot';
 import type { Ward } from '../types';
 
 const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: '#5a4fcf' };
@@ -94,9 +95,10 @@ export default function HomeScreen() {
         {low.slice(0, 5).map((m) => (
           <div key={m.id} className="row-interactive" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
-                {m.name}
-                {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}> HAD</span>}
+              <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
+                <MedDot code={m.code} />
+                <span>{m.name}</span>
+                {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
               </div>
               <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>หน้างาน {nf(m.floor)} · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock {nf(sub(m.id))} {m.unit}</div>
               <div className="bar-track" style={{ height: 4, background: 'var(--border-soft)', borderRadius: 2, marginTop: 6 }}>
@@ -131,9 +133,10 @@ export default function HomeScreen() {
         {lowSub.slice(0, 5).map((m) => (
           <div key={m.id} className="row-interactive" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
-                {m.name}
-                {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}> HAD</span>}
+              <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
+                <MedDot code={m.code} />
+                <span>{m.name}</span>
+                {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
               </div>
               <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>substock {nf(sub(m.id))} / par {nf(m.parSub)} · ควรเบิกเพิ่ม {nf(Math.max(0, m.parSub - sub(m.id)))} {m.unit}</div>
             </div>
@@ -156,7 +159,10 @@ export default function HomeScreen() {
                 <div style={{ fontSize: 10, lineHeight: 1.3 }}>{d < 0 ? 'วันที่เกิน' : 'วัน'}</div>
               </div>
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>{m.name}</div>
+                <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <MedDot code={m.code} />
+                  <span>{m.name}</span>
+                </div>
                 <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>lot {l.lotNo} · exp {thDate(l.exp)} · เหลือ {nf(l.qty)} {m.unit}</div>
               </div>
               <button

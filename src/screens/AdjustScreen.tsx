@@ -1,6 +1,7 @@
 import { useApp } from '../store/AppContext';
 import { subQty, daysUntil } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
+import { MedDot } from '../components/MedDot';
 import type { AdjType } from '../types';
 
 const TYPES: [AdjType, string, string][] = [
@@ -81,7 +82,7 @@ export default function AdjustScreen() {
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 158, overflowY: 'auto', marginBottom: 9 }}>
               {options.map((m) => (
                 <button key={m.id} onClick={() => pickAdjMed(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid #f2f3ee', background: '#fff', padding: '10px 12px', minHeight: 44 }}>
-                  <span style={{ fontSize: 13.5 }}>{m.name}</span>
+                  <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name}</span>
                   <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>หน้างาน {nf(m.floor)} · substock {nf(subQty(state, m.id))} {m.unit}</span>
                 </button>
               ))}
@@ -91,7 +92,7 @@ export default function AdjustScreen() {
           {adjMed && (
             <>
               <div style={{ background: 'var(--green-tint)', borderRadius: 10, padding: '9px 11px', fontSize: 13.5, fontWeight: 600, marginBottom: 9 }}>
-                {adjMed.name}
+                <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={adjMed.code} /> {adjMed.name}</span>
                 <span className="muted" style={{ display: 'block', fontSize: 11.5, fontWeight: 400 }}>หน้างาน {nf(adjMed.floor)} · substock {nf(subQty(state, adjMed.id))} {adjMed.unit}</span>
               </div>
               <label style={{ display: 'block', marginBottom: 9 }}>

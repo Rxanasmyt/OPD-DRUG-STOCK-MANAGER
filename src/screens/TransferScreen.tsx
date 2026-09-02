@@ -1,6 +1,8 @@
 import { useApp } from '../store/AppContext';
 import { toneFor, wardOf, usesSubstock, floorMinOf } from '../store/selectors';
 import { nf, thDate, digitsOnly } from '../utils/format';
+import { medColor } from '../utils/color';
+import { MedDot } from '../components/MedDot';
 import type { Ward } from '../types';
 
 const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: '#5a4fcf' };
@@ -61,16 +63,24 @@ export default function TransferScreen() {
       </div>
 
       <div style={{ padding: '10px 14px 96px' }}>
-        {filtered.slice(0, 60).map((m) => {
+        {filtered.slice(0, 60).map((m, i) => {
           const f = fefo(m.id);
           const inCart = !!state.cart[m.id];
           return (
-            <div key={m.id} className="card" style={{ padding: '11px 12px', marginBottom: 8, borderColor: inCart ? 'var(--green)' : 'var(--border)' }}>
+            <div
+              key={m.id}
+              className="card"
+              style={{
+                padding: '11px 12px 11px 14px', marginBottom: 8, borderColor: inCart ? 'var(--green)' : 'var(--border)',
+                borderLeft: '4px solid ' + medColor(m.code), animation: 'pop .22s var(--ease-out) both', animationDelay: Math.min(i, 10) * 18 + 'ms',
+              }}
+            >
               <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }}>
-                    {m.name}
-                    {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}> HAD</span>}
+                  <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <MedDot code={m.code} />
+                    <span>{m.name}</span>
+                    {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
                   </div>
                   <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>
                     หน้างาน <span style={{ color: toneFor(m), fontWeight: 600 }}>{nf(m.floor)} {m.unit}</span> · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock {nf(sub(m.id))} {m.unit}

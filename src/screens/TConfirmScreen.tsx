@@ -1,5 +1,7 @@
 import { useApp } from '../store/AppContext';
 import { nf, thTime } from '../utils/format';
+import { MedDot } from '../components/MedDot';
+import { medColor } from '../utils/color';
 
 export default function TConfirmScreen() {
   const { state, removeFromCart, startHadScan, commitTransfer, userName, roleLabel } = useApp();
@@ -27,12 +29,13 @@ export default function TConfirmScreen() {
       <div className="muted" style={{ fontSize: 12.5, marginBottom: 10 }}>ตัดจาก substock ตามหลัก FEFO (lot ที่หมดอายุก่อนถูกเลือกให้อัตโนมัติ) และเพิ่มเข้าหน้างาน</div>
 
       <div className="card" style={{ overflow: 'hidden', marginBottom: 14 }}>
-        {rows.map(({ id, m, used, qty }) => (
-          <div key={id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+        {rows.map(({ id, m, used, qty }, i) => (
+          <div key={id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', borderLeft: '4px solid ' + medColor(m.code), display: 'flex', gap: 10, alignItems: 'flex-start', animation: 'fade .22s var(--ease-out) both', animationDelay: Math.min(i, 10) * 18 + 'ms' }}>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
-                {m.name}
-                {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}> HAD</span>}
+              <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
+                <MedDot code={m.code} />
+                <span>{m.name}</span>
+                {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
               </div>
               <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>{used.join('  ·  ')}</div>
               {m.had && (
