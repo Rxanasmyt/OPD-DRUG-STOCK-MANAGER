@@ -210,7 +210,8 @@ export function printSubstockCardSheet(med: { code: string; name: string; parSub
   // Thai fiscal year runs Oct-Sep, named for the year it ends in.
   const fiscalYear = (now.getMonth() >= 9 ? buddhistYear + 1 : buddhistYear) % 100;
   const body = rows
-    .map((r) => `<tr>
+    .map((r, i) => `<tr>
+      <td class="no">${i + 1}</td>
       <td class="date">${escapeHtml(new Date(r.ts).toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: '2-digit' }))}</td>
       <td class="num recv">${r.received ? r.received.toLocaleString('en-US') : ''}</td>
       <td class="num disp">${r.dispensed ? r.dispensed.toLocaleString('en-US') : ''}</td>
@@ -219,43 +220,59 @@ export function printSubstockCardSheet(med: { code: string; name: string; parSub
     </tr>`)
     .join('');
 
+  // Styled after the real hand-written yellow "บัตรคุมสต็อกยา" ledger card — a boxed field
+  // grid for the drug's identity up top (the way the paper card has ชื่อยา/รหัส/หน่วยนับ each
+  // in their own ruled cell), then a fully grid-ruled table (vertical AND horizontal rules,
+  // not just underlines) with a running-number column, same as the paper. A flat modern list
+  // read fine on screen but didn't read as "the same card" once printed — this does.
   const html = `<!doctype html>
 <html lang="th"><head><meta charset="utf-8"><title>บัตรสต็อก ${escapeHtml(med.name)}</title>
 <style>
   @page { size: A4; margin: 14mm; }
   * { box-sizing: border-box; }
-  body { font-family: 'Noto Sans Thai', system-ui, -apple-system, sans-serif; margin: 0; color: #12211a; }
-  .head { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2pt solid #12211a; padding-bottom: 3mm; margin-bottom: 5mm; }
-  .head .code { font-size: 10pt; color: #666; }
-  .head h1 { font-size: 17pt; margin: 1mm 0 0; }
-  .head .meta { text-align: right; font-size: 10pt; color: #555; }
-  table { width: 100%; border-collapse: collapse; font-size: 11pt; }
-  th { text-align: left; font-size: 9pt; color: #666; border-bottom: 1.5pt solid #12211a; padding: 2mm 3mm; }
+  body { font-family: 'Noto Sans Thai', system-ui, -apple-system, sans-serif; margin: 0; color: #2a1f0a; }
+  .card { border: 1.2pt solid #8a6d1a; border-radius: 2mm; overflow: hidden; }
+  .band { background: #f5c518; padding: 3mm 5mm; display: flex; justify-content: space-between; align-items: center; border-bottom: 1.2pt solid #8a6d1a; }
+  .band .title { font-size: 13pt; font-weight: 800; letter-spacing: .02em; }
+  .band .fy { font-size: 9.5pt; font-weight: 700; }
+  .fields { display: grid; grid-template-columns: 1fr 1fr; }
+  .field { border-bottom: 0.6pt solid #d9c27a; border-right: 0.6pt solid #d9c27a; padding: 2.4mm 5mm; display: flex; gap: 2mm; }
+  .field:nth-child(2n) { border-right: 0; }
+  .field .lbl { flex: none; font-size: 8.5pt; color: #7a6a30; font-weight: 700; width: 24mm; }
+  .field .val { font-size: 10.5pt; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; font-size: 10.5pt; }
+  th { text-align: center; font-size: 8.5pt; color: #5a4a12; background: #fbf0cc; border: 0.6pt solid #d9c27a; padding: 2mm 2mm; font-weight: 700; }
   th.num, td.num { text-align: right; }
-  td { padding: 2mm 3mm; border-bottom: 0.4pt solid #ccc; }
+  td { padding: 1.8mm 2.6mm; border: 0.4pt solid #e3d7ab; text-align: left; }
+  td.no { text-align: center; color: #9a8b55; width: 9mm; font-size: 9pt; }
+  td.date { width: 22mm; }
   .recv { color: #17552f; font-weight: 700; }
   .disp { color: #a32b22; font-weight: 700; }
   .bal { font-weight: 700; }
-  .by { font-size: 9pt; color: #777; }
+  .by { font-size: 9pt; color: #7a6a30; }
+  .foot { display: flex; justify-content: space-between; font-size: 8.5pt; color: #8a7a45; padding: 2.5mm 5mm; border-top: 0.6pt solid #d9c27a; background: #fbf0cc; }
   @media screen {
     body { background: #eee; padding: 14mm; }
-    .sheet { background: #fff; padding: 14mm; margin: 0 auto; max-width: 210mm; box-shadow: 0 0 0 1px #ddd; }
+    .sheet { background: #fffdf5; padding: 10mm; margin: 0 auto; max-width: 210mm; box-shadow: 0 2px 14px rgba(0,0,0,.15); }
   }
 </style></head>
 <body>
   <div class="sheet">
-    <div class="head">
-      <div>
-        <div class="code">รหัส ${escapeHtml(med.code)} · ปีงบ ${fiscalYear}</div>
-        <h1>${escapeHtml(med.name)}</h1>
+    <div class="card">
+      <div class="band"><span class="title">บัตรคุมสต็อกยา (Substock)</span><span class="fy">ปีงบประมาณ ${fiscalYear}</span></div>
+      <div class="fields">
+        <div class="field"><span class="lbl">ชื่อยา</span><span class="val">${escapeHtml(med.name)}</span></div>
+        <div class="field"><span class="lbl">รหัสยา</span><span class="val">${escapeHtml(med.code)}</span></div>
+        <div class="field"><span class="lbl">หน่วยนับ</span><span class="val">${escapeHtml(med.unit)}</span></div>
+        <div class="field"><span class="lbl">par substock</span><span class="val">${med.parSub.toLocaleString('en-US')} ${escapeHtml(med.unit)}</span></div>
       </div>
-      <div class="meta">par substock ${med.parSub.toLocaleString('en-US')} ${escapeHtml(med.unit)}<br/>พิมพ์ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</div>
+      <table>
+        <thead><tr><th style="width:9mm">ลำดับ</th><th style="width:22mm">วันที่</th><th class="num">รับ</th><th class="num">จ่าย</th><th class="num">คงเหลือ</th><th>โดย</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+      ${rows.length === 0 ? '<div style="text-align:center;color:#8a7a45;padding:12mm 0;">ยานี้ยังไม่มีประวัติ substock</div>' : ''}
+      <div class="foot"><span>ห้องยา OPD · รพ.กรงปินัง</span><span>พิมพ์จากระบบ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
     </div>
-    <table>
-      <thead><tr><th>วันที่</th><th class="num">รับ</th><th class="num">จ่าย</th><th class="num">คงเหลือ</th><th>โดย</th></tr></thead>
-      <tbody>${body}</tbody>
-    </table>
-    ${rows.length === 0 ? '<div style="text-align:center;color:#888;padding:12mm 0;">ยานี้ยังไม่มีประวัติ substock</div>' : ''}
   </div>
   <script>window.onload = function () { window.print(); };</script>
 </body></html>`;

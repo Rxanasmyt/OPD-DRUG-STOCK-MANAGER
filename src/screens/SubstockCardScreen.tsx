@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
 import { subQty } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
@@ -91,30 +91,38 @@ export default function SubstockCardScreen() {
 
       {med && (
         <>
-          <div className="card" style={{ padding: 13, marginBottom: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}><MedDot code={med.code} size={11} /> {med.name}</div>
-                <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>{med.code} · par substock {nf(med.parSub)} {med.unit}</div>
-              </div>
-              <button onClick={() => { setMedId(null); setSearch(''); setRows(null); }} style={{ flex: 'none', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '7px 12px', borderRadius: 9, fontSize: 12 }}>เปลี่ยนยา</button>
+          {/* Styled after the real hand-written yellow "บัตรคุมสต็อกยา" ledger card — a boxed
+              amber header band + a labeled field grid (same as the card's ruled ชื่อยา/รหัส/
+              หน่วยนับ boxes), instead of a plain flat list. Data underneath is still live —
+              this is a skin over the same real-time subQty()/fetchSubstockLedger() plumbing. */}
+          <div style={{ border: '1.5px solid var(--amber)', borderRadius: 14, overflow: 'hidden', marginBottom: 14, boxShadow: 'var(--shadow-sm)' }}>
+            <div style={{ background: 'var(--amber)', color: '#2a1f0a', padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 13.5, fontWeight: 800, letterSpacing: '.01em' }}>บัตรคุมสต็อกยา</span>
+              <button onClick={() => { setMedId(null); setSearch(''); setRows(null); }} style={{ border: '1px solid rgba(42,31,10,.35)', background: 'rgba(255,255,255,.35)', color: '#2a1f0a', padding: '5px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 600 }}>เปลี่ยนยา</button>
             </div>
-            <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+            <div style={{ background: 'var(--amber-bg)', display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
+              <Field label="ชื่อยา" full><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MedDot code={med.code} size={9} />{med.name}</span></Field>
+              <Field label="รหัสยา">{med.code}</Field>
+              <Field label="หน่วยนับ" noBorderRight>{med.unit}</Field>
+              <Field label="par substock" noBorder>{nf(med.parSub)} {med.unit}</Field>
+            </div>
+            <div style={{ padding: '12px 14px', background: 'var(--bg-card)', display: 'flex', gap: 10 }}>
               <div style={{ flex: 1, background: 'var(--green-tint)', borderRadius: 10, padding: '10px 12px' }}>
-                <div className="muted" style={{ fontSize: 11 }}>substock คงเหลือตอนนี้</div>
+                <div className="muted" style={{ fontSize: 11 }}>substock คงเหลือตอนนี้ (real-time)</div>
                 <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--green)' }}>{nf(liveBalance)} <span style={{ fontSize: 12, fontWeight: 500 }}>{med.unit}</span></div>
               </div>
               <button
                 onClick={printCard}
                 disabled={!rows}
                 title="พิมพ์บัตรสต็อก"
+                className="press-spring"
                 style={{ flex: 'none', width: 54, border: '1px solid var(--border)', background: 'var(--bg-card)', color: rows ? 'var(--ink)' : 'var(--muted)', borderRadius: 10, fontSize: 19 }}
               >
                 🖨
               </button>
             </div>
             {mismatch && (
-              <div style={{ fontSize: 11, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 8, padding: '7px 10px', marginTop: 9, lineHeight: 1.5 }}>
+              <div style={{ fontSize: 11, color: 'var(--amber-ink)', background: 'var(--amber-bg)', padding: '9px 14px', lineHeight: 1.5, borderTop: '1px solid var(--amber-border)' }}>
                 {hasNameTwin
                   ? `ยานี้มีทั้งชั้น OPD และ IPD ชื่อเดียวกัน — ยอดจากประวัติ (${nf(lastLedgerBalance)} ${med.unit}) อาจไม่ครบตั้งแต่ก่อนระบบแยกประวัติตาม ward ได้ ยอดคงเหลือจริงด้านบนยังถูกต้องเสมอ`
                   : `ยอดจากประวัติธุรกรรม (${nf(lastLedgerBalance)} ${med.unit}) ไม่ตรงกับยอดจริงตอนนี้ — อาจมีการปรับยอดนอกช่องทางปกติ ลองตรวจสอบใน Audit log`}
@@ -125,31 +133,62 @@ export default function SubstockCardScreen() {
           {loading && <div style={{ textAlign: 'center', padding: 20, color: 'var(--muted)', fontSize: 13 }}>กำลังโหลดประวัติ…</div>}
 
           {rows && !loading && (
-            <div className="card stagger" style={{ overflow: 'hidden' }}>
-              {/* Same shape as the physical card: วันที่ / รับ / จ่าย / คงเหลือ, chronological
-                  (oldest first) — this is a ledger meant to be read top-to-bottom, same as the
-                  paper it replaces, not a "recent activity" feed. */}
-              <div style={{ display: 'flex', padding: '9px 13px', background: 'var(--bg-subtle)', fontSize: 10.5, color: 'var(--muted)', fontWeight: 600 }}>
-                <span style={{ width: 62, flex: 'none' }}>วันที่</span>
-                <span style={{ width: 54, textAlign: 'right', flex: 'none' }}>รับ</span>
-                <span style={{ width: 54, textAlign: 'right', flex: 'none' }}>จ่าย</span>
-                <span style={{ width: 58, textAlign: 'right', flex: 'none' }}>คงเหลือ</span>
-                <span style={{ flex: 1, textAlign: 'right', minWidth: 0 }}>โดย</span>
-              </div>
-              {rows.map((r, i) => (
-                <div key={i} style={{ display: 'flex', padding: '8px 13px', borderBottom: '1px solid var(--border-soft)', alignItems: 'center' }}>
-                  <span style={{ width: 62, flex: 'none', fontSize: 12 }}>{thDate(r.ts)}</span>
-                  <span style={{ width: 54, textAlign: 'right', flex: 'none', fontSize: 12.5, fontWeight: 700, color: 'var(--green)' }}>{r.qty > 0 ? nf(r.qty) : ''}</span>
-                  <span style={{ width: 54, textAlign: 'right', flex: 'none', fontSize: 12.5, fontWeight: 700, color: 'var(--red)' }}>{r.qty < 0 ? nf(-r.qty) : ''}</span>
-                  <span style={{ width: 58, textAlign: 'right', flex: 'none', fontSize: 12.5, fontWeight: 600 }}>{nf(r.balance)}</span>
-                  <span className="muted" style={{ flex: 1, textAlign: 'right', minWidth: 0, fontSize: 10.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.by}</span>
-                </div>
-              ))}
+            <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }} className="stagger">
+              {/* A real ruled grid (vertical + horizontal cell borders), not just underlines —
+                  same shape as the physical card: ลำดับ / วันที่ / รับ / จ่าย / คงเหลือ / โดย,
+                  chronological oldest-first, read top-to-bottom like the paper it replaces. */}
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-subtle)' }}>
+                    <Th w={28}>#</Th><Th w={58}>วันที่</Th><Th w={54} num>รับ</Th><Th w={54} num>จ่าย</Th><Th w={58} num>คงเหลือ</Th><Th>โดย</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => (
+                    <tr key={i}>
+                      <Td num style={{ color: 'var(--muted)', fontSize: 10.5 }}>{i + 1}</Td>
+                      <Td>{thDate(r.ts)}</Td>
+                      <Td num style={{ fontWeight: 700, color: 'var(--green)' }}>{r.qty > 0 ? nf(r.qty) : ''}</Td>
+                      <Td num style={{ fontWeight: 700, color: 'var(--red)' }}>{r.qty < 0 ? nf(-r.qty) : ''}</Td>
+                      <Td num style={{ fontWeight: 700 }}>{nf(r.balance)}</Td>
+                      <Td style={{ color: 'var(--muted)', fontSize: 10.5, maxWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.by}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
               {rows.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ยานี้ยังไม่มีประวัติ substock</div>}
             </div>
           )}
         </>
       )}
     </div>
+  );
+}
+
+/** One labeled cell in the header's field grid — mirrors the paper card's ruled ชื่อยา/รหัส/
+ * หน่วยนับ boxes: a small caption above the value, boxed in on the right/bottom by default. */
+function Field({ label, children, full, noBorder, noBorderRight }: { label: string; children: ReactNode; full?: boolean; noBorder?: boolean; noBorderRight?: boolean }) {
+  return (
+    <div style={{
+      gridColumn: full ? '1 / -1' : undefined,
+      padding: '7px 14px',
+      borderBottom: noBorder ? 0 : '1px solid var(--amber-border)',
+      borderRight: full || noBorderRight || noBorder ? 0 : '1px solid var(--amber-border)',
+    }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--amber-ink)', opacity: 0.75 }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, marginTop: 1 }}>{children}</div>
+    </div>
+  );
+}
+
+function Th({ children, w, num }: { children?: ReactNode; w?: number; num?: boolean }) {
+  return (
+    <th style={{ width: w, textAlign: num ? 'right' : 'left', fontSize: 10, color: 'var(--muted)', fontWeight: 700, padding: '8px 10px', border: '1px solid var(--border-soft)' }}>{children}</th>
+  );
+}
+
+function Td({ children, num, style }: { children?: ReactNode; num?: boolean; style?: CSSProperties }) {
+  return (
+    <td style={{ textAlign: num ? 'right' : 'left', fontSize: 12, padding: '7px 10px', border: '1px solid var(--border-soft)', ...style }}>{children}</td>
   );
 }

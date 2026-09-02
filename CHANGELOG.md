@@ -7,6 +7,19 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.21.0] - 2026-09-02
+
+### Changed
+- **feat:** บัตรสต็อก substock (both on screen and the printed A4 sheet) redesigned to
+  actually look like the real hand-written yellow "บัตรคุมสต็อกยา" ledger card — a boxed
+  header band naming the card, a ruled field grid for ชื่อยา/รหัสยา/หน่วยนับ/par substock
+  (same as the paper card's boxed fields), and a real grid-ruled table (vertical AND
+  horizontal cell borders, not just underlines) with a running ลำดับ number column. The
+  previous version was a plain flat list that worked but didn't read as "the same card" once
+  printed. Nothing about the data changed — still generated live from real transaction
+  history (fetchSubstockLedger) and the live substock balance, same as before; this is purely
+  the skin over the same real-time plumbing
+
 ## [2.20.0] - 2026-09-02
 
 ### Audit — QR scanning + same-drug-two-bin-codes (OPD/IPD)
