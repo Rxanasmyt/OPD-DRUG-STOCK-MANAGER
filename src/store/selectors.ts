@@ -49,13 +49,16 @@ export function roleLabelFor(role: Role | null): string {
   return role === 'pharm' ? 'เภสัชกร' : role === 'tech' ? 'ผู้ช่วยเภสัชกร' : role === 'admin' ? 'Admin' : '';
 }
 
+// CSS custom properties, not literal hex — these feed straight into inline `background`/
+// `color` styles (see HomeScreen/TransferScreen), so a literal hex here would show the
+// light-mode color even in dark mode, unlike every other themed color in the app.
 export function toneFor(m: Med): string {
   const r = m.floor / Math.max(1, m.parFloor);
-  return r < 0.34 ? '#a32b22' : r < 0.75 ? '#b8710f' : '#17552f';
+  return r < 0.34 ? 'var(--red)' : r < 0.75 ? 'var(--amber)' : 'var(--green)';
 }
 
 export function expTone(d: number, warnDays: number): string {
-  return d < 0 ? '#a32b22' : d < 30 ? '#a32b22' : d < warnDays ? '#b8710f' : '#17552f';
+  return d < 0 ? 'var(--red)' : d < 30 ? 'var(--red)' : d < warnDays ? 'var(--amber)' : 'var(--green)';
 }
 
 export function roundStep(v: number): number {

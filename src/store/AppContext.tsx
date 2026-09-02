@@ -788,13 +788,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // decrementing one med's floor and incrementing another's. Not a receive (nothing new
   // entered the hospital) and not a substock transfer (neither side is substock) — its own
   // small flow, logged as a linked pair of tx entries so the audit trail shows both sides. ----
-  const setWmFromSearch = useCallback((v: string) => patch({ wmFromSearch: v, wmFromMed: v ? null : null }), [patch]);
+  // Search box is only ever shown while nothing's picked yet, and the only other caller
+  // ("เปลี่ยน") clears the selection first — so unconditionally clearing wmFromMed here (not
+  // the pointless `v ? null : null` this used to read) matches every actual call site.
+  const setWmFromSearch = useCallback((v: string) => patch({ wmFromSearch: v, wmFromMed: null }), [patch]);
   const pickWmFromMed = useCallback((medId: string) => {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
     patch({ wmFromMed: medId, wmFromSearch: m.name });
   }, [patch, state.meds]);
-  const setWmToSearch = useCallback((v: string) => patch({ wmToSearch: v, wmToMed: v ? null : null }), [patch]);
+  const setWmToSearch = useCallback((v: string) => patch({ wmToSearch: v, wmToMed: null }), [patch]);
   const pickWmToMed = useCallback((medId: string) => {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
@@ -838,7 +841,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ---------- adjust ----------
   const pickAdjType = useCallback((t: AdjType) => patch({ adjType: t, adjMed: null, adjReason: '' }), [patch]);
-  const setAdjSearch = useCallback((v: string) => patch({ adjSearch: v }), [patch]);
+  // Editing the search box after a med is already picked needs to re-open the dropdown, or
+  // there's no way to fix a wrong selection short of switching the adjustment type away and
+  // back — this used to just patch adjSearch with nothing clearing adjMed, so options (which
+  // only ever renders while !state.adjMed) could never reappear once something was picked.
+  const setAdjSearch = useCallback((v: string) => patch((st) => ({ adjSearch: v, adjMed: v ? null : st.adjMed })), [patch]);
   const pickAdjMed = useCallback((medId: string) => {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
@@ -1314,10 +1321,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const meds = state.meds;
     const hasFuzzy = rows.some((r) => r.match.kind === 'fuzzy');
     if (hasFuzzy && !state.hosxpConfirmFuzzy) { toast('กรุณายืนยันว่าตรวจสอบรายการที่จับคู่แบบไม่ตรงชื่อเป๊ะแล้ว ก่อนตัดยอด'); return; }
-    let applied = 0, skipped = 0;
+    let applied = 0, skipped = 0, zeroQty = 0;
     try {
       for (const r of rows) {
-        if (r.qty <= 0) continue;
+        if (r.qty <= 0) { zeroQty++; continue; }
         // Only 'exact' and 'fuzzy' (human-confirmed above) resolve to a single med — 'ambiguous'
         // and 'none' never touch stock, so a bad name in the source file can't silently
         // deduct from the wrong drug or get dropped without anyone noticing.
@@ -1336,7 +1343,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         applied++;
       }
       patch({ hosxpRows: null, hosxpText: '', hosxpConfirmFuzzy: false });
-      toast('ตัดยอดหน้างานตามไฟล์แล้ว ' + applied + ' รายการ' + (skipped ? ' · ข้าม ' + skipped + ' รายการที่จับคู่ไม่ได้' : '') + ' — บันทึกลง discrepancy log');
+      // Rows with qty <= 0 were previously silently dropped from this summary entirely —
+      // applied + skipped could undercount rows.length with no explanation, which reads as
+      // a miscount when a pharmacist checks the math. Named separately from "จับคู่ไม่ได้"
+      // since it's a different reason (nothing to deduct, not a matching failure).
+      toast(
+        'ตัดยอดหน้างานตามไฟล์แล้ว ' + applied + ' รายการ'
+        + (skipped ? ' · ข้าม ' + skipped + ' รายการที่จับคู่ไม่ได้' : '')
+        + (zeroQty ? ' · ' + zeroQty + ' รายการจำนวน 0 (ไม่ตัดยอด)' : '')
+        + ' — บันทึกลง discrepancy log'
+      );
     } catch (e) {
       // A failure partway through leaves earlier rows in this same loop already committed —
       // same partial-progress behavior as before this change, just now also reachable via a

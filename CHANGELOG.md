@@ -7,6 +7,28 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.22.1] - 2026-09-02
+
+### Fixed
+- **fix:** "ปรับยอด / คืนยา / ยาเสีย" — once a med was picked, there was no way to search for
+  or pick a different one from that screen at all; the search box stayed on screen and
+  editable, but nothing ever reopened the results dropdown. The only workaround was switching
+  the adjustment type away and back, resetting the whole form in the process. A wrong
+  selection is now fixable by just typing a new search, same as every other search-then-pick
+  screen in the app already works
+- **fix:** the low-stock progress bar color (หน้าหลัก, เติมหน้างาน) and an unused expiry-color
+  helper returned literal hex colors instead of theme tokens — a leftover from before dark
+  mode existed, so that one bar stayed light-mode-colored even in dark mode while everything
+  around it correctly switched
+- **fix:** ย้ายยาระหว่างชั้นวาง's search-box state had a `v ? null : null` — a tautology that
+  always evaluates the same regardless of `v`, a hallmark of a copy-paste mistake. Currently
+  harmless given how it happened to be called, but written the way it was actually meant:
+  unconditionally clear the selection when the search box changes
+- **fix:** "นำเข้า HOSxP"'s result summary could undercount — a row with quantity 0 or less
+  was skipped from the running total silently, so applied + ข้าม didn't always add up to the
+  number of rows processed. Now named separately in the summary ("N รายการจำนวน 0") since
+  it's a different reason than a name-matching failure
+
 ## [2.22.0] - 2026-09-02
 
 ### Added
