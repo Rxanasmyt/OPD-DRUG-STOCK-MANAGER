@@ -226,7 +226,7 @@ export interface SubstockCardRow {
  * transaction history instead of copied by hand onto a card that can go missing, get a
  * pen-run smudge, or just fall behind because nobody got around to writing today's line yet.
  */
-export function printSubstockCardSheet(med: { code: string; name: string; parSub: number; unit: string }, rows: SubstockCardRow[]): boolean {
+export function printSubstockCardSheet(med: { code: string; name: string; parSub: number; unit: string; ward?: 'opd' | 'ipd' }, rows: SubstockCardRow[]): boolean {
   const now = new Date();
   const fy = fiscalYear(now.getTime()) % 100;
   const body = rows
@@ -291,7 +291,7 @@ export function printSubstockCardSheet(med: { code: string; name: string; parSub
         <tbody>${body}</tbody>
       </table>
       ${rows.length === 0 ? '<div style="text-align:center;color:#8a7a45;padding:12mm 0;">ยานี้ยังไม่มีประวัติ substock</div>' : ''}
-      <div class="foot"><span>ห้องยา OPD · รพ.กรงปินัง</span><span>พิมพ์จากระบบ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
+      <div class="foot"><span>ห้องยา ${med.ward === 'ipd' ? 'IPD' : 'OPD'} · รพ.กรงปินัง</span><span>พิมพ์จากระบบ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
     </div>
   </div>
   <script>window.onload = function () { window.print(); };</script>

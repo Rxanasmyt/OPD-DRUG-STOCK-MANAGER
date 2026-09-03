@@ -1,5 +1,6 @@
 import { useApp } from '../store/AppContext';
 import { nf, thTime } from '../utils/format';
+import { wardOf } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
 import { medColor } from '../utils/color';
 
@@ -33,6 +34,16 @@ export default function TConfirmScreen() {
     })
     .filter((r): r is NonNullable<typeof r> => !!r);
 
+  // Bug fix: this used to say "ชั้นจ่ายยา OPD" unconditionally — wrong (and actively
+  // misleading, on a confirm screen) any time the cart holds IPD items, which is entirely
+  // possible: TransferScreen's ward tab only scopes which meds are *offered*, not what's
+  // already sitting in the cart from before a tab switch. Named after whichever ward(s) the
+  // cart's items actually belong to.
+  const cartWards = new Set(rows.map((r) => wardOf(r.m)));
+  const destLabel = cartWards.size === 0 ? 'ชั้นจ่ายยา'
+    : cartWards.size > 1 ? 'ชั้นจ่ายยา (OPD + IPD)'
+    : cartWards.has('ipd') ? 'ชั้นจ่ายยา IPD' : 'ชั้นจ่ายยา OPD';
+
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
       <div className="muted" style={{ fontSize: 12.5, marginBottom: 10 }}>ตัดจาก substock ตามหลัก FEFO (lot ที่หมดอายุก่อนถูกเลือกให้อัตโนมัติ) และเพิ่มเข้าหน้างาน</div>
@@ -62,7 +73,7 @@ export default function TConfirmScreen() {
       </div>
 
       <div style={{ background: 'var(--green-tint)', borderRadius: 12, padding: '12px 13px', fontSize: 12.5, lineHeight: 1.6, marginBottom: 14 }}>
-        ผู้ทำรายการ <b>{userName()}</b> ({roleLabel()})<br />ปลายทาง ชั้นจ่ายยา OPD · เวลา {thTime(Date.now())} น.
+        ผู้ทำรายการ <b>{userName()}</b> ({roleLabel()})<br />ปลายทาง {destLabel} · เวลา {thTime(Date.now())} น.
       </div>
 
       {hadPending.length > 0 && (

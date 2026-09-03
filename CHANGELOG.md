@@ -7,6 +7,20 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.39.0] - 2026-09-03
+
+### Fixed
+- **fix:** two more leftover hardcoded "OPD" claims the earlier rename/context-clarity passes
+  missed (both slipped through because those passes searched `.tsx` files only — these are in
+  a `.ts` file and a screen not caught in that sweep):
+  - ตรวจสอบก่อนยืนยัน (tconfirm) said "ปลายทาง ชั้นจ่ายยา OPD" unconditionally on the transfer
+    confirm screen, even when the cart held IPD items — actively misleading on the one screen
+    whose whole job is confirming exactly what's about to happen. Now names the real ward(s)
+    the cart's items belong to
+  - the printed บัตรสต็อก substock (printSubstockCardSheet) footer said "ห้องยา OPD · รพ.
+    กรงปินัง" on every card regardless of which ward the drug was actually on — now shows the
+    real ward
+
 ## [2.38.0] - 2026-09-03
 
 ### Fixed

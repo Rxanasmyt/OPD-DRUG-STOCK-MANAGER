@@ -1,6 +1,6 @@
 import { useState, useEffect, type ReactNode, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
-import { subQty } from '../store/selectors';
+import { subQty, wardOf } from '../store/selectors';
 import { nf, thDate, fiscalYear } from '../utils/format';
 import { printSubstockCardSheet } from '../utils/print';
 import { MedDot } from '../components/MedDot';
@@ -74,7 +74,7 @@ export default function SubstockCardScreen() {
     const cardRows = rows.map((r) => ({
       ts: r.ts, received: r.qty > 0 ? r.qty : 0, dispensed: r.qty < 0 ? -r.qty : 0, balance: r.balance, by: r.by,
     }));
-    const ok = printSubstockCardSheet({ code: med.code, name: med.name, parSub: med.parSub, unit: med.unit }, cardRows);
+    const ok = printSubstockCardSheet({ code: med.code, name: med.name, parSub: med.parSub, unit: med.unit, ward: wardOf(med) }, cardRows);
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   };
 
