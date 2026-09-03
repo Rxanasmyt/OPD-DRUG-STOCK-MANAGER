@@ -7,6 +7,20 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.40.0] - 2026-09-03
+
+### Fixed
+- **fix:** เกณฑ์แจ้งเตือนวันหมดอายุ, par หน้างานสำรอง (วัน), and par substock สำรอง (วัน) — three
+  numbers shown right on หน้าตั้งค่า, next to real working controls — were pure hardcoded
+  constants (90 / 3 / 21) baked into the app's initial state with no UI anywhere to actually
+  change them. A screen literally named "ตั้งค่า" was displaying dead numbers as if they were
+  already saved settings. Now backed by a real `meta/settings` Firestore doc (same read-for-
+  any-approved-user / write-for-pharm-admin-only rule the existing `meta/medSeq` counter doc
+  already uses — no rules change needed), with actual editable inputs and an explicit save
+  button per field (shown only once the typed value actually differs from what's saved, so a
+  save is a deliberate action, not a side effect of typing) — for the tech role (view-only)
+  they still render as plain read-only numbers, same as before
+
 ## [2.39.0] - 2026-09-03
 
 ### Fixed

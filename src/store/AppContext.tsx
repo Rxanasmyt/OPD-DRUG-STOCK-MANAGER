@@ -172,6 +172,7 @@ export interface AppCtx {
   setParFloor: (medId: string, v: string) => void;
   setMedBin: (medId: string, v: string) => void;
   recomputeUsageStats: () => void;
+  updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => void;
 
   // meds (formulary) management
   addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean }) => void;
@@ -452,6 +453,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as PendingReceive[];
         patch({ pendingReceives: rows, pending: rows.filter((r) => r.status === 'pending').length });
       }, onErr('pendingReceives')),
+      // Bug fix: expiryWarnDays/parFloorCoverDays/parSubCoverDays used to be pure client-side
+      // constants baked into freshState() with no way to ever change them — the "เกณฑ์แจ้งเตือน
+      // วันหมดอายุ"/"par อัตโนมัติ" cards in หน้าตั้งค่า displayed them as if they were real,
+      // saved settings (that's literally what the screen is called) but were just showing
+      // dead numbers. Missing doc on a fresh project is expected and not an error — freshState
+      // already has sane defaults, so a snapshot with no data simply leaves them as-is.
+      onSnapshot(doc(db, 'meta', 'settings'), (snap) => {
+        if (!snap.exists()) return;
+        const d = snap.data() as Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>;
+        patch((st) => ({
+          expiryWarnDays: typeof d.expiryWarnDays === 'number' ? d.expiryWarnDays : st.expiryWarnDays,
+          parFloorCoverDays: typeof d.parFloorCoverDays === 'number' ? d.parFloorCoverDays : st.parFloorCoverDays,
+          parSubCoverDays: typeof d.parSubCoverDays === 'number' ? d.parSubCoverDays : st.parSubCoverDays,
+        }));
+      }, onErr('settings')),
     ];
     if (myProfile?.role === 'admin') {
       unsubs.push(onSnapshot(collection(db, 'users'), (snap) => {
@@ -1251,6 +1267,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { toastErr(e, 'คำนวณสถิติไม่สำเร็จ ลองใหม่อีกครั้ง'); }
   }), [canEditPar, state.meds, logAudit, toast, toastErr, guardOnce]);
 
+  // Persists to meta/settings (see the onSnapshot listener above) — a merge write so this
+  // can be called with just the one field that changed without clobbering the other two.
+  const updateGlobalSettings = useCallback(async (patchFields: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => {
+    if (!canEditPar) return;
+    try {
+      await setDoc(doc(db, 'meta', 'settings'), patchFields, { merge: true });
+      logAudit({ type: 'par_updated', note: 'แก้ไขการตั้งค่า: ' + Object.entries(patchFields).map(([k, v]) => k + '=' + v).join(', ') });
+      toast('บันทึกการตั้งค่าแล้ว');
+    } catch (e) { console.error(e); toast('บันทึกการตั้งค่าไม่สำเร็จ'); }
+  }, [canEditPar, logAudit, toast]);
+
   // ---------- meds (formulary) management ----------
   const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean }) => {
     if (!canEditPar) return;
@@ -1805,7 +1832,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
     setReportTab, exportReportCsv,
     setLabelType, printLabels,
-    applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats,
+    applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
     addMed, updateMedFull, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, setCountInput, commitCount,

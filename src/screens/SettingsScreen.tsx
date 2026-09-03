@@ -1,19 +1,35 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { suggestPar, USAGE_PERIOD_DAYS, USAGE_PERIOD_LABEL } from '../store/selectors';
-import { nf } from '../utils/format';
+import { nf, digitsOnly, parseIntSafe } from '../utils/format';
 import type { UsagePeriod } from '../types';
 
 const PERIODS: UsagePeriod[] = ['month', 'quarter', 'fiscalYear'];
 
 export default function SettingsScreen() {
   const {
-    state, warn, applyAllSuggested, recomputeUsageStats, go,
+    state, warn, applyAllSuggested, recomputeUsageStats, go, updateGlobalSettings,
     setUsagePeriod, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
   } = useApp();
   const canEdit = state.role !== 'tech';
   const meds = state.meds.filter((m) => m.active);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Bug fix: these three numbers used to be pure hardcoded constants with no UI anywhere to
+  // actually change them, even though this screen — labeled "ตั้งค่า" — displayed them right
+  // next to real, working controls as if they were already a saved setting. Local draft state
+  // + an explicit save (only enabled once the draft actually differs from the live value)
+  // rather than autosave-on-every-keystroke, since these feed par calculations for the whole
+  // formulary — a save should be a deliberate action, not a side effect of typing.
+  const [warnDraft, setWarnDraft] = useState(String(state.expiryWarnDays));
+  const [floorDraft, setFloorDraft] = useState(String(state.parFloorCoverDays));
+  const [subDraft, setSubDraft] = useState(String(state.parSubCoverDays));
+  useEffect(() => setWarnDraft(String(state.expiryWarnDays)), [state.expiryWarnDays]);
+  useEffect(() => setFloorDraft(String(state.parFloorCoverDays)), [state.parFloorCoverDays]);
+  useEffect(() => setSubDraft(String(state.parSubCoverDays)), [state.parSubCoverDays]);
+  const warnDirty = warnDraft !== '' && parseIntSafe(warnDraft) !== state.expiryWarnDays;
+  const coverDirty = (floorDraft !== '' && parseIntSafe(floorDraft) !== state.parFloorCoverDays)
+    || (subDraft !== '' && parseIntSafe(subDraft) !== state.parSubCoverDays);
 
   const suggestDiffCount = meds.filter((m) => {
     const s = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
@@ -31,7 +47,27 @@ export default function SettingsScreen() {
       <div className="card" style={{ padding: 13, marginBottom: 13 }}>
         <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}>เกณฑ์แจ้งเตือนวันหมดอายุ</div>
         <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>แจ้งเตือนเมื่อ lot เหลืออายุน้อยกว่าจำนวนวันนี้</div>
-        <div style={{ fontSize: 24, fontWeight: 700 }}>{warn()} <span className="muted" style={{ fontSize: 14, fontWeight: 400 }}>วัน</span></div>
+        {canEdit ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input
+              value={warnDraft}
+              onChange={(e) => setWarnDraft(digitsOnly(e.target.value))}
+              inputMode="numeric"
+              style={{ width: 84, border: '1px solid var(--border)', borderRadius: 10, padding: '9px 10px', fontSize: 20, fontWeight: 700, textAlign: 'center' }}
+            />
+            <span className="muted" style={{ fontSize: 14 }}>วัน</span>
+            {warnDirty && (
+              <button
+                onClick={() => updateGlobalSettings({ expiryWarnDays: parseIntSafe(warnDraft, state.expiryWarnDays) })}
+                style={{ marginLeft: 'auto', border: 0, background: 'var(--green)', color: '#fff', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}
+              >
+                บันทึก
+              </button>
+            )}
+          </div>
+        ) : (
+          <div style={{ fontSize: 24, fontWeight: 700 }}>{warn()} <span className="muted" style={{ fontSize: 14, fontWeight: 400 }}>วัน</span></div>
+        )}
       </div>
 
       {!canEdit && (
@@ -40,7 +76,40 @@ export default function SettingsScreen() {
 
       <div style={{ background: 'var(--green-tint)', borderRadius: 12, padding: '12px 13px', marginBottom: 13 }}>
         <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}>par อัตโนมัติจากสถิติการใช้</div>
-        <div style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 9 }}>คำนวณจากอัตราจ่ายเฉลี่ย/วัน (30 วันล่าสุด) × จำนวนวันที่ต้องสำรอง แล้วปรับเพิ่มตามความผันผวนของแต่ละรายการ — par หน้างานสำรอง {state.parFloorCoverDays} วัน, par substock สำรอง {state.parSubCoverDays} วัน</div>
+        <div style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 9 }}>คำนวณจากอัตราจ่ายเฉลี่ย/วัน (30 วันล่าสุด) × จำนวนวันที่ต้องสำรอง แล้วปรับเพิ่มตามความผันผวนของแต่ละรายการ</div>
+        {canEdit && (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', marginBottom: 10, flexWrap: 'wrap' }}>
+            <label>
+              <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>par หน้างานสำรอง (วัน)</span>
+              <input
+                value={floorDraft}
+                onChange={(e) => setFloorDraft(digitsOnly(e.target.value))}
+                inputMode="numeric"
+                style={{ width: 70, border: '1px solid var(--border)', borderRadius: 9, padding: '8px 9px', fontSize: 14, fontWeight: 600, textAlign: 'center' }}
+              />
+            </label>
+            <label>
+              <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>par substock สำรอง (วัน)</span>
+              <input
+                value={subDraft}
+                onChange={(e) => setSubDraft(digitsOnly(e.target.value))}
+                inputMode="numeric"
+                style={{ width: 70, border: '1px solid var(--border)', borderRadius: 9, padding: '8px 9px', fontSize: 14, fontWeight: 600, textAlign: 'center' }}
+              />
+            </label>
+            {coverDirty && (
+              <button
+                onClick={() => updateGlobalSettings({ parFloorCoverDays: parseIntSafe(floorDraft, state.parFloorCoverDays), parSubCoverDays: parseIntSafe(subDraft, state.parSubCoverDays) })}
+                style={{ border: 0, background: 'var(--green)', color: '#fff', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}
+              >
+                บันทึก
+              </button>
+            )}
+          </div>
+        )}
+        {!canEdit && (
+          <div style={{ fontSize: 12.5, marginBottom: 9 }}>par หน้างานสำรอง {state.parFloorCoverDays} วัน, par substock สำรอง {state.parSubCoverDays} วัน</div>
+        )}
         {canEdit && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button onClick={applyAllSuggested} style={{ border: 0, background: 'var(--green)', color: '#fff', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>ใช้ค่าแนะนำทั้งหมด ({suggestDiffCount} รายการเปลี่ยน)</button>
