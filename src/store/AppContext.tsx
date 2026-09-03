@@ -29,6 +29,22 @@ function pushNav(stack: Screen[], current: Screen): Screen[] {
   return next.length > 20 ? next.slice(next.length - 20) : next;
 }
 
+// A lot's `code` is what a printed "ฉลาก lot" QR encodes AND what the damaged-label manual-
+// entry fallback looks up by exact string match after forcing the typed input to uppercase
+// (see parseQr/resolveMed) — so it needs to be (a) unique forever, not just within the batch
+// it was minted in, and (b) stable under that uppercase normalization.
+// Both call sites used to build this from `medId.slice(1) + a per-receive-batch loop index`
+// (or Date.now()) — the index resets to 0 on every new receive, so receiving the SAME drug on
+// two different days could mint the IDENTICAL lot code; and a Firestore auto-id is mixed-
+// case, so a correctly hand-typed code (forced uppercase by the manual-entry path) could
+// never match the mixed-case original stored in `code` — "กรอกรหัสด้วยมือ" was silently
+// broken for most real lots. Built instead from the med's own human-readable `code` (already
+// uppercase, already stable) plus the new lot document's own globally-unique ref id.
+function genLotCode(medCode: string | undefined, medId: string, lotRefId: string): string {
+  const base = (medCode || medId).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return 'LOT-' + base + '-' + lotRefId.slice(-6).toUpperCase();
+}
+
 function freshState(): AppState {
   return {
     meds: [], lots: [], txs: [], users: [], authLog: [], dbReady: false,
@@ -688,6 +704,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             lotReads[lotId] = { qty: data?.qty ?? 0, lotNo: data?.lotNo ?? '' };
           }
         }
+        // Real bug this closes: the cart's qty is capped against substock at the moment it
+        // was typed (see bump()/setCartQty()), but nothing re-checked that against what's
+        // actually still in the lots by the time this transaction runs — plausible any time
+        // there's a real gap between building the cart and confirming (walking to the shelf,
+        // the extra HAD scan step, or simply someone else's transfer/adjust/scrap landing on
+        // the same lots first). Without this check the write below always credited floor with
+        // the full originally-typed qty regardless of how much the lot loop actually found,
+        // manufacturing floor stock substock never had. Check every item BEFORE writing
+        // anything — a Firestore transaction only commits if this function returns without
+        // throwing, so aborting here leaves nothing partially written.
+        const shortages: string[] = [];
+        for (const medId of ids) {
+          const avail = lotIdsByMed[medId].reduce((s, lotId) => s + (lotReads[lotId]?.qty || 0), 0);
+          if (avail < cart[medId]) {
+            const m = meds.find((x) => x.id === medId);
+            shortages.push((m?.name || medId) + ' (เหลือ ' + nf(avail) + ' ต้องการ ' + nf(cart[medId]) + ')');
+          }
+        }
+        if (shortages.length) throw new Error('insufficient:' + shortages.join(', '));
+
         txPayloads.length = 0;
         for (const medId of ids) {
           let need = cart[medId];
@@ -718,9 +754,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await withTimeout(batch.commit());
       setState((st) => ({ ...st, cart: {}, hadOk: {}, screen: 'done', navStack: pushNav(st.navStack, st.screen), doneKind: 'transfer', doneRows: resultRows }));
     } catch (e) {
+      const msg = (e as Error)?.message || '';
+      if (msg.startsWith('insufficient:')) { toast('substock เหลือไม่พอสำหรับ ' + msg.slice('insufficient:'.length) + ' — น่าจะมีคนอื่นเบิกไปพร้อมกัน กลับไปปรับจำนวนในตะกร้าแล้วลองใหม่'); return; }
       toastErr(e, 'เติมหน้างานไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [state.cart, state.meds, state.lots, userName, toastErr, guardOnce]);
+  }), [state.cart, state.meds, state.lots, userName, toast, toastErr, guardOnce]);
 
   // ---------- receive ----------
   const setRecvNo = useCallback((v: string) => patch({ recvNo: v }), [patch]);
@@ -774,7 +812,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }));
         return;
       }
-      items.forEach((it, i) => {
+      items.forEach((it) => {
         // Liquids/inhalers/sprays — some meds skip substock entirely and go straight from
         // the central warehouse to the shelf (see noSubstock on Med). No lot is created for
         // these (the floor number already carries no per-lot expiry tracking of its own,
@@ -790,7 +828,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           });
           return;
         }
-        batch.set(doc(collection(db, 'lots')), { code: 'LOT-' + it.medId.slice(1) + '-n' + i, medId: it.medId, lotNo: it.lotNo, exp: it.exp, qty: it.qty, loc: 'ชั้น bulk' });
+        const lotRef = doc(collection(db, 'lots'));
+        batch.set(lotRef, { code: genLotCode(m?.code, it.medId, lotRef.id), medId: it.medId, lotNo: it.lotNo, exp: it.exp, qty: it.qty, loc: 'ชั้น bulk' });
         batch.set(doc(collection(db, 'txs')), {
           type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'substock',
           note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp), by: userName(), ts: Date.now(),
@@ -827,7 +866,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + ' — ไม่มี substock ขึ้นหน้างานทันที — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
           });
         } else {
-          trx.set(doc(collection(db, 'lots')), { code: 'LOT-' + pr.medId.slice(1) + '-n' + Date.now(), medId: pr.medId, lotNo: pr.lotNo, exp: pr.exp, qty: pr.qty, loc: 'ชั้น bulk' });
+          const lotRef = doc(collection(db, 'lots'));
+          trx.set(lotRef, { code: genLotCode(m?.code, pr.medId, lotRef.id), medId: pr.medId, lotNo: pr.lotNo, exp: pr.exp, qty: pr.qty, loc: 'ชั้น bulk' });
           trx.set(doc(collection(db, 'txs')), {
             type: 'receive_from_central' as TxType, name: pr.name, medId: pr.medId, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'substock',
             note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + ' — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
@@ -893,12 +933,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!from || !to || !q) { toast('เลือกยาต้นทาง ปลายทาง และจำนวนให้ครบ'); return; }
     if (from.id === to.id) { toast('ต้นทางและปลายทางต้องเป็นคนละรายการ'); return; }
     if (!state.wmReason.trim()) { toast('กรอกเหตุผลก่อนบันทึก'); return; }
+    // Escapes the transaction closure below so the "ไม่พอ" error message can report the
+    // real just-read floor instead of the stale value from before the transaction ran —
+    // matters when someone else's transfer/adjust landed on this same med in between.
+    let latestFloor = from.floor;
     try {
       await runTx(async (trx) => {
         const fromRef = doc(db, 'meds', from.id);
         const toRef = doc(db, 'meds', to.id);
         const fromSnap = await trx.get(fromRef);
         const curFloor = (fromSnap.data() as { floor?: number } | undefined)?.floor ?? from.floor;
+        latestFloor = curFloor;
         if (curFloor < q) throw new Error('insufficient');
         trx.update(fromRef, { floor: curFloor - q });
         trx.update(toRef, { floor: increment(q) });
@@ -914,7 +959,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast('ย้าย ' + nf(q) + ' ' + from.unit + ' จาก ' + from.name + ' ไป ' + to.name + ' แล้ว');
       patch({ wmFromMed: null, wmFromSearch: '', wmToMed: null, wmToSearch: '', wmQty: '', wmReason: '' });
     } catch (e) {
-      if ((e as Error)?.message === 'insufficient') { toast('ต้นทางมีไม่พอ — เหลือ ' + nf(from.floor) + ' ' + from.unit); return; }
+      if ((e as Error)?.message === 'insufficient') { toast('ต้นทางมีไม่พอ — เหลือ ' + nf(latestFloor) + ' ' + from.unit); return; }
       toastErr(e, 'ย้ายไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
   }), [state.meds, state.wmFromMed, state.wmToMed, state.wmQty, state.wmReason, userName, toast, toastErr, patch, guardOnce]);

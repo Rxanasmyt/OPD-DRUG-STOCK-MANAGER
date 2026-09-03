@@ -7,6 +7,32 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.36.0] - 2026-09-03
+
+### Fixed
+- **fix (data integrity):** เติมหน้างาน (commitTransfer) always credited the shelf with the
+  full originally-typed cart quantity, even when the FEFO lot-consumption loop inside the same
+  transaction found less than that actually available in substock. The cart qty is capped
+  against substock at the moment it's typed, but nothing re-checked that against what's still
+  really in the lots by the time someone hits "ยืนยัน" — a real gap given the extra HAD-drug
+  scan step and the walk to the shelf, or simply someone else's transfer/adjust/scrap landing
+  on the same lots first. That gap let floor get credited with stock substock never actually
+  had — a genuine "phantom stock" bug. Now checks every cart item's real availability inside
+  the transaction before writing anything; if any item's substock has since dropped below the
+  cart amount, the whole transfer aborts with a clear "substock เหลือไม่พอ" message instead of
+  silently over-crediting the shelf
+- **fix:** lot codes (`LOT-...`, what a printed "ฉลาก lot" QR encodes and what the damaged-
+  label "กรอกรหัสด้วยมือ" fallback looks up) were built from `medId.slice(1) + a per-receive-
+  batch loop index` (or `Date.now()`) — the index resets to 0 on every new receive, so
+  receiving the SAME drug on two different days could mint the identical lot code; and a
+  Firestore auto-id is mixed-case, so a correctly hand-typed code (forced uppercase by the
+  manual-entry path) could never match the mixed-case original — "กรอกรหัสด้วยมือ" was
+  silently broken for most real lots. Rebuilt from the med's own human-readable code (already
+  uppercase, already stable) plus the new lot document's own globally-unique ref id
+- **fix:** ย้ายยาระหว่างชั้นวาง (commitWardMove)'s "ต้นทางมีไม่พอ" error reported the stale
+  floor value read before the transaction instead of what the transaction actually just found,
+  which could show wrong numbers under the same kind of concurrent-edit race described above
+
 ## [2.35.0] - 2026-09-03
 
 ### Fixed
