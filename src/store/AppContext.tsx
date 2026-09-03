@@ -1046,7 +1046,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } else if (st.reportTab === 'turn') {
       const rows = wardMeds.filter((m) => m.active).map((m) => {
         const oh = m.floor + subQty(st, m.id);
-        return [m.name, m.unit, oh, m.used30, Math.round(oh / (m.used30 / 30))];
+        // A drug with no recorded usage yet (used30 === 0 — new, or never HOSxP-reconciled)
+        // divides by zero here; the on-screen "รายงาน" tab already guards this with
+        // isFinite(doh), but this CSV export didn't, so it used to write the literal text
+        // "Infinity" (or "NaN" when on-hand is also 0) into a real exported spreadsheet.
+        const doh = Math.round(oh / (m.used30 / 30));
+        return [m.name, m.unit, oh, m.used30, isFinite(doh) ? doh : ''];
       });
       outcome = await downloadCsv([['medication', 'unit', 'on_hand', 'used_30d', 'days_on_hand'], ...rows], names.turn);
     } else {

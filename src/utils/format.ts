@@ -17,8 +17,20 @@ export function isoDate(ms: number): string {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
+// Calendar-day difference, not a raw 24h-window count — matters because it drives both the
+// "ใกล้หมดอายุ" warning threshold and, more importantly, the "หมดอายุแล้ว" cutoff used to scrap
+// stock. A raw `floor((exp - now) / DAY)` doesn't tick over at local midnight — it ticks over
+// exactly 24h after whatever moment this happens to be called, so a lot dated to expire "on"
+// Dec 31 could already read as expired (negative) at any time *during* Dec 31 itself, up to a
+// full day before pharmacy convention would actually call it expired (good through the end of
+// its labeled date). Comparing local calendar dates instead means the boundary always lands
+// exactly at midnight on the labeled date, however many hours into today this happens to run.
 export function daysUntil(ms: number): number {
-  return Math.floor((ms - Date.now()) / DAY);
+  const now = new Date();
+  const target = new Date(ms);
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfTarget = new Date(target.getFullYear(), target.getMonth(), target.getDate()).getTime();
+  return Math.round((startOfTarget - startOfToday) / DAY);
 }
 
 /** Thai fiscal year (ปีงบประมาณ) — runs Oct-Sep, named for the Buddhist-era year it ends in.

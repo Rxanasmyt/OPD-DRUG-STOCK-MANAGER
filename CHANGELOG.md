@@ -7,6 +7,25 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.37.0] - 2026-09-03
+
+### Fixed
+- **fix:** `daysUntil()` — behind every "ใกล้หมดอายุ"/"หมดอายุแล้ว" check in the app (Home's
+  expiry stat tile, ปรับยอด's scrap-expired list, รายงาน's aging buckets, ฉลาก QR's expiry
+  tag) — computed a raw 24-hour-window countdown instead of a calendar-date difference, so its
+  zero/negative boundary ticked over exactly 24h after whenever it happened to be called, not
+  at local midnight on the labeled expiry date. A lot dated to expire "on" a given day could
+  already show as expired at any point *during* that day — up to a full day before pharmacy
+  convention (good through the end of the labeled date) would actually call it expired,
+  risking perfectly still-dated stock getting scrapped a day early. Now compares local
+  calendar dates, so the boundary always lands exactly at midnight on the labeled date
+- **fix:** the turnover CSV export (`exportReportCsv`) wrote the literal text "Infinity" (or
+  "NaN") into the days-on-hand column for any drug with no recorded usage yet (`used30 === 0`
+  — new to the formulary, or never HOSxP-reconciled) — a division-by-zero the on-screen
+  รายงาน tab already guarded against (`isFinite(doh) ? ... : '—'`) but this CSV export path
+  didn't, so a pharmacist opening the exported spreadsheet would see broken values instead of
+  a blank cell for exactly the rows most likely to need attention (brand-new drugs)
+
 ## [2.36.0] - 2026-09-03
 
 ### Fixed
