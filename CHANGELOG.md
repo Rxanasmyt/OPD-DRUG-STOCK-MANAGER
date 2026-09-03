@@ -7,6 +7,20 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.33.0] - 2026-09-03
+
+### Added
+- **feat:** import a usage-total file (CSV, "ชื่อยา,จำนวนที่ใช้" ต่อบรรทัด) to seed the
+  daily-usage rate behind "แนะนำ par" — for a formulary too new to have 60 days of in-app
+  HOSxP reconcile history (recomputeUsageStats' only prior source). Pick the period the file
+  actually covers — รายเดือน (30 วัน) / รายไตรมาส (90 วัน) / รายปีงบประมาณ (365 วัน) — and the
+  system divides the imported total by that many days to get a daily rate. New card in หน้า
+  ตั้งค่า, right below the existing par-automation tools; reuses the same name-matching
+  (exact/fuzzy-confirm/ambiguous-skip, OPD/IPD name-twin-safe) already proven on the HOSxP
+  reconcile screen. Deliberately touches only `used30` via a plain field update — never floor,
+  substock, or lot quantities — so a bad file can skew a *suggested* par number at worst,
+  never move real stock, and even that only lands once "ใช้ค่าแนะนำทั้งหมด" is clicked after
+
 ## [2.32.0] - 2026-09-03
 
 ### Fixed

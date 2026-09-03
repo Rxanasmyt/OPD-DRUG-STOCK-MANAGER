@@ -12,7 +12,7 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, User, AuthMode, PendingReceive, Ward,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, USAGE_PERIOD_DAYS, USAGE_PERIOD_LABEL } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -46,6 +46,8 @@ function freshState(): AppState {
     doneKind: null, doneRows: [], toast: null,
 
     countInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false,
+
+    usagePeriod: 'month', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
 
     medsFocusId: null,
     substockFocusId: null,
@@ -166,6 +168,13 @@ export interface AppCtx {
   processHosxp: () => void;
   setHosxpConfirmFuzzy: (v: boolean) => void;
   commitReconcile: () => void;
+
+  // usage-rate import (par)
+  setUsagePeriod: (p: AppState['usagePeriod']) => void;
+  importUsageFile: (file: File) => void;
+  setUsageConfirmFuzzy: (v: boolean) => void;
+  clearUsageImport: () => void;
+  commitUsageImport: () => void;
 
   // qr
   openScanSearch: (purpose: string) => void;
@@ -1420,6 +1429,81 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.meds, logTx, toast, toastErr, patch, guardOnce]);
 
+  // ---------- usage-rate import (par) ----------
+  // Lets a site whose formulary is too new to have 60 days of in-app HOSxP reconcile history
+  // (recomputeUsageStats' only source) still seed used30 with a real number, by importing a
+  // usage-total file the pharmacy already has — monthly, quarterly, or fiscal-year, whichever
+  // report the hospital actually produces. Deliberately touches ONLY used30 (a par-suggestion
+  // input) via a plain field update, never floor/substock/lot quantities — importing a wrong
+  // or badly-matched file can skew a *suggested* par number, never silently move real stock,
+  // and even that suggestion only takes effect once someone explicitly clicks "ใช้ค่าแนะนำ
+  // ทั้งหมด" afterward.
+  const setUsagePeriod = useCallback((p: AppState['usagePeriod']) => patch({ usagePeriod: p }), [patch]);
+
+  // Same lenient "name,qty" parser as processHosxp (last comma splits name from qty — keeps
+  // working even if a drug name itself contains a comma), plus a header-row sniff: real
+  // hospital exports routinely lead with a column-title row like "ชื่อยา,จำนวน" whose second
+  // field isn't a number — dropped rather than parsed into a bogus 0-qty row for "จำนวน".
+  const importUsageFile = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onerror = () => toast('อ่านไฟล์ไม่สำเร็จ — ลองใหม่อีกครั้ง');
+    reader.onload = () => {
+      const text = String(reader.result || '');
+      let lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      if (lines.length) {
+        const firstIdx = lines[0].lastIndexOf(',');
+        const firstQty = firstIdx >= 0 ? lines[0].slice(firstIdx + 1).trim() : '';
+        if (!/^-?\d+(\.\d+)?$/.test(firstQty)) lines = lines.slice(1); // looks like a header row
+      }
+      const rows = lines.map((l) => {
+        const idx = l.lastIndexOf(',');
+        if (idx < 0) return null;
+        const name = l.slice(0, idx).trim().replace(/^"|"$/g, '');
+        const qty = parseIntSafe(l.slice(idx + 1));
+        return { name, qty, match: matchHosxpMed(state.meds, name) };
+      }).filter((x): x is { name: string; qty: number; match: ReturnType<typeof matchHosxpMed> } => !!x);
+      if (!rows.length) { toast('ไม่พบข้อมูลที่อ่านได้ในไฟล์นี้ — ต้องเป็น CSV รูปแบบ "ชื่อยา,จำนวนที่ใช้" บรรทัดละ 1 รายการ'); return; }
+      patch({ usageRows: rows, usageFileName: file.name, usageConfirmFuzzy: false });
+    };
+    reader.readAsText(file);
+  }, [state.meds, patch, toast]);
+
+  const setUsageConfirmFuzzy = useCallback((v: boolean) => patch({ usageConfirmFuzzy: v }), [patch]);
+
+  const clearUsageImport = useCallback(() => patch({ usageRows: null, usageFileName: null, usageConfirmFuzzy: false }), [patch]);
+
+  const commitUsageImport = useCallback(guardOnce('usageImport', async () => {
+    const rows = state.usageRows || [];
+    const periodDays = USAGE_PERIOD_DAYS[state.usagePeriod];
+    const hasFuzzy = rows.some((r) => r.match.kind === 'fuzzy');
+    if (hasFuzzy && !state.usageConfirmFuzzy) { toast('กรุณายืนยันว่าตรวจสอบรายการที่จับคู่แบบไม่ตรงชื่อเป๊ะแล้ว ก่อนนำเข้า'); return; }
+    // Only 'exact'/'fuzzy' (human-confirmed) resolve to one med — same ambiguity rule as HOSxP
+    // reconcile, and for the same reason: an OPD/IPD name-twin pair has no ward info in a
+    // plain "ชื่อยา,จำนวน" file, so guessing which one a row belongs to risks silently
+    // applying one ward's real usage rate to the other's par suggestion.
+    const targets = rows
+      .map((r) => {
+        const medId = r.match.kind === 'exact' || r.match.kind === 'fuzzy' ? r.match.medId : null;
+        return { r, m: medId ? state.meds.find((x) => x.id === medId) : undefined };
+      })
+      .filter((x): x is { r: typeof x.r; m: Med } => !!x.m);
+    if (!targets.length) { toast('ไม่มีรายการที่จับคู่กับยาในระบบได้ — ตรวจสอบชื่อยาในไฟล์'); return; }
+    try {
+      for (let i = 0; i < targets.length; i += 400) {
+        const batch = writeBatch(db);
+        targets.slice(i, i + 400).forEach(({ r, m }) => {
+          const used30 = Math.round((r.qty / periodDays) * 30);
+          batch.update(doc(db, 'meds', m.id), { used30 });
+        });
+        await withTimeout(batch.commit());
+      }
+      logAudit({ type: 'par_updated', note: 'นำเข้าอัตราการใช้จากไฟล์ ' + (state.usageFileName || '') + ' (' + USAGE_PERIOD_LABEL[state.usagePeriod] + ', ' + targets.length + ' รายการ)' });
+      patch({ usageRows: null, usageFileName: null, usageConfirmFuzzy: false });
+      const skipped = rows.length - targets.length;
+      toast('นำเข้าอัตราการใช้แล้ว ' + targets.length + ' รายการ' + (skipped ? ' · ข้าม ' + skipped + ' รายการที่จับคู่ไม่ได้' : '') + ' — กด "ใช้ค่าแนะนำทั้งหมด" เพื่ออัปเดต par');
+    } catch (e) { toastErr(e, 'นำเข้าไม่สำเร็จ ลองใหม่อีกครั้ง'); }
+  }), [state.usageRows, state.usagePeriod, state.usageConfirmFuzzy, state.usageFileName, state.meds, logAudit, toast, toastErr, patch, guardOnce]);
+
   // ---------- qr ----------
   const openScanSearch = useCallback((purpose: string) => patch({ qrOpen: true, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: purpose }), [patch]);
   const closeQr = useCallback(() => patch({ qrOpen: false, qrManualOpen: false }), [patch]);
@@ -1619,6 +1703,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, setCountInput, commitCount,
     setHosxpText, processHosxp, setHosxpConfirmFuzzy, commitReconcile,
+    setUsagePeriod, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     doneAgain,
     setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit,
