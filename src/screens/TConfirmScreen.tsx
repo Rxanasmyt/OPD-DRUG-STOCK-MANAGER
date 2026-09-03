@@ -9,20 +9,29 @@ export default function TConfirmScreen() {
   const meds = state.meds;
   const hadPending = cartIds.filter((id) => meds.find((m) => m.id === id)?.had && !state.hadOk[id]);
 
-  const rows = cartIds.map((id) => {
-    const m = meds.find((x) => x.id === id)!;
-    let need = state.cart[id];
-    const used = state.lots
-      .filter((l) => l.medId === id && l.qty > 0)
-      .sort((a, b) => a.exp - b.exp)
-      .map((l) => {
-        const take = Math.min(need, l.qty);
-        need -= take;
-        return take > 0 ? `lot ${l.lotNo} exp ${new Date(l.exp).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit' })} × ${nf(take)}` : null;
-      })
-      .filter(Boolean);
-    return { id, m, used, qty: state.cart[id] };
-  });
+  // A med in the cart can, in principle, have been deleted from the formulary by someone else
+  // (a different device/session) between adding it to the cart and reaching this confirm
+  // screen — carts are purely local state, never reflected in Firestore until commit, so
+  // there's nothing stopping that. `!` here used to crash the whole screen (caught by the
+  // ErrorBoundary, but still a jarring "reload the app" for what should just be one stale
+  // cart row) — skip rows whose med no longer resolves instead.
+  const rows = cartIds
+    .map((id) => {
+      const m = meds.find((x) => x.id === id);
+      if (!m) return null;
+      let need = state.cart[id];
+      const used = state.lots
+        .filter((l) => l.medId === id && l.qty > 0)
+        .sort((a, b) => a.exp - b.exp)
+        .map((l) => {
+          const take = Math.min(need, l.qty);
+          need -= take;
+          return take > 0 ? `lot ${l.lotNo} exp ${new Date(l.exp).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit' })} × ${nf(take)}` : null;
+        })
+        .filter(Boolean);
+      return { id, m, used, qty: state.cart[id] };
+    })
+    .filter((r): r is NonNullable<typeof r> => !!r);
 
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>

@@ -715,6 +715,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // anything — a Firestore transaction only commits if this function returns without
         // throwing, so aborting here leaves nothing partially written.
         const shortages: string[] = [];
+        // A cart is purely local state, never reflected in Firestore until commit — nothing
+        // stops the med from being deleted (by someone else, another device) in the gap
+        // between adding it to the cart and confirming here. Check for that too, same
+        // pre-write pass as the stock-shortage check right below.
+        const missing = ids.filter((medId) => !meds.find((x) => x.id === medId));
+        if (missing.length) throw new Error('missing-med');
         for (const medId of ids) {
           const avail = lotIdsByMed[medId].reduce((s, lotId) => s + (lotReads[lotId]?.qty || 0), 0);
           if (avail < cart[medId]) {
@@ -737,6 +743,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             need -= take;
             used.push(lotData.lotNo + ' (' + nf(take) + ')');
           }
+          // Safe: the missing-med check above already threw before this loop could run for
+          // any medId that doesn't resolve, so every lookup here is guaranteed to hit.
           const m = meds.find((x) => x.id === medId)!;
           trx.update(doc(db, 'meds', medId), { floor: medReads[medId] + cart[medId] });
           rows.push({ name: m.name, sub: 'lot ' + used.join(', '), qty: nf(cart[medId]) + ' ' + m.unit, medId });
@@ -755,6 +763,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setState((st) => ({ ...st, cart: {}, hadOk: {}, screen: 'done', navStack: pushNav(st.navStack, st.screen), doneKind: 'transfer', doneRows: resultRows }));
     } catch (e) {
       const msg = (e as Error)?.message || '';
+      if (msg === 'missing-med') { toast('มีรายการในตะกร้าที่ถูกลบออกจากระบบไปแล้ว — กลับไปที่ตะกร้าแล้วลบรายการนั้นออกก่อน'); return; }
       if (msg.startsWith('insufficient:')) { toast('substock เหลือไม่พอสำหรับ ' + msg.slice('insufficient:'.length) + ' — น่าจะมีคนอื่นเบิกไปพร้อมกัน กลับไปปรับจำนวนในตะกร้าแล้วลองใหม่'); return; }
       toastErr(e, 'เติมหน้างานไม่สำเร็จ ลองใหม่อีกครั้ง');
     }

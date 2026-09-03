@@ -7,6 +7,23 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.38.0] - 2026-09-03
+
+### Fixed
+- **fix:** a cart is purely local state, never reflected in Firestore until commit — nothing
+  stops the med it references from being deleted (by someone else, another device) in the gap
+  between adding it to the cart and reaching ตรวจสอบก่อนยืนยัน. That gap used to crash the
+  confirm screen outright (a non-null assertion on a lookup that could legitimately come back
+  empty) — caught by the ErrorBoundary, but still a jarring "reload the app" for what should
+  just be one stale cart row. Now skips the stale row instead of crashing the screen, and
+  commitTransfer itself checks for the same case before writing anything, aborting with a
+  clear "รายการถูกลบออกจากระบบไปแล้ว" message instead of throwing mid-transaction
+- **fix:** scanning a med's QR from "จัดการรายการยา" (▣ ดูข้อมูลยา) to jump straight to its
+  edit panel reset the active/inactive filter but not the OPD/IPD ward tab — scanning an IPD
+  drug while that screen's ward tab was still on "OPD" silently did nothing (the row existed
+  but the ward filter was hiding it, so there was nothing to open or scroll to). Now resets
+  both
+
 ## [2.37.0] - 2026-09-03
 
 ### Fixed

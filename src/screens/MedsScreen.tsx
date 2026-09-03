@@ -54,6 +54,11 @@ export default function MedsScreen() {
     if (!state.medsFocusId) return;
     const id = state.medsFocusId;
     setFilter('all');
+    // Bug fix: this reset `filter` (active/inactive) but not the ward tab — scanning an IPD
+    // med's QR while this screen's ward tab was still on "OPD" set editingId to a row that
+    // the ward filter below was hiding, so nothing visibly happened (no edit panel, nothing
+    // to scroll to) even though the scan itself worked fine.
+    setWardTab('all');
     setQ('');
     setAddOpen(false);
     setEditingId(id);
