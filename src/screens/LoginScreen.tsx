@@ -65,8 +65,8 @@ export default function LoginScreen() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 22, animation: 'fade .4s var(--ease-out) both' }}>
           <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(255,255,255,.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, flex: 'none', animation: 'glowPulse 3.2s infinite' }}>💊</div>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--ink-soft)', lineHeight: 1.25 }}>ระบบจัดการสต็อกยา OPD</div>
-            <div style={{ fontSize: 11.5, color: 'rgba(242,245,239,.65)' }}>รพ.กรงปินัง · ห้องยาผู้ป่วยนอก</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-soft)', lineHeight: 1.3 }}>KPNHOS-DRUG SUBSTOCK-OPD-IPD-MANAGEMENT</div>
+            <div style={{ fontSize: 11.5, color: 'rgba(242,245,239,.65)', marginTop: 2 }}>รพ.กรงปินัง · ห้องยา OPD-IPD</div>
           </div>
         </div>
       </div>

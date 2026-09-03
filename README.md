@@ -1,6 +1,8 @@
-# ระบบจัดการสต็อกยา OPD · รพ.กรงปินัง
+# KPNHOS-DRUG SUBSTOCK-OPD-IPD-MANAGEMENT
 
-Implementation ของดีไซน์ `ระบบสต็อกยา OPD.dc.html` (Claude Design) — เว็บแอปจัดการสต็อกยาสำหรับห้องยาผู้ป่วยนอก
+ระบบจัดการสต็อกยา OPD/IPD · รพ.กรงปินัง
+
+Implementation ของดีไซน์ `ระบบสต็อกยา OPD.dc.html` (Claude Design) — เว็บแอปจัดการสต็อกยาสำหรับห้องยาผู้ป่วยนอก/ผู้ป่วยใน
 ครอบคลุม flow ตั้งแต่คลังย่อย (substock) → หน้างานจ่ายยา (floor) พร้อมติดตาม lot และวันหมดอายุแบบ FEFO
 
 ## Stack

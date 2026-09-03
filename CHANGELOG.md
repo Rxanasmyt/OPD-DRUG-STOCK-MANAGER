@@ -7,6 +7,14 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.30.0] - 2026-09-03
+
+### Changed
+- **feat:** renamed the app to **KPNHOS-DRUG SUBSTOCK-OPD-IPD-MANAGEMENT** — updated the
+  browser tab title, PWA install name/short name/home-screen label, the app name shown on the
+  login screen, `package.json`, and `README.md`. Purely a display/identity change — no
+  behavior, data, or Firestore schema affected
+
 ## [2.29.0] - 2026-09-02
 
 ### Fixed

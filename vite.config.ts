@@ -15,9 +15,9 @@ export default defineConfig({
       includeAssets: ['apple-touch-icon.png'],
       manifest: {
         id: base,
-        name: 'ระบบจัดการสต็อกยา OPD',
-        short_name: 'สต็อกยา OPD',
-        description: 'ระบบจัดการสต็อกยาห้องยาผู้ป่วยนอก รพ.กรงปินัง — เติมหน้างานแบบ FEFO, รับเข้า substock, ปรับยอด, นำเข้า HOSxP, รายงาน และฉลาก QR',
+        name: 'KPNHOS-DRUG SUBSTOCK-OPD-IPD-MANAGEMENT',
+        short_name: 'KPNHOS Substock',
+        description: 'KPNHOS-DRUG SUBSTOCK-OPD-IPD-MANAGEMENT — ระบบจัดการสต็อกยา OPD/IPD รพ.กรงปินัง — เติมหน้างานแบบ FEFO, รับเข้า substock, ปรับยอด, นำเข้า HOSxP, รายงาน และฉลาก QR',
         lang: 'th',
         theme_color: '#17552f',
         background_color: '#f7f6f2',
