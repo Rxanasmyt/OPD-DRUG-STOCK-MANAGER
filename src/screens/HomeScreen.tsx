@@ -4,9 +4,7 @@ import { toneFor, daysUntil, wardOf, usesSubstock, floorMinOf } from '../store/s
 import { nf, thDate, isoDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge } from '../components/Qty';
-import type { Ward } from '../types';
-
-const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: 'var(--ipd)' };
+import { WardTabs } from '../components/WardTabs';
 
 export default function HomeScreen() {
   const { state, myProfile, sub, fefo, bump, goReceiveFor, go, warn, pickAdjType, seedDatabase, setWardFilter } = useApp();
@@ -55,20 +53,8 @@ export default function HomeScreen() {
 
   return (
     <div style={{ padding: '14px 14px 20px', animation: 'fade .18s' }}>
-      <div style={{ display: 'flex', gap: 2, background: 'var(--border-soft)', padding: 3, borderRadius: 11, marginBottom: 13 }}>
-        {(['all', 'opd', 'ipd'] as const).map((w) => {
-          const active = state.wardFilter === w;
-          const tone = w === 'opd' ? WARD_COLOR.opd : w === 'ipd' ? WARD_COLOR.ipd : 'var(--ink)';
-          return (
-            <button
-              key={w}
-              onClick={() => setWardFilter(w)}
-              style={{ flex: 1, border: 0, background: active ? 'var(--bg-card)' : 'transparent', color: active ? tone : 'var(--muted)', padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: active ? 'var(--shadow-xs)' : 'none', transition: 'background var(--dur) var(--ease), color var(--dur) var(--ease)' }}
-            >
-              {w === 'all' ? 'ทุกหอผู้ป่วย' : w === 'opd' ? 'OPD' : 'IPD'}
-            </button>
-          );
-        })}
+      <div style={{ marginBottom: 13 }}>
+        <WardTabs value={state.wardFilter} onChange={setWardFilter} />
       </div>
 
       <div className="grid-2 tablet-4" style={{ marginBottom: 14 }}>

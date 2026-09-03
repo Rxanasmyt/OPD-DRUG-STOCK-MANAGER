@@ -10,10 +10,10 @@ import { shortLabelName, titleSizeStep } from '../utils/labelName';
 // stretched full mobile-width here vs a fixed 100mm print card).
 const TITLE_PX_BY_STEP = [17, 16, 14.5, 13, 11.5, 10.5];
 import { LOCS } from '../data/locations';
+import { WardTabs } from '../components/WardTabs';
 import type { LabelType, Ward } from '../types';
 
 const TABS: [LabelType, string][] = [['med', 'ฉลากตัวยา'], ['lot', 'ฉลาก lot'], ['loc', 'ฉลากชั้นวาง']];
-const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: 'var(--ipd)' };
 
 // These preview cards are deliberately styled with literal colors (white background, #999
 // borders) since they represent actual printed paper, not themed app chrome — this badge
@@ -56,20 +56,8 @@ export default function LabelsScreen() {
         ))}
       </div>
       {state.labelType !== 'loc' && (
-        <div style={{ display: 'flex', gap: 2, background: 'var(--border-soft)', padding: 3, borderRadius: 11, marginBottom: 13 }}>
-          {(['all', 'opd', 'ipd'] as const).map((w) => {
-            const active = state.wardFilter === w;
-            const tone = w === 'opd' ? WARD_COLOR.opd : w === 'ipd' ? WARD_COLOR.ipd : 'var(--ink)';
-            return (
-              <button
-                key={w}
-                onClick={() => setWardFilter(w)}
-                style={{ flex: 1, border: 0, background: active ? 'var(--bg-card)' : 'transparent', color: active ? tone : 'var(--muted)', padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: active ? 'var(--shadow-xs)' : 'none', transition: 'background var(--dur) var(--ease), color var(--dur) var(--ease)' }}
-              >
-                {w === 'all' ? 'ทุกหอผู้ป่วย' : w === 'opd' ? 'OPD' : 'IPD'}
-              </button>
-            );
-          })}
+        <div style={{ marginBottom: 13 }}>
+          <WardTabs value={state.wardFilter} onChange={setWardFilter} />
         </div>
       )}
       {state.labelType === 'med' ? (

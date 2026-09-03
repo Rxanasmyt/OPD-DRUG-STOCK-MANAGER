@@ -1,11 +1,11 @@
 import { useApp } from '../store/AppContext';
 import { subQty, daysUntil, wardOf } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
-import type { ReportTab, Ward } from '../types';
+import { WardTabs } from '../components/WardTabs';
+import type { ReportTab } from '../types';
 
 const TABS: [ReportTab, string][] = [['aging', 'Stock aging'], ['turn', 'Turnover'], ['disc', 'Discrepancy log']];
 const REPORT_NAMES: Record<ReportTab, string> = { aging: 'stock_aging.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv' };
-const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: 'var(--ipd)' };
 const AGING_BUCKETS: [string, number, number, string][] = [
   ['หมดอายุแล้ว', -99999, 0, 'var(--red)'],
   ['เหลือ ≤ 30 วัน', 0, 30, 'var(--red)'],
@@ -63,21 +63,7 @@ export default function ReportScreen() {
             <button key={t} className="chip" style={{ ...chip(state.reportTab === t), minHeight: 38 }} onClick={() => setReportTab(t)}>{label}</button>
           ))}
         </div>
-        <div style={{ display: 'flex', gap: 2, background: 'var(--border-soft)', padding: 3, borderRadius: 11 }}>
-          {(['all', 'opd', 'ipd'] as const).map((w) => {
-            const active = state.wardFilter === w;
-            const tone = w === 'opd' ? WARD_COLOR.opd : w === 'ipd' ? WARD_COLOR.ipd : 'var(--ink)';
-            return (
-              <button
-                key={w}
-                onClick={() => setWardFilter(w)}
-                style={{ flex: 1, border: 0, background: active ? 'var(--bg-card)' : 'transparent', color: active ? tone : 'var(--muted)', padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: active ? 'var(--shadow-xs)' : 'none', transition: 'background var(--dur) var(--ease), color var(--dur) var(--ease)' }}
-              >
-                {w === 'all' ? 'ทุกหอผู้ป่วย' : w === 'opd' ? 'OPD' : 'IPD'}
-              </button>
-            );
-          })}
-        </div>
+        <WardTabs value={state.wardFilter} onChange={setWardFilter} />
       </div>
       <div style={{ padding: '12px 14px 24px' }}>
         <button onClick={exportReportCsv} className="btn-outline" style={{ width: '100%', padding: 12, borderRadius: 11, fontSize: 14, fontWeight: 600, minHeight: 46, marginBottom: 12 }}>

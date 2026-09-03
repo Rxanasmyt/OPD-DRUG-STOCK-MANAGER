@@ -4,6 +4,7 @@ import { nf, thDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
+import { WardTabs } from '../components/WardTabs';
 import type { AdjType } from '../types';
 
 const TYPES: [AdjType, string, string][] = [
@@ -82,20 +83,8 @@ export default function AdjustScreen() {
             {state.adjType === 'adjust' ? 'ปรับยอดตามที่นับได้' : state.adjType === 'return' ? 'รับคืนยาเข้าหน้างาน' : 'ตัดยาเสีย / ชำรุด'}
           </div>
           {!adjMed && (
-            <div style={{ display: 'flex', gap: 2, background: 'var(--border-soft)', padding: 3, borderRadius: 11, marginBottom: 9 }}>
-              {(['all', 'opd', 'ipd'] as const).map((w) => {
-                const active = state.wardFilter === w;
-                const tone = w === 'opd' ? 'var(--green)' : w === 'ipd' ? 'var(--ipd)' : 'var(--ink)';
-                return (
-                  <button
-                    key={w}
-                    onClick={() => setWardFilter(w)}
-                    style={{ flex: 1, border: 0, background: active ? 'var(--bg-card)' : 'transparent', color: active ? tone : 'var(--muted)', padding: '8px 0', borderRadius: 8, fontSize: 12.5, fontWeight: 600, boxShadow: active ? 'var(--shadow-xs)' : 'none', transition: 'background var(--dur) var(--ease), color var(--dur) var(--ease)' }}
-                  >
-                    {w === 'all' ? 'ทุกหอผู้ป่วย' : w === 'opd' ? 'OPD' : 'IPD'}
-                  </button>
-                );
-              })}
+            <div style={{ marginBottom: 9 }}>
+              <WardTabs value={state.wardFilter} onChange={setWardFilter} size="sm" />
             </div>
           )}
           <input value={state.adjSearch} onChange={(e) => setAdjSearch(e.target.value)} placeholder="ค้นหาชื่อยา" style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44, marginBottom: 9 }} />

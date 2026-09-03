@@ -4,9 +4,7 @@ import { nf, thDate, digitsOnly } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge } from '../components/Qty';
-import type { Ward } from '../types';
-
-const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: 'var(--ipd)' };
+import { WardTabs } from '../components/WardTabs';
 
 export default function TransferScreen() {
   const { state, sub, fefo, setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, printPickList, go, openScanSearch } = useApp();
@@ -31,20 +29,8 @@ export default function TransferScreen() {
   return (
     <div style={{ animation: 'fade .18s' }}>
       <div style={{ padding: '12px 14px 10px' }} className="sticky-bar">
-        <div style={{ display: 'flex', gap: 2, background: 'var(--border-soft)', padding: 3, borderRadius: 11, marginBottom: 9 }}>
-          {(['all', 'opd', 'ipd'] as const).map((w) => {
-            const active = state.wardFilter === w;
-            const tone = w === 'opd' ? WARD_COLOR.opd : w === 'ipd' ? WARD_COLOR.ipd : 'var(--ink)';
-            return (
-              <button
-                key={w}
-                onClick={() => setWardFilter(w)}
-                style={{ flex: 1, border: 0, background: active ? 'var(--bg-card)' : 'transparent', color: active ? tone : 'var(--muted)', padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: active ? 'var(--shadow-xs)' : 'none', transition: 'background var(--dur) var(--ease), color var(--dur) var(--ease)' }}
-              >
-                {w === 'all' ? 'ทุกหอผู้ป่วย' : w === 'opd' ? 'OPD' : 'IPD'}
-              </button>
-            );
-          })}
+        <div style={{ marginBottom: 9 }}>
+          <WardTabs value={state.wardFilter} onChange={setWardFilter} />
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <input

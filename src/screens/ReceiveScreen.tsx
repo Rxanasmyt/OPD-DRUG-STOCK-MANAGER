@@ -4,6 +4,7 @@ import { nf, thDate, thTime } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
+import { WardTabs } from '../components/WardTabs';
 
 // Same severity bands as toneFor(), applied to substock/par instead of floor/parFloor —
 // this screen is about substock, so that's the ratio a pharmacist actually cares about here.
@@ -93,20 +94,8 @@ export default function ReceiveScreen() {
         <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 2 }}>เพิ่มรายการ</div>
         <div className="muted" style={{ fontSize: 11.5, marginBottom: 9 }}>สแกน QR ที่ติดหน้ายาใน substock เพื่อระบุตัวยาอัตโนมัติ หรือค้นหาด้วยชื่อ</div>
         {!recvMed && (
-          <div style={{ display: 'flex', gap: 2, background: 'var(--border-soft)', padding: 3, borderRadius: 11, marginBottom: 9 }}>
-            {(['all', 'opd', 'ipd'] as const).map((w) => {
-              const active = state.wardFilter === w;
-              const tone = w === 'opd' ? 'var(--green)' : w === 'ipd' ? 'var(--ipd)' : 'var(--ink)';
-              return (
-                <button
-                  key={w}
-                  onClick={() => setWardFilter(w)}
-                  style={{ flex: 1, border: 0, background: active ? 'var(--bg-card)' : 'transparent', color: active ? tone : 'var(--muted)', padding: '8px 0', borderRadius: 8, fontSize: 12.5, fontWeight: 600, boxShadow: active ? 'var(--shadow-xs)' : 'none', transition: 'background var(--dur) var(--ease), color var(--dur) var(--ease)' }}
-                >
-                  {w === 'all' ? 'ทุกหอผู้ป่วย' : w === 'opd' ? 'OPD' : 'IPD'}
-                </button>
-              );
-            })}
+          <div style={{ marginBottom: 9 }}>
+            <WardTabs value={state.wardFilter} onChange={setWardFilter} size="sm" />
           </div>
         )}
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>

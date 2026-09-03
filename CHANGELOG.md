@@ -7,6 +7,27 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.31.0] - 2026-09-03
+
+### Added
+- **feat:** a persistent "where am I" context bar pinned right under the header on every
+  screen — always says, in plain sight, whether the current screen is working against
+  **คลังย่อย Substock** (amber, 📦 — รับยาเข้า substock, บัตรสต็อก, ตัดยาหมดอายุใน "ปรับยอด")
+  or **หน้างาน** (green, 🏥 — เติมหน้างาน, ตรวจสอบก่อนยืนยัน, ปรับยอด/คืนยา/ยาเสีย, ย้ายยาระหว่าง
+  ชั้นวาง, นับสต็อกหน้างาน), plus a live OPD (green) / IPD (purple) / ทุกหอผู้ป่วย pill on the
+  three screens actually scoped by the ward filter (รับเข้า, เติมหน้างาน, ปรับยอด) — replaces
+  having to read a screen's title or scroll to its filter tabs to work out which stock a
+  scan or a number on screen actually belongs to
+- **fix:** the home screen's header title was hardcoded to "ห้องยา OPD" regardless of the
+  ward filter actually selected — a stale claim once the app grew IPD support. Now follows
+  the ward tabs live: "ห้องยา OPD" / "ห้องยา IPD" / "ห้องยา OPD/IPD"
+
+### Changed
+- **feat:** extracted the OPD/IPD/ทุกหอผู้ป่วย filter tabs — six near-identical inline copies
+  across Home/Receive/Transfer/Adjust/Labels/Report — into one shared `WardTabs` component
+  with a sliding highlight pill (same motion language as the login screen's เข้าสู่ระบบ/
+  สมัครสมาชิก toggle) instead of the active tab's background just snapping on/off
+
 ## [2.30.0] - 2026-09-03
 
 ### Changed

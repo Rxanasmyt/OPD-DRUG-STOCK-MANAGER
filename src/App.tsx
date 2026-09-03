@@ -8,6 +8,7 @@ import DoneScreen from './screens/DoneScreen';
 import ReceiveScreen from './screens/ReceiveScreen';
 import MoreScreen from './screens/MoreScreen';
 import Toast from './components/Toast';
+import { ContextBar } from './components/ContextBar';
 import type { Screen } from './types';
 
 // Code-split the screens that aren't part of the hot day-to-day path (settings, admin,
@@ -29,7 +30,7 @@ const QrModal = lazy(() => import('./components/QrModal'));
 
 const TITLES: Record<Screen, [string, string]> = {
   login: ['', ''],
-  home: ['ห้องยา OPD', ''],
+  home: ['ห้องยา OPD/IPD', ''],
   transfer: ['เติมหน้างาน', 'substock → ชั้นจ่ายยา'],
   tconfirm: ['ตรวจสอบก่อนยืนยัน', 'FEFO'],
   done: ['สำเร็จ', 'บันทึกลง audit trail แล้ว'],
@@ -71,7 +72,13 @@ export default function App() {
     );
   }
 
-  const [title, sub] = TITLES[state.screen];
+  const [titleDef, sub] = TITLES[state.screen];
+  // Home's own ward filter tabs change which ward's numbers the dashboard is showing —
+  // the header title should say so too, not sit fixed on a title that used to hardcode "OPD"
+  // regardless of what was actually on screen (a real bug once the app grew IPD support).
+  const title = state.screen === 'home'
+    ? (state.wardFilter === 'opd' ? 'ห้องยา OPD' : state.wardFilter === 'ipd' ? 'ห้องยา IPD' : titleDef)
+    : titleDef;
   const headerSub = state.screen === 'home' ? 'รพ.กรงปินัง · ' + roleLabel() : state.screen === 'more' ? roleLabel() : sub;
   const canBack = CAN_BACK.includes(state.screen);
 
@@ -82,7 +89,7 @@ export default function App() {
         {canBack && (
           <button onClick={back} style={{ position: 'relative', border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 32, height: 32, borderRadius: 9, fontSize: 16, flex: 'none' }}>←</button>
         )}
-        <div key={state.screen} style={{ position: 'relative', minWidth: 0, flex: 1, animation: 'fade .22s var(--ease-out)' }}>
+        <div key={state.screen + '|' + title} style={{ position: 'relative', minWidth: 0, flex: 1, animation: 'fade .22s var(--ease-out)' }}>
           <div style={{ fontSize: 16.5, fontWeight: 600, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
           <div style={{ fontSize: 11.5, opacity: 0.65, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{headerSub}</div>
         </div>
@@ -102,6 +109,8 @@ export default function App() {
           {state.online ? 'ออนไลน์' : 'ออฟไลน์'}
         </div>
       </header>
+
+      <ContextBar screen={state.screen} wardFilter={state.wardFilter} adjType={state.adjType} doneKind={state.doneKind} />
 
       {!state.online && (
         <div style={{ flex: 'none', background: 'var(--amber-bg)', borderBottom: '1px solid var(--amber-border)', color: 'var(--amber-ink)', padding: '8px 16px', fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, animation: 'fade .22s var(--ease-out)' }}>
