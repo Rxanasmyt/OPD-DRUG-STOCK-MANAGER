@@ -145,6 +145,11 @@ export interface PickListRow {
   name: string;
   qty: number;
   unit: string;
+  // Optional flag line under the drug name — e.g. when the printed qty had to be capped by
+  // what substock actually has on hand, so it won't fully bring the shelf up to par even
+  // after every row on this sheet is picked. Absent for every existing caller (unset renders
+  // nothing extra), so this is additive, not a breaking change to the pick-list layout.
+  note?: string;
 }
 
 /**
@@ -160,7 +165,7 @@ export function printPickListSheet(rows: PickListRow[], heading: string, subhead
     .map((r, i) => `<tr>
       <td class="n">${i + 1}</td>
       <td class="bin">${escapeHtml(r.bin || '—')}</td>
-      <td class="name">${escapeHtml(r.name)}</td>
+      <td class="name">${escapeHtml(r.name)}${r.note ? `<div class="note">⚠ ${escapeHtml(r.note)}</div>` : ''}</td>
       <td class="qty">${r.qty.toLocaleString('en-US')} ${escapeHtml(r.unit)}</td>
       <td class="check">☐</td>
     </tr>`)
@@ -181,6 +186,7 @@ export function printPickListSheet(rows: PickListRow[], heading: string, subhead
   .bin { width: 26mm; font-weight: 800; white-space: nowrap; }
   .qty { width: 32mm; font-weight: 700; text-align: right; }
   .check { width: 12mm; text-align: center; font-size: 13pt; }
+  .note { font-size: 8.5pt; color: #b8710f; font-weight: 600; margin-top: 0.5mm; }
   @media screen {
     body { background: #eee; padding: 14mm; }
     .sheet { background: #fff; padding: 14mm; margin: 0 auto; max-width: 210mm; box-shadow: 0 0 0 1px #ddd; }

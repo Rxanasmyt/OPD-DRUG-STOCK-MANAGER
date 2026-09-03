@@ -7,6 +7,18 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.34.0] - 2026-09-03
+
+### Added
+- **feat:** "🖨 พิมพ์ใบเติมหน้างานวันนี้" on the เติมหน้างาน screen — one tap prints today's
+  A4 checklist of exactly which drugs are below their reorder point (Min) and how much to
+  bring up to par (Max), sorted by shelf position with a checkbox per row, ward-scoped to
+  whichever OPD/IPD tab is open. Same suggested-qty logic as "เติมตาม par ทั้งหมด" (capped by
+  what substock actually has), but computed straight from current floor numbers — no need to
+  build a cart first just to get a printable list, and the cart is untouched either way. A row
+  whose printed qty had to be capped by a substock shortfall now carries an on-sheet ⚠ note
+  saying so, so picking every row still won't quietly leave the shelf under par unnoticed
+
 ## [2.33.0] - 2026-09-03
 
 ### Added

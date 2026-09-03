@@ -7,7 +7,7 @@ import { Qty, DeficitBadge } from '../components/Qty';
 import { WardTabs } from '../components/WardTabs';
 
 export default function TransferScreen() {
-  const { state, sub, fefo, setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, printPickList, go, openScanSearch } = useApp();
+  const { state, sub, fefo, setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, printPickList, printTodayReplenishList, go, openScanSearch } = useApp();
   // noSubstock meds (liquids/sprays — received straight to the shelf, see ReceiveScreen)
   // have nothing to transfer from; showing them here with permanently-stuck-at-0 +/- buttons
   // would just be confusing clutter, not a real "เติมหน้างาน" candidate.
@@ -46,6 +46,14 @@ export default function TransferScreen() {
           <button className="chip" style={chip(state.filter === 'all')} onClick={() => setFilter('all')}>ทั้งหมด</button>
           <button className="chip" style={chip(state.filter === 'had')} onClick={() => setFilter('had')}>High alert</button>
           <button className="chip" style={{ border: '1px dashed var(--green)', background: 'transparent', color: 'var(--green)' }} onClick={fillAll}>เติมตาม par ทั้งหมด</button>
+          <button
+            className="chip"
+            style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 5 }}
+            onClick={printTodayReplenishList}
+            title="พิมพ์รายการที่ต้องเติมวันนี้ให้ถึง par — ไม่กระทบตะกร้า"
+          >
+            🖨 พิมพ์ใบเติมหน้างานวันนี้{low.length > 0 ? ' (' + low.length + ')' : ''}
+          </button>
         </div>
       </div>
 

@@ -95,6 +95,7 @@ export interface AppCtx {
   setCartQty: (id: string, raw: string) => void;
   fillAll: () => void;
   printPickList: () => void;
+  printTodayReplenishList: () => void;
   printWarehouseRequestList: () => void;
   removeFromCart: (id: string) => void;
   commitTransfer: () => void;
@@ -602,6 +603,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const ok = printPickListSheet(rows, 'ใบจัดยาเติมชั้น — ' + wardLabel, 'หอผู้ป่วย: ' + wardLabel);
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state.cart, state.meds, state.wardFilter, toast]);
+
+  // The daily version of the above — "วันนี้ต้องเติมอะไรบ้าง" printed straight from current
+  // floor-vs-Min numbers, with zero dependence on the cart. A จพ.เภสัช doing the morning walk
+  // shouldn't have to open the app, tap "เติมตาม par ทั้งหมด" to build a cart, then print,
+  // just to get a checklist to carry — this is that same suggested-qty logic (same target:
+  // parFloor/"Max", same cap: what substock actually has), one tap, cart untouched. Same
+  // ward-scoping as fillAll: only the currently-selected ward tab's items print.
+  const printTodayReplenishList = useCallback(() => {
+    const wardLabel = state.wardFilter === 'opd' ? 'OPD' : state.wardFilter === 'ipd' ? 'IPD' : 'ทุกหอผู้ป่วย';
+    const items = state.meds.filter((m) => m.active && usesSubstock(m)
+      && (state.wardFilter === 'all' || wardOf(m) === state.wardFilter)
+      && m.floor < floorMinOf(m));
+    if (!items.length) { toast('วันนี้ไม่มีรายการที่ต่ำกว่าจุดต้องเติม (Min) — ยังไม่ต้องเติมหน้างาน'); return; }
+    const rows = items
+      .map((m) => {
+        const need = Math.max(0, m.parFloor - m.floor);
+        const qty = suggestTransferQty(state, m);
+        // suggestTransferQty caps at what's actually in substock — flag it on the sheet
+        // itself when that cap bit, so picking every row here still won't quietly leave the
+        // shelf under par; the person carrying this sheet should know to also flag it for
+        // the next "เบิกจากคลังใหญ่" run instead of assuming the job's done.
+        const note = qty < need ? 'substock เหลือไม่พอเติมเต็ม par (ขาดอีก ' + nf(need - qty) + ' ' + m.unit + ')' : undefined;
+        return { bin: m.bin, name: m.name, qty, unit: m.unit, note };
+      })
+      .filter((r) => r.qty > 0);
+    if (!rows.length) { toast('รายการที่ต่ำกว่า Min ไม่มีของเหลือใน substock ให้เติมเลยสักรายการ — ต้องเบิกจากคลังใหญ่ก่อน'); return; }
+    const ok = printPickListSheet(rows, 'ใบเติมหน้างานประจำวัน — ' + wardLabel, thDate(Date.now()) + ' · หอผู้ป่วย: ' + wardLabel);
+    toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
+  }, [state, toast]);
 
   // "ระบบเตือนเบิก Substock (2 Weeks Cycle)" — since central-warehouse pickup only happens
   // once every two weeks (not daily like the shelf fill), what's actually needed is a
@@ -1691,7 +1721,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<AppCtx>(() => ({
     state, myProfile, theme, toggleTheme, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, go, back,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
-    setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, printPickList, removeFromCart, commitTransfer,
+    setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, printPickList, printTodayReplenishList, removeFromCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, printWarehouseRequestList,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
