@@ -72,7 +72,7 @@ export default function MoreScreen() {
       <div className="card" style={{ padding: 13, marginBottom: 14 }}>
         <div className="muted" style={{ fontSize: 12 }}>เข้าใช้งานเป็น</div>
         <div style={{ fontSize: 15.5, fontWeight: 600, marginTop: 2 }}>{userName()}</div>
-        <div className="muted" style={{ fontSize: 12.5 }}>{roleLabel()} · ห้องยา OPD</div>
+        <div className="muted" style={{ fontSize: 12.5 }}>{roleLabel()} · รพ.กรงปินัง</div>
       </div>
 
       <button onClick={logout} style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--red)', padding: 14, borderRadius: 11, fontSize: 14.5, fontWeight: 600, minHeight: 50 }}>ออกจากระบบ</button>

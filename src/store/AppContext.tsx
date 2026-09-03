@@ -21,6 +21,14 @@ import { printLabelSheet, printPickListSheet, type PrintLabel } from '../utils/p
 import { LOCS } from '../data/locations';
 import { withTimeout, TimeoutError } from '../utils/timeout';
 
+// Caps navStack length so a session left open for days (this is a PWA people keep pinned,
+// not something reloaded every visit) can't grow it unboundedly — nothing needs more than a
+// handful of levels of "back" to make sense.
+function pushNav(stack: Screen[], current: Screen): Screen[] {
+  const next = stack.concat(current);
+  return next.length > 20 ? next.slice(next.length - 20) : next;
+}
+
 function freshState(): AppState {
   return {
     meds: [], lots: [], txs: [], users: [], authLog: [], dbReady: false,
@@ -28,7 +36,7 @@ function freshState(): AppState {
     authStatus: 'loading', authMode: 'login', myUid: null,
     authUsername: '', authPassword: '', authName: '', authDept: 'เภสัชกรรม', authError: null, authBusy: false, authRemember: true,
 
-    screen: 'login', prevScreen: 'home', role: null, online: navigator.onLine, device: 'phone', pending: 0,
+    screen: 'login', navStack: [], role: null, online: navigator.onLine, device: 'phone', pending: 0,
 
     cart: {}, search: '', filter: 'low', wardFilter: 'all',
 
@@ -317,7 +325,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (fbUser) => {
       if (!fbUser) {
-        patch({ authStatus: 'signedOut', myUid: null, role: null, screen: 'login' });
+        patch({ authStatus: 'signedOut', myUid: null, role: null, screen: 'login', navStack: [] });
         setMyProfile(null);
       } else {
         patch({ myUid: fbUser.uid });
@@ -437,8 +445,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => unsubs.forEach((u) => u());
   }, [state.authStatus, myProfile?.role, patch, toast]);
 
-  const go = useCallback((s: Screen) => setState((st) => ({ ...st, screen: s, prevScreen: st.screen })), []);
-  const back = useCallback(() => setState((st) => ({ ...st, screen: st.screen === 'tconfirm' ? 'transfer' : 'more', prevScreen: st.screen })), []);
+  const go = useCallback((s: Screen) => setState((st) => ({ ...st, screen: s, navStack: pushNav(st.navStack, st.screen) })), []);
+  // Pops the real history stack instead of a single fixed "came from" pointer — see navStack
+  // on AppState. Bug this replaced: back() used to hardcode every screen except tconfirm to
+  // return to 'more', which only happened to be right for screens always opened from the More
+  // menu — pressing back from ปรับยอด after tapping Home's "ตัดออก" landed on the More menu (a
+  // screen the person never visited) instead of back on Home, same for จัดการรายการยา opened
+  // from ตั้งค่า, and บัตรสต็อก substock opened from the "สำเร็จ" screen after a เติมหน้างาน.
+  const back = useCallback(() => setState((st) => {
+    const stack = st.navStack.slice();
+    const prev = stack.pop();
+    return { ...st, screen: prev || 'more', navStack: stack };
+  }), []);
 
   const logAudit = useCallback(async (entry: { type: string; note: string }) => {
     try { await addDoc(collection(db, 'auditLog'), { ...entry, by: userName(), ts: Date.now() }); }
@@ -698,7 +716,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } satisfies Omit<import('../types').Tx, 'id'>);
       });
       await withTimeout(batch.commit());
-      setState((st) => ({ ...st, cart: {}, hadOk: {}, screen: 'done', prevScreen: st.screen, doneKind: 'transfer', doneRows: resultRows }));
+      setState((st) => ({ ...st, cart: {}, hadOk: {}, screen: 'done', navStack: pushNav(st.navStack, st.screen), doneKind: 'transfer', doneRows: resultRows }));
     } catch (e) {
       toastErr(e, 'เติมหน้างานไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
@@ -714,7 +732,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [patch, state.meds]);
   const goReceiveFor = useCallback((medId: string) => {
     const m = state.meds.find((x) => x.id === medId);
-    setState((st) => ({ ...st, screen: 'receive', prevScreen: st.screen, recvMed: medId, recvSearch: m ? m.name : '', recvLot: '', recvExp: '', recvQty: '' }));
+    setState((st) => ({ ...st, screen: 'receive', navStack: pushNav(st.navStack, st.screen), recvMed: medId, recvSearch: m ? m.name : '', recvLot: '', recvExp: '', recvQty: '' }));
   }, [state.meds]);
   const setRecvLot = useCallback((v: string) => patch({ recvLot: v }), [patch]);
   const setRecvExp = useCallback((v: string) => patch({ recvExp: v }), [patch]);
@@ -750,7 +768,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await withTimeout(batch.commit());
         await logAudit({ type: 'receive_pending', note: 'ใบเบิก ' + state.recvNo + ' · ' + items.length + ' รายการ — รออนุมัติ' });
         setState((st) => ({
-          ...st, screen: 'done', prevScreen: st.screen, doneKind: 'recvPending',
+          ...st, screen: 'done', navStack: pushNav(st.navStack, st.screen), doneKind: 'recvPending',
           doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + it.lotNo + ' · exp ' + thDate(it.exp), qty: nf(it.qty) + ' ' + it.unit, medId: it.medId })),
           recvItems: [],
         }));
@@ -780,7 +798,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       await withTimeout(batch.commit());
       setState((st) => ({
-        ...st, screen: 'done', prevScreen: st.screen, doneKind: 'receive',
+        ...st, screen: 'done', navStack: pushNav(st.navStack, st.screen), doneKind: 'receive',
         doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + it.lotNo + ' · exp ' + thDate(it.exp), qty: nf(it.qty) + ' ' + it.unit, medId: it.medId })),
         recvItems: [],
       }));
@@ -1331,7 +1349,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // (DoneScreen) so "รับเข้า/เติมหน้างานสำเร็จ แล้วอยากดูบัตรตอนนี้เลย" is one tap instead of
   // navigating to the screen and searching for the drug by name again.
   const goSubstockCardFor = useCallback((medId: string) => {
-    setState((st) => ({ ...st, screen: 'substockcard', prevScreen: st.screen, substockFocusId: medId }));
+    setState((st) => ({ ...st, screen: 'substockcard', navStack: pushNav(st.navStack, st.screen), substockFocusId: medId }));
   }, []);
   const setSubstockFocusId = useCallback((id: string | null) => patch({ substockFocusId: id }), [patch]);
 

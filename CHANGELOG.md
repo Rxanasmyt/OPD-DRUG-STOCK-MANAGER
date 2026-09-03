@@ -7,6 +7,24 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.35.0] - 2026-09-03
+
+### Fixed
+- **fix:** the header's ← back button used a single `prevScreen` pointer that only ever
+  remembered one level back, then hardcoded every screen except ตรวจสอบก่อนยืนยัน to return to
+  "เพิ่มเติม" (More) regardless of where it was actually opened from. Correct only by
+  coincidence for screens always opened from the More menu — wrong for anything reached
+  another way: Home's "ตัดออก" button into ปรับยอด landed back on More (a screen never
+  visited) instead of Home; จัดการรายการยา opened from ตั้งค่า landed on More instead of
+  ตั้งค่า; บัตรสต็อก substock opened from the "สำเร็จ" screen after เติมหน้างาน landed on More
+  instead of สำเร็จ. Replaced with a real navigation history stack (`navStack`) that every
+  screen transition pushes onto and back() pops, so it now always returns to the actual
+  previous screen, however deep the chain (also reset on logout so a stale stack from a prior
+  session can't leak into the next one)
+- **fix:** the "เข้าใช้งานเป็น" card in หน้าเพิ่มเติม still showed a hardcoded "ห้องยา OPD" —
+  the one spot the OPD/IPD app-rename pass (2.30.0) missed. Now shows "รพ.กรงปินัง" instead of
+  a stale ward claim
+
 ## [2.34.0] - 2026-09-03
 
 ### Added

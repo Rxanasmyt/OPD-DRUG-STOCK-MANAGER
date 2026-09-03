@@ -177,7 +177,15 @@ export interface AppState {
   authRemember: boolean;
 
   screen: Screen;
-  prevScreen: Screen;
+  // Real back-navigation history, not just a single "came from" pointer — see go()/back() in
+  // AppContext.tsx. A single prevScreen field (the old design) only ever remembers one level,
+  // so a two-deep chain (More → ตั้งค่า → จัดการรายการยา) had no correct "back" target once you
+  // left the immediately-previous screen: pressing back from จัดการรายการยา landed back on
+  // ตั้งค่า correctly, but pressing back again from there had already lost where *it* came
+  // from and fell back to a hardcoded 'more', which happened to be right only by coincidence
+  // for screens that are always opened from the More menu, and wrong for anything opened from
+  // elsewhere (Home's "ตัดออก" button into ปรับยอด, Done's "ดูบัตรสต็อก" into บัตรสต็อก substock).
+  navStack: Screen[];
   role: Role | null;
   online: boolean;
   device: 'phone' | 'tablet';
