@@ -1015,7 +1015,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { console.error(e); toast('ปรับ par ไม่สำเร็จ'); }
   }, [canEditPar, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast]);
 
-  const applyAllSuggested = useCallback(async () => {
+  const applyAllSuggested = useCallback(guardOnce('applyAllSuggested', async () => {
     if (!canEditPar) return;
     const targets = state.meds.filter((m) => {
       if (!m.active) return false;
@@ -1034,7 +1034,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'par_updated', note: 'ใช้ค่า par แนะนำจากสถิติทั้งหมด (' + targets.length + ' รายการเปลี่ยนแปลง)' });
       toast('ปรับ par ตามค่าแนะนำแล้ว ' + targets.length + ' รายการ');
     } catch (e) { toastErr(e, 'ปรับ par ไม่สำเร็จ'); }
-  }, [canEditPar, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast, toastErr]);
+  }), [canEditPar, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast, toastErr, guardOnce]);
 
   const debouncedParWrite = useCallback((medId: string, field: 'parSub' | 'parFloor', val: number) => {
     const key = 'par:' + medId + field;
@@ -1084,37 +1084,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * A drug with no reconcile history yet in a given window computes to 0 for it — expected
    * right after go-live, before HOSxP reconcile has been run daily for a while.
    */
-  const recomputeUsageStats = useCallback(async () => {
+  const recomputeUsageStats = useCallback(guardOnce('recomputeUsageStats', async () => {
     if (!canEditPar) return;
     toast('กำลังคำนวณสถิติการใช้ยาใหม่จากประวัติ HOSxP…');
     try {
       const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('type', '==', 'reconcile_hosxp'))));
       const now = Date.now();
-      const cur: Record<string, number> = {};
-      const prev: Record<string, number> = {};
+      // Same OPD/IPD name-twin hazard as fetchSubstockLedger/matchHosxpMed — aggregating by
+      // name alone would sum both wards' dispensing into one number and then write that same
+      // (wrong) total onto BOTH the OPD and IPD copy, silently poisoning "แนะนำ par" for both.
+      // Every reconcile_hosxp tx has carried medId since v2.20.0, so: a drug with no name-twin
+      // among active meds keeps the simple name aggregation (covers tx rows from before medId
+      // existed too); a drug that does have a twin only counts rows explicitly tagged with its
+      // own medId — an old, medId-less row for a duplicated name is skipped rather than guessed.
+      const dupNames = new Set<string>();
+      const seenNames = new Set<string>();
+      state.meds.forEach((m) => { if (seenNames.has(m.name)) dupNames.add(m.name); seenNames.add(m.name); });
+      const curByName: Record<string, number> = {};
+      const prevByName: Record<string, number> = {};
+      const curById: Record<string, number> = {};
+      const prevById: Record<string, number> = {};
       snap.docs.forEach((d) => {
-        const x = d.data() as { name?: string; qty?: number; ts?: number };
+        const x = d.data() as { name?: string; medId?: string; qty?: number; ts?: number };
         if (!x.name || typeof x.qty !== 'number' || x.qty >= 0 || typeof x.ts !== 'number') return; // only dispensed (negative) entries
         const ageDays = (now - x.ts) / DAY;
         if (ageDays < 0) return;
-        if (ageDays <= 30) cur[x.name] = (cur[x.name] || 0) + Math.abs(x.qty);
-        else if (ageDays <= 60) prev[x.name] = (prev[x.name] || 0) + Math.abs(x.qty);
+        const bucket = ageDays <= 30 ? 30 : ageDays <= 60 ? 60 : 0;
+        if (!bucket) return;
+        if (dupNames.has(x.name)) {
+          if (!x.medId) return;
+          const map = bucket === 30 ? curById : prevById;
+          map[x.medId] = (map[x.medId] || 0) + Math.abs(x.qty);
+        } else {
+          const map = bucket === 30 ? curByName : prevByName;
+          map[x.name] = (map[x.name] || 0) + Math.abs(x.qty);
+        }
       });
       const targets = state.meds.filter((m) => m.active);
       for (let i = 0; i < targets.length; i += 400) {
         const batch = writeBatch(db);
         targets.slice(i, i + 400).forEach((m) => {
-          batch.update(doc(db, 'meds', m.id), { used30: Math.round(cur[m.name] || 0), usedPrev30: Math.round(prev[m.name] || 0) });
+          const used30 = dupNames.has(m.name) ? (curById[m.id] || 0) : (curByName[m.name] || 0);
+          const usedPrev30 = dupNames.has(m.name) ? (prevById[m.id] || 0) : (prevByName[m.name] || 0);
+          batch.update(doc(db, 'meds', m.id), { used30: Math.round(used30), usedPrev30: Math.round(usedPrev30) });
         });
         await withTimeout(batch.commit());
       }
       logAudit({ type: 'par_updated', note: 'คำนวณสถิติการใช้ยาใหม่จากประวัติ HOSxP 60 วันล่าสุด (' + targets.length + ' รายการ)' });
       toast('คำนวณสถิติใหม่แล้ว ' + targets.length + ' รายการ — กด "ใช้ค่าแนะนำทั้งหมด" ด้านบนอีกครั้งเพื่ออัปเดต par ตามสถิติใหม่');
     } catch (e) { toastErr(e, 'คำนวณสถิติไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }, [canEditPar, state.meds, logAudit, toast, toastErr]);
+  }), [canEditPar, state.meds, logAudit, toast, toastErr, guardOnce]);
 
   // ---------- meds (formulary) management ----------
-  const addMed = useCallback(async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean }) => {
+  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean }) => {
     if (!canEditPar) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
@@ -1162,14 +1184,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'med_added', note: 'เพิ่มยาใหม่ ' + name + ' (' + code + ')' });
       toast('เพิ่ม ' + name + ' แล้ว');
     } catch (e) { toastErr(e, 'เพิ่มยาไม่สำเร็จ'); }
-  }, [canEditPar, state.meds, logAudit, toast, toastErr]);
+  }), [canEditPar, state.meds, logAudit, toast, toastErr, guardOnce]);
 
   // One consolidated save for everything about a med someone would want to fix in one place
   // — name/strength (kept together in `name`, same as everywhere else), dosage form, unit,
   // price, high-alert flag, shelf/bin, and both par levels — instead of hunting across
   // separate screens. `code` (the QR/label identifier) is deliberately never touched here —
   // labels already printed with it must keep resolving to this med.
-  const updateMedFull = useCallback(async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean }) => {
+  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean }) => {
     if (!canEditPar) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
@@ -1186,7 +1208,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'med_edited', note: 'แก้ไขข้อมูลยา ' + name });
       toast('บันทึกข้อมูล ' + name + ' แล้ว');
     } catch (e) { console.error(e); toast('บันทึกไม่สำเร็จ'); }
-  }, [canEditPar, logAudit, toast]);
+  }), [canEditPar, logAudit, toast, guardOnce]);
 
   const toggleMedActive = useCallback(async (medId: string) => {
     if (!canEditPar) return;
@@ -1226,7 +1248,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // "ปิดใช้งาน" list) rather than always every inactive med system-wide — the button's shown
   // count and its actual effect need to match, or a ward/search filter on screen would be
   // silently ignored by the delete itself.
-  const deleteAllInactiveMeds = useCallback(async (medIds?: string[]) => {
+  const deleteAllInactiveMeds = useCallback(guardOnce('deleteAllInactiveMeds', async (medIds?: string[]) => {
     if (!canEditPar) return;
     const scope = medIds ? new Set(medIds) : null;
     const inactive = state.meds.filter((m) => !m.active && (!scope || scope.has(m.id)));
@@ -1262,7 +1284,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'med_deleted', note: 'ลบยาที่ปิดใช้งานทั้งหมด ' + removable.length + ' รายการ (ยอดเป็น 0) ออกจากระบบถาวร: ' + removable.map((m) => m.name).join(', ') });
       toast('ลบยาที่ปิดใช้งานแล้ว ' + removable.length + ' รายการ' + (blocked.length ? ' · ข้าม ' + blocked.length + ' รายการที่ยังมียอดคงเหลือ' : ''));
     } catch (e) { toastErr(e, 'ลบไม่สำเร็จ'); }
-  }, [canEditPar, state, logAudit, toast, toastErr]);
+  }), [canEditPar, state, logAudit, toast, toastErr, guardOnce]);
 
   const setMedsFocusId = useCallback((id: string | null) => patch({ medsFocusId: id }), [patch]);
 

@@ -7,6 +7,25 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.32.0] - 2026-09-03
+
+### Fixed
+- **fix:** "คำนวณสถิติการใช้ยาใหม่" (recomputeUsageStats, used to feed "แนะนำ par") aggregated
+  60-day HOSxP dispensing history by drug **name only** — the same OPD/IPD name-twin hazard
+  fixed elsewhere this project (matchHosxpMed, substock ledger, ward-filtered reports), just
+  not caught here yet. A twin pair's dispensing got silently summed together and the same
+  (wrong) `used30`/`usedPrev30` written onto *both* the OPD and IPD copy, quietly skewing par
+  suggestions for both wards. Now keys by `medId` (present on every reconcile_hosxp tx since
+  v2.20.0) whenever a med has a same-name twin, falling back to the simple name aggregation
+  only for drugs that don't — an old, medId-less tx row for a duplicated name is skipped
+  rather than guessed at
+
+### Changed
+- **feat:** extended the double-submit reentrancy guard (see 2.29.0) to the five remaining
+  Firestore-writing actions that hadn't gotten it yet: applyAllSuggested, recomputeUsageStats,
+  addMed, updateMedFull, deleteAllInactiveMeds — same rationale, a fast double-tap before
+  React disables the button no longer fires the same write twice
+
 ## [2.31.0] - 2026-09-03
 
 ### Added
