@@ -1,17 +1,17 @@
 import { useApp } from '../store/AppContext';
-import { toneFor, usesSubstock, floorMinOf, matchesWard } from '../store/selectors';
+import { toneFor, usesSubstock, floorMinOf } from '../store/selectors';
 import { nf, thDate, digitsOnly } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge } from '../components/Qty';
-import { WardTabs } from '../components/WardTabs';
 
 export default function TransferScreen() {
-  const { state, sub, fefo, setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, printPickList, printTodayReplenishList, go, openScanSearch } = useApp();
+  const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, printPickList, printTodayReplenishList, go, openScanSearch } = useApp();
   // noSubstock meds (liquids/sprays — received straight to the shelf, see ReceiveScreen)
   // have nothing to transfer from; showing them here with permanently-stuck-at-0 +/- buttons
   // would just be confusing clutter, not a real "เติมหน้างาน" candidate.
-  const meds = state.meds.filter((m) => m.active && usesSubstock(m) && matchesWard(m, state.wardFilter));
+  // OPD/IPD ward tabs removed — one combined list (wardFilter stays 'all').
+  const meds = state.meds.filter((m) => m.active && usesSubstock(m));
   const low = meds.filter((m) => m.floor < floorMinOf(m));
   const q = state.search.trim().toLowerCase();
   const filtered = meds
@@ -29,9 +29,6 @@ export default function TransferScreen() {
   return (
     <div style={{ animation: 'fade .18s' }}>
       <div style={{ padding: '12px 14px 10px' }} className="sticky-bar">
-        <div style={{ marginBottom: 9 }}>
-          <WardTabs value={state.wardFilter} onChange={setWardFilter} />
-        </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <input
             value={state.search}

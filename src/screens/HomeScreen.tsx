@@ -1,13 +1,12 @@
 import { useRef } from 'react';
 import { useApp } from '../store/AppContext';
-import { toneFor, daysUntil, usesSubstock, floorMinOf, matchesWard } from '../store/selectors';
+import { toneFor, daysUntil, usesSubstock, floorMinOf } from '../store/selectors';
 import { nf, thDate, isoDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge } from '../components/Qty';
-import { WardTabs } from '../components/WardTabs';
 
 export default function HomeScreen() {
-  const { state, myProfile, sub, fefo, bump, goReceiveFor, go, warn, pickAdjType, seedDatabase, setWardFilter } = useApp();
+  const { state, myProfile, sub, fefo, bump, goReceiveFor, go, warn, pickAdjType, seedDatabase } = useApp();
   const expRef = useRef<HTMLDivElement>(null);
 
   if (state.meds.length === 0) {
@@ -29,8 +28,9 @@ export default function HomeScreen() {
     );
   }
 
-  const allMeds = state.meds.filter((m) => m.active);
-  const meds = allMeds.filter((m) => matchesWard(m, state.wardFilter));
+  // OPD/IPD ward tabs removed — every med now shows in one combined list (see
+  // shareAllMeds()/matchesWard() in AppContext.tsx/selectors.ts; wardFilter stays 'all').
+  const meds = state.meds.filter((m) => m.active);
   // "Min" (reorder point) is a separate number from "Max" (parFloor, the shelf's fill
   // target) — below Min is when it actually needs refilling this morning, not just "any bit
   // under capacity".
@@ -53,10 +53,6 @@ export default function HomeScreen() {
 
   return (
     <div style={{ padding: '14px 14px 20px', animation: 'fade .18s' }}>
-      <div style={{ marginBottom: 13 }}>
-        <WardTabs value={state.wardFilter} onChange={setWardFilter} />
-      </div>
-
       <div className="grid-2 tablet-4" style={{ marginBottom: 14 }}>
         <StatTile label="ต่ำกว่าจุดต้องเติม (Min)" value={low.length} tone={low.length ? 'var(--red)' : 'var(--green)'} note="รายการ · ควรเติมวันนี้" onClick={low.length ? () => go('transfer') : undefined} />
         <StatTile label={`ใกล้หมดอายุ < ${W} วัน`} value={expLots.length} tone={expLots.length ? 'var(--amber)' : 'var(--green)'} note={`lot · รวมที่หมดอายุแล้ว ${expiredCount}`} onClick={expLots.length ? () => expRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) : undefined} />

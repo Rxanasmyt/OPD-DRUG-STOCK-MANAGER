@@ -1,10 +1,9 @@
 import { useApp } from '../store/AppContext';
-import { usesSubstock, matchesWard } from '../store/selectors';
+import { usesSubstock } from '../store/selectors';
 import { nf, thDate, thTime } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
-import { WardTabs } from '../components/WardTabs';
 
 // Same severity bands as toneFor(), applied to substock/par instead of floor/parFloor —
 // this screen is about substock, so that's the ratio a pharmacist actually cares about here.
@@ -17,16 +16,13 @@ export default function ReceiveScreen() {
   const {
     state, sub, setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty,
     addRecv, removeRecvItem, commitReceive, approvePendingReceive, rejectPendingReceive, openScanSearch,
-    printWarehouseRequestList, setWardFilter,
+    printWarehouseRequestList,
   } = useApp();
 
   const recvMed = state.recvMed ? state.meds.find((m) => m.id === state.recvMed) : null;
-  // Same ward filter TransferScreen/HomeScreen/MedsScreen already use — carries over when
-  // switching screens instead of resetting, and keeps the substock picker here scoped to one
-  // zone at a time by default so an OPD/IPD name-twin pair doesn't show side by side unless
-  // "ทุกหอผู้ป่วย" is deliberately picked.
+  // OPD/IPD ward tabs removed — one combined picker across the whole formulary.
   const options = !state.recvMed && state.recvSearch.trim()
-    ? state.meds.filter((m) => m.active && matchesWard(m, state.wardFilter) && m.name.toLowerCase().indexOf(state.recvSearch.trim().toLowerCase()) >= 0).slice(0, 12)
+    ? state.meds.filter((m) => m.active && m.name.toLowerCase().indexOf(state.recvSearch.trim().toLowerCase()) >= 0).slice(0, 12)
     : [];
   const canApprove = state.role !== 'tech';
   const pending = state.pendingReceives.filter((r) => r.status === 'pending');
@@ -93,11 +89,6 @@ export default function ReceiveScreen() {
       <div className="card" style={{ padding: 12, marginBottom: 12 }}>
         <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 2 }}>เพิ่มรายการ</div>
         <div className="muted" style={{ fontSize: 11.5, marginBottom: 9 }}>สแกน QR ที่ติดหน้ายาใน substock เพื่อระบุตัวยาอัตโนมัติ หรือค้นหาด้วยชื่อ</div>
-        {!recvMed && (
-          <div style={{ marginBottom: 9 }}>
-            <WardTabs value={state.wardFilter} onChange={setWardFilter} size="sm" />
-          </div>
-        )}
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           <input value={state.recvSearch} onChange={(e) => setRecvSearch(e.target.value)} placeholder="ค้นหา / สแกนชื่อยา" style={{ ...inputStyle, flex: 1, minWidth: 0 }} />
           <button onClick={() => openScanSearch('receive')} title="สแกน QR รับเข้า substock" style={{ border: '1px solid var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', borderRadius: 10, width: 46, minHeight: 44, fontSize: 17, flex: 'none' }}>▣</button>

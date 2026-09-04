@@ -1,7 +1,6 @@
 import { useApp } from '../store/AppContext';
-import { subQty, daysUntil, wardOf, matchesWard, isSharedMed } from '../store/selectors';
+import { subQty, daysUntil } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
-import { WardTabs } from '../components/WardTabs';
 import type { ReportTab } from '../types';
 
 const TABS: [ReportTab, string][] = [['aging', 'Stock aging'], ['turn', 'Turnover'], ['disc', 'Discrepancy log']];
@@ -16,8 +15,9 @@ const AGING_BUCKETS: [string, number, number, string][] = [
 const DISC_TYPES = ['adjust', 'return', 'damaged', 'expired', 'count', 'reconcile_hosxp'];
 
 export default function ReportScreen() {
-  const { state, setReportTab, setWardFilter, exportReportCsv } = useApp();
-  const meds = state.meds.filter((m) => m.active && matchesWard(m, state.wardFilter));
+  const { state, setReportTab, exportReportCsv } = useApp();
+  // OPD/IPD ward tabs removed — reports always cover the whole formulary.
+  const meds = state.meds.filter((m) => m.active);
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
 
   const medIds = new Set(meds.map((m) => m.id));
@@ -46,19 +46,7 @@ export default function ReportScreen() {
       return { name: m.name, used: nf(m.used30), doh: isFinite(doh) ? nf(doh) : '—', tone };
     });
 
-  // txs now carry medId going forward (see Tx type) — trust that for ward-scoping when
-  // present. A row from before medId existed falls back to matching by name, but only when
-  // that name is unambiguous for this ward filter; a name shared with a med in the other
-  // ward (OPD and IPD copies of the same drug deliberately can share a name) is excluded
-  // rather than risking pulling in the wrong ward's history.
-  const wardNames = new Set(meds.map((m) => m.name));
-  const otherWardNames = new Set(state.meds.filter((m) => state.wardFilter !== 'all' && !isSharedMed(m) && wardOf(m) !== state.wardFilter).map((m) => m.name));
-  const discRows = state.txs.filter((x) => {
-    if (DISC_TYPES.indexOf(x.type) < 0) return false;
-    if (state.wardFilter === 'all') return true;
-    if (x.medId) return medIds.has(x.medId);
-    return wardNames.has(x.name) && !otherWardNames.has(x.name);
-  }).slice(0, 30);
+  const discRows = state.txs.filter((x) => DISC_TYPES.indexOf(x.type) >= 0).slice(0, 30);
 
   return (
     <div style={{ animation: 'fade .18s' }}>
@@ -68,7 +56,6 @@ export default function ReportScreen() {
             <button key={t} className="chip" style={{ ...chip(state.reportTab === t), minHeight: 38 }} onClick={() => setReportTab(t)}>{label}</button>
           ))}
         </div>
-        <WardTabs value={state.wardFilter} onChange={setWardFilter} />
       </div>
       <div style={{ padding: '12px 14px 24px' }}>
         <button onClick={exportReportCsv} className="btn-outline" style={{ width: '100%', padding: 12, borderRadius: 11, fontSize: 14, fontWeight: 600, minHeight: 46, marginBottom: 12 }}>

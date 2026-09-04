@@ -1,4 +1,4 @@
-import { wardOf } from '../store/selectors';
+import { wardOf, isSharedMed } from '../store/selectors';
 import type { Med, Ward } from '../types';
 
 // Same OPD/green · IPD/purple convention used everywhere else this distinction is drawn
@@ -16,6 +16,12 @@ const WARD_SHORT: Record<Ward, string> = { opd: 'OPD', ipd: 'IPD' };
  * can pick/confirm the wrong ward's shelf without noticing.
  */
 export function WardBadge({ med, size = 'sm' }: { med: Med; size?: 'sm' | 'md' }) {
+  // A shared med (see isSharedMed) has no single real ward — it's both — so a badge always
+  // reading "OPD" for it (wardOf()'s internal default) would misrepresent it as OPD-only.
+  // Now that most drugs are shared by default (see MedsScreen's blankForm), showing "OPD" on
+  // nearly every row was also just clutter with no real disambiguating value left — only the
+  // still-genuinely-separate minority need this badge at all.
+  if (isSharedMed(med)) return null;
   const w = wardOf(med);
   const small = size === 'sm';
   return (

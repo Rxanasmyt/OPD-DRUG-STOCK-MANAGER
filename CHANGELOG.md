@@ -7,6 +7,25 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.55.0] - 2026-09-04
+
+### Changed
+- **feat:** removed the OPD/IPD ward-filter tabs entirely from Home, เติมหน้างาน, รับเข้า,
+  ปรับยอด, ฉลาก, and รายงาน — per explicit direction, now that most drugs are one shared
+  OPD/IPD stock (v2.53.0's default), these tabs no longer meaningfully split anything for the
+  vast majority of the formulary and were just visual clutter reinforcing a separation that
+  no longer reflects how stock is actually kept. Every one of those screens now always shows
+  the whole formulary — no ward selector to interact with. `WardTabs.tsx` (the shared component
+  behind all six) is removed as dead code
+- **fix:** the small OPD/IPD pill badge shown next to a med's name in pickers (WardBadge.tsx)
+  no longer renders for a shared med — it always read "OPD" for one (a shared med's stored
+  `ward` is always 'opd'), which was actively misleading now that "OPD" no longer means
+  "OPD-only." Still shows normally for the minority of drugs that keep genuinely separate
+  stock, where the distinction is real and worth flagging
+- "จัดการรายการยา" keeps its own OPD/IPD filter (a different, administrative tool for finding
+  drugs by ward assignment while editing the formulary, not a day-to-day stock-picking filter)
+  — unaffected by this change
+
 ## [2.54.0] - 2026-09-04
 
 ### Fixed

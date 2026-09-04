@@ -1,10 +1,9 @@
 import { useApp } from '../store/AppContext';
-import { subQty, daysUntil, toneFor, matchesWard } from '../store/selectors';
+import { subQty, daysUntil, toneFor } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
-import { WardTabs } from '../components/WardTabs';
 import type { AdjType } from '../types';
 
 const TYPES: [AdjType, string, string][] = [
@@ -23,15 +22,13 @@ const REASONS: Record<AdjType, string[]> = {
 
 export default function AdjustScreen() {
   const {
-    state, pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot, setWardFilter,
+    state, pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
   } = useApp();
   const meds = state.meds.filter((m) => m.active);
   const adjMed = state.adjMed ? meds.find((m) => m.id === state.adjMed) : null;
-  // Same shared ward filter as ReceiveScreen/TransferScreen/HomeScreen/MedsScreen — scopes
-  // the picker to one zone by default so an OPD/IPD name-twin pair doesn't show side by side
-  // unless "ทุกหอผู้ป่วย" is deliberately picked.
+  // OPD/IPD ward tabs removed — one combined picker across the whole formulary.
   const options = !state.adjMed && state.adjSearch.trim()
-    ? meds.filter((m) => matchesWard(m, state.wardFilter) && m.name.toLowerCase().indexOf(state.adjSearch.trim().toLowerCase()) >= 0).slice(0, 10)
+    ? meds.filter((m) => m.name.toLowerCase().indexOf(state.adjSearch.trim().toLowerCase()) >= 0).slice(0, 10)
     : [];
 
   const scrapRows = state.lots
@@ -82,11 +79,6 @@ export default function AdjustScreen() {
           <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 9 }}>
             {state.adjType === 'adjust' ? 'ปรับยอดตามที่นับได้' : state.adjType === 'return' ? 'รับคืนยาเข้าหน้างาน' : 'ตัดยาเสีย / ชำรุด'}
           </div>
-          {!adjMed && (
-            <div style={{ marginBottom: 9 }}>
-              <WardTabs value={state.wardFilter} onChange={setWardFilter} size="sm" />
-            </div>
-          )}
           <input value={state.adjSearch} onChange={(e) => setAdjSearch(e.target.value)} placeholder="ค้นหาชื่อยา" style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44, marginBottom: 9 }} />
 
           {options.length > 0 && (
