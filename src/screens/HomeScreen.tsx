@@ -5,8 +5,14 @@ import { nf, thDate, isoDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge } from '../components/Qty';
 
+const GREETING_DATE_FMT: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
+
+function greetingFor(hour: number): string {
+  return hour < 11 ? 'อรุณสวัสดิ์' : hour < 16 ? 'สวัสดีตอนบ่าย' : hour < 19 ? 'สวัสดีตอนเย็น' : 'สวัสดีตอนค่ำ';
+}
+
 export default function HomeScreen() {
-  const { state, myProfile, sub, fefo, bump, goReceiveFor, go, warn, pickAdjType, seedDatabase } = useApp();
+  const { state, myProfile, sub, fefo, bump, goReceiveFor, go, warn, pickAdjType, seedDatabase, roleLabel } = useApp();
   const expRef = useRef<HTMLDivElement>(null);
 
   if (state.meds.length === 0) {
@@ -51,13 +57,45 @@ export default function HomeScreen() {
   const todayIso = isoDate(Date.now());
   const txToday = state.txs.filter((x) => isoDate(x.ts) === todayIso).length;
 
+  // Overview ring — same red/amber/green severity toneFor() already uses for a single med's
+  // floor-vs-par row (TransferScreen etc.), rolled up across the whole active formulary into
+  // one glanceable picture instead of making someone infer it from four separate numbers.
+  const healthyCount = meds.filter((m) => toneFor(m) === 'var(--green)').length;
+  const warnCount = meds.filter((m) => toneFor(m) === 'var(--amber)').length;
+  const criticalCount = meds.length - healthyCount - warnCount;
+  const healthyPct = meds.length ? Math.round((healthyCount / meds.length) * 100) : 100;
+  const now = new Date();
+
   return (
     <div style={{ padding: '14px 14px 20px', animation: 'fade .18s' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, margin: '0 2px 13px' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 17, fontWeight: 700, lineHeight: 1.25 }}>
+            {greetingFor(now.getHours())}{myProfile?.name ? ', ' + myProfile.name.replace(/^(ภญ\.|ภก\.|จพ\.|กภ\.)\s*/, '') : ''}
+          </div>
+          <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+            {now.toLocaleDateString('th-TH', GREETING_DATE_FMT)} · {roleLabel()}
+          </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: '14px 15px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 16 }}>
+        <HealthRing pct={healthyPct} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 2 }}>ภาพรวมหน้างาน · {nf(meds.length)} รายการ</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <HealthLegendRow color="var(--green)" label="ปกติ" count={healthyCount} />
+            <HealthLegendRow color="var(--amber)" label="เริ่มต่ำ" count={warnCount} />
+            <HealthLegendRow color="var(--red)" label="ต่ำกว่า 34% ของ par" count={criticalCount} onClick={criticalCount ? () => go('transfer') : undefined} />
+          </div>
+        </div>
+      </div>
+
       <div className="grid-2 tablet-4" style={{ marginBottom: 14 }}>
-        <StatTile label="ต่ำกว่าจุดต้องเติม (Min)" value={low.length} tone={low.length ? 'var(--red)' : 'var(--green)'} note="รายการ · ควรเติมวันนี้" onClick={low.length ? () => go('transfer') : undefined} />
-        <StatTile label={`ใกล้หมดอายุ < ${W} วัน`} value={expLots.length} tone={expLots.length ? 'var(--amber)' : 'var(--green)'} note={`lot · รวมที่หมดอายุแล้ว ${expiredCount}`} onClick={expLots.length ? () => expRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) : undefined} />
-        <StatTile label="ธุรกรรมวันนี้" value={txToday} note="รายการ · audit trail ครบ" />
-        <StatTile label="ต่ำกว่า par substock" value={lowSub.length} tone={lowSub.length ? 'var(--red)' : 'var(--green)'} note="รายการ · ควรเบิกจากคลังใหญ่" onClick={lowSub.length ? () => go('receive') : undefined} />
+        <StatTile icon="🔻" label="ต่ำกว่าจุดต้องเติม (Min)" value={low.length} tone={low.length ? 'var(--red)' : 'var(--green)'} note="รายการ · ควรเติมวันนี้" onClick={low.length ? () => go('transfer') : undefined} />
+        <StatTile icon="⏳" label={`ใกล้หมดอายุ < ${W} วัน`} value={expLots.length} tone={expLots.length ? 'var(--amber)' : 'var(--green)'} note={`lot · รวมที่หมดอายุแล้ว ${expiredCount}`} onClick={expLots.length ? () => expRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) : undefined} />
+        <StatTile icon="📋" label="ธุรกรรมวันนี้" value={txToday} note="รายการ · audit trail ครบ" />
+        <StatTile icon="📦" label="ต่ำกว่า par substock" value={lowSub.length} tone={lowSub.length ? 'var(--red)' : 'var(--green)'} note="รายการ · ควรเบิกจากคลังใหญ่" onClick={lowSub.length ? () => go('receive') : undefined} />
       </div>
 
       <div style={{ background: 'var(--amber-bg)', border: '1px solid var(--amber-border)', borderRadius: 12, padding: '11px 13px', marginBottom: 13, fontSize: 12, color: 'var(--amber-ink)', lineHeight: 1.5 }}>
@@ -178,7 +216,7 @@ export default function HomeScreen() {
 // Clickable whenever there's actually something to jump to (onClick passed) — the exact
 // number a person wants to act on shouldn't be a dead end; tapping it should go straight to
 // the list behind it instead of making them scroll to find the same information again.
-function StatTile({ label, value, tone, note, onClick }: { label: string; value: number; tone?: string; note: string; onClick?: () => void }) {
+function StatTile({ icon, label, value, tone, note, onClick }: { icon?: string; label: string; value: number; tone?: string; note: string; onClick?: () => void }) {
   const Tag = onClick ? 'button' : 'div';
   return (
     <Tag
@@ -187,7 +225,10 @@ function StatTile({ label, value, tone, note, onClick }: { label: string; value:
       style={{ padding: '12px 13px', textAlign: 'left', border: onClick ? '1px solid var(--border)' : '1px solid var(--border)', background: 'var(--bg-card)', width: '100%', cursor: onClick ? 'pointer' : 'default' }}
     >
       <div className="muted" style={{ fontSize: 12, marginBottom: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
-        <span>{label}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+          {icon && <span aria-hidden="true" style={{ fontSize: 12.5, flex: 'none' }}>{icon}</span>}
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+        </span>
         {onClick && <span style={{ color: 'var(--green)', fontSize: 13, flex: 'none' }}>→</span>}
       </div>
       <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, color: tone || 'var(--ink)' }}>{value.toLocaleString('en-US')}</div>
@@ -202,5 +243,48 @@ function SectionHeader({ title, actionLabel, onAction }: { title: string; action
       <div style={{ fontSize: 14.5, fontWeight: 600 }}>{title}</div>
       <button onClick={onAction} style={{ border: 0, background: 'transparent', color: 'var(--green)', fontSize: 12.5, fontWeight: 600, padding: 0 }}>{actionLabel}</button>
     </div>
+  );
+}
+
+// Whole-formulary "how healthy is the shelf right now" at a glance — the same red/amber/green
+// severity toneFor() already computes per med, rolled into one ring instead of making someone
+// mentally combine four separate stat-tile numbers to get the same picture.
+function HealthRing({ pct, size = 68, stroke = 8 }: { pct: number; size?: number; stroke?: number }) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const offset = c * (1 - pct / 100);
+  const tone = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--amber)' : 'var(--red)';
+  return (
+    <div style={{ position: 'relative', width: size, height: size, flex: 'none' }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--border-soft)" strokeWidth={stroke} />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} fill="none" stroke={tone} strokeWidth={stroke} strokeLinecap="round"
+          strokeDasharray={c} strokeDashoffset={offset}
+          style={{ transition: 'stroke-dashoffset var(--dur-slow) var(--ease-out)' }}
+        />
+      </svg>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+        <div style={{ fontSize: 16, fontWeight: 800, lineHeight: 1, color: tone }}>{pct}%</div>
+        <div className="muted" style={{ fontSize: 8.5, marginTop: 1 }}>ปกติ</div>
+      </div>
+    </div>
+  );
+}
+
+function HealthLegendRow({ color, label, count, onClick }: { color: string; label: string; count: number; onClick?: () => void }) {
+  const Tag = onClick ? 'button' : 'div';
+  return (
+    <Tag
+      onClick={onClick}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 7, width: '100%', border: 0, background: 'transparent', padding: 0,
+        textAlign: 'left', cursor: onClick ? 'pointer' : 'default',
+      }}
+    >
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flex: 'none' }} />
+      <span style={{ fontSize: 12, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      <span style={{ fontSize: 12.5, fontWeight: 700, color, flex: 'none' }}>{nf(count)}</span>
+    </Tag>
   );
 }

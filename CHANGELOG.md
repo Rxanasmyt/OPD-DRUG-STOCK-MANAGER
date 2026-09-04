@@ -7,6 +7,19 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.57.0] - 2026-09-04
+
+### Added
+- **feat:** modernized the home dashboard — a personalized greeting header (time-of-day
+  greeting, name, role, full Thai date) and a new "ภาพรวมหน้างาน" overview card up top: a
+  progress ring showing what % of the active formulary is at a healthy par level, with a
+  green/amber/red breakdown underneath (same severity bands `toneFor()` already used per-med,
+  now rolled up into one glanceable picture instead of four separate numbers someone had to
+  mentally combine). The critical (red) count links straight to "เติมหน้างาน" like the
+  existing stat tiles. The four stat tiles below it each get a small icon for faster visual
+  scanning. Everything below (ต้องเติมหน้างาน / ควรเบิกจากคลังยาใหญ่ / ใกล้หมดอายุ lists) is
+  unchanged — this is a top-of-page addition, not a rebuild
+
 ## [2.56.0] - 2026-09-04
 
 ### Fixed
