@@ -7,6 +7,31 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.51.0] - 2026-09-04
+
+### Fixed
+- **fix:** the OPD/IPD-share feature (v2.48.0-v2.50.0) only got the ward filter fixed
+  (`matchesWard()`) in three screens (Home, เติมหน้างาน, Report) — a sweep of every other
+  ward-scoped list turned up the same strict `wardOf(m) === wardFilter` check still live in
+  six more places, each one silently hiding shared meds while looking at the IPD tab:
+  - **"พิมพ์ใบเติมหน้างานวันนี้"** and **"เติมตาม par ทั้งหมด"** — the daily replenish-list
+    print and the transfer-screen cart-fill button would both skip every shared med while on
+    the IPD tab, meaning a low-stock shared drug's IPD side would never make it onto the
+    morning pick list
+  - **ฉลากตัวยา/ฉลาก lot printing** (LabelsScreen + printLabels()) — same gap: switching to
+    the IPD tab to print labels would leave out every shared med entirely
+  - **ปรับยอด/ตัดออก (AdjustScreen)** and **รับยาเข้า (ReceiveScreen)** search — same gap in
+    the med picker
+  - **Report CSV export** — "ทุกหอผู้ป่วย" export was fine, but exporting while on the IPD tab
+    specifically would silently drop shared meds from stock-aging/turnover/discrepancy CSVs
+  All six switched to the same `matchesWard()` helper the earlier fix used, so a shared med now
+  shows up consistently everywhere, on either ward tab
+- **fix:** printed labels/pick-lists for a shared med always showed its OPD-side `bin`, even
+  when printed from the IPD tab — now shows the correct side via `binFor()`
+- **fix:** scanning a "ฉลากชั้นวาง" (physical shelf QR) on a shared med's **IPD-side shelf**
+  failed to resolve to that med at all — the lookup only ever matched a med's OPD `bin`, never
+  its `binIpd`. Fixed to match either
+
 ## [2.50.0] - 2026-09-04
 
 ### Fixed

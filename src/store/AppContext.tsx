@@ -12,7 +12,7 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, User, AuthMode, PendingReceive, Ward,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isSharedMed } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isSharedMed, matchesWard, binFor } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -659,7 +659,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // queue up OPD items too, or vice versa. Respects whatever ward tab is currently open;
       // 'all' (no ward filter applied) fills everything, matching the old behavior.
       st.meds.forEach((m) => {
-        if (st.wardFilter !== 'all' && wardOf(m) !== st.wardFilter) return;
+        if (!matchesWard(m, st.wardFilter)) return;
         // Real min-max: only pick items actually at/below their reorder point (Min), not
         // anything a hair under capacity (Max) — that's the whole point of having the two be
         // different numbers instead of one target chasing two jobs.
@@ -680,7 +680,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const rows = ids
       .map((id) => state.meds.find((m) => m.id === id))
       .filter((m): m is Med => !!m)
-      .map((m) => ({ bin: m.bin, name: m.name, qty: state.cart[m.id], unit: m.unit }));
+      .map((m) => ({ bin: binFor(m, state.wardFilter === 'ipd' ? 'ipd' : 'opd'), name: m.name, qty: state.cart[m.id], unit: m.unit }));
     const wardLabel = state.wardFilter === 'opd' ? 'OPD' : state.wardFilter === 'ipd' ? 'IPD' : 'ทุกหอผู้ป่วย';
     const ok = printPickListSheet(rows, 'ใบจัดยาเติมชั้น — ' + wardLabel, 'หอผู้ป่วย: ' + wardLabel);
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
@@ -695,9 +695,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const printTodayReplenishList = useCallback(() => {
     const wardLabel = state.wardFilter === 'opd' ? 'OPD' : state.wardFilter === 'ipd' ? 'IPD' : 'ทุกหอผู้ป่วย';
     const items = state.meds.filter((m) => m.active && usesSubstock(m)
-      && (state.wardFilter === 'all' || wardOf(m) === state.wardFilter)
+      && matchesWard(m, state.wardFilter)
       && m.floor < floorMinOf(m));
     if (!items.length) { toast('วันนี้ไม่มีรายการที่ต่ำกว่าจุดต้องเติม (Min) — ยังไม่ต้องเติมหน้างาน'); return; }
+    const labelWard = state.wardFilter === 'ipd' ? 'ipd' : 'opd';
     const rows = items
       .map((m) => {
         const need = Math.max(0, m.parFloor - m.floor);
@@ -707,7 +708,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // shelf under par; the person carrying this sheet should know to also flag it for
         // the next "เบิกจากคลังใหญ่" run instead of assuming the job's done.
         const note = qty < need ? 'substock เหลือไม่พอเติมเต็ม par (ขาดอีก ' + nf(need - qty) + ' ' + m.unit + ')' : undefined;
-        return { bin: m.bin, name: m.name, qty, unit: m.unit, note };
+        return { bin: binFor(m, labelWard), name: m.name, qty, unit: m.unit, note };
       })
       .filter((r) => r.qty > 0);
     if (!rows.length) { toast('รายการที่ต่ำกว่า Min ไม่มีของเหลือใน substock ให้เติมเลยสักรายการ — ต้องเบิกจากคลังใหญ่ก่อน'); return; }
@@ -1081,7 +1082,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const names = { aging: 'stock_aging.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv' };
     // Matches whatever ward tab is open on screen — exporting "everything" while the screen
     // shows only OPD (or vice versa) would be a silently misleading report.
-    const wardMeds = st.meds.filter((m) => st.wardFilter === 'all' || wardOf(m) === st.wardFilter);
+    const wardMeds = st.meds.filter((m) => matchesWard(m, st.wardFilter));
     const wardMedIds = new Set(wardMeds.map((m) => m.id));
     const wardNames = new Set(wardMeds.map((m) => m.name));
     // A name in wardNames isn't necessarily ward-exclusive — OPD and IPD versions of the same
@@ -1090,7 +1091,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Only drop into name-matching for a name that's genuinely unambiguous; an ambiguous name
     // is trusted only via its tagged medId (see Tx.medId — older rows predating that field
     // just won't appear for an ambiguous name, same tradeoff as the substock ledger).
-    const otherWardNames = new Set(st.meds.filter((m) => st.wardFilter !== 'all' && wardOf(m) !== st.wardFilter).map((m) => m.name));
+    const otherWardNames = new Set(st.meds.filter((m) => st.wardFilter !== 'all' && !isSharedMed(m) && wardOf(m) !== st.wardFilter).map((m) => m.name));
     let outcome: Awaited<ReturnType<typeof downloadCsv>>;
     if (st.reportTab === 'aging') {
       const bDef: [string, number, number][] = [['หมดอายุแล้ว', -99999, 0], ['เหลือ ≤ 30 วัน', 0, 30], ['31–90 วัน', 30, 90], ['91–180 วัน', 90, 180], ['มากกว่า 180 วัน', 180, 99999]];
@@ -1142,11 +1143,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // OPD and IPD shelves are physically different rooms with different bin codes — printing
     // a combined batch would mix labels meant for two different places onto one sheet.
     // Respects whatever ward tab the labels screen currently has open ('all' prints both).
-    const meds = state.meds.filter((m) => m.active && (state.wardFilter === 'all' || wardOf(m) === state.wardFilter));
+    const meds = state.meds.filter((m) => m.active && matchesWard(m, state.wardFilter));
+    // Which side of a shared med's two shelf codes to print — the tab actually open, or its
+    // own OPD/IPD side (never ambiguous) for a non-shared med. Only matters for `bin`/`sub`
+    // text; the `ward` badge below still shows each label's own real ward, same as before.
+    const labelWard = state.wardFilter === 'ipd' ? 'ipd' : 'opd';
     let labels: PrintLabel[] = [];
     let heading = 'ฉลากตัวยา';
     if (state.labelType === 'med') {
-      labels = meds.map((m) => ({ payload: encodeQr('med', m.code), id: m.code, title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + m.bin, tag: m.had ? 'HIGH ALERT' : undefined, bin: m.bin, ward: wardOf(m) }));
+      labels = meds.map((m) => ({ payload: encodeQr('med', m.code), id: m.code, title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + binFor(m, labelWard), tag: m.had ? 'HIGH ALERT' : undefined, bin: binFor(m, labelWard), ward: wardOf(m) }));
     } else if (state.labelType === 'lot') {
       heading = 'ฉลาก lot';
       // Bug fix: this used to iterate state.lots directly, ignoring both the active-only and
@@ -1891,7 +1896,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       let med: Med | null = null;
       if (payload.t === 'loc') {
         const bin = payload.id.replace(/^LOC-/, '');
-        const pool = state.meds.filter((m) => m.active && m.bin === bin);
+        // A shared med (see isSharedMed) has TWO shelf codes — bin (OPD) and binIpd (IPD) —
+        // so scanning the physical shelf label on the IPD side must still resolve it, not
+        // just the OPD one it happens to be stored under.
+        const pool = state.meds.filter((m) => m.active && (m.bin === bin || m.binIpd === bin));
         med = pool.find((m) => (purpose === 'receive' ? subQty(state, m.id) < m.parSub : m.floor < floorMinOf(m))) || pool[0] || null;
         if (!med) { toast('ไม่พบยาที่ผูกกับชั้น ' + bin + ' ในระบบ'); return; }
       } else {

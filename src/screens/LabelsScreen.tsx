@@ -1,5 +1,5 @@
 import { useApp } from '../store/AppContext';
-import { daysUntil, wardOf } from '../store/selectors';
+import { daysUntil, wardOf, matchesWard, binFor } from '../store/selectors';
 import { thDate } from '../utils/format';
 import { QrCode } from '../components/QrCode';
 import { encodeQr } from '../utils/qr';
@@ -31,13 +31,16 @@ function printWardBadge(ward?: Ward) {
 
 export default function LabelsScreen() {
   const { state, setLabelType, setWardFilter, printLabels, warn } = useApp();
-  const meds = state.meds.filter((m) => m.active && (state.wardFilter === 'all' || wardOf(m) === state.wardFilter));
+  const meds = state.meds.filter((m) => m.active && matchesWard(m, state.wardFilter));
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
+  // Which side of a shared med's two shelf codes the preview/print shows — see printLabels()
+  // in AppContext.tsx for the matching logic on the real printout.
+  const labelWard: Ward = state.wardFilter === 'ipd' ? 'ipd' : 'opd';
 
   const medIds = new Set(meds.map((m) => m.id));
   const wardLots = state.lots.filter((l) => medIds.has(l.medId));
   const rows = state.labelType === 'med'
-    ? meds.slice(0, 8).map((m) => ({ code: m.code, bin: m.bin, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + m.bin, tag: m.had ? 'HIGH ALERT' : '', tagColor: 'var(--had)', ward: wardOf(m) as Ward | undefined }))
+    ? meds.slice(0, 8).map((m) => ({ code: m.code, bin: binFor(m, labelWard), payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + binFor(m, labelWard), tag: m.had ? 'HIGH ALERT' : '', tagColor: 'var(--had)', ward: wardOf(m) as Ward | undefined }))
     : state.labelType === 'lot'
     ? wardLots.slice(0, 8).map((l) => {
         const m = meds.find((x) => x.id === l.medId);

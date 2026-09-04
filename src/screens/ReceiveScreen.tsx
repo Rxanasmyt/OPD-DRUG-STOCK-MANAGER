@@ -1,5 +1,5 @@
 import { useApp } from '../store/AppContext';
-import { usesSubstock, wardOf } from '../store/selectors';
+import { usesSubstock, matchesWard } from '../store/selectors';
 import { nf, thDate, thTime } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
@@ -26,7 +26,7 @@ export default function ReceiveScreen() {
   // zone at a time by default so an OPD/IPD name-twin pair doesn't show side by side unless
   // "ทุกหอผู้ป่วย" is deliberately picked.
   const options = !state.recvMed && state.recvSearch.trim()
-    ? state.meds.filter((m) => m.active && (state.wardFilter === 'all' || wardOf(m) === state.wardFilter) && m.name.toLowerCase().indexOf(state.recvSearch.trim().toLowerCase()) >= 0).slice(0, 12)
+    ? state.meds.filter((m) => m.active && matchesWard(m, state.wardFilter) && m.name.toLowerCase().indexOf(state.recvSearch.trim().toLowerCase()) >= 0).slice(0, 12)
     : [];
   const canApprove = state.role !== 'tech';
   const pending = state.pendingReceives.filter((r) => r.status === 'pending');
