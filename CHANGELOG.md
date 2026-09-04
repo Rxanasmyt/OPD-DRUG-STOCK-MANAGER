@@ -7,6 +7,19 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.49.0] - 2026-09-04
+
+### Added
+- **feat:** "รวมสต็อก OPD+IPD ทั้งหมดที่ยังแยกกันอยู่" — a new button in "จัดการรายการยา"
+  (shown right under the OPD/IPD ward tabs, whenever there's at least one pair left) that runs
+  the OPD/IPD stock-merge introduced in v2.48.0 across every still-separate ward pair in the
+  formulary at once, instead of opening each drug's edit form one at a time. Same rules as the
+  per-drug merge — sums floor/used30/usedPrev30, carries the IPD shelf code over as `binIpd`,
+  deactivates the now-redundant IPD record — applied to every qualifying pair (a name with
+  exactly one active 'opd' and one active 'ipd' record; anything more ambiguous than that,
+  same caution as the HOSxP-import matcher, is left alone) in one confirmation and one set of
+  batched writes
+
 ## [2.48.0] - 2026-09-04
 
 ### Added

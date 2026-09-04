@@ -200,6 +200,9 @@ export interface AppCtx {
    * re-derived — see mergeWardMeds() for why); the IPD record's lots are reassigned onto the
    * survivor, then it's deactivated with its floor zeroed. Irreversible from the UI. */
   mergeWardMeds: (medIdA: string, medIdB: string) => void;
+  /** mergeWardMeds() applied to every still-separate OPD/IPD pair in the formulary at once —
+   * "รวมกันเลย" instead of clicking through each pair one at a time. */
+  mergeAllWardPairs: () => void;
   toggleMedActive: (medId: string) => void;
   deleteMed: (medId: string) => void;
   deleteAllInactiveMeds: (medIds?: string[]) => void;
@@ -1439,6 +1442,74 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { toastErr(e, 'รวมสต็อกไม่สำเร็จ'); }
   }), [canEditPar, state.meds, logAudit, toast, toastErr, guardOnce]);
 
+  // "รวมกันเลย" — do mergeWardMeds() for every still-separate OPD/IPD pair across the whole
+  // formulary in one go, instead of clicking through each pair one at a time in MedsScreen.
+  // Same rule mergeWardMeds already enforces per-pair, applied to the whole list: only a name
+  // with EXACTLY one 'opd' and one 'ipd' active record qualifies — a name with, say, two 'opd'
+  // records (a real data-entry duplicate) is left alone rather than guessing which one to
+  // pair, same caution matchHosxpMed() already takes with an ambiguous name.
+  const mergeAllWardPairs = useCallback(guardOnce('mergeAllWardPairs', async () => {
+    if (!canEditPar) return;
+    const active = state.meds.filter((m) => m.active && !isSharedMed(m));
+    const byName = new Map<string, Med[]>();
+    active.forEach((m) => {
+      const arr = byName.get(m.name);
+      if (arr) arr.push(m); else byName.set(m.name, [m]);
+    });
+    const pairs: { opdMed: Med; ipdMed: Med }[] = [];
+    byName.forEach((arr) => {
+      if (arr.length !== 2) return;
+      const opdMed = arr.find((m) => wardOf(m) === 'opd');
+      const ipdMed = arr.find((m) => wardOf(m) === 'ipd');
+      if (opdMed && ipdMed) pairs.push({ opdMed, ipdMed });
+    });
+    if (!pairs.length) { toast('ไม่มีคู่ OPD/IPD ที่ยังแยกกันอยู่ให้รวม'); return; }
+    if (!window.confirm(
+      'รวมสต็อก OPD+IPD เป็นยอดเดียวกันทั้งหมด ' + pairs.length + ' คู่ (' + pairs.length * 2 + ' รายการยา)?\n\n'
+      + 'แต่ละคู่จะบวกยอดหน้างานเข้าด้วยกัน พร้อมเก็บชั้นวางแยก OPD/IPD ไว้ — ย้อนกลับไม่ได้จากหน้านี้\n'
+      + 'แนะนำให้นับสต็อกจริงทุกตัวหลังรวมเพื่อยืนยันยอด'
+    )) return;
+    try {
+      const ipdIds = pairs.map((p) => p.ipdMed.id);
+      const lotUpdates: { ref: ReturnType<typeof doc>; opdId: string }[] = [];
+      for (let i = 0; i < ipdIds.length; i += 30) {
+        const chunk = ipdIds.slice(i, i + 30);
+        const opdIdByIpdId = new Map(pairs.filter((p) => chunk.includes(p.ipdMed.id)).map((p) => [p.ipdMed.id, p.opdMed.id]));
+        const snap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', 'in', chunk))));
+        snap.docs.forEach((d) => {
+          const medId = (d.data() as { medId?: string }).medId;
+          const opdId = medId ? opdIdByIpdId.get(medId) : undefined;
+          if (opdId) lotUpdates.push({ ref: d.ref, opdId });
+        });
+      }
+      const ops: { ref: ReturnType<typeof doc>; data: Record<string, unknown> }[] = [
+        ...lotUpdates.map((u) => ({ ref: u.ref, data: { medId: u.opdId } })),
+        ...pairs.flatMap((p) => [
+          { ref: doc(db, 'meds', p.opdMed.id), data: {
+            binIpd: p.ipdMed.bin,
+            floor: p.opdMed.floor + p.ipdMed.floor,
+            used30: p.opdMed.used30 + p.ipdMed.used30,
+            usedPrev30: p.opdMed.usedPrev30 + p.ipdMed.usedPrev30,
+            ward: 'opd',
+          } },
+          { ref: doc(db, 'meds', p.ipdMed.id), data: { active: false, floor: 0 } },
+        ]),
+      ];
+      for (let i = 0; i < ops.length; i += 400) {
+        const batch = writeBatch(db);
+        ops.slice(i, i + 400).forEach((o) => batch.update(o.ref, o.data));
+        await withTimeout(batch.commit());
+      }
+      const names = pairs.map((p) => p.opdMed.name);
+      logAudit({
+        type: 'med_edited',
+        note: 'รวมสต็อก OPD/IPD ทั้งหมด ' + pairs.length + ' คู่ เป็นยอดเดียวกัน: '
+          + names.slice(0, 20).join(', ') + (names.length > 20 ? ' และอีก ' + (names.length - 20) + ' รายการ' : ''),
+      });
+      toast('รวมสต็อกแล้ว ' + pairs.length + ' คู่ — แนะนำให้นับสต็อกจริงทุกตัวเพื่อยืนยันยอด');
+    } catch (e) { toastErr(e, 'รวมสต็อกไม่สำเร็จ'); }
+  }), [canEditPar, state.meds, logAudit, toast, toastErr, guardOnce]);
+
   const toggleMedActive = useCallback(async (medId: string) => {
     if (!canEditPar) return;
     const m = state.meds.find((x) => x.id === medId);
@@ -1951,7 +2022,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setReportTab, exportReportCsv,
     setLabelType, printLabels,
     applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
-    addMed, updateMedFull, mergeWardMeds, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId,
+    addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, setCountInput, commitCount,
     setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, commitReconcile,

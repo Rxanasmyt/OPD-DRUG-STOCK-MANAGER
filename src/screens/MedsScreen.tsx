@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly } from '../utils/format';
 import { wardOf, wardLabel, floorMinOf, toneFor, isSharedMed, matchesWard } from '../store/selectors';
@@ -46,7 +46,7 @@ function formFromMed(m: Med): MedFormValues {
 }
 
 export default function MedsScreen() {
-  const { state, sub, addMed, updateMedFull, mergeWardMeds, setMedBin, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId, openScanSearch } = useApp();
+  const { state, sub, addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, setMedBin, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId, openScanSearch } = useApp();
   const canEdit = state.role !== 'tech';
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('active');
@@ -79,6 +79,22 @@ export default function MedsScreen() {
     setMedsFocusId(null);
     window.setTimeout(() => rowRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
   }, [state.medsFocusId, state.meds, setMedsFocusId]);
+
+  // Count for the "รวมกันเลย" bulk-merge button — same one-opd-one-ipd-only qualifying rule
+  // mergeAllWardPairs() itself enforces, kept in sync here just to show an honest count.
+  const mergeablePairCount = useMemo(() => {
+    const byName = new Map<string, Med[]>();
+    state.meds.forEach((m) => {
+      if (!m.active || isSharedMed(m)) return;
+      const arr = byName.get(m.name);
+      if (arr) arr.push(m); else byName.set(m.name, [m]);
+    });
+    let n = 0;
+    byName.forEach((arr) => {
+      if (arr.length === 2 && arr.some((m) => wardOf(m) === 'opd') && arr.some((m) => wardOf(m) === 'ipd')) n++;
+    });
+    return n;
+  }, [state.meds]);
 
   const meds = state.meds
     .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : !m.active))
@@ -125,6 +141,14 @@ export default function MedsScreen() {
         <button className="chip" style={{ ...chip(wardTab === 'opd'), flex: 1, textAlign: 'center', ...(wardTab === 'opd' ? { background: WARD_COLOR.opd, borderColor: WARD_COLOR.opd } : {}) }} onClick={() => setWardTab('opd')}>OPD</button>
         <button className="chip" style={{ ...chip(wardTab === 'ipd'), flex: 1, textAlign: 'center', ...(wardTab === 'ipd' ? { background: WARD_COLOR.ipd, borderColor: WARD_COLOR.ipd } : {}) }} onClick={() => setWardTab('ipd')}>IPD</button>
       </div>
+      {mergeablePairCount > 0 && (
+        <button
+          onClick={mergeAllWardPairs}
+          style={{ width: '100%', border: 0, background: 'var(--green)', color: '#fff', padding: '11px 14px', borderRadius: 11, fontSize: 12.5, fontWeight: 600, minHeight: 44, marginBottom: 10 }}
+        >
+          🔗 รวมสต็อก OPD+IPD ทั้งหมดที่ยังแยกกันอยู่ ({mergeablePairCount} คู่)
+        </button>
+      )}
       <div style={{ display: 'flex', gap: 7, marginBottom: 10 }}>
         <button className="chip" style={chip(filter === 'active')} onClick={() => setFilter('active')}>ใช้งานอยู่</button>
         <button className="chip" style={chip(filter === 'inactive')} onClick={() => setFilter('inactive')}>ปิดใช้งาน</button>
