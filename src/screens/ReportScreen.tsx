@@ -38,7 +38,12 @@ export default function ReportScreen() {
     .map((m) => {
       const onHand = m.floor + subQty(state, m.id);
       const doh = Math.round(onHand / (m.used30 / 30));
-      return { name: m.name, used: nf(m.used30), doh: isFinite(doh) ? nf(doh) : '—', tone: doh < 14 ? 'var(--red)' : doh > 120 ? 'var(--amber)' : 'var(--green)' };
+      // A drug with no recorded usage (used30 === 0) divides to Infinity/NaN here — already
+      // shown as "—" rather than a broken number, but the tone below used to fall through to
+      // the same green as a genuinely healthy days-on-hand, falsely reading as "plenty of
+      // stock" for a metric that's actually undefined for this drug.
+      const tone = !isFinite(doh) ? 'var(--muted)' : doh < 14 ? 'var(--red)' : doh > 120 ? 'var(--amber)' : 'var(--green)';
+      return { name: m.name, used: nf(m.used30), doh: isFinite(doh) ? nf(doh) : '—', tone };
     });
 
   // txs now carry medId going forward (see Tx type) — trust that for ward-scoping when

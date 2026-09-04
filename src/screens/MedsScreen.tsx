@@ -53,18 +53,25 @@ export default function MedsScreen() {
   useEffect(() => {
     if (!state.medsFocusId) return;
     const id = state.medsFocusId;
+    const target = state.meds.find((m) => m.id === id);
     setFilter('all');
     // Bug fix: this reset `filter` (active/inactive) but not the ward tab — scanning an IPD
     // med's QR while this screen's ward tab was still on "OPD" set editingId to a row that
     // the ward filter below was hiding, so nothing visibly happened (no edit panel, nothing
     // to scroll to) even though the scan itself worked fine.
     setWardTab('all');
-    setQ('');
+    // Bug fix: this used to clear the search box instead — with a 585-item formulary and the
+    // list below capped to the first 150 (alphabetically sorted) results, a scanned med whose
+    // name sorts past position 150 would never actually render, so editingId pointed at a row
+    // that flat-out didn't exist in the DOM: no edit panel, nothing to scroll to, same silent
+    // failure as the ward-tab bug above just via a different mechanism. Narrowing the search
+    // to the med's own name guarantees it's the only (or first) match, always inside the cap.
+    setQ(target ? target.name : '');
     setAddOpen(false);
     setEditingId(id);
     setMedsFocusId(null);
     window.setTimeout(() => rowRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
-  }, [state.medsFocusId, setMedsFocusId]);
+  }, [state.medsFocusId, state.meds, setMedsFocusId]);
 
   const meds = state.meds
     .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : !m.active))

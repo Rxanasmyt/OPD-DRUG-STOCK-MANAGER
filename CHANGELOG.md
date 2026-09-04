@@ -7,6 +7,22 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.41.0] - 2026-09-03
+
+### Fixed
+- **fix:** scanning a med's QR to jump to its edit panel (▣ ดูข้อมูลยา) silently failed for
+  any drug whose name sorted alphabetically past position 150 — จัดการรายการยา caps its list
+  at the first 150 results (a 585-item formulary), and the QR-jump used to clear the search
+  box instead of narrowing it, so the target row was never actually in the rendered list: no
+  edit panel, nothing to scroll to, no error, same silent-failure shape as the ward-tab bug
+  fixed in 2.38.0 just via a different mechanism. Now narrows the search to the scanned med's
+  own name instead of clearing it, guaranteeing it's the only (or first) match
+- **fix:** the turnover report's "days on hand" color coding fell through to the same green
+  used for a genuinely healthy days-on-hand figure when a drug had no recorded usage yet
+  (used30 === 0, division by zero) — already correctly shown as "—" instead of a broken
+  number, but the color still read as "plenty of stock" for a metric that's actually
+  undefined for that drug. Now shows a neutral gray instead
+
 ## [2.40.0] - 2026-09-03
 
 ### Fixed
