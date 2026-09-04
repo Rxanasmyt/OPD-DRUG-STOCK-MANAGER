@@ -7,6 +7,15 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.53.0] - 2026-09-04
+
+### Changed
+- **feat:** "เพิ่มยาใหม่" now defaults to "ใช้ยอดร่วมกันทั้ง OPD และ IPD" checked — since most
+  drugs at this hospital are one pooled OPD/IPD stock (IPD one-day-dose pulls straight off the
+  OPD shelf), a brand-new med now starts there and shows both shelf-code fields immediately,
+  rather than requiring the checkbox every single time. The minority of drugs that genuinely
+  keep separate stock (e.g. IPD's locked injectable cabinet) can still untick it per-med
+
 ## [2.52.1] - 2026-09-04
 
 ### Fixed

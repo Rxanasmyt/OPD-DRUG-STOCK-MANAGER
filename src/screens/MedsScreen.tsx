@@ -33,7 +33,11 @@ interface MedFormValues {
 }
 
 function blankForm(): MedFormValues {
-  return { name: '', dosageForm: '', unit: '', price: '', had: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: false, binIpd: '' };
+  // shared:true by default — most drugs at this hospital are one pooled OPD/IPD stock (IPD
+  // one-day-dose pulls straight off the OPD shelf), so a brand-new med should start there and
+  // let someone opt OUT (untick "เลิกใช้ร่วมกัน") for the minority that genuinely need separate
+  // stock, rather than opting in every single time.
+  return { name: '', dosageForm: '', unit: '', price: '', had: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: true, binIpd: '' };
 }
 
 function formFromMed(m: Med): MedFormValues {
