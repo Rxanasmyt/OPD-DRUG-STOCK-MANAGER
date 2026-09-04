@@ -9,7 +9,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
-  AppState, Med, Role, Screen, AdjType, RecvItem, TxType, User, AuthMode, PendingReceive, Ward,
+  AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isSharedMed, matchesWard, binFor } from './selectors';
@@ -522,7 +522,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return { ...st, screen: prev || 'more', navStack: stack };
   }), []);
 
-  const logAudit = useCallback(async (entry: { type: string; note: string }) => {
+  const logAudit = useCallback(async (entry: { type: AuditType; note: string }) => {
     try { await addDoc(collection(db, 'auditLog'), { ...entry, by: userName(), ts: Date.now() }); }
     catch (e) { console.error('audit log write failed:', e); toast('บันทึกลง audit log ไม่สำเร็จ — รายการหลักบันทึกแล้ว แต่ประวัตินี้อาจหายไป'); }
   }, [userName, toast]);

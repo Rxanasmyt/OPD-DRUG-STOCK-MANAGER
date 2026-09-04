@@ -7,6 +7,17 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.52.1] - 2026-09-04
+
+### Fixed
+- **chore:** `AuditType` (types.ts) was missing five values that are logged and displayed
+  (`AdminScreen.tsx`'s `TYPE_LABEL` already had entries for all of them) every day —
+  `med_added`, `med_edited`, `med_status_changed`, `med_deleted`, `qr_manual` — because
+  `logAudit()` accepted a plain `string` instead of `AuditType`, so nothing ever caught the
+  union being out of date. No behavior change (these already worked correctly at runtime); this
+  closes the type-safety gap so a future typo'd audit type gets caught at compile time instead
+  of silently falling back to its raw string label
+
 ## [2.52.0] - 2026-09-04
 
 ### Fixed

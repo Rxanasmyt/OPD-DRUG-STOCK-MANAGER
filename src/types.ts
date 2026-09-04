@@ -100,6 +100,11 @@ export type AuthMode = 'login' | 'register';
 export type AuditType =
   | 'login' | 'user_registered' | 'user_approved' | 'user_role_changed' | 'user_status_changed' | 'par_updated'
   | 'receive_rejected'
+  // Formulary management (see MedsScreen/AppContext.tsx addMed/updateMedFull/toggleMedActive/
+  // deleteMed) and the manual-QR-entry fallback (qrDecodedImpl) — both log via the same
+  // logAudit() as everything else above, but were missing from this union even though
+  // AdminScreen's TYPE_LABEL already had display labels for all of them.
+  | 'med_added' | 'med_edited' | 'med_status_changed' | 'med_deleted' | 'qr_manual'
   | TxType;
 
 export interface AuditEntry {
