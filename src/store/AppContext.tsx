@@ -46,6 +46,18 @@ function genLotCode(medCode: string | undefined, medId: string, lotRefId: string
   return 'LOT-' + base + '-' + lotRefId.slice(-6).toUpperCase();
 }
 
+/** `volatility` is the hidden safety-margin multiplier `suggestPar()` applies on top of the
+ * plain daily-usage × cover-days math (see selectors.ts) — previously a fixed 1.1 for every
+ * newly-added med and a random 1.05–1.40 for the original seeded formulary, with no UI to see
+ * or change it, so a suggested par could never be reproduced by hand. Now user-editable; keep
+ * it inside a sane range regardless of what gets typed in — 1.0 (no buffer) to 3.0 (a very
+ * erratic-demand drug) covers every real case, and never let it collapse to 0 or negative
+ * (which would zero out or invert the suggestion). */
+function clampVolatility(v: number): number {
+  if (!isFinite(v) || v <= 0) return 1;
+  return Math.round(Math.min(3, Math.max(1, v)) * 100) / 100;
+}
+
 function freshState(): AppState {
   return {
     meds: [], lots: [], txs: [], users: [], authLog: [], dbReady: false,
@@ -176,8 +188,8 @@ export interface AppCtx {
   updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => void;
 
   // meds (formulary) management
-  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean }) => void;
-  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean }) => void;
+  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number }) => void;
+  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number }) => void;
   toggleMedActive: (medId: string) => void;
   deleteMed: (medId: string) => void;
   deleteAllInactiveMeds: (medIds?: string[]) => void;
@@ -1284,7 +1296,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [canEditPar, logAudit, toast]);
 
   // ---------- meds (formulary) management ----------
-  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean }) => {
+  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number }) => {
     if (!canEditPar) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
@@ -1324,7 +1336,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0), floor: 0,
           floorMin: Math.max(0, input.floorMin || 0),
           bin: input.bin.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8),
-          used30: 0, usedPrev30: 0, volatility: 1.1, lastCountTs: Date.now(),
+          used30: 0, usedPrev30: 0, volatility: clampVolatility(input.volatility ?? 1.1), lastCountTs: Date.now(),
           ward: input.ward, noSubstock: input.noSubstock,
         });
         return c;
@@ -1339,7 +1351,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // price, high-alert flag, shelf/bin, and both par levels — instead of hunting across
   // separate screens. `code` (the QR/label identifier) is deliberately never touched here —
   // labels already printed with it must keep resolving to this med.
-  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean }) => {
+  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number }) => {
     if (!canEditPar) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
@@ -1350,6 +1362,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0),
       floorMin: Math.max(0, input.floorMin || 0),
       ward: input.ward, noSubstock: input.noSubstock,
+      volatility: clampVolatility(input.volatility),
     };
     try {
       await updateDoc(doc(db, 'meds', medId), patch);

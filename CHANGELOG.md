@@ -7,6 +7,19 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.47.0] - 2026-09-04
+
+### Added
+- **feat:** `volatility` — the safety-margin multiplier `suggestPar()` applies on top of the
+  plain daily-usage × cover-days math ("Max = การใช้เฉลี่ยต่อวัน × จำนวนวันสำรอง × ตัวคูณนี้") —
+  is now a visible, editable field in "จัดการรายการยา" instead of a hidden number nobody could
+  see or reproduce. Previously every med added through the app got a fixed 1.1, and the
+  original seeded formulary got a random value between 1.05 and 1.40 assigned once at import
+  time with no relation to the drug's actual usage pattern and no way to check what it was —
+  a pharmacist trying to hand-verify a "ค่าแนะนำ" suggestion had no way to know this factor
+  existed, let alone what number it was, so their own calculation could never match the app's.
+  Editable range is 1.00 (no buffer) to 3.00
+
 ## [2.46.0] - 2026-09-04
 
 ### Added
