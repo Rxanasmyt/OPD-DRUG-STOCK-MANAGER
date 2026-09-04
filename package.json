@@ -1,7 +1,7 @@
 {
   "name": "kpnhos-drug-substock-opd-ipd-management",
   "private": true,
-  "version": "2.45.0",
+  "version": "2.46.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

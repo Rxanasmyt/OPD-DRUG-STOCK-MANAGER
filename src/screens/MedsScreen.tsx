@@ -39,7 +39,7 @@ function formFromMed(m: Med): MedFormValues {
 }
 
 export default function MedsScreen() {
-  const { state, sub, addMed, updateMedFull, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId, openScanSearch } = useApp();
+  const { state, sub, addMed, updateMedFull, setMedBin, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId, openScanSearch } = useApp();
   const canEdit = state.role !== 'tech';
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('active');
@@ -190,6 +190,12 @@ export default function MedsScreen() {
                       updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.ward, noSubstock: v.noSubstock });
                       setEditingId(null);
                     }}
+                    // ยาชื่อเดียวกันที่แยกรายการไว้คนละ ward (คนละ Firestore doc ตามหลักการออกแบบ
+                    // เดิม — ดูคำอธิบายใต้ปุ่ม OPD/IPD ด้านล่าง) มักมีชั้นวางคนละที่ ให้แก้ชั้นวาง
+                    // ของอีกฝั่งได้จากฟอร์มนี้เลยเพื่อความสะดวก โดยยังเป็นคนละ field ที่บันทึกแยก
+                    // (setMedBin เขียนทันทีแบบ debounce เหมือนช่องอื่นๆ ไม่ต้องรอกด "บันทึกการแก้ไข")
+                    sibling={state.meds.find((x) => x.id !== m.id && x.name === m.name && wardOf(x) !== wardOf(m))}
+                    onSiblingBinChange={(siblingId, val) => setMedBin(siblingId, val)}
                   />
                 </div>
               )}
@@ -206,12 +212,16 @@ export default function MedsScreen() {
 /** The one place every editable fact about a med lives — name+strength, dosage form, unit,
  * price, high-alert flag, shelf/bin, and both par levels — used both for "เพิ่มยาใหม่" (blank)
  * and a row's "แก้ไขข้อมูล" (pre-filled), so there's exactly one form to keep in sync. */
-function MedForm({ heading, initial, submitLabel, onCancel, onSubmit }: {
+function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, onSiblingBinChange }: {
   heading: string | null;
   initial: MedFormValues;
   submitLabel: string;
   onCancel: () => void;
   onSubmit: (v: MedFormValues) => void;
+  /** The same drug's other-ward record (same name, opposite ward), if one exists — lets its
+   * shelf code be edited right here instead of having to search it up as a separate row. */
+  sibling?: Med;
+  onSiblingBinChange?: (siblingId: string, val: string) => void;
 }) {
   const [v, setV] = useState<MedFormValues>(initial);
   const set = <K extends keyof MedFormValues>(k: K, val: MedFormValues[K]) => setV((s) => ({ ...s, [k]: val }));
@@ -252,6 +262,22 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit }: {
         </div>
         <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 5 }}>ยาตัวเดียวกันที่วางทั้งสองชั้น (เช่น ยาฉีดในลิ้นชักล็อก IPD ที่แบ่งมาวาง stat ที่ OPD) ให้สร้างเป็นคนละรายการ แล้วใช้ "ย้ายยาระหว่างชั้นวาง" ตอนโยกของจริง</div>
       </div>
+      {sibling && onSiblingBinChange && (
+        <label style={{ display: 'block', marginBottom: 9 }}>
+          <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>
+            ชั้นวาง ({wardOf(sibling) === 'opd' ? 'OPD' : 'IPD'}) — อีกรายการของยานี้
+          </span>
+          <input
+            value={sibling.bin}
+            onChange={(e) => onSiblingBinChange(sibling.id, e.target.value)}
+            placeholder="เช่น J4"
+            style={{ ...inputStyle, textTransform: 'uppercase' as const, borderColor: WARD_COLOR[wardOf(sibling)] }}
+          />
+          <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 5 }}>
+            บันทึกทันทีแยกจากฟอร์มนี้ (คนละรายการยาใน DB) — สะดวกไว้แก้ชั้นวางทั้ง OPD และ IPD ของยาตัวเดียวกันจากที่เดียว
+          </div>
+        </label>
+      )}
       <div className="grid-2" style={{ marginBottom: 9 }}>
         <label>
           <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>par substock</span>

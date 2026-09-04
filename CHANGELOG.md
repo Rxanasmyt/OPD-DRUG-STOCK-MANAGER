@@ -7,6 +7,27 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.46.0] - 2026-09-04
+
+### Added
+- **feat:** editing a med in "จัดการรายการยา" now also shows and lets you edit the shelf/bin
+  code of that same drug's **other-ward record** (its OPD/IPD name-twin), when one exists —
+  no more having to search up the sibling row separately just to fix its shelf code. Still two
+  separate Firestore documents underneath (unchanged data model — a drug on both OPD and IPD
+  shelves has always been two records, each with its own par/floor/bin), just editable from one
+  screen now. The sibling field saves independently and immediately (same debounced live-write
+  path already used for par fields), not gated behind the main form's "บันทึกการแก้ไข" button
+
+### Verified
+- **chore:** reviewed the whole realtime data path before this and further shelf-management
+  changes — `onSnapshot` listeners on `meds`/`lots`/`txs`/`auditLog`/`pendingReceives`/
+  `meta/settings`/`users` keep every client's local state synced to Firestore live;
+  `persistentLocalCache` keeps data available offline and resyncs on reconnect; every write that
+  touches stock quantities (transfers, ward moves, reconcile, receiving) goes through a Firestore
+  transaction or batch wrapped in a 15s timeout, never a bare unguarded write; the new
+  sibling-bin edit reuses that exact same live-write pattern. No changes were needed — the
+  existing architecture already guarantees this
+
 ## [2.45.0] - 2026-09-04
 
 ### Added
