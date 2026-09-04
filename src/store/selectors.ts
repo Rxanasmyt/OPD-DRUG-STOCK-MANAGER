@@ -1,8 +1,5 @@
-import type { AppState, HosxpMatch, Med, Role, Ward, UsagePeriod } from '../types';
+import type { AppState, HosxpMatch, Med, Role, Ward } from '../types';
 import { DAY, daysUntil } from '../utils/format';
-
-export const USAGE_PERIOD_DAYS: Record<UsagePeriod, number> = { month: 30, quarter: 90, fiscalYear: 365 };
-export const USAGE_PERIOD_LABEL: Record<UsagePeriod, string> = { month: 'รายเดือน (30 วัน)', quarter: 'รายไตรมาส (90 วัน)', fiscalYear: 'รายปีงบประมาณ (365 วัน)' };
 
 /** Pure, stateless helpers derived from AppState — no mutation, safe to call during render. */
 

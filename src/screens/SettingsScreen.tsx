@@ -1,15 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { suggestPar, USAGE_PERIOD_DAYS, USAGE_PERIOD_LABEL } from '../store/selectors';
-import { nf, digitsOnly, parseIntSafe } from '../utils/format';
-import type { UsagePeriod } from '../types';
-
-const PERIODS: UsagePeriod[] = ['month', 'quarter', 'fiscalYear'];
+import { suggestPar } from '../store/selectors';
+import { nf, digitsOnly, parseIntSafe, isoDate, fiscalYearStartIso, DAY } from '../utils/format';
 
 export default function SettingsScreen() {
   const {
     state, warn, applyAllSuggested, recomputeUsageStats, go, updateGlobalSettings,
-    setUsagePeriod, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
+    setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
   } = useApp();
   const canEdit = state.role !== 'tech';
   const meds = state.meds.filter((m) => m.active);
@@ -40,7 +37,10 @@ export default function SettingsScreen() {
   const usageMatched = usageRows.filter((r) => r.match.kind === 'exact').length;
   const usageFuzzy = usageRows.filter((r) => r.match.kind === 'fuzzy').length;
   const usageSkipped = usageRows.filter((r) => r.match.kind === 'ambiguous' || r.match.kind === 'none').length;
-  const usageCanCommit = usageRows.length > 0 && (usageFuzzy === 0 || state.usageConfirmFuzzy);
+  const usagePeriodDays = state.usageDateFrom && state.usageDateTo
+    ? Math.round((new Date(state.usageDateTo + 'T00:00:00').getTime() - new Date(state.usageDateFrom + 'T00:00:00').getTime()) / DAY) + 1
+    : 0;
+  const usageCanCommit = usageRows.length > 0 && usagePeriodDays > 0 && (usageFuzzy === 0 || state.usageConfirmFuzzy);
 
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
@@ -123,31 +123,31 @@ export default function SettingsScreen() {
         <div className="card" style={{ padding: 13, marginBottom: 13 }}>
           <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}>นำเข้าอัตราการใช้จากไฟล์</div>
           <div className="muted" style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 10 }}>
-            สำหรับยาที่ยังไม่มีประวัติ "นำเข้าจาก HOSxP" ในแอปพอ (60 วัน) — แนบไฟล์ CSV จำนวนที่ใช้จริงรายเดือน/ไตรมาส/ปีงบประมาณที่ห้องยามีอยู่แล้วแทนได้ รูปแบบ "ชื่อยา,จำนวนที่ใช้" บรรทัดละ 1 รายการ ระบบจะคำนวณอัตราเฉลี่ย/วันให้เอง — ปรับแค่ตัวเลขอัตราการใช้ที่ใช้แนะนำ par เท่านั้น ไม่กระทบยอดคงคลังจริง
+            สำหรับยาที่ยังไม่มีประวัติ "นำเข้าจาก HOSxP" ในแอปพอ (60 วัน) — แนบไฟล์รายงานการใช้ยาจาก HOSxP (.xls/.xlsx) หรือ CSV รูปแบบ "ชื่อยา,จำนวนที่ใช้" ตามช่วงวันที่ที่ห้องยามีข้อมูลจริง (เช่น ปีงบประมาณปัจจุบันที่ยังไม่ครบปี) ระบบจะคำนวณอัตราเฉลี่ย/วันจากจำนวนวันในช่วงนั้นให้เอง — ปรับแค่ตัวเลขอัตราการใช้ที่ใช้แนะนำ par เท่านั้น ไม่กระทบยอดคงคลังจริง
           </div>
 
-          <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-            {PERIODS.map((p) => {
-              const active = state.usagePeriod === p;
-              return (
-                <button
-                  key={p}
-                  onClick={() => setUsagePeriod(p)}
-                  className="chip"
-                  style={{ flex: 1, textAlign: 'center', border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)', minHeight: 38 }}
-                >
-                  {USAGE_PERIOD_LABEL[p]}
-                </button>
-              );
-            })}
+          <div className="grid-2" style={{ marginBottom: 8 }}>
+            <label>
+              <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>จากวันที่</span>
+              <input type="date" value={state.usageDateFrom} onChange={(e) => setUsageDateFrom(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 13, minHeight: 40 }} />
+            </label>
+            <label>
+              <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>ถึงวันที่</span>
+              <input type="date" value={state.usageDateTo} onChange={(e) => setUsageDateTo(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 13, minHeight: 40 }} />
+            </label>
           </div>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+            <button onClick={() => { setUsageDateFrom(fiscalYearStartIso()); setUsageDateTo(isoDate(Date.now())); }} className="chip" style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)' }}>ปีงบประมาณนี้ (ต.ค.–ปัจจุบัน)</button>
+            <button onClick={() => { const to = Date.now(); setUsageDateTo(isoDate(to)); setUsageDateFrom(isoDate(to - 30 * DAY)); }} className="chip" style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)' }}>30 วันล่าสุด</button>
+          </div>
+          {usagePeriodDays > 0 && <div className="muted" style={{ fontSize: 11, marginBottom: 10, marginTop: -4 }}>รวม {usagePeriodDays} วัน</div>}
 
           {!usageRows.length ? (
             <>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,.txt,text/csv,text/plain"
+                accept=".csv,.txt,.xls,.xlsx,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 style={{ display: 'none' }}
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) importUsageFile(f); e.target.value = ''; }}
               />
@@ -156,7 +156,7 @@ export default function SettingsScreen() {
                 className="btn-outline"
                 style={{ width: '100%', padding: 12, borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 46 }}
               >
-                ↑ เลือกไฟล์ CSV — จำนวนที่ใช้{USAGE_PERIOD_LABEL[state.usagePeriod].replace(/\s*\(.*\)/, '')}
+                ↑ เลือกไฟล์ — รายงานการใช้ยาจาก HOSxP (.xls/.xlsx) หรือ CSV
               </button>
             </>
           ) : (
@@ -165,7 +165,7 @@ export default function SettingsScreen() {
                 <span style={{ minWidth: 0, fontSize: 12, lineHeight: 1.4 }}>
                   <span style={{ fontWeight: 600 }}>{state.usageFileName}</span>
                   <span className="muted" style={{ display: 'block', marginTop: 1 }}>
-                    ตรงเป๊ะ {nf(usageMatched)} · ไม่ตรงเป๊ะ {nf(usageFuzzy)} · ข้าม {nf(usageSkipped)} รายการ ({USAGE_PERIOD_DAYS[state.usagePeriod]} วัน)
+                    ตรงเป๊ะ {nf(usageMatched)} · ไม่ตรงเป๊ะ {nf(usageFuzzy)} · ข้าม {nf(usageSkipped)} รายการ
                   </span>
                 </span>
                 <button onClick={clearUsageImport} style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--red)', fontSize: 12, fontWeight: 600 }}>ยกเลิก</button>

@@ -7,6 +7,27 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.42.0] - 2026-09-03
+
+### Added
+- **feat:** "นำเข้าอัตราการใช้จากไฟล์" now reads a *real* HOSxP "รายงานการใช้ยา" export
+  (.xls/.xlsx) directly — not just a hand-built CSV. That report's columns (No. / รายการยา /
+  ความแรง / หน่วย / จำนวนใบสั่งยา / จำนวนที่ใช้ / มูลค่า) split a drug's name and strength
+  across separate cells, while this app's own Med.name always has them joined (e.g. "(HAD)
+  Adenosine 3 mg/ml Vial") — the parser reconstructs the same joined form before matching, so
+  a real export matches the formulary essentially the same way a hand-typed CSV would (tested
+  against a real hospital export: 420/426 rows matched exactly, 0 fuzzy, 0 ambiguous). Header
+  columns are located by matching their Thai labels rather than a hardcoded position, so a
+  slightly different export layout still resolves correctly. The (~330kB) Excel-parsing
+  library only loads when someone actually picks an .xls/.xlsx file, as its own separate
+  chunk — it doesn't add to what every other page load has to fetch
+- **feat:** replaced the รายเดือน/ไตรมาส/ปีงบประมาณ (30/90/365-day) period presets with an
+  actual date range (จากวันที่ / ถึงวันที่) — a real fiscal-year-to-date export (e.g. 1
+  ต.ค.–31 ส.ค., 11 months into a fiscal year that isn't over yet) never lines up with a clean
+  preset bucket. Two quick-fill shortcuts ("ปีงบประมาณนี้ (ต.ค.–ปัจจุบัน)", "30 วันล่าสุด") set
+  the dates for the common cases; the day count driving the daily-rate calculation is always
+  computed from the actual dates entered
+
 ## [2.41.0] - 2026-09-03
 
 ### Fixed

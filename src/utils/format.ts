@@ -42,6 +42,14 @@ export function fiscalYear(ms: number = Date.now()): number {
   return d.getMonth() >= 9 ? buddhistYear + 1 : buddhistYear;
 }
 
+/** ISO (YYYY-MM-DD) date of 1 ต.ค. for whichever fiscal year `ms` falls in — the quick-fill
+ * "ปีงบประมาณนี้ (ต.ค.–ปัจจุบัน)" shortcut for the usage-file import date range starts here. */
+export function fiscalYearStartIso(ms: number = Date.now()): string {
+  const d = new Date(ms);
+  const startYear = d.getMonth() >= 9 ? d.getFullYear() : d.getFullYear() - 1;
+  return startYear + '-10-01';
+}
+
 /** Deterministic pseudo-random generator (mulberry32), seeded per-index so seed data is stable across reloads. */
 export function mulberry32(seed: number) {
   let a = seed >>> 0;

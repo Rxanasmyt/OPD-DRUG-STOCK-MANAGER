@@ -145,14 +145,6 @@ export type HosxpMatch =
   | { kind: 'ambiguous'; candidateIds: string[] }
   | { kind: 'none' };
 
-/** How many days a "จำนวนที่ใช้" total in an imported usage file covers — lets a hospital
- * that only has quarterly or fiscal-year usage reports (not every site runs HOSxP reconcile
- * daily long enough to build 60 days of in-app history) still seed used30 with a real
- * daily-usage rate instead of leaving it at 0. ปีงบประมาณไทยเริ่ม ต.ค. จบ ก.ย. (365 วัน) — ไม่
- * ใช่ปีปฏิทิน แต่จำนวนวันสำหรับคำนวณอัตราเฉลี่ย/วันเท่ากัน จึงใช้ตัวเลขเดียวกับปีปฏิทิน 365 วัน.
- */
-export type UsagePeriod = 'month' | 'quarter' | 'fiscalYear';
-
 export type AdminTab = 'users' | 'audit';
 export type AuditFilter = 'all' | 'users' | 'stock';
 export type TransferFilter = 'low' | 'all' | 'had';
@@ -240,12 +232,17 @@ export interface AppState {
   hosxpRows: { name: string; qty: number; match: HosxpMatch }[] | null;
   hosxpConfirmFuzzy: boolean;
 
-  // Import usage totals (รายเดือน/รายไตรมาส/รายปีงบประมาณ) from a file to seed used30 — see
-  // suggestPar()/importUsageFile() in AppContext.tsx. Deliberately its own state, separate
-  // from the hosxp* fields above: this only ever touches used30 (a par-suggestion input),
-  // never floor/substock quantities, so it can't accidentally deduct real stock the way a
-  // half-finished HOSxP reconcile could.
-  usagePeriod: UsagePeriod;
+  // Import usage totals from a file (a real HOSxP "รายงานการใช้ยา" export, .xls/.xlsx, or a
+  // plain "ชื่อยา,จำนวน" CSV) to seed used30 — see suggestPar()/importUsageFile() in
+  // AppContext.tsx. Deliberately its own state, separate from the hosxp* fields above: this
+  // only ever touches used30 (a par-suggestion input), never floor/substock quantities, so it
+  // can't accidentally deduct real stock the way a half-finished HOSxP reconcile could.
+  // Date range instead of a fixed month/quarter/year preset — a real fiscal-year-to-date
+  // export (e.g. 1 ต.ค.–31 ส.ค., 11 months into a fiscal year that isn't over yet) never lines
+  // up with a clean 30/90/365-day bucket, so the person names the actual dates the file
+  // covers and the day count is computed from those (see USAGE_PERIOD_DAYS's replacement).
+  usageDateFrom: string;
+  usageDateTo: string;
   usageFileName: string | null;
   usageRows: { name: string; qty: number; match: HosxpMatch }[] | null;
   usageConfirmFuzzy: boolean;
