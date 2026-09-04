@@ -7,6 +7,18 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.45.0] - 2026-09-04
+
+### Added
+- **feat:** "ตัดยอดหน้างาน" (การนำเข้าจาก HOSxP รายวัน) now accepts the real HOSxP "รายงานการใช้ยา"
+  export (.xls/.xlsx) directly via a file-attach button — same file shape/parser already used
+  for the par-suggestion usage import, just pulled for a single day (เมื่อวาน) so its "จำนวนที่ใช้"
+  column becomes that day's real floor deduction instead of a par-suggestion input. No more
+  copy-pasting the report into the "ชื่อยา,จำนวน" textarea by hand every morning — attach the
+  file and it goes straight into the same match/review table as before, still requiring the
+  same fuzzy-match confirmation and still skipping anything ambiguous or unmatched before
+  committing. The plain-text textarea still works exactly as before for anyone who prefers it
+
 ## [2.44.0] - 2026-09-04
 
 ### Changed

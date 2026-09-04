@@ -193,6 +193,7 @@ export interface AppCtx {
   // hosxp reconcile
   setHosxpText: (v: string) => void;
   processHosxp: () => void;
+  processHosxpFile: (file: File) => void;
   setHosxpConfirmFuzzy: (v: boolean) => void;
   commitReconcile: () => void;
 
@@ -1519,6 +1520,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     patch({ hosxpRows: rows, hosxpConfirmFuzzy: false });
   }, [state.hosxpText, state.meds, patch, toast]);
 
+  // Lets the daily floor-deduction workflow attach the actual HOSxP "รายงานการใช้ยา" export
+  // (.xls/.xlsx) directly instead of hand-copying it into the "ชื่อยา,จำนวน" textarea above —
+  // same file shape/parser as the par-suggestion usage import (importUsageFile), just landing
+  // in hosxpRows (today's floor deduction) instead of usageRows (the par-suggestion input).
+  // Only makes sense when the export was pulled for a single day (yesterday) — the "จำนวนที่ใช้"
+  // column becomes that day's real dispensed quantity, which is exactly what a daily reconcile
+  // needs; pulling it for a longer range would over-deduct the floor.
+  const processHosxpFile = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onerror = () => toast('อ่านไฟล์ไม่สำเร็จ — ลองใหม่อีกครั้ง');
+    const isSpreadsheet = /\.xlsx?$/i.test(file.name);
+    reader.onload = async () => {
+      let raw: RawUsageRow[];
+      try {
+        raw = isSpreadsheet
+          ? await parseHosxpUsageWorkbook(reader.result as ArrayBuffer)
+          : parseUsageCsvText(String(reader.result || ''));
+      } catch (e) {
+        console.error('hosxp reconcile file parse failed:', e);
+        toast('อ่านไฟล์นี้ไม่สำเร็จ — ตรวจสอบว่าเป็นไฟล์ Excel (.xls/.xlsx) จาก HOSxP หรือ CSV ที่ไม่เสียหาย');
+        return;
+      }
+      if (!raw.length) { toast('ไม่พบข้อมูลที่อ่านได้ในไฟล์นี้'); return; }
+      const rows = raw.map((r) => ({ name: r.name, qty: Math.round(r.qty), match: matchHosxpMed(state.meds, r.name) }));
+      patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpText: '' });
+      toast('อ่านไฟล์ ' + file.name + ' แล้ว ' + rows.length + ' รายการ — ตรวจสอบรายการด้านล่างก่อนตัดยอด');
+    };
+    if (isSpreadsheet) reader.readAsArrayBuffer(file);
+    else reader.readAsText(file);
+  }, [state.meds, patch, toast]);
+
   const setHosxpConfirmFuzzy = useCallback((v: boolean) => patch({ hosxpConfirmFuzzy: v }), [patch]);
 
   const commitReconcile = useCallback(guardOnce('reconcile', async () => {
@@ -1841,7 +1873,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addMed, updateMedFull, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, setCountInput, commitCount,
-    setHosxpText, processHosxp, setHosxpConfirmFuzzy, commitReconcile,
+    setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, commitReconcile,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     doneAgain,

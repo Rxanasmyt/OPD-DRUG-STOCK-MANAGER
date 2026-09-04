@@ -1,10 +1,12 @@
+import { useRef } from 'react';
 import { useApp } from '../store/AppContext';
 import { wardOf } from '../store/selectors';
 import { nf } from '../utils/format';
 import type { HosxpMatch, Med } from '../types';
 
 export default function ReconcileScreen() {
-  const { state, setHosxpText, processHosxp, setHosxpConfirmFuzzy, commitReconcile } = useApp();
+  const { state, setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, commitReconcile } = useApp();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const medById = (id: string) => state.meds.find((x) => x.id === id);
 
@@ -22,8 +24,27 @@ export default function ReconcileScreen() {
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
       <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 12 }}>
-        วิธีหลักในการตัดยอดหน้างาน — ใช้เป็นประจำทุกวัน เร็วกว่าการนับสต็อกจริง วางไฟล์ CSV ที่ IT export จาก HOSxP (ชื่อยา, จำนวนจ่าย) ระบบจะตัดยอดหน้างานให้ตรงกับที่จ่ายจริงโดยตรง
+        วิธีหลักในการตัดยอดหน้างาน — ใช้เป็นประจำทุกวัน เร็วกว่าการนับสต็อกจริง แนบไฟล์รายงานการใช้ยาจาก HOSxP (.xls/.xlsx) ของ<b>เมื่อวานวันเดียว</b>โดยตรง หรือวางข้อมูล CSV รูปแบบ "ชื่อยา,จำนวนจ่าย" ในช่องด้านล่าง — ระบบจะตัดยอดหน้างานให้ตรงกับที่จ่ายจริงโดยตรง (ถ้าปั๊มรายงานช่วงมากกว่า 1 วัน จะตัดยอดเกินจริง)
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".xls,.xlsx,.csv,text/csv"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) processHosxpFile(f);
+          e.target.value = '';
+        }}
+      />
+      <button
+        onClick={() => fileInputRef.current?.click()}
+        className="btn-primary"
+        style={{ width: '100%', padding: 11, borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 46, marginBottom: 10 }}
+      >
+        📎 แนบไฟล์ HOSxP ของเมื่อวาน (.xls/.xlsx)
+      </button>
+      <div className="muted" style={{ fontSize: 11, textAlign: 'center', marginBottom: 10 }}>— หรือวางข้อความด้านล่าง —</div>
       <textarea
         value={state.hosxpText}
         onChange={(e) => setHosxpText(e.target.value)}
