@@ -31,15 +31,19 @@ export interface Med {
   // ยาน้ำ/ยาพ่นบางตัวไม่มีขั้น substock เลย — เบิกจากคลังใหญ่มาลงชั้นวางหน้างานตรง ๆ. Toggled
   // per med (see MedsScreen), not a whole drug-class rule, since it varies item by item.
   noSubstock?: boolean;
-  // Set only on a "shared" med — one whose OPD and IPD stock are the SAME physical pool (the
-  // real workflow for most one-day-dose meds: IPD pulls straight off the OPD shelf), merged
-  // from what used to be two separate ward records into this one via mergeWardMeds() in
-  // AppContext.tsx. `bin` stays this record's OPD-side shelf code; `binIpd` is its IPD-side
-  // code — same floor/par/lots/used30 serve both. A med WITHOUT this (the majority of drugs
-  // still kept on separate locked/ward-specific stock, e.g. IPD's injectable cabinet — see
-  // WardMoveScreen) is unaffected: still one `ward`, one `bin`, business as usual. Always go
-  // through isSharedMed()/matchesWard()/binFor() in selectors.ts rather than reading this
-  // directly.
+  // `shared: true` = OPD and IPD draw on the SAME physical pool for this drug (the real
+  // workflow for most one-day-dose meds: IPD pulls straight off the OPD shelf) — one
+  // floor/par/lots/used30 serves both, and it shows up under both ward tabs. Set either by
+  // mergeWardMeds()/mergeAllWardPairs() (folding a still-separate OPD+IPD pair into one
+  // record) or in bulk by shareAllMeds() — for a formulary that never had separate IPD
+  // records to begin with, there's nothing to fold in, just this flag to flip. `binIpd`, if
+  // set, is a distinct IPD-side shelf code; left unset, `binFor()` in selectors.ts shows the
+  // same one `bin` for both wards, which is exactly right when there's only ever been one
+  // shelf. A med WITHOUT `shared` (kept on genuinely separate locked/ward-specific stock,
+  // e.g. IPD's injectable cabinet — see WardMoveScreen) is unaffected: still one `ward`, one
+  // `bin`, business as usual. Always go through isSharedMed()/matchesWard()/binFor() in
+  // selectors.ts rather than reading `shared`/`binIpd` directly.
+  shared?: boolean;
   binIpd?: string;
 }
 

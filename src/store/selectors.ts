@@ -25,7 +25,7 @@ export function usesSubstock(m: Med): boolean {
  * mergeWardMeds() in AppContext.tsx and Med.binIpd in types.ts) — the real workflow for most
  * one-day-dose drugs, where IPD just pulls off the OPD shelf rather than keeping its own. */
 export function isSharedMed(m: Med): boolean {
-  return !!m.binIpd;
+  return !!m.shared;
 }
 
 /** Whether `m` belongs under ward tab/filter `filter` — a shared med always matches every

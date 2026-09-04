@@ -7,6 +7,28 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.50.0] - 2026-09-04
+
+### Fixed
+- **fix:** "รวมสต็อก OPD+IPD" (v2.48.0-v2.49.0) only ever found something to do when a drug
+  already had two separate records — one 'opd', one 'ipd' — to fold together. At a formulary
+  with **no separate IPD records at all** (every med is a single plain 'opd' record, which
+  turned out to be this hospital's actual starting state) that count is always 0, so the
+  merge button did nothing — not a bug in the merge logic itself, just the wrong tool for that
+  starting point, and confusing to hit with no explanation.
+- **feat:** new button **"ใช้ยาทั้งหมดร่วมกันทั้ง OPD/IPD เลย"** (shareAllMeds()) — for exactly
+  that case. Since there's no second record's stock to fold in, it just flips every active
+  med's `shared` flag on in one batched write; each one then shows up under both the OPD and
+  IPD tabs immediately, using the one floor/par/stock it already has. The existing
+  "รวมสต็อก OPD+IPD ที่แยกเป็นคนละรายการอยู่" button (renamed for clarity) stays for the other
+  case — a drug that genuinely does have two separate records today and needs their stock
+  folded together, not just a flag flipped
+- **refactor:** decoupled "is this med shared" from "does it have a distinct IPD bin code" —
+  `Med.shared: boolean` is now the actual signal `isSharedMed()` checks; `Med.binIpd` is purely
+  optional extra detail (a distinct IPD-side shelf code), no longer required just to mark a med
+  as shared. `binFor()` already fell back to the one `bin` when `binIpd` was unset, so a
+  shareAllMeds()-shared drug displays correctly with no code changes needed there
+
 ## [2.49.0] - 2026-09-04
 
 ### Added
