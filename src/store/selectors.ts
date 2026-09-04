@@ -21,6 +21,26 @@ export function usesSubstock(m: Med): boolean {
   return !m.noSubstock;
 }
 
+/** True once a med's OPD and IPD stock have been merged into one pooled record (see
+ * mergeWardMeds() in AppContext.tsx and Med.binIpd in types.ts) — the real workflow for most
+ * one-day-dose drugs, where IPD just pulls off the OPD shelf rather than keeping its own. */
+export function isSharedMed(m: Med): boolean {
+  return !!m.binIpd;
+}
+
+/** Whether `m` belongs under ward tab/filter `filter` — a shared med always matches every
+ * filter (both wards draw from the same floor/par), everything else uses its single ward. */
+export function matchesWard(m: Med, filter: 'all' | Ward): boolean {
+  return filter === 'all' || isSharedMed(m) || wardOf(m) === filter;
+}
+
+/** Shelf/bin code to display for `m` when looking at it from ward `w` — the IPD-side code on
+ * a shared med when `w` is 'ipd', its one `bin` otherwise (including for a shared med viewed
+ * from OPD, since `bin` IS its OPD-side code). */
+export function binFor(m: Med, w: Ward): string {
+  return w === 'ipd' && m.binIpd ? m.binIpd : m.bin;
+}
+
 /** Real min-max par: `parFloor` is the shelf's capacity ("Max" — fill up TO this), `floorMin`
  * is the separate reorder point ("Min" — BELOW this is when it actually needs refilling).
  * Every med added before Min-Max existed has no floorMin — default it to 30% of Max, a

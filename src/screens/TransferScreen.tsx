@@ -1,5 +1,5 @@
 import { useApp } from '../store/AppContext';
-import { toneFor, wardOf, usesSubstock, floorMinOf } from '../store/selectors';
+import { toneFor, usesSubstock, floorMinOf, matchesWard } from '../store/selectors';
 import { nf, thDate, digitsOnly } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
@@ -11,7 +11,7 @@ export default function TransferScreen() {
   // noSubstock meds (liquids/sprays — received straight to the shelf, see ReceiveScreen)
   // have nothing to transfer from; showing them here with permanently-stuck-at-0 +/- buttons
   // would just be confusing clutter, not a real "เติมหน้างาน" candidate.
-  const meds = state.meds.filter((m) => m.active && usesSubstock(m) && (state.wardFilter === 'all' || wardOf(m) === state.wardFilter));
+  const meds = state.meds.filter((m) => m.active && usesSubstock(m) && matchesWard(m, state.wardFilter));
   const low = meds.filter((m) => m.floor < floorMinOf(m));
   const q = state.search.trim().toLowerCase();
   const filtered = meds

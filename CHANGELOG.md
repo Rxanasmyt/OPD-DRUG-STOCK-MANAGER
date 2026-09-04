@@ -7,6 +7,34 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.48.0] - 2026-09-04
+
+### Added
+- **feat:** OPD and IPD can now share one pooled stock record for a drug, instead of always
+  being two separate records — matching the real workflow at this hospital, where IPD
+  one-day-dose almost always pulls straight off the OPD shelf rather than keeping a separate
+  pile. A "shared" med (`Med.binIpd` set) has one `floor`/par/`used30`/lot ledger for both
+  wards, with two shelf/bin codes — `bin` (OPD-side) and the new `binIpd` (IPD-side) — so the
+  two rooms can still each have their own shelf code even though the count behind them is the
+  same. Everywhere stock is filtered by ward tab (Home, เติมหน้างาน, Report) a shared med now
+  shows up under both OPD and IPD instead of only whichever `ward` its record happened to carry
+- **feat:** "รวมสต็อก OPD+IPD เป็นยอดเดียวกัน" — a new button in "จัดการรายการยา", next to the
+  existing sibling-bin editor, for the common case: a drug that's *currently* two separate
+  ward records (from before this existed) and should become one shared one. Merges the pair
+  by folding the IPD record's substock lots onto the OPD record (reassigning their `medId`),
+  summing `floor`/`used30`/`usedPrev30` across both (per explicit direction: don't try to
+  reconcile which side's number was "more correct" — today's on-screen counts don't match the
+  real shelf anyway, so a fresh physical count right after merging, via "นับสต็อกหน้างาน",
+  is what actually fixes the number), setting `binIpd` to the IPD record's old shelf code, and
+  deactivating the now-redundant IPD record (kept, not deleted, so its transaction history
+  stays intact). A drug added brand-new can also be declared shared straight away — the
+  "เพิ่มยาใหม่"/"แก้ไขข้อมูล" form has a "+ ใช้ยอดร่วมกันทั้ง OPD และ IPD" toggle when it has no
+  separate ward counterpart to merge from
+- **feat:** for a drug that genuinely does keep separate stock on each side (e.g. IPD's locked
+  injectable cabinet, occasionally moved to OPD's stat drawer) nothing changes — it's simply
+  never marked shared, and "ย้ายยาระหว่างชั้นวาง" (WardMoveScreen) still works exactly as
+  before for moving stock between two still-separate records
+
 ## [2.47.0] - 2026-09-04
 
 ### Added

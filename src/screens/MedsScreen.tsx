@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly } from '../utils/format';
-import { wardOf, wardLabel, floorMinOf, toneFor } from '../store/selectors';
+import { wardOf, wardLabel, floorMinOf, toneFor, isSharedMed, matchesWard } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
 import type { Med, Ward } from '../types';
@@ -25,10 +25,15 @@ interface MedFormValues {
   ward: Ward;
   noSubstock: boolean;
   volatility: string;
+  // ยาที่ IPD หยิบตรงจากชั้น OPD (ไม่มีสต็อกแยก) — ดู isSharedMed()/Med.binIpd. เมื่อ true จะโชว์
+  // ชั้นวางสองรหัส (OPD/IPD) แทนตัวเลือกหอผู้ป่วยเดี่ยว และ `bin`/`binIpd` ทั้งคู่บันทึกลงยา
+  // รายการเดียวกัน — คนละกลไกกับ "รวมสต็อก" (mergeWardMeds) ที่ใช้ตอนมีสต็อกแยกสองรายการอยู่แล้ว
+  shared: boolean;
+  binIpd: string;
 }
 
 function blankForm(): MedFormValues {
-  return { name: '', dosageForm: '', unit: '', price: '', had: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10' };
+  return { name: '', dosageForm: '', unit: '', price: '', had: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: false, binIpd: '' };
 }
 
 function formFromMed(m: Med): MedFormValues {
@@ -36,11 +41,12 @@ function formFromMed(m: Med): MedFormValues {
     name: m.name, dosageForm: m.dosageForm, unit: m.unit, price: m.price ? String(m.price) : '',
     had: m.had, bin: m.bin, parSub: String(m.parSub), parFloor: String(m.parFloor), floorMin: String(floorMinOf(m)),
     ward: wardOf(m), noSubstock: !!m.noSubstock, volatility: m.volatility.toFixed(2),
+    shared: isSharedMed(m), binIpd: m.binIpd || '',
   };
 }
 
 export default function MedsScreen() {
-  const { state, sub, addMed, updateMedFull, setMedBin, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId, openScanSearch } = useApp();
+  const { state, sub, addMed, updateMedFull, mergeWardMeds, setMedBin, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId, openScanSearch } = useApp();
   const canEdit = state.role !== 'tech';
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('active');
@@ -76,7 +82,7 @@ export default function MedsScreen() {
 
   const meds = state.meds
     .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : !m.active))
-    .filter((m) => wardTab === 'all' || wardOf(m) === wardTab)
+    .filter((m) => matchesWard(m, wardTab))
     .filter((m) => !q.trim() || m.name.toLowerCase().indexOf(q.trim().toLowerCase()) >= 0)
     .sort((a, b) => a.name.localeCompare(b.name, 'th'));
 
@@ -108,7 +114,7 @@ export default function MedsScreen() {
           submitLabel="บันทึก"
           onCancel={() => setAddOpen(false)}
           onSubmit={(v) => {
-            addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1 });
+            addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, binIpd: v.shared ? v.binIpd : undefined });
             setAddOpen(false);
           }}
         />
@@ -150,14 +156,20 @@ export default function MedsScreen() {
                       <span>{m.name}</span>
                       {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
                     </div>
-                    <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{m.code} · ชั้น {m.bin || '—'} · {m.unit} · {nf(m.price)} บาท</div>
+                    <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                      {m.code} · ชั้น {isSharedMed(m) ? ('OPD ' + (m.bin || '—') + ' / IPD ' + (m.binIpd || '—')) : (m.bin || '—')} · {m.unit} · {nf(m.price)} บาท
+                    </div>
                     {m.active && (
                       <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
                         หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={11} /> · substock {nf(sub(m.id))} {m.unit}
                       </div>
                     )}
                     <div style={{ display: 'flex', gap: 5, marginTop: 5 }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: WARD_COLOR[wardOf(m)], background: WARD_BG[wardOf(m)], padding: '2px 7px', borderRadius: 20 }}>{wardOf(m) === 'opd' ? 'OPD' : 'IPD'}</span>
+                      {isSharedMed(m) ? (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--green)', background: 'var(--green-tint)', padding: '2px 7px', borderRadius: 20 }}>OPD+IPD ร่วมกัน</span>
+                      ) : (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: WARD_COLOR[wardOf(m)], background: WARD_BG[wardOf(m)], padding: '2px 7px', borderRadius: 20 }}>{wardOf(m) === 'opd' ? 'OPD' : 'IPD'}</span>
+                      )}
                       {m.noSubstock && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--amber-ink)', background: 'var(--amber-bg)', padding: '2px 7px', borderRadius: 20 }}>ไม่มี substock</span>}
                     </div>
                   </div>
@@ -188,15 +200,18 @@ export default function MedsScreen() {
                     submitLabel="บันทึกการแก้ไข"
                     onCancel={() => setEditingId(null)}
                     onSubmit={(v) => {
-                      updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1 });
+                      updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, binIpd: v.shared ? v.binIpd : undefined });
                       setEditingId(null);
                     }}
                     // ยาชื่อเดียวกันที่แยกรายการไว้คนละ ward (คนละ Firestore doc ตามหลักการออกแบบ
-                    // เดิม — ดูคำอธิบายใต้ปุ่ม OPD/IPD ด้านล่าง) มักมีชั้นวางคนละที่ ให้แก้ชั้นวาง
-                    // ของอีกฝั่งได้จากฟอร์มนี้เลยเพื่อความสะดวก โดยยังเป็นคนละ field ที่บันทึกแยก
-                    // (setMedBin เขียนทันทีแบบ debounce เหมือนช่องอื่นๆ ไม่ต้องรอกด "บันทึกการแก้ไข")
-                    sibling={state.meds.find((x) => x.id !== m.id && x.name === m.name && wardOf(x) !== wardOf(m))}
+                    // เดิม) มักมีชั้นวางคนละที่ ให้แก้ชั้นวางของอีกฝั่งได้จากฟอร์มนี้เลยเพื่อความ
+                    // สะดวก โดยยังเป็นคนละ field ที่บันทึกแยก (setMedBin เขียนทันทีแบบ debounce
+                    // เหมือนช่องอื่นๆ) — ใช้ได้เฉพาะยาที่ "ยังไม่รวมสต็อก" เท่านั้น (ถ้ารวมแล้ว
+                    // isSharedMed(m) เป็น true ฟอร์มจะโชว์ชั้นวางสองรหัสของ record เดียวแทน ไม่ต้อง
+                    // หา sibling อีก — และ record คู่เดิมที่ปิดใช้งานไปหลังรวม ก็ไม่ควรโผล่มาให้แก้)
+                    sibling={isSharedMed(m) ? undefined : state.meds.find((x) => x.id !== m.id && x.active && x.name === m.name && wardOf(x) !== wardOf(m))}
                     onSiblingBinChange={(siblingId, val) => setMedBin(siblingId, val)}
+                    onMerge={(siblingId) => mergeWardMeds(m.id, siblingId)}
                   />
                 </div>
               )}
@@ -213,7 +228,7 @@ export default function MedsScreen() {
 /** The one place every editable fact about a med lives — name+strength, dosage form, unit,
  * price, high-alert flag, shelf/bin, and both par levels — used both for "เพิ่มยาใหม่" (blank)
  * and a row's "แก้ไขข้อมูล" (pre-filled), so there's exactly one form to keep in sync. */
-function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, onSiblingBinChange }: {
+function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, onSiblingBinChange, onMerge }: {
   heading: string | null;
   initial: MedFormValues;
   submitLabel: string;
@@ -223,9 +238,13 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
    * shelf code be edited right here instead of having to search it up as a separate row. */
   sibling?: Med;
   onSiblingBinChange?: (siblingId: string, val: string) => void;
+  /** Folds `sibling`'s real stock into this med as one pooled OPD/IPD record — see
+   * mergeWardMeds() in AppContext.tsx. Only offered when a sibling exists. */
+  onMerge?: (siblingId: string) => void;
 }) {
   const [v, setV] = useState<MedFormValues>(initial);
   const set = <K extends keyof MedFormValues>(k: K, val: MedFormValues[K]) => setV((s) => ({ ...s, [k]: val }));
+  const setShared = (on: boolean) => setV((s) => ({ ...s, shared: on, binIpd: on ? s.binIpd : '' }));
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
 
   return (
@@ -251,33 +270,62 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
           <input value={v.price} onChange={(e) => set('price', e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" style={inputStyle} />
         </label>
         <label>
-          <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>ชั้นวาง</span>
+          <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{v.shared ? 'ชั้นวาง (OPD)' : 'ชั้นวาง'}</span>
           <input value={v.bin} onChange={(e) => set('bin', e.target.value)} placeholder="เช่น J4" style={{ ...inputStyle, textTransform: 'uppercase' as const }} />
         </label>
       </div>
-      <div style={{ marginBottom: 9 }}>
-        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>หอผู้ป่วยที่ใช้ชั้นวางนี้</span>
-        <div style={{ display: 'flex', gap: 7 }}>
-          <button onClick={() => set('ward', 'opd')} style={{ flex: 1, border: v.ward === 'opd' ? '1px solid ' + WARD_COLOR.opd : '1px solid var(--border)', background: v.ward === 'opd' ? WARD_BG.opd : 'var(--bg-card)', color: v.ward === 'opd' ? WARD_COLOR.opd : 'var(--ink)', padding: '10px 4px', borderRadius: 9, fontSize: 13, fontWeight: 600, minHeight: 42 }}>ผู้ป่วยนอก (OPD)</button>
-          <button onClick={() => set('ward', 'ipd')} style={{ flex: 1, border: v.ward === 'ipd' ? '1px solid ' + WARD_COLOR.ipd : '1px solid var(--border)', background: v.ward === 'ipd' ? WARD_BG.ipd : 'var(--bg-card)', color: v.ward === 'ipd' ? WARD_COLOR.ipd : 'var(--ink)', padding: '10px 4px', borderRadius: 9, fontSize: 13, fontWeight: 600, minHeight: 42 }}>ผู้ป่วยใน (IPD)</button>
-        </div>
-        <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 5 }}>ยาตัวเดียวกันที่วางทั้งสองชั้น (เช่น ยาฉีดในลิ้นชักล็อก IPD ที่แบ่งมาวาง stat ที่ OPD) ให้สร้างเป็นคนละรายการ แล้วใช้ "ย้ายยาระหว่างชั้นวาง" ตอนโยกของจริง</div>
-      </div>
-      {sibling && onSiblingBinChange && (
-        <label style={{ display: 'block', marginBottom: 9 }}>
-          <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>
-            ชั้นวาง ({wardOf(sibling) === 'opd' ? 'OPD' : 'IPD'}) — อีกรายการของยานี้
-          </span>
-          <input
-            value={sibling.bin}
-            onChange={(e) => onSiblingBinChange(sibling.id, e.target.value)}
-            placeholder="เช่น J4"
-            style={{ ...inputStyle, textTransform: 'uppercase' as const, borderColor: WARD_COLOR[wardOf(sibling)] }}
-          />
-          <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 5 }}>
-            บันทึกทันทีแยกจากฟอร์มนี้ (คนละรายการยาใน DB) — สะดวกไว้แก้ชั้นวางทั้ง OPD และ IPD ของยาตัวเดียวกันจากที่เดียว
+      {v.shared ? (
+        <div style={{ marginBottom: 9 }}>
+          <label style={{ display: 'block', marginBottom: 7 }}>
+            <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>ชั้นวาง (IPD)</span>
+            <input value={v.binIpd} onChange={(e) => set('binIpd', e.target.value)} placeholder="เช่น J4" style={{ ...inputStyle, textTransform: 'uppercase' as const, borderColor: WARD_COLOR.ipd }} />
+          </label>
+          <div style={{ fontSize: 10.5, lineHeight: 1.5, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 9, padding: '8px 10px' }}>
+            ใช้สต็อกร่วมกันทั้ง OPD และ IPD — หน้างาน/par/substock เป็นยอดเดียวกันหมด ต่างกันแค่รหัสชั้นวางที่แสดงตามฝั่งที่ดู (IPD หยิบยาจากชั้น OPD ตรง ๆ)
+            {!sibling && <button type="button" onClick={() => setShared(false)} style={{ display: 'block', marginTop: 6, border: 0, background: 'transparent', color: 'var(--green)', fontWeight: 600, fontSize: 11, textDecoration: 'underline', padding: 0 }}>เลิกใช้ร่วมกัน (แยกเป็นคนละ ward)</button>}
           </div>
-        </label>
+        </div>
+      ) : (
+        <div style={{ marginBottom: 9 }}>
+          <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>หอผู้ป่วยที่ใช้ชั้นวางนี้</span>
+          <div style={{ display: 'flex', gap: 7 }}>
+            <button onClick={() => set('ward', 'opd')} style={{ flex: 1, border: v.ward === 'opd' ? '1px solid ' + WARD_COLOR.opd : '1px solid var(--border)', background: v.ward === 'opd' ? WARD_BG.opd : 'var(--bg-card)', color: v.ward === 'opd' ? WARD_COLOR.opd : 'var(--ink)', padding: '10px 4px', borderRadius: 9, fontSize: 13, fontWeight: 600, minHeight: 42 }}>ผู้ป่วยนอก (OPD)</button>
+            <button onClick={() => set('ward', 'ipd')} style={{ flex: 1, border: v.ward === 'ipd' ? '1px solid ' + WARD_COLOR.ipd : '1px solid var(--border)', background: v.ward === 'ipd' ? WARD_BG.ipd : 'var(--bg-card)', color: v.ward === 'ipd' ? WARD_COLOR.ipd : 'var(--ink)', padding: '10px 4px', borderRadius: 9, fontSize: 13, fontWeight: 600, minHeight: 42 }}>ผู้ป่วยใน (IPD)</button>
+          </div>
+          <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 5 }}>ยาที่ IPD จัด one-day dose โดยหยิบจากชั้น OPD ตรง ๆ (สต็อกก้อนเดียวกัน ต่างแค่ชั้นวาง) ให้ใช้ "ใช้ยอดร่วมกัน" ด้านล่างแทนการแยกเป็นคนละรายการ — แยกเป็นคนละ ward จริง ๆ ไว้สำหรับยาที่มีสต็อกแยกต่างหาก เช่น ยาฉีดในลิ้นชักล็อก IPD ที่แบ่งมาวาง stat ที่ OPD (ใช้ "ย้ายยาระหว่างชั้นวาง" ตอนโยกของจริง)</div>
+          {!sibling && (
+            <button type="button" onClick={() => setShared(true)} style={{ width: '100%', marginTop: 8, border: '1px dashed var(--green)', background: 'transparent', color: 'var(--green)', padding: '8px 10px', borderRadius: 9, fontSize: 12, fontWeight: 600 }}>
+              + ใช้ยอดร่วมกันทั้ง OPD และ IPD (คนละชั้นวาง ยอดเดียวกัน)
+            </button>
+          )}
+        </div>
+      )}
+      {sibling && onSiblingBinChange && (
+        <div className="card" style={{ padding: 11, marginBottom: 9, background: 'var(--bg-subtle)' }}>
+          <label style={{ display: 'block', marginBottom: onMerge ? 9 : 0 }}>
+            <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>
+              ชั้นวาง ({wardOf(sibling) === 'opd' ? 'OPD' : 'IPD'}) — อีกรายการของยานี้ (แยกสต็อกกันอยู่)
+            </span>
+            <input
+              value={sibling.bin}
+              onChange={(e) => onSiblingBinChange(sibling.id, e.target.value)}
+              placeholder="เช่น J4"
+              style={{ ...inputStyle, textTransform: 'uppercase' as const, borderColor: WARD_COLOR[wardOf(sibling)] }}
+            />
+            <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 5 }}>
+              บันทึกทันทีแยกจากฟอร์มนี้ (คนละรายการยาใน DB) — แก้แค่ชั้นวาง ไม่รวมสต็อก
+            </div>
+          </label>
+          {onMerge && (
+            <button
+              type="button"
+              onClick={() => onMerge(sibling.id)}
+              style={{ width: '100%', border: 0, background: 'var(--green)', color: '#fff', padding: '10px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600 }}
+            >
+              รวมสต็อก OPD+IPD เป็นยอดเดียวกัน (มีถามยืนยันอีกครั้ง)
+            </button>
+          )}
+        </div>
       )}
       <div className="grid-2" style={{ marginBottom: 9 }}>
         <label>

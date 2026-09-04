@@ -5,14 +5,14 @@ import {
 } from 'firebase/auth';
 import {
   collection, doc, onSnapshot, query, orderBy, limit, where, writeBatch, addDoc, updateDoc, setDoc,
-  runTransaction, getDocs, getDoc, increment, type Transaction,
+  runTransaction, getDocs, getDoc, increment, deleteField, type Transaction,
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, User, AuthMode, PendingReceive, Ward,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isSharedMed } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -56,6 +56,10 @@ function genLotCode(medCode: string | undefined, medId: string, lotRefId: string
 function clampVolatility(v: number): number {
   if (!isFinite(v) || v <= 0) return 1;
   return Math.round(Math.min(3, Math.max(1, v)) * 100) / 100;
+}
+
+function normBin(v: string): string {
+  return v.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
 }
 
 function freshState(): AppState {
@@ -188,8 +192,14 @@ export interface AppCtx {
   updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => void;
 
   // meds (formulary) management
-  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number }) => void;
-  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number }) => void;
+  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; binIpd?: string }) => void;
+  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; binIpd?: string }) => void;
+  /** Merges an existing OPD/IPD ward-pair (same name, one 'opd' one 'ipd' record) into a
+   * single pooled record — see Med.binIpd. Survives as the OPD-ward record with the IPD
+   * record's bin code carried over as `binIpd`; floor/used30/usedPrev30 are summed (not
+   * re-derived — see mergeWardMeds() for why); the IPD record's lots are reassigned onto the
+   * survivor, then it's deactivated with its floor zeroed. Irreversible from the UI. */
+  mergeWardMeds: (medIdA: string, medIdB: string) => void;
   toggleMedActive: (medId: string) => void;
   deleteMed: (medId: string) => void;
   deleteAllInactiveMeds: (medIds?: string[]) => void;
@@ -1296,7 +1306,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [canEditPar, logAudit, toast]);
 
   // ---------- meds (formulary) management ----------
-  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number }) => {
+  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; binIpd?: string }) => {
     if (!canEditPar) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
@@ -1330,14 +1340,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         trx.set(seqRef, { next: next + 1 }, { merge: true });
         const c = 'MED-' + String(next).padStart(4, '0');
+        const binIpd = input.binIpd ? normBin(input.binIpd) : '';
         trx.set(doc(collection(db, 'meds')), {
           code: c, name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
           price: input.price || 0, had: input.had, active: true,
           parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0), floor: 0,
           floorMin: Math.max(0, input.floorMin || 0),
-          bin: input.bin.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8),
+          bin: normBin(input.bin),
           used30: 0, usedPrev30: 0, volatility: clampVolatility(input.volatility ?? 1.1), lastCountTs: Date.now(),
           ward: input.ward, noSubstock: input.noSubstock,
+          ...(binIpd ? { binIpd } : {}),
         });
         return c;
       });
@@ -1351,18 +1363,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // price, high-alert flag, shelf/bin, and both par levels — instead of hunting across
   // separate screens. `code` (the QR/label identifier) is deliberately never touched here —
   // labels already printed with it must keep resolving to this med.
-  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number }) => {
+  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; binIpd?: string }) => {
     if (!canEditPar) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
+    const binIpd = input.binIpd ? normBin(input.binIpd) : '';
     const patch = {
       name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
       price: input.price || 0, had: input.had,
-      bin: input.bin.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8),
+      bin: normBin(input.bin),
       parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0),
       floorMin: Math.max(0, input.floorMin || 0),
       ward: input.ward, noSubstock: input.noSubstock,
       volatility: clampVolatility(input.volatility),
+      // Only ever set through mergeWardMeds()'s own writes or here when someone edits an
+      // already-shared med's IPD-side code — clearing the field (deleteField, not '') un-
+      // shares it back to a plain single-ward med rather than leaving a dangling empty string
+      // that isSharedMed()'s truthiness check would still treat as "not shared" anyway.
+      binIpd: binIpd ? binIpd : deleteField(),
     };
     try {
       await updateDoc(doc(db, 'meds', medId), patch);
@@ -1370,6 +1388,56 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast('บันทึกข้อมูล ' + name + ' แล้ว');
     } catch (e) { console.error(e); toast('บันทึกไม่สำเร็จ'); }
   }), [canEditPar, logAudit, toast, guardOnce]);
+
+  // Merges a still-separate OPD/IPD ward pair (same name — see the "ยาตัวเดียวกันที่วางทั้งสอง
+  // ชั้น" note in MedsScreen) into one pooled record, for the real workflow at this hospital:
+  // IPD one-day-dose almost always pulls straight off the OPD shelf, so keeping two separate
+  // floor counts for the same physical pile of pills was actively wrong, not just redundant.
+  // Per the pharmacist's own call on how to handle the merge: floor/used30/usedPrev30 are
+  // summed rather than picking one side or trying to reconcile which was "more correct" —
+  // today's on-screen numbers don't match the real shelf count anyway (that's the reason this
+  // exists), so summing is a reasonable starting point and a physical count right after
+  // merging (see CountScreen) is expected to correct it for real, not any arithmetic here.
+  // The survivor is always the 'opd'-ward record (wardOf() default for legacy meds with no
+  // `ward` field makes this the natural "base" identity too) — its own `bin` stays the OPD
+  // shelf code, the other record's `bin` becomes `binIpd`. Drugs that genuinely keep separate
+  // stock (e.g. IPD's locked injectable cabinet) simply never call this — WardMoveScreen still
+  // covers moving stock between two still-separate records exactly as before.
+  const mergeWardMeds = useCallback(guardOnce('mergeWardMeds', async (medIdA: string, medIdB: string) => {
+    if (!canEditPar) return;
+    const a = state.meds.find((x) => x.id === medIdA);
+    const b = state.meds.find((x) => x.id === medIdB);
+    if (!a || !b) { toast('ไม่พบยาที่จะรวม'); return; }
+    if (a.name !== b.name) { toast('รวมได้เฉพาะยาชื่อเดียวกัน (คนละ ward)'); return; }
+    if (wardOf(a) === wardOf(b)) { toast('ต้องเป็นคู่ OPD/IPD คนละฝั่งเท่านั้น'); return; }
+    if (isSharedMed(a) || isSharedMed(b)) { toast('มีรายการหนึ่งรวมสต็อกไปแล้ว'); return; }
+    const opdMed = wardOf(a) === 'opd' ? a : b;
+    const ipdMed = opdMed === a ? b : a;
+    if (!window.confirm(
+      'รวมสต็อก "' + opdMed.name + '" ฝั่ง OPD (หน้างาน ' + nf(opdMed.floor) + ') กับฝั่ง IPD (หน้างาน ' + nf(ipdMed.floor) + ') '
+      + 'เป็นยอดเดียวกัน (' + nf(opdMed.floor + ipdMed.floor) + ') พร้อมชั้นวางแยก OPD/IPD?\n\n'
+      + 'ย้อนกลับไม่ได้จากหน้านี้ — แนะนำให้นับสต็อกจริงทันทีหลังรวมเพื่อยืนยันยอด'
+    )) return;
+    try {
+      const lotSnap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', '==', ipdMed.id))));
+      const batch = writeBatch(db);
+      lotSnap.docs.forEach((d) => batch.update(d.ref, { medId: opdMed.id }));
+      batch.update(doc(db, 'meds', opdMed.id), {
+        binIpd: ipdMed.bin,
+        floor: opdMed.floor + ipdMed.floor,
+        used30: opdMed.used30 + ipdMed.used30,
+        usedPrev30: opdMed.usedPrev30 + ipdMed.usedPrev30,
+        ward: 'opd',
+      });
+      batch.update(doc(db, 'meds', ipdMed.id), { active: false, floor: 0 });
+      await withTimeout(batch.commit());
+      logAudit({
+        type: 'med_edited',
+        note: 'รวมสต็อก OPD/IPD ของ ' + opdMed.name + ' เป็นยอดเดียวกัน (' + nf(opdMed.floor + ipdMed.floor) + ' ' + opdMed.unit + ') ชั้นวาง OPD ' + (opdMed.bin || '—') + ' / IPD ' + (ipdMed.bin || '—'),
+      });
+      toast('รวมสต็อก ' + opdMed.name + ' แล้ว — แนะนำให้นับสต็อกจริงเพื่อยืนยันยอด');
+    } catch (e) { toastErr(e, 'รวมสต็อกไม่สำเร็จ'); }
+  }), [canEditPar, state.meds, logAudit, toast, toastErr, guardOnce]);
 
   const toggleMedActive = useCallback(async (medId: string) => {
     if (!canEditPar) return;
@@ -1883,7 +1951,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setReportTab, exportReportCsv,
     setLabelType, printLabels,
     applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
-    addMed, updateMedFull, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId,
+    addMed, updateMedFull, mergeWardMeds, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, setCountInput, commitCount,
     setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, commitReconcile,

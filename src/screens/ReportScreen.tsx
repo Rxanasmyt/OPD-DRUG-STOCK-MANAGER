@@ -1,5 +1,5 @@
 import { useApp } from '../store/AppContext';
-import { subQty, daysUntil, wardOf } from '../store/selectors';
+import { subQty, daysUntil, wardOf, matchesWard, isSharedMed } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
 import { WardTabs } from '../components/WardTabs';
 import type { ReportTab } from '../types';
@@ -17,7 +17,7 @@ const DISC_TYPES = ['adjust', 'return', 'damaged', 'expired', 'count', 'reconcil
 
 export default function ReportScreen() {
   const { state, setReportTab, setWardFilter, exportReportCsv } = useApp();
-  const meds = state.meds.filter((m) => m.active && (state.wardFilter === 'all' || wardOf(m) === state.wardFilter));
+  const meds = state.meds.filter((m) => m.active && matchesWard(m, state.wardFilter));
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
 
   const medIds = new Set(meds.map((m) => m.id));
@@ -52,7 +52,7 @@ export default function ReportScreen() {
   // ward (OPD and IPD copies of the same drug deliberately can share a name) is excluded
   // rather than risking pulling in the wrong ward's history.
   const wardNames = new Set(meds.map((m) => m.name));
-  const otherWardNames = new Set(state.meds.filter((m) => state.wardFilter !== 'all' && wardOf(m) !== state.wardFilter).map((m) => m.name));
+  const otherWardNames = new Set(state.meds.filter((m) => state.wardFilter !== 'all' && !isSharedMed(m) && wardOf(m) !== state.wardFilter).map((m) => m.name));
   const discRows = state.txs.filter((x) => {
     if (DISC_TYPES.indexOf(x.type) < 0) return false;
     if (state.wardFilter === 'all') return true;

@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { useApp } from '../store/AppContext';
-import { toneFor, daysUntil, wardOf, usesSubstock, floorMinOf } from '../store/selectors';
+import { toneFor, daysUntil, usesSubstock, floorMinOf, matchesWard } from '../store/selectors';
 import { nf, thDate, isoDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge } from '../components/Qty';
@@ -30,7 +30,7 @@ export default function HomeScreen() {
   }
 
   const allMeds = state.meds.filter((m) => m.active);
-  const meds = allMeds.filter((m) => state.wardFilter === 'all' || wardOf(m) === state.wardFilter);
+  const meds = allMeds.filter((m) => matchesWard(m, state.wardFilter));
   // "Min" (reorder point) is a separate number from "Max" (parFloor, the shelf's fill
   // target) — below Min is when it actually needs refilling this morning, not just "any bit
   // under capacity".
