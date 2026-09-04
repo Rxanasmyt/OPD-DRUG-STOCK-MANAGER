@@ -1143,6 +1143,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
     const sug = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
+    if (!sug) { toast(m.name + ' ยังไม่มีสถิติการใช้ ไม่สามารถแนะนำ par ได้'); return; }
     try {
       await updateDoc(doc(db, 'meds', medId), which === 'sub' ? { parSub: sug.sub } : { parFloor: sug.floor });
       logAudit({ type: 'par_updated', note: 'ปรับ par' + (which === 'sub' ? 'substock' : 'หน้างาน') + ' ' + m.name + ' เป็น ' + nf(which === 'sub' ? sug.sub : sug.floor) + ' ตามค่าแนะนำจากสถิติ' });
@@ -1154,13 +1155,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const targets = state.meds.filter((m) => {
       if (!m.active) return false;
       const s = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
-      return s.sub !== m.parSub || s.floor !== m.parFloor;
+      return !!s && (s.sub !== m.parSub || s.floor !== m.parFloor);
     });
     try {
       for (let i = 0; i < targets.length; i += 400) {
         const batch = writeBatch(db);
         targets.slice(i, i + 400).forEach((m) => {
           const sug = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
+          if (!sug) return; // ไม่มีสถิติการใช้ ข้าม ห้ามเขียนทับ par เดิม
           batch.update(doc(db, 'meds', m.id), { parSub: sug.sub, parFloor: sug.floor });
         });
         await withTimeout(batch.commit());

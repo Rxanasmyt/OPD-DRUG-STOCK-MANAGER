@@ -30,7 +30,7 @@ export default function SettingsScreen() {
 
   const suggestDiffCount = meds.filter((m) => {
     const s = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
-    return s.sub !== m.parSub || s.floor !== m.parFloor;
+    return !!s && (s.sub !== m.parSub || s.floor !== m.parFloor);
   }).length;
 
   const usageRows = state.usageRows || [];

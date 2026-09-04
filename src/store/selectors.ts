@@ -104,7 +104,8 @@ export function matchHosxpMed(meds: Med[], rawName: string): HosxpMatch {
   return { kind: 'none' };
 }
 
-export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number) {
+export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number): { floor: number; sub: number } | null {
+  if (!(m.used30 > 0)) return null; // ไม่มีสถิติการใช้จริง ห้ามแนะนำ par (roundStep(0) จะได้ 1 เสมอ ทำให้ค่าแนะนำผิดเพี้ยน)
   const daily = m.used30 / 30;
   return {
     floor: roundStep(daily * floorCoverDays * m.volatility),
