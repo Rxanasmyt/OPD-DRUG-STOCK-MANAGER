@@ -26,7 +26,13 @@ export function usesSubstock(m: Med): boolean {
  * Every med added before Min-Max existed has no floorMin — default it to 30% of Max, a
  * conventional reorder-point ratio, rather than requiring a one-time migration write. */
 export function floorMinOf(m: Med): number {
-  return typeof m.floorMin === 'number' ? m.floorMin : Math.round(m.parFloor * 0.3);
+  if (typeof m.floorMin === 'number') return m.floorMin;
+  // ปัดค่า default ให้เป็นเลขลงตัว (หลักเดียว/หลักสิบ/หลักร้อยตามขนาด) เหมือน roundStep ที่ใช้กับ
+  // Max — กัน Min โผล่มาเป็นเลขเศษแปลกๆ เช่น 27, 13 จาก Math.round(parFloor*0.3) ตรงๆ
+  const raw = m.parFloor * 0.3;
+  if (raw <= 0) return 0;
+  const step = raw >= 500 ? 100 : raw >= 100 ? 10 : raw >= 10 ? 5 : 1;
+  return Math.round(raw / step) * step;
 }
 
 export function subQty(state: AppState, medId: string): number {

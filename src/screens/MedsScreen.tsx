@@ -264,7 +264,7 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit }: {
       </div>
       <label style={{ display: 'block', marginBottom: 9 }}>
         <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>จุดต่ำสุดต้องเติม (Min)</span>
-        <input value={v.floorMin} onChange={(e) => set('floorMin', digitsOnly(e.target.value))} placeholder={'ว่างไว้ = ' + Math.round((parseInt(v.parFloor, 10) || 0) * 0.3) + ' (30% ของ Max)'} inputMode="numeric" style={inputStyle} />
+        <input value={v.floorMin} onChange={(e) => set('floorMin', digitsOnly(e.target.value))} placeholder={'ว่างไว้ = ' + nf(floorMinOf({ parFloor: parseInt(v.parFloor, 10) || 0 } as Med)) + ' (30% ของ Max ปัดเป็นเลขลงตัว)'} inputMode="numeric" style={inputStyle} />
         <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>ต่ำกว่าจุดนี้คือของจริงที่ต้องเติมตอนเช้า — คนละจุดกับ Max เพราะอัตราการใช้ OPD/IPD ไม่เท่ากัน แม้ยารหัสเดียวกันก็ตั้ง Min-Max ต่างกันได้ตามชั้นวางจริง</div>
       </label>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>

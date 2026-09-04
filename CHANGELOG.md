@@ -7,6 +7,17 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.44.0] - 2026-09-04
+
+### Changed
+- **fix:** default Min (`floorMinOf()`, when `floorMin` isn't set explicitly on a med) was
+  `Math.round(parFloor × 0.3)` — a plain rounded integer that could land on an odd-looking
+  number (e.g. 27, 13). It now snaps to the same kind of clean step `suggestPar`'s Max already
+  uses (nearest 1 under 10, nearest 5 from 10–99, nearest 10 from 100–499, nearest 100 at
+  500+), so the default Min is always a round, practical number. The "ว่างไว้ = …" placeholder
+  hint on the Min field in "จัดการรายการยา" now computes the same way instead of its own
+  separate `× 0.3` math, so what you see there always matches what actually gets used
+
 ## [2.43.0] - 2026-09-04
 
 ### Fixed
