@@ -279,4 +279,12 @@ export interface AppState {
   expiryWarnDays: number;
   parFloorCoverDays: number;
   parSubCoverDays: number;
+
+  // In-app replacement for window.confirm() — see confirmAsync()/ConfirmDialog.tsx. The
+  // browser's native confirm() is unreliable inside some Android WebView/PWA/in-app-browser
+  // contexts (it can silently return false, or never show anything, without the person ever
+  // seeing a dialog) — which reads as "I tapped the button and nothing happened" exactly like
+  // reported for "ใช้ยาทั้งหมดร่วมกันทั้ง OPD/IPD เลย". A real rendered dialog can't silently
+  // no-op that way.
+  confirmDialog: { message: string } | null;
 }

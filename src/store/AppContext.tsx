@@ -97,6 +97,8 @@ function freshState(): AppState {
     historyFrom: '', historyTo: '', historyResults: null, historyLoading: false,
 
     expiryWarnDays: 90, parFloorCoverDays: 3, parSubCoverDays: 21,
+
+    confirmDialog: null,
   } as AppState;
 }
 
@@ -112,6 +114,9 @@ export interface AppCtx {
   roleLabelOf: (r: Role) => string;
   warn: () => number;
   toast: (t: string) => void;
+  /** Answers the currently-shown in-app confirm dialog (state.confirmDialog) — see
+   * ConfirmDialog.tsx. */
+  respondConfirm: (v: boolean) => void;
   go: (s: Screen) => void;
   back: () => void;
 
@@ -441,6 +446,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     patch({ toast: t });
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => patch({ toast: null }), 2600);
+  }, [patch]);
+
+  // In-app replacement for window.confirm() — see confirmDialog's doc comment in types.ts for
+  // why: the native dialog can silently no-op inside some embedded WebView/PWA contexts,
+  // which reads to the person tapping the button as "nothing happened", not as an error (there
+  // is no error — the promise just resolves false, or the call never even shows a prompt,
+  // depending on the host). ConfirmDialog.tsx renders the actual UI; this just parks the
+  // resolver until respondConfirm() fires it.
+  const confirmResolveRef = useRef<((v: boolean) => void) | null>(null);
+  const confirmAsync = useCallback((message: string) => {
+    return new Promise<boolean>((resolve) => {
+      // A second confirm requested while one's already showing would leak the first
+      // resolver forever (never called) — resolve it false first so nothing hangs.
+      if (confirmResolveRef.current) confirmResolveRef.current(false);
+      confirmResolveRef.current = resolve;
+      patch({ confirmDialog: { message } });
+    });
+  }, [patch]);
+  const respondConfirm = useCallback((v: boolean) => {
+    const resolve = confirmResolveRef.current;
+    confirmResolveRef.current = null;
+    patch({ confirmDialog: null });
+    if (resolve) resolve(v);
   }, [patch]);
 
   // ---------- live data: only once approved ----------
@@ -1426,11 +1454,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (isSharedMed(a) || isSharedMed(b)) { toast('มีรายการหนึ่งรวมสต็อกไปแล้ว'); return; }
     const opdMed = wardOf(a) === 'opd' ? a : b;
     const ipdMed = opdMed === a ? b : a;
-    if (!window.confirm(
+    if (!(await confirmAsync(
       'รวมสต็อก "' + opdMed.name + '" ฝั่ง OPD (หน้างาน ' + nf(opdMed.floor) + ') กับฝั่ง IPD (หน้างาน ' + nf(ipdMed.floor) + ') '
       + 'เป็นยอดเดียวกัน (' + nf(opdMed.floor + ipdMed.floor) + ') พร้อมชั้นวางแยก OPD/IPD?\n\n'
       + 'ย้อนกลับไม่ได้จากหน้านี้ — แนะนำให้นับสต็อกจริงทันทีหลังรวมเพื่อยืนยันยอด'
-    )) return;
+    ))) return;
     try {
       const lotSnap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', '==', ipdMed.id))));
       const batch = writeBatch(db);
@@ -1451,7 +1479,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       toast('รวมสต็อก ' + opdMed.name + ' แล้ว — แนะนำให้นับสต็อกจริงเพื่อยืนยันยอด');
     } catch (e) { toastErr(e, 'รวมสต็อกไม่สำเร็จ'); }
-  }), [canEditPar, state.meds, logAudit, toast, toastErr, guardOnce]);
+  }), [canEditPar, state.meds, logAudit, toast, toastErr, confirmAsync, guardOnce]);
 
   // "รวมกันเลย" — do mergeWardMeds() for every still-separate OPD/IPD pair across the whole
   // formulary in one go, instead of clicking through each pair one at a time in MedsScreen.
@@ -1475,11 +1503,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (opdMed && ipdMed) pairs.push({ opdMed, ipdMed });
     });
     if (!pairs.length) { toast('ไม่มีคู่ OPD/IPD ที่ยังแยกกันอยู่ให้รวม'); return; }
-    if (!window.confirm(
+    if (!(await confirmAsync(
       'รวมสต็อก OPD+IPD เป็นยอดเดียวกันทั้งหมด ' + pairs.length + ' คู่ (' + pairs.length * 2 + ' รายการยา)?\n\n'
       + 'แต่ละคู่จะบวกยอดหน้างานเข้าด้วยกัน พร้อมเก็บชั้นวางแยก OPD/IPD ไว้ — ย้อนกลับไม่ได้จากหน้านี้\n'
       + 'แนะนำให้นับสต็อกจริงทุกตัวหลังรวมเพื่อยืนยันยอด'
-    )) return;
+    ))) return;
     try {
       const ipdIds = pairs.map((p) => p.ipdMed.id);
       const lotUpdates: { ref: ReturnType<typeof doc>; opdId: string }[] = [];
@@ -1534,11 +1562,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!canEditPar) return;
     const targets = state.meds.filter((m) => m.active && !isSharedMed(m));
     if (!targets.length) { toast('ยาทุกตัวใช้ร่วมกันทั้ง OPD/IPD อยู่แล้ว'); return; }
-    if (!window.confirm(
+    if (!(await confirmAsync(
       'ให้ยาทุกตัว (' + targets.length + ' รายการ) ใช้สต็อกร่วมกันทั้ง OPD และ IPD เลย?\n\n'
       + 'จะขึ้นให้เลือกได้ทั้งในแท็บ OPD และ IPD โดยใช้ยอดคงเหลือ/par ชุดเดียวกัน (ชั้นวางยังเป็นรหัสเดิม '
       + 'จนกว่าจะไปตั้งชั้นวางฝั่ง IPD แยกเองทีหลังในหน้าแก้ไขยา)'
-    )) return;
+    ))) return;
     try {
       for (let i = 0; i < targets.length; i += 400) {
         const batch = writeBatch(db);
@@ -1567,7 +1595,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
     if (m.floor > 0 || subQty(state, medId) > 0) { toast('ลบไม่ได้ — ยังมียอดคงเหลือที่หน้างานหรือ substock ต้องปรับยอด/ตัดออกให้เป็น 0 ก่อน'); return; }
-    if (!window.confirm('ลบ "' + m.name + '" ออกจากระบบถาวร? ย้อนกลับไม่ได้ — ถ้าแค่เลิกใช้ชั่วคราวแนะนำให้ "ปิดใช้งาน" แทน')) return;
+    if (!(await confirmAsync('ลบ "' + m.name + '" ออกจากระบบถาวร? ย้อนกลับไม่ได้ — ถ้าแค่เลิกใช้ชั่วคราวแนะนำให้ "ปิดใช้งาน" แทน'))) return;
     try {
       const lotSnap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', '==', medId))));
       const batch = writeBatch(db);
@@ -1577,7 +1605,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'med_deleted', note: 'ลบยา ' + m.name + ' (' + m.code + ') ออกจากระบบถาวร' });
       toast('ลบ ' + m.name + ' แล้ว');
     } catch (e) { toastErr(e, 'ลบไม่สำเร็จ'); }
-  }, [canEditPar, state, logAudit, toast, toastErr]);
+  }, [canEditPar, state, logAudit, toast, toastErr, confirmAsync]);
 
   // One-shot cleanup for a formulary that's accumulated deactivated drugs the hospital
   // doesn't actually carry (e.g. leftover from the initial 585-item seed) — same safety rule
@@ -1601,7 +1629,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     const confirmMsg = 'ลบยาที่ปิดใช้งานและยอดเป็น 0 ทั้งหมด ' + removable.length + ' รายการออกจากระบบถาวร? ย้อนกลับไม่ได้'
       + (blocked.length ? ' (อีก ' + blocked.length + ' รายการยังมียอดคงเหลือ จะไม่ถูกลบ)' : '');
-    if (!window.confirm(confirmMsg)) return;
+    if (!(await confirmAsync(confirmMsg))) return;
     try {
       const lotSnap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', 'in', removable.slice(0, 30).map((m) => m.id)))));
       // 'in' queries cap at 30 values — for a formulary-sized cleanup, fetch each remaining
@@ -1624,7 +1652,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'med_deleted', note: 'ลบยาที่ปิดใช้งานทั้งหมด ' + removable.length + ' รายการ (ยอดเป็น 0) ออกจากระบบถาวร: ' + removable.map((m) => m.name).join(', ') });
       toast('ลบยาที่ปิดใช้งานแล้ว ' + removable.length + ' รายการ' + (blocked.length ? ' · ข้าม ' + blocked.length + ' รายการที่ยังมียอดคงเหลือ' : ''));
     } catch (e) { toastErr(e, 'ลบไม่สำเร็จ'); }
-  }), [canEditPar, state, logAudit, toast, toastErr, guardOnce]);
+  }), [canEditPar, state, logAudit, toast, toastErr, confirmAsync, guardOnce]);
 
   const setMedsFocusId = useCallback((id: string | null) => patch({ medsFocusId: id }), [patch]);
 
@@ -1968,12 +1996,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const activeAdmins = state.users.filter((x) => x.role === 'admin' && x.active).length;
       if (activeAdmins <= 1) { toast('เปลี่ยนไม่ได้ — นี่คือ Admin ที่ใช้งานอยู่คนสุดท้าย ต้องมี Admin อย่างน้อย 1 คนเสมอ'); return; }
     }
-    if (id === state.myUid && !window.confirm('คุณกำลังจะเปลี่ยนบทบาทของตัวเอง จาก ' + roleLabelFor(u.role) + ' เป็น ' + roleLabelFor(role) + ' — ยืนยันหรือไม่?')) return;
+    if (id === state.myUid && !(await confirmAsync('คุณกำลังจะเปลี่ยนบทบาทของตัวเอง จาก ' + roleLabelFor(u.role) + ' เป็น ' + roleLabelFor(role) + ' — ยืนยันหรือไม่?'))) return;
     try {
       await updateDoc(doc(db, 'users', id), { role });
       logAudit({ type: 'user_role_changed', note: 'เปลี่ยนบทบาท ' + u.name + ' จาก ' + roleLabelFor(u.role) + ' เป็น ' + roleLabelFor(role) });
     } catch (e) { console.error(e); toast('เปลี่ยนบทบาทไม่สำเร็จ'); }
-  }, [state.users, state.myUid, logAudit, toast]);
+  }, [state.users, state.myUid, logAudit, toast, confirmAsync]);
 
   const toggleUserActive = useCallback(async (id: string) => {
     const u = state.users.find((x) => x.id === id);
@@ -1983,13 +2011,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const activeAdmins = state.users.filter((x) => x.role === 'admin' && x.active).length;
       if (activeAdmins <= 1) { toast('ปิดใช้งานไม่ได้ — นี่คือ Admin ที่ใช้งานอยู่คนสุดท้าย ต้องมี Admin อย่างน้อย 1 คนเสมอ'); return; }
     }
-    if (id === state.myUid && !next && !window.confirm('คุณกำลังจะปิดใช้งานบัญชีของตัวเอง — จะออกจากระบบทันที และต้องให้ Admin คนอื่นเปิดให้ใหม่ ยืนยันหรือไม่?')) return;
+    if (id === state.myUid && !next && !(await confirmAsync('คุณกำลังจะปิดใช้งานบัญชีของตัวเอง — จะออกจากระบบทันที และต้องให้ Admin คนอื่นเปิดให้ใหม่ ยืนยันหรือไม่?'))) return;
     try {
       await updateDoc(doc(db, 'users', id), { active: next });
       logAudit({ type: u.active ? 'user_status_changed' : 'user_approved', note: (next ? (u.active === false && u.createdAt ? 'อนุมัติบัญชี ' : 'เปิดใช้งานบัญชี ') : 'ปิดใช้งานบัญชี ') + u.name });
       toast((next ? 'เปิดใช้งาน' : 'ปิดใช้งาน') + 'บัญชี ' + u.name + ' แล้ว');
     } catch (e) { console.error(e); toast('เปลี่ยนสถานะไม่สำเร็จ'); }
-  }, [state.users, state.myUid, logAudit, toast]);
+  }, [state.users, state.myUid, logAudit, toast, confirmAsync]);
 
   const exportAudit = useCallback(async () => {
     const typeLabel: Record<string, string> = {
@@ -2055,7 +2083,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.historyFrom, state.historyTo, patch, toast, toastErr]);
 
   const value = useMemo<AppCtx>(() => ({
-    state, myProfile, theme, toggleTheme, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, go, back,
+    state, myProfile, theme, toggleTheme, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, respondConfirm, go, back,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
     setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, printPickList, printTodayReplenishList, removeFromCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, printWarehouseRequestList,

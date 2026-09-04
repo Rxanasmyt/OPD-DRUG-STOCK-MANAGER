@@ -7,6 +7,23 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.54.0] - 2026-09-04
+
+### Fixed
+- **fix (likely root cause of "กดปุ่มแล้วไม่มีอะไรเกิดขึ้น"):** every confirmation dialog in
+  the app (รวมสต็อก OPD+IPD, ใช้ยาทั้งหมดร่วมกัน, ลบยาถาวร, ลบยาที่ปิดใช้งานทั้งหมด, เปลี่ยน
+  บทบาท/ปิดใช้งานบัญชีตัวเอง — 7 places total) used the browser's native `window.confirm()`.
+  That call is unreliable inside some Android WebView/PWA/in-app-browser contexts — it can
+  silently return `false`, or never show anything at all, with zero error anywhere to explain
+  why. From the outside this looks exactly like "ยังแยก OPD IPD อยู่เลย" after tapping
+  "ใช้ยาทั้งหมดร่วมกันทั้ง OPD/IPD เลย": the tap registers, the function runs, the confirm
+  step silently fails, the whole action bails out having done nothing — no error toast, no
+  visible sign anything happened at all
+- **feat:** replaced every one of those with a real in-app confirm dialog (new
+  `ConfirmDialog.tsx`, wired through `confirmAsync()`/`respondConfirm()` in AppContext.tsx) —
+  an actual rendered UI element that can't silently no-op the way a native browser API can. If
+  it's on screen, it's really there to tap
+
 ## [2.53.0] - 2026-09-04
 
 ### Changed
