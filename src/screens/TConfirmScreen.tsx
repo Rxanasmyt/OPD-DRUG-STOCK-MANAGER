@@ -1,6 +1,6 @@
 import { useApp } from '../store/AppContext';
 import { nf, thTime } from '../utils/format';
-import { wardOf } from '../store/selectors';
+import { wardOf, isSharedMed } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
 import { medColor } from '../utils/color';
 
@@ -39,7 +39,12 @@ export default function TConfirmScreen() {
   // possible: TransferScreen's ward tab only scopes which meds are *offered*, not what's
   // already sitting in the cart from before a tab switch. Named after whichever ward(s) the
   // cart's items actually belong to.
-  const cartWards = new Set(rows.map((r) => wardOf(r.m)));
+  // Bug fix: a shared med (isSharedMed — see selectors.ts) always reports wardOf()==='opd'
+  // regardless of which tab it was actually added from, which used to make this label say
+  // "OPD" even when someone filled their cart entirely from the IPD tab. A shared med's real
+  // destination is whichever tab is currently open (it's the same shelf, just a different
+  // room/bin depending which one you're standing in), not its stored `ward`.
+  const cartWards = new Set(rows.map((r) => (isSharedMed(r.m) ? (state.wardFilter === 'ipd' ? 'ipd' : 'opd') : wardOf(r.m))));
   const destLabel = cartWards.size === 0 ? 'ชั้นจ่ายยา'
     : cartWards.size > 1 ? 'ชั้นจ่ายยา (OPD + IPD)'
     : cartWards.has('ipd') ? 'ชั้นจ่ายยา IPD' : 'ชั้นจ่ายยา OPD';

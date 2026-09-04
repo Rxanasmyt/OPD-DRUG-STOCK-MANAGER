@@ -67,7 +67,11 @@ export default function SubstockCardScreen() {
   // before that tagging existed won't appear here even though it's the right drug's history.
   // Worth naming specifically — it looks identical to a real discrepancy otherwise, and "check
   // the audit log" (the generic mismatch message) isn't the actual right next step for it.
-  const hasNameTwin = med ? state.meds.some((x) => x.id !== med.id && x.name === med.name) : false;
+  // Bug fix: this used to also match a deactivated ex-sibling left behind by "รวมสต็อก
+  // OPD+IPD" (mergeWardMeds/mergeAllWardPairs — see AppContext.tsx) — that record still shares
+  // the name but isn't a live ambiguity anymore (it's zeroed out and inactive, its stock
+  // already folded into this one), so warning about it here was just wrong once merged.
+  const hasNameTwin = med ? state.meds.some((x) => x.id !== med.id && x.active && x.name === med.name) : false;
 
   const printCard = () => {
     if (!med || !rows) return;

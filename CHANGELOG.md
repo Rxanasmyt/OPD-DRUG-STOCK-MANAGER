@@ -7,6 +7,19 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.52.0] - 2026-09-04
+
+### Fixed
+- **fix:** the transfer confirm screen's "ชั้นจ่ายยา OPD/IPD" heading always said "OPD" for a
+  cart made entirely of shared meds (isSharedMed — v2.50.0), even when every item was added
+  while on the IPD tab, because a shared med's stored `ward` is always 'opd'. Now a shared
+  med's contribution to that heading follows whichever ward tab is actually open, matching
+  where it's really about to be delivered
+- **fix:** the substock-card screen's discrepancy note ("ยานี้มีทั้งชั้น OPD และ IPD ชื่อเดียวกัน
+  ยอดจากประวัติอาจไม่ครบ...") could still fire for a med whose OPD/IPD pair was already merged
+  (v2.48.0's "รวมสต็อก") — its now-inactive, zeroed-out ex-sibling still shares the name, but
+  isn't a live ambiguity anymore. Excluded inactive records from that check
+
 ## [2.51.0] - 2026-09-04
 
 ### Fixed
