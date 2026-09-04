@@ -7,6 +7,16 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.56.0] - 2026-09-04
+
+### Fixed
+- **fix:** "รับเข้า substock" showed nothing at all until someone typed a search — there was no
+  way to see which drugs actually need requisitioning from the central warehouse without
+  typing each name from memory one at a time. Added a default "ควรเบิกจากคลังใหญ่" list (same
+  substock-below-par calculation HomeScreen's equivalent tile already uses), most urgent first,
+  shown whenever the search box is empty and no med is picked yet — steps aside the instant a
+  search is typed or a med is selected
+
 ## [2.55.0] - 2026-09-04
 
 ### Changed

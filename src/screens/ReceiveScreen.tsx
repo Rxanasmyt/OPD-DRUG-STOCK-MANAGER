@@ -24,6 +24,18 @@ export default function ReceiveScreen() {
   const options = !state.recvMed && state.recvSearch.trim()
     ? state.meds.filter((m) => m.active && m.name.toLowerCase().indexOf(state.recvSearch.trim().toLowerCase()) >= 0).slice(0, 12)
     : [];
+  // Bug fix: this screen used to show NOTHING until someone typed a search — a person opening
+  // "รับเข้า" to see what actually needs requisitioning from the central warehouse had no way
+  // to find out except typing each drug's name from memory one at a time. Same "ควรเบิกจากคลัง
+  // ใหญ่" list HomeScreen already computes (substock below its par), shown here by default —
+  // most urgent (lowest substock/par ratio) first — and it steps aside the moment a search is
+  // typed or a med is picked, so it never competes with the actual search results above.
+  const needsReceive = !state.recvMed && !state.recvSearch.trim()
+    ? state.meds
+        .filter((m) => m.active && usesSubstock(m) && sub(m.id) < m.parSub)
+        .sort((a, b) => sub(a.id) / Math.max(1, a.parSub) - sub(b.id) / Math.max(1, b.parSub))
+        .slice(0, 20)
+    : [];
   const canApprove = state.role !== 'tech';
   const pending = state.pendingReceives.filter((r) => r.status === 'pending');
   const myPending = pending.filter((r) => r.requestedByUid === state.myUid);
@@ -102,6 +114,20 @@ export default function ReceiveScreen() {
                 <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={11.5} /> · par {nf(m.parSub)}</span>
               </button>
             ))}
+          </div>
+        )}
+
+        {needsReceive.length > 0 && (
+          <div style={{ marginBottom: 9 }}>
+            <div className="muted" style={{ fontSize: 11.5, fontWeight: 600, margin: '2px 2px 6px' }}>ควรเบิกจากคลังใหญ่ ({needsReceive.length})</div>
+            <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 260, overflowY: 'auto' }}>
+              {needsReceive.map((m) => (
+                <button key={m.id} onClick={() => pickRecvMed(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
+                  <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name} <WardBadge med={m} /></span>
+                  <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={11.5} /> · par {nf(m.parSub)}</span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
