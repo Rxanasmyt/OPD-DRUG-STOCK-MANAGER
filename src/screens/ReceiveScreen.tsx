@@ -16,7 +16,7 @@ export default function ReceiveScreen() {
   const {
     state, sub, setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty,
     addRecv, removeRecvItem, commitReceive, approvePendingReceive, rejectPendingReceive, openScanSearch,
-    printWarehouseRequestList,
+    printWarehouseRequestList, promptAsync,
   } = useApp();
 
   const recvMed = state.recvMed ? state.meds.find((m) => m.id === state.recvMed) : null;
@@ -71,7 +71,7 @@ export default function ReceiveScreen() {
                   <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                     <button onClick={() => approvePendingReceive(r.id)} style={{ flex: 1, border: 0, background: 'var(--green)', color: '#fff', padding: '8px 10px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}>อนุมัติ</button>
                     <button
-                      onClick={() => { const reason = window.prompt('เหตุผลที่ปฏิเสธ (จะบันทึกลง audit log)'); if (reason !== null) rejectPendingReceive(r.id, reason.trim()); }}
+                      onClick={async () => { const reason = await promptAsync('เหตุผลที่ปฏิเสธ (จะบันทึกลง audit log)'); if (reason !== null) rejectPendingReceive(r.id, reason.trim()); }}
                       style={{ flex: 1, border: '1px solid var(--red)', background: 'var(--bg-card)', color: 'var(--red)', padding: '8px 10px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}
                     >
                       ปฏิเสธ

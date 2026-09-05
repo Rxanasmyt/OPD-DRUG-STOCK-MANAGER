@@ -9,6 +9,7 @@ import ReceiveScreen from './screens/ReceiveScreen';
 import MoreScreen from './screens/MoreScreen';
 import Toast from './components/Toast';
 import ConfirmDialog from './components/ConfirmDialog';
+import PromptDialog from './components/PromptDialog';
 import { ContextBar } from './components/ContextBar';
 import type { Screen } from './types';
 
@@ -160,6 +161,7 @@ export default function App() {
         <QrModal />
       </Suspense>
       <ConfirmDialog />
+      <PromptDialog />
       <Toast />
     </div>
   );

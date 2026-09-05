@@ -99,6 +99,7 @@ function freshState(): AppState {
     expiryWarnDays: 90, parFloorCoverDays: 3, parSubCoverDays: 21,
 
     confirmDialog: null,
+    promptDialog: null,
   } as AppState;
 }
 
@@ -117,6 +118,13 @@ export interface AppCtx {
   /** Answers the currently-shown in-app confirm dialog (state.confirmDialog) — see
    * ConfirmDialog.tsx. */
   respondConfirm: (v: boolean) => void;
+  /** In-app replacement for window.prompt() — see promptDialog's doc comment in types.ts.
+   * Resolves the trimmed text on confirm, null on cancel. Used directly by screens (unlike
+   * confirmAsync, which only AppContext's own actions call internally). */
+  promptAsync: (message: string) => Promise<string | null>;
+  /** Answers the currently-shown in-app prompt dialog (state.promptDialog) — see
+   * PromptDialog.tsx. */
+  respondPrompt: (v: string | null) => void;
   go: (s: Screen) => void;
   back: () => void;
 
@@ -468,6 +476,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const resolve = confirmResolveRef.current;
     confirmResolveRef.current = null;
     patch({ confirmDialog: null });
+    if (resolve) resolve(v);
+  }, [patch]);
+
+  // Same reasoning as confirmAsync above, for window.prompt() — also unreliable inside the
+  // same embedded contexts, also with no visible error when it silently no-ops. Resolves the
+  // trimmed text on confirm, null on cancel (matching window.prompt()'s own null-on-cancel
+  // contract so call sites didn't need to change their `if (reason !== null)` checks).
+  const promptResolveRef = useRef<((v: string | null) => void) | null>(null);
+  const promptAsync = useCallback((message: string) => {
+    return new Promise<string | null>((resolve) => {
+      if (promptResolveRef.current) promptResolveRef.current(null);
+      promptResolveRef.current = resolve;
+      patch({ promptDialog: { message } });
+    });
+  }, [patch]);
+  const respondPrompt = useCallback((v: string | null) => {
+    const resolve = promptResolveRef.current;
+    promptResolveRef.current = null;
+    patch({ promptDialog: null });
     if (resolve) resolve(v);
   }, [patch]);
 
@@ -2083,7 +2110,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.historyFrom, state.historyTo, patch, toast, toastErr]);
 
   const value = useMemo<AppCtx>(() => ({
-    state, myProfile, theme, toggleTheme, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, respondConfirm, go, back,
+    state, myProfile, theme, toggleTheme, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, respondConfirm, promptAsync, respondPrompt, go, back,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
     setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, printPickList, printTodayReplenishList, removeFromCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, printWarehouseRequestList,

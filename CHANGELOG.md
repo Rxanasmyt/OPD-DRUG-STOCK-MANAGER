@@ -7,6 +7,17 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.58.0] - 2026-09-04
+
+### Fixed
+- **fix:** the one remaining `window.prompt()` in the app — "ปฏิเสธ" on a pending receive
+  request, asking for a rejection reason — had the exact same reliability problem `window.
+  confirm()` did (v2.54.0): unreliable inside some embedded WebView/PWA contexts, silently
+  returning null or showing nothing at all, with the tap otherwise doing nothing visible.
+  Replaced with a real in-app text-prompt dialog (new `PromptDialog.tsx`, wired through
+  `promptAsync()`/`respondPrompt()` in AppContext.tsx, same pattern as `ConfirmDialog.tsx`) —
+  confirmed no other `window.confirm()`/`window.prompt()` call remains anywhere in the app
+
 ## [2.57.0] - 2026-09-04
 
 ### Added

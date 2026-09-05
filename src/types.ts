@@ -287,4 +287,7 @@ export interface AppState {
   // reported for "ใช้ยาทั้งหมดร่วมกันทั้ง OPD/IPD เลย". A real rendered dialog can't silently
   // no-op that way.
   confirmDialog: { message: string } | null;
+  // Same reasoning, for window.prompt() — see promptAsync()/PromptDialog.tsx. Used where a
+  // short free-text reason is required alongside a yes/no (e.g. "เหตุผลที่ปฏิเสธ" ใบเบิก).
+  promptDialog: { message: string } | null;
 }
