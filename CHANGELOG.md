@@ -7,6 +7,25 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.60.0] - 2026-09-04
+
+### Added
+- **feat:** "เติมหน้างาน" now shows a "ล่าสุด" row of one-tap quick-add chips for the handful
+  of drugs actually transferred most days (IV fluids, paracetamol, ORS, etc.) — derived
+  straight from the realtime transaction feed already synced (no new data to track), most
+  recently transferred first. Tapping one bumps it into the cart at the same one-tap suggested
+  amount the row's own + button already computes, skipping scrolling/searching entirely for
+  the routine morning restock. Steps aside the moment a search is typed, so it never competes
+  with actual search results
+
+### Verified (no change needed)
+- Reviewed the day-to-day field workflows end to end for genuine friction before adding
+  anything: เติมหน้างาน already defaults to the most-deficient-first sort with one-tap
+  suggested-fill and a bulk "เติมตาม par ทั้งหมด"; รับเข้า already resets straight back to its
+  default "ควรเบิกจากคลังใหญ่" list after each item so the next pick needs no re-searching;
+  นำเข้า HOSxP already accepts the real daily export file directly. These were already fast —
+  the one real gap found and fixed is the quick-add chips above
+
 ## [2.59.0] - 2026-09-04
 
 ### Changed
