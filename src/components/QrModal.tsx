@@ -38,6 +38,12 @@ export default function QrModal() {
     ? 'สแกน QR ที่ฉลากตัวยาหรือ lot'
     : 'ต้องสแกน QR ที่ตัวยาให้ตรงกับรายการก่อนทำรายการต่อ';
 
+  // Now that a transfer scan stays open across items (see qrDecodedImpl in AppContext.tsx),
+  // there's no more per-item confirmation to glance at while scanning a whole shelf run — a
+  // small running "ตะกร้า: N" badge is the only feedback that each scan actually landed before
+  // the person taps ✕ to go review the cart.
+  const cartCount = isTransfer ? Object.values(state.cart).filter((q) => q > 0).length : 0;
+
   // Two different frame shapes, not just two colors — receive gets sharp square corners
   // (matches its ⬓ icon, a filled block), transfer gets softly rounded corners (matches its
   // ⇄ icon's flowing feel) so the viewfinder itself, the thing someone's eyes are actually on
@@ -69,8 +75,15 @@ export default function QrModal() {
       {/* Top bar — title/desc/close, on a gradient so it stays legible over any background. */}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: 'calc(env(safe-area-inset-top, 0px) + 14px) 16px 40px', background: `linear-gradient(to bottom, rgba(${theme.accentRgb},.32), rgba(0,0,0,.7) 55%, rgba(0,0,0,0))`, pointerEvents: 'none' }}>
         {theme.flow && (
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: `rgba(${theme.accentRgb},.9)`, color: '#1a1408', fontWeight: 800, fontSize: 12, padding: '4px 11px 4px 8px', borderRadius: 20, marginBottom: 9 }}>
-            <span style={{ fontSize: 15, lineHeight: 1 }}>{theme.icon}</span> {theme.flow}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 9 }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: `rgba(${theme.accentRgb},.9)`, color: '#1a1408', fontWeight: 800, fontSize: 12, padding: '4px 11px 4px 8px', borderRadius: 20 }}>
+              <span style={{ fontSize: 15, lineHeight: 1 }}>{theme.icon}</span> {theme.flow}
+            </div>
+            {cartCount > 0 && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(0,0,0,.55)', color: '#fff', fontWeight: 700, fontSize: 12, padding: '4px 11px', borderRadius: 20 }}>
+                🛒 ตะกร้า {cartCount} รายการ
+              </div>
+            )}
           </div>
         )}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
@@ -78,7 +91,7 @@ export default function QrModal() {
             <div style={{ fontSize: 16.5, fontWeight: 700, color: '#fff' }}>{title}</div>
             <div style={{ fontSize: 12, color: 'rgba(255,255,255,.75)', marginTop: 2 }}>{desc}</div>
           </div>
-          <button onClick={closeQr} style={{ pointerEvents: 'auto', flex: 'none', border: 0, background: 'rgba(255,255,255,.18)', color: '#fff', width: 36, height: 36, borderRadius: 10, fontSize: 16 }}>✕</button>
+          <button onClick={closeQr} aria-label="ปิดกล้องสแกน" style={{ pointerEvents: 'auto', flex: 'none', border: 0, background: 'rgba(255,255,255,.18)', color: '#fff', width: 36, height: 36, borderRadius: 10, fontSize: 16 }}>✕</button>
         </div>
       </div>
 
@@ -114,7 +127,7 @@ export default function QrModal() {
             <div style={{ width: 36, height: 4, borderRadius: 2, background: 'rgba(255,255,255,.22)', margin: '0 auto 14px' }} />
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
               <div style={{ fontSize: 15, fontWeight: 600 }}>กรอกรหัสด้วยมือ</div>
-              <button onClick={qrManual} style={{ border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 30, height: 30, borderRadius: 8, fontSize: 14 }}>✕</button>
+              <button onClick={qrManual} aria-label="ปิดช่องกรอกรหัสด้วยมือ" style={{ border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 30, height: 30, borderRadius: 8, fontSize: 14 }}>✕</button>
             </div>
             <input
               value={state.qrCode}

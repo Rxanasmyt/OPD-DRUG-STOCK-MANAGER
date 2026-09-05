@@ -128,14 +128,15 @@ export default function TransferScreen() {
                   </div>
                 </div>
                 <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <button onClick={() => bump(m.id, -1)} className="press-spring" style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', width: 40, height: 40, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>−</button>
+                  <button onClick={() => bump(m.id, -1)} aria-label={'ลดจำนวน ' + m.name} className="press-spring" style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', width: 40, height: 40, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>−</button>
                   <input
                     value={state.cart[m.id] || ''}
                     onChange={(e) => setCartQty(m.id, digitsOnly(e.target.value))}
                     inputMode="numeric"
+                    aria-label={'จำนวน ' + m.name}
                     style={{ width: 62, height: 40, textAlign: 'center', border: '1px solid var(--border)', borderRadius: 10, fontSize: 15, fontWeight: 600 }}
                   />
-                  <button onClick={() => bump(m.id, 1)} className="press-spring" style={{ border: '1px solid var(--green)', background: 'var(--green-tint)', color: 'var(--green)', width: 40, height: 40, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>+</button>
+                  <button onClick={() => bump(m.id, 1)} aria-label={'เพิ่มจำนวน ' + m.name} className="press-spring" style={{ border: '1px solid var(--green)', background: 'var(--green-tint)', color: 'var(--green)', width: 40, height: 40, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>+</button>
                 </div>
               </div>
             </div>
