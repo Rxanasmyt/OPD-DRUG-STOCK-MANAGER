@@ -63,7 +63,6 @@ export default function HomeScreen() {
   const healthyCount = meds.filter((m) => toneFor(m) === 'var(--green)').length;
   const warnCount = meds.filter((m) => toneFor(m) === 'var(--amber)').length;
   const criticalCount = meds.length - healthyCount - warnCount;
-  const healthyPct = meds.length ? Math.round((healthyCount / meds.length) * 100) : 100;
   const now = new Date();
 
   return (
@@ -80,13 +79,13 @@ export default function HomeScreen() {
       </div>
 
       <div className="card" style={{ padding: '14px 15px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 16 }}>
-        <HealthRing pct={healthyPct} />
+        <HealthRing healthy={healthyCount} warn={warnCount} critical={criticalCount} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="muted" style={{ fontSize: 12, marginBottom: 2 }}>ภาพรวมหน้างาน · {nf(meds.length)} รายการ</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <HealthLegendRow color="var(--green)" label="ปกติ" count={healthyCount} />
-            <HealthLegendRow color="var(--amber)" label="เริ่มต่ำ" count={warnCount} />
-            <HealthLegendRow color="var(--red)" label="ต่ำกว่า 34% ของ par" count={criticalCount} onClick={criticalCount ? () => go('transfer') : undefined} />
+            <HealthLegendRow icon="✅" color="var(--green)" label="ปกติ" count={healthyCount} />
+            <HealthLegendRow icon="⚠️" color="var(--amber)" label="เริ่มต่ำ" count={warnCount} />
+            <HealthLegendRow icon="⛔" color="var(--red)" label="ต่ำกว่า 34% ของ par" count={criticalCount} onClick={criticalCount ? () => go('transfer') : undefined} />
           </div>
         </div>
       </div>
@@ -179,7 +178,15 @@ export default function HomeScreen() {
         {lowSub.length === 0 && <div style={{ padding: 16, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>substock ยังสูงกว่า par ทุกรายการ</div>}
       </div>
 
-      <div ref={expRef} style={{ fontSize: 14.5, fontWeight: 600, margin: '0 2px 8px' }}>ใกล้หมดอายุ</div>
+      <div ref={expRef} style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, margin: '0 2px 8px' }}>
+        <div style={{ fontSize: 14.5, fontWeight: 600 }}>ใกล้หมดอายุ</div>
+        {expLots.length > 0 && (
+          <div style={{ display: 'flex', gap: 10, fontSize: 11 }}>
+            {expiredCount > 0 && <span style={{ color: 'var(--red)', fontWeight: 700 }}>● หมดแล้ว {nf(expiredCount)}</span>}
+            {expLots.length - expiredCount > 0 && <span style={{ color: 'var(--amber-ink)', fontWeight: 700 }}>● ใกล้ครบ {nf(expLots.length - expiredCount)}</span>}
+          </div>
+        )}
+      </div>
       <div className="card stagger" style={{ overflow: 'hidden' }}>
         {expLots.slice(0, 5).map((l) => {
           const m = meds.find((x) => x.id === l.medId);
@@ -249,30 +256,52 @@ function SectionHeader({ title, actionLabel, onAction }: { title: string; action
 // Whole-formulary "how healthy is the shelf right now" at a glance — the same red/amber/green
 // severity toneFor() already computes per med, rolled into one ring instead of making someone
 // mentally combine four separate stat-tile numbers to get the same picture.
-function HealthRing({ pct, size = 68, stroke = 8 }: { pct: number; size?: number; stroke?: number }) {
+// True 3-segment donut (critical/warn/healthy, drawn in that order so the more urgent slices
+// anchor at the top) instead of a single-color arc against a flat track — showing the actual
+// proportional split at a glance is the whole point of "เห็นภาพชัดเจน", not just one number.
+// A small surface gap between segments (dataviz convention for adjacent stacked marks) keeps
+// each slice visually distinct instead of reading as one blended ring.
+function HealthRing({ healthy, warn, critical, size = 76, stroke = 10 }: { healthy: number; warn: number; critical: number; size?: number; stroke?: number }) {
+  const total = healthy + warn + critical;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
-  const offset = c * (1 - pct / 100);
-  const tone = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--amber)' : 'var(--red)';
+  const gapPx = 3;
+  const segs = [
+    { value: critical, color: 'var(--red)' },
+    { value: warn, color: 'var(--amber)' },
+    { value: healthy, color: 'var(--green)' },
+  ].filter((s) => s.value > 0);
+  let acc = 0;
+  const healthyPct = total ? Math.round((healthy / total) * 100) : 100;
+  const centerTone = healthyPct >= 80 ? 'var(--green)' : healthyPct >= 50 ? 'var(--amber)' : 'var(--red)';
   return (
     <div style={{ position: 'relative', width: size, height: size, flex: 'none' }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: 'rotate(-90deg)' }}>
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--border-soft)" strokeWidth={stroke} />
-        <circle
-          cx={size / 2} cy={size / 2} r={r} fill="none" stroke={tone} strokeWidth={stroke} strokeLinecap="round"
-          strokeDasharray={c} strokeDashoffset={offset}
-          style={{ transition: 'stroke-dashoffset var(--dur-slow) var(--ease-out)' }}
-        />
+        {total === 0 ? null : segs.map((s, i) => {
+          const frac = s.value / total;
+          const len = Math.max(0, frac * c - (segs.length > 1 ? gapPx : 0));
+          const dashoffset = -acc;
+          acc += frac * c;
+          return (
+            <circle
+              key={i}
+              cx={size / 2} cy={size / 2} r={r} fill="none" stroke={s.color} strokeWidth={stroke} strokeLinecap="round"
+              strokeDasharray={`${len} ${c - len}`} strokeDashoffset={dashoffset}
+              style={{ transition: 'stroke-dasharray var(--dur-slow) var(--ease-out), stroke-dashoffset var(--dur-slow) var(--ease-out)' }}
+            />
+          );
+        })}
       </svg>
       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
-        <div style={{ fontSize: 16, fontWeight: 800, lineHeight: 1, color: tone }}>{pct}%</div>
+        <div style={{ fontSize: 17, fontWeight: 800, lineHeight: 1, color: centerTone }}>{healthyPct}%</div>
         <div className="muted" style={{ fontSize: 8.5, marginTop: 1 }}>ปกติ</div>
       </div>
     </div>
   );
 }
 
-function HealthLegendRow({ color, label, count, onClick }: { color: string; label: string; count: number; onClick?: () => void }) {
+function HealthLegendRow({ icon, color, label, count, onClick }: { icon: string; color: string; label: string; count: number; onClick?: () => void }) {
   const Tag = onClick ? 'button' : 'div';
   return (
     <Tag
@@ -282,7 +311,8 @@ function HealthLegendRow({ color, label, count, onClick }: { color: string; labe
         textAlign: 'left', cursor: onClick ? 'pointer' : 'default',
       }}
     >
-      <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flex: 'none' }} />
+      <span aria-hidden="true" style={{ fontSize: 11, flex: 'none', lineHeight: 1 }}>{icon}</span>
+      <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flex: 'none' }} />
       <span style={{ fontSize: 12, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
       <span style={{ fontSize: 12.5, fontWeight: 700, color, flex: 'none' }}>{nf(count)}</span>
     </Tag>

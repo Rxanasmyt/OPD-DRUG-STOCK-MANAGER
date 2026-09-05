@@ -7,6 +7,18 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.59.0] - 2026-09-04
+
+### Changed
+- **feat:** the home dashboard's overview ring (v2.57.0) is now a true 3-segment donut —
+  critical (red) / เริ่มต่ำ (amber) / ปกติ (green) drawn as their actual proportional arcs with
+  a small gap between each, instead of one green-or-amber-or-red arc against a flat gray
+  track. Shows the real breakdown at a glance instead of just a single "% healthy" number.
+  Legend rows below it now carry an icon (✅/⚠️/⛔) alongside the color dot and count, so status
+  is never color-alone
+- **feat:** "ใกล้หมดอายุ" section header now shows an inline หมดแล้ว/ใกล้ครบ count breakdown,
+  same purpose — see the split before scrolling into the list itself
+
 ## [2.58.0] - 2026-09-04
 
 ### Fixed
