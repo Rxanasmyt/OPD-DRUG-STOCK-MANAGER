@@ -7,6 +7,15 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.61.0] - 2026-09-04
+
+### Added
+- **feat:** "เติมหน้างาน" rows now show the same floor-vs-Max progress bar HomeScreen's
+  low-stock list already used — the screen someone actually works from all day previously had
+  the numbers (หน้างาน X · Min Y / Max Z) but no visual read of how full the shelf is, so this
+  brings the same at-a-glance picture to where it's used most, not just the dashboard. Numbers
+  underneath still give the exact detail
+
 ## [2.60.0] - 2026-09-04
 
 ### Added

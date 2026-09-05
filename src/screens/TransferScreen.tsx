@@ -113,7 +113,13 @@ export default function TransferScreen() {
                   <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>
                     หน้างาน <Qty value={m.floor} unit={m.unit} tone={toneFor(m)} size={12.5} /> · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock {nf(sub(m.id))} {m.unit}
                   </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--green)', marginTop: 3 }}>
+                  {/* Same at-a-glance floor-vs-par bar HomeScreen's low-stock list already uses
+                      — brought here too so the screen someone actually works from all day shows
+                      the same clear picture, not just a line of numbers to parse. */}
+                  <div className="bar-track" style={{ height: 4, background: 'var(--border-soft)', borderRadius: 2, marginTop: 5 }}>
+                    <div className="bar-fill" style={{ height: '100%', width: Math.max(3, Math.min(100, Math.round((m.floor / Math.max(1, m.parFloor)) * 100))) + '%', background: toneFor(m), borderRadius: 2 }} />
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--green)', marginTop: 5 }}>
                     FEFO: lot {f ? f.lotNo : '—'} · exp {f ? thDate(f.exp) : 'ไม่มีของใน substock'}
                     {f && <span className="muted"> (เหลือ {nf(f.qty)})</span>}
                   </div>
