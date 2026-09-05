@@ -9,6 +9,17 @@ import type { Med, Ward } from '../types';
 type Filter = 'active' | 'inactive' | 'all';
 
 const inputStyle = { width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
+
+// Bug fix: the inline per-row bin edit (setMedBin in AppContext.tsx) has always sanitized to
+// uppercase-alphanumeric-only, but this form's own bin/binIpd fields just took raw typed text
+// (the `uppercase` on the input was CSS display only — didn't touch the actual stored value).
+// A shelf QR code (see LOCS in data/locations.ts, e.g. "A1") only ever matches a med's bin
+// EXACTLY — so typing "a1", "A1 ", or "A-1" here here silently produced a bin that could never
+// match its own shelf's QR code, breaking "สแกน QR ที่ชั้นวาง" for that drug with no error
+// shown anywhere. Same sanitize rule as setMedBin, applied at the same point.
+function sanitizeBin(v: string): string {
+  return v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+}
 const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: 'var(--ipd)' };
 const WARD_BG: Record<Ward, string> = { opd: 'var(--green-tint)', ipd: 'var(--ipd-bg)' };
 
@@ -314,14 +325,14 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
         </label>
         <label>
           <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{v.shared ? 'ชั้นวาง (OPD)' : 'ชั้นวาง'}</span>
-          <input value={v.bin} onChange={(e) => set('bin', e.target.value)} placeholder="เช่น J4" style={{ ...inputStyle, textTransform: 'uppercase' as const }} />
+          <input value={v.bin} onChange={(e) => set('bin', sanitizeBin(e.target.value))} placeholder="เช่น J4" style={{ ...inputStyle, textTransform: 'uppercase' as const }} />
         </label>
       </div>
       {v.shared ? (
         <div style={{ marginBottom: 9 }}>
           <label style={{ display: 'block', marginBottom: 7 }}>
             <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>ชั้นวาง (IPD)</span>
-            <input value={v.binIpd} onChange={(e) => set('binIpd', e.target.value)} placeholder="เช่น J4" style={{ ...inputStyle, textTransform: 'uppercase' as const, borderColor: WARD_COLOR.ipd }} />
+            <input value={v.binIpd} onChange={(e) => set('binIpd', sanitizeBin(e.target.value))} placeholder="เช่น J4" style={{ ...inputStyle, textTransform: 'uppercase' as const, borderColor: WARD_COLOR.ipd }} />
           </label>
           <div style={{ fontSize: 10.5, lineHeight: 1.5, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 9, padding: '8px 10px' }}>
             ใช้สต็อกร่วมกันทั้ง OPD และ IPD — หน้างาน/par/substock เป็นยอดเดียวกันหมด ต่างกันแค่รหัสชั้นวางที่แสดงตามฝั่งที่ดู (IPD หยิบยาจากชั้น OPD ตรง ๆ)
