@@ -226,9 +226,15 @@ export interface SubstockCardRow {
  * transaction history instead of copied by hand onto a card that can go missing, get a
  * pen-run smudge, or just fall behind because nobody got around to writing today's line yet.
  */
-export function printSubstockCardSheet(med: { code: string; name: string; parSub: number; unit: string; ward?: 'opd' | 'ipd' }, rows: SubstockCardRow[]): boolean {
+export function printSubstockCardSheet(med: { code: string; name: string; parSub: number; unit: string; ward?: 'opd' | 'ipd' }, rows: SubstockCardRow[], fyLabel?: number | 'all'): boolean {
   const now = new Date();
-  const fy = fiscalYear(now.getTime()) % 100;
+  // Defaults to today's fiscal year (the original single-year behavior), but the substock
+  // card screen now lets someone view/print a past year or "ทุกปี" pooled together — the
+  // printed band has to say which one, or a sheet for last year's history would misleadingly
+  // print with this year's fiscal-year number on it.
+  const fy = fyLabel === undefined ? String(fiscalYear(now.getTime()) % 100)
+    : fyLabel === 'all' ? 'ทั้งหมด'
+    : String(fyLabel % 100);
   const body = rows
     .map((r, i) => `<tr>
       <td class="no">${i + 1}</td>

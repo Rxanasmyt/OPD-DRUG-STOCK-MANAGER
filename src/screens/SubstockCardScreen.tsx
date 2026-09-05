@@ -1,8 +1,9 @@
-import { useState, useEffect, type ReactNode, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, type ReactNode, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
 import { subQty, wardOf } from '../store/selectors';
 import { nf, thDate, fiscalYear } from '../utils/format';
 import { printSubstockCardSheet } from '../utils/print';
+import { downloadCsv } from '../utils/csv';
 import { MedDot } from '../components/MedDot';
 import { WardBadge } from '../components/WardBadge';
 
@@ -32,6 +33,10 @@ export default function SubstockCardScreen() {
   const [medId, setMedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<LedgerRow[] | null>(null);
+  // ปีงบประมาณที่กำลังดู — 'all' ดูทุกปีที่มีข้อมูล (บัตรกระดาษเดิมต้องเปลี่ยนแผ่นทุกปีงบประมาณ,
+  // แต่ที่นี่เก็บได้ไม่จำกัดปีแล้วสลับดูย้อนหลังได้ทันทีโดยไม่ต้องโหลดใหม่ — คำนวณคงเหลือสะสม
+  // จากประวัติทั้งหมดเสมอ ไม่ว่าจะกรองปีไหนอยู่ ยอดคงเหลือในแต่ละแถวจึงถูกต้องเสมอ)
+  const [year, setYear] = useState<number | 'all'>('all');
 
   const med = medId ? state.meds.find((m) => m.id === medId) : null;
   const options = !medId && search.trim()
@@ -45,9 +50,17 @@ export default function SubstockCardScreen() {
     setSearch(m.name);
     setLoading(true);
     setRows(null);
+    setYear('all');
     try {
       const ledger = await fetchSubstockLedger(id);
       setRows(ledger);
+      // Default to whichever fiscal year is most relevant to look at right now: this year's
+      // (ปีงบประมาณปัจจุบัน) if it already has activity, otherwise the most recent year that
+      // does — never lands on an empty screen for a drug whose last movement was last year.
+      const curFy = fiscalYear();
+      const fys = new Set(ledger.map((r) => fiscalYear(r.ts)));
+      if (fys.has(curFy)) setYear(curFy);
+      else if (fys.size) setYear(Math.max(...fys));
     } catch (e) {
       console.error(e);
       toast('ดึงประวัติบัตรสต็อกไม่สำเร็จ — ต้องใช้อินเทอร์เน็ต ลองใหม่อีกครั้ง');
@@ -55,6 +68,31 @@ export default function SubstockCardScreen() {
       setLoading(false);
     }
   };
+
+  // All fiscal years that have at least one row, newest first — populates the year dropdown.
+  const years = useMemo(() => {
+    if (!rows) return [];
+    return Array.from(new Set(rows.map((r) => fiscalYear(r.ts)))).sort((a, b) => b - a);
+  }, [rows]);
+
+  // Rows to actually render/print/export — the running balance on each row was already
+  // computed over the FULL history in fetchSubstockLedger, so filtering down to one fiscal
+  // year here for display never has to touch that math again.
+  const viewRows = useMemo(() => {
+    if (!rows) return null;
+    return year === 'all' ? rows : rows.filter((r) => fiscalYear(r.ts) === year);
+  }, [rows, year]);
+
+  const yearTotals = useMemo(() => {
+    if (!viewRows) return null;
+    let received = 0, dispensed = 0, expired = 0;
+    for (const r of viewRows) {
+      if (r.qty > 0) received += r.qty;
+      else if (r.type === 'expired') expired += -r.qty;
+      else dispensed += -r.qty;
+    }
+    return { received, dispensed, expired, net: received - dispensed - expired };
+  }, [viewRows]);
 
   // Arrived here from DoneScreen's "ดูบัตรสต็อก" right after a receive/transfer — open that
   // med's card immediately instead of landing on an empty search box.
@@ -85,12 +123,24 @@ export default function SubstockCardScreen() {
   const hasNameTwin = med ? state.meds.some((x) => x.id !== med.id && x.active && x.name === med.name) : false;
 
   const printCard = () => {
-    if (!med || !rows) return;
-    const cardRows = rows.map((r) => ({
+    if (!med || !viewRows) return;
+    const cardRows = viewRows.map((r) => ({
       ts: r.ts, received: r.qty > 0 ? r.qty : 0, dispensed: r.qty < 0 ? -r.qty : 0, balance: r.balance, by: r.by,
     }));
-    const ok = printSubstockCardSheet({ code: med.code, name: med.name, parSub: med.parSub, unit: med.unit, ward: wardOf(med) }, cardRows);
+    const ok = printSubstockCardSheet({ code: med.code, name: med.name, parSub: med.parSub, unit: med.unit, ward: wardOf(med) }, cardRows, year);
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
+  };
+
+  const exportCard = async () => {
+    if (!med || !viewRows) return;
+    const header = ['วันที่', 'ประเภท', 'รับ', 'จ่าย', 'คงเหลือ', 'โดย', 'หมายเหตุ'];
+    const body = viewRows.map((r) => [
+      thDate(r.ts), TYPE_META[r.type]?.label || r.type,
+      r.qty > 0 ? r.qty : '', r.qty < 0 ? -r.qty : '', r.balance, r.by, r.note,
+    ]);
+    const fname = 'substock_card_' + med.code + '_' + (year === 'all' ? 'ทุกปี' : 'FY' + year) + '.csv';
+    const outcome = await downloadCsv([header, ...body], fname);
+    toast(outcome === 'saved' ? 'ดาวน์โหลด CSV แล้ว' : outcome === 'declined' ? 'ยกเลิกการบันทึกไฟล์' : 'ดาวน์โหลดไม่สำเร็จ — เบราว์เซอร์นี้ไม่รองรับ');
   };
 
   return (
@@ -122,12 +172,23 @@ export default function SubstockCardScreen() {
               หน่วยนับ boxes), instead of a plain flat list. Data underneath is still live —
               this is a skin over the same real-time subQty()/fetchSubstockLedger() plumbing. */}
           <div style={{ border: '1.5px solid var(--amber)', borderRadius: 14, overflow: 'hidden', marginBottom: 14, boxShadow: 'var(--shadow-sm)' }}>
-            <div style={{ background: 'var(--amber)', color: '#2a1f0a', padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 13.5, fontWeight: 800, letterSpacing: '.01em', display: 'flex', alignItems: 'center', gap: 8 }}>
-                บัตรคุมสต็อกยา
-                <span style={{ fontSize: 10.5, fontWeight: 700, background: 'rgba(42,31,10,.14)', padding: '2px 8px', borderRadius: 20 }}>ปีงบประมาณ {fiscalYear()}</span>
-              </span>
-              <button onClick={() => { setMedId(null); setSearch(''); setRows(null); }} style={{ border: '1px solid rgba(42,31,10,.35)', background: 'rgba(255,255,255,.35)', color: '#2a1f0a', padding: '5px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 600 }}>เปลี่ยนยา</button>
+            <div style={{ background: 'var(--amber)', color: '#2a1f0a', padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 13.5, fontWeight: 800, letterSpacing: '.01em' }}>บัตรคุมสต็อกยา</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {/* Multi-year history browser — the paper card needed a new sheet every fiscal
+                    year; this keeps every year in one record and lets you flip between them,
+                    "ทั้งหมด" pooling every year ever recorded for this drug into one view. */}
+                <select
+                  value={year}
+                  onChange={(e) => setYear(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                  style={{ border: '1px solid rgba(42,31,10,.35)', background: 'rgba(255,255,255,.55)', color: '#2a1f0a', padding: '5px 8px', borderRadius: 8, fontSize: 11.5, fontWeight: 700 }}
+                >
+                  {years.length === 0 && <option value={fiscalYear()}>ปีงบประมาณ {fiscalYear()}</option>}
+                  {years.map((y) => <option key={y} value={y}>ปีงบ {y}</option>)}
+                  <option value="all">ทุกปี</option>
+                </select>
+                <button onClick={() => { setMedId(null); setSearch(''); setRows(null); }} style={{ border: '1px solid rgba(42,31,10,.35)', background: 'rgba(255,255,255,.35)', color: '#2a1f0a', padding: '5px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 600 }}>เปลี่ยนยา</button>
+              </div>
             </div>
             <div style={{ background: 'var(--amber-bg)', display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
               <Field label="ชื่อยา" full><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MedDot code={med.code} size={9} />{med.name} <WardBadge med={med} size="md" /></span></Field>
@@ -136,20 +197,44 @@ export default function SubstockCardScreen() {
               <Field label="par substock" noBorder>{nf(med.parSub)} {med.unit}</Field>
             </div>
             <div style={{ padding: '12px 14px', background: 'var(--bg-card)', display: 'flex', gap: 10 }}>
+              {/* The one number everyone actually walks up to this screen for — sized to read
+                  from arm's length, not squeezed next to the print button as small text. */}
               <div style={{ flex: 1, background: 'var(--green-tint)', borderRadius: 10, padding: '10px 12px' }}>
                 <div className="muted" style={{ fontSize: 11 }}>substock คงเหลือตอนนี้ (real-time)</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--green)' }}>{nf(liveBalance)} <span style={{ fontSize: 12, fontWeight: 500 }}>{med.unit}</span></div>
+                <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--green)', lineHeight: 1.15 }}>{nf(liveBalance)} <span style={{ fontSize: 13, fontWeight: 600 }}>{med.unit}</span></div>
               </div>
-              <button
-                onClick={printCard}
-                disabled={!rows}
-                title="พิมพ์บัตรสต็อก"
-                className="press-spring"
-                style={{ flex: 'none', width: 54, border: '1px solid var(--border)', background: 'var(--bg-card)', color: rows ? 'var(--ink)' : 'var(--muted)', borderRadius: 10, fontSize: 19 }}
-              >
-                🖨
-              </button>
+              <div style={{ flex: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <button
+                  onClick={printCard}
+                  disabled={!viewRows}
+                  title="พิมพ์บัตรสต็อก"
+                  className="press-spring"
+                  style={{ flex: 1, width: 54, border: '1px solid var(--border)', background: 'var(--bg-card)', color: viewRows ? 'var(--ink)' : 'var(--muted)', borderRadius: 10, fontSize: 19 }}
+                >
+                  🖨
+                </button>
+                <button
+                  onClick={exportCard}
+                  disabled={!viewRows}
+                  title="ดาวน์โหลดเป็น CSV"
+                  className="press-spring"
+                  style={{ flex: 1, width: 54, border: '1px solid var(--border)', background: 'var(--bg-card)', color: viewRows ? 'var(--ink)' : 'var(--muted)', borderRadius: 10, fontSize: 17 }}
+                >
+                  ⬇
+                </button>
+              </div>
             </div>
+
+            {/* Period summary — the "how much moved this year" picture the flat row-by-row
+                ledger doesn't give at a glance, right below the live balance so both read
+                together: what's on the shelf now, and what it took to get there. */}
+            {yearTotals && viewRows && viewRows.length > 0 && (
+              <div style={{ padding: '0 14px 12px', display: 'grid', gridTemplateColumns: yearTotals.expired > 0 ? '1fr 1fr 1fr' : '1fr 1fr', gap: 8 }}>
+                <SummaryTile label="รับเข้ารวม" value={yearTotals.received} unit={med.unit} color="var(--green)" />
+                <SummaryTile label="เติมหน้างานรวม" value={yearTotals.dispensed} unit={med.unit} color="var(--red)" />
+                {yearTotals.expired > 0 && <SummaryTile label="ตัดหมดอายุรวม" value={yearTotals.expired} unit={med.unit} color="var(--amber-ink)" />}
+              </div>
+            )}
             {mismatch && (
               <div style={{ fontSize: 11, color: 'var(--amber-ink)', background: 'var(--amber-bg)', padding: '9px 14px', lineHeight: 1.5, borderTop: '1px solid var(--amber-border)' }}>
                 {hasNameTwin
@@ -161,7 +246,7 @@ export default function SubstockCardScreen() {
 
           {loading && <div style={{ textAlign: 'center', padding: 20, color: 'var(--muted)', fontSize: 13 }}>กำลังโหลดประวัติ…</div>}
 
-          {rows && !loading && (
+          {viewRows && !loading && (
             <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }} className="stagger">
               {/* A real ruled grid (vertical + horizontal cell borders), not just underlines —
                   same shape as the physical card: ลำดับ / วันที่ / รับ / จ่าย / คงเหลือ / โดย,
@@ -169,11 +254,11 @@ export default function SubstockCardScreen() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-subtle)' }}>
-                    <Th w={28}>#</Th><Th w={26} /><Th w={58}>วันที่</Th><Th w={54} num>รับ</Th><Th w={54} num>จ่าย</Th><Th w={58} num>คงเหลือ</Th><Th>โดย</Th>
+                    <Th w={28}>#</Th><Th w={26} /><Th w={58}>วันที่</Th><Th w={54} num>รับ</Th><Th w={54} num>จ่าย</Th><Th w={62} num>คงเหลือ</Th><Th>โดย</Th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r, i) => {
+                  {viewRows.map((r, i) => {
                     const meta = TYPE_META[r.type];
                     const title = (meta ? meta.label : r.type) + (r.note ? ' — ' + r.note : '');
                     return (
@@ -181,16 +266,20 @@ export default function SubstockCardScreen() {
                         <Td num style={{ color: 'var(--muted)', fontSize: 10.5 }}>{i + 1}</Td>
                         <Td style={{ textAlign: 'center', fontSize: 12 }}>{meta ? meta.icon : ''}</Td>
                         <Td>{thDate(r.ts)}</Td>
-                        <Td num style={{ fontWeight: 700, color: 'var(--green)' }}>{r.qty > 0 ? nf(r.qty) : ''}</Td>
-                        <Td num style={{ fontWeight: 700, color: 'var(--red)' }}>{r.qty < 0 ? nf(-r.qty) : ''}</Td>
-                        <Td num style={{ fontWeight: 700 }}>{nf(r.balance)}</Td>
+                        <Td num style={{ fontWeight: 700, fontSize: 13, color: 'var(--green)' }}>{r.qty > 0 ? nf(r.qty) : ''}</Td>
+                        <Td num style={{ fontWeight: 700, fontSize: 13, color: 'var(--red)' }}>{r.qty < 0 ? nf(-r.qty) : ''}</Td>
+                        <Td num style={{ fontWeight: 800, fontSize: 13.5 }}>{nf(r.balance)}</Td>
                         <Td style={{ color: 'var(--muted)', fontSize: 10.5, maxWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.by}</Td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
-              {rows.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ยานี้ยังไม่มีประวัติ substock</div>}
+              {viewRows.length === 0 && (
+                <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>
+                  {rows && rows.length > 0 ? 'ไม่มีประวัติ substock ใน' + (year === 'all' ? 'ช่วงนี้' : 'ปีงบ ' + year) : 'ยานี้ยังไม่มีประวัติ substock'}
+                </div>
+              )}
             </div>
           )}
         </>
@@ -211,6 +300,17 @@ function Field({ label, children, full, noBorder, noBorderRight }: { label: stri
     }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--amber-ink)', opacity: 0.75 }}>{label}</div>
       <div style={{ fontSize: 13, fontWeight: 600, marginTop: 1 }}>{children}</div>
+    </div>
+  );
+}
+
+/** One period-total number, big and unambiguous — "how much moved" alongside "how much is
+ * left now" (the live balance card above it). */
+function SummaryTile({ label, value, unit, color }: { label: string; value: number; unit: string; color: string }) {
+  return (
+    <div style={{ background: 'var(--bg-subtle)', borderRadius: 10, padding: '9px 11px' }}>
+      <div className="muted" style={{ fontSize: 10.5 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 800, color, lineHeight: 1.2 }}>{nf(value)} <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)' }}>{unit}</span></div>
     </div>
   );
 }
