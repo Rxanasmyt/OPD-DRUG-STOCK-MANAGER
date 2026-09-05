@@ -41,6 +41,16 @@ export function binFor(m: Med, w: Ward): string {
   return w === 'ipd' && m.binIpd ? m.binIpd : m.bin;
 }
 
+/** Every real shelf-bin code `m` actually sits in, combined into one string for a context
+ * (like a pick list) that isn't tied to one ward's view — "A1" for a normal med, "A1/B2" for a
+ * shared med with a genuinely distinct IPD-side spot. Bug fix: printPickList/
+ * printTodayReplenishList used to pick ONE side via a ward filter that, since the OPD/IPD tab
+ * UI was removed, could never actually resolve to 'ipd' any more — silently always showing the
+ * OPD-side code and never mentioning a shared med's separate IPD shelf spot existed at all. */
+export function binDisplayAll(m: Med): string {
+  return isSharedMed(m) && m.binIpd && m.binIpd !== m.bin ? m.bin + '/' + m.binIpd : m.bin;
+}
+
 /** Real min-max par: `parFloor` is the shelf's capacity ("Max" — fill up TO this), `floorMin`
  * is the separate reorder point ("Min" — BELOW this is when it actually needs refilling).
  * Every med added before Min-Max existed has no floorMin — default it to 30% of Max, a

@@ -12,7 +12,7 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isSharedMed, matchesWard, binFor } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isSharedMed, matchesWard, binFor, binDisplayAll } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -744,28 +744,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const printPickList = useCallback(() => {
     const ids = Object.keys(state.cart);
     if (!ids.length) { toast('ยังไม่มีรายการในตะกร้า — เติมจำนวนหรือกด "เติมตาม par ทั้งหมด" ก่อน'); return; }
+    // Bug fix: this used to pick one side of a shared med's shelf code via state.wardFilter —
+    // dead ever since the OPD/IPD ward tab UI was removed (nothing sets it away from 'all'
+    // any more), so it silently always showed the OPD-side bin and never mentioned a shared
+    // med's separate IPD shelf spot at all. binDisplayAll() shows both codes when they differ.
     const rows = ids
       .map((id) => state.meds.find((m) => m.id === id))
       .filter((m): m is Med => !!m)
-      .map((m) => ({ bin: binFor(m, state.wardFilter === 'ipd' ? 'ipd' : 'opd'), name: m.name, qty: state.cart[m.id], unit: m.unit }));
-    const wardLabel = state.wardFilter === 'opd' ? 'OPD' : state.wardFilter === 'ipd' ? 'IPD' : 'ทุกหอผู้ป่วย';
-    const ok = printPickListSheet(rows, 'ใบจัดยาเติมชั้น — ' + wardLabel, 'หอผู้ป่วย: ' + wardLabel);
+      .map((m) => ({ bin: binDisplayAll(m), name: m.name, qty: state.cart[m.id], unit: m.unit }));
+    const ok = printPickListSheet(rows, 'ใบจัดยาเติมชั้น', thDate(Date.now()));
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
-  }, [state.cart, state.meds, state.wardFilter, toast]);
+  }, [state.cart, state.meds, toast]);
 
   // The daily version of the above — "วันนี้ต้องเติมอะไรบ้าง" printed straight from current
   // floor-vs-Min numbers, with zero dependence on the cart. A จพ.เภสัช doing the morning walk
   // shouldn't have to open the app, tap "เติมตาม par ทั้งหมด" to build a cart, then print,
   // just to get a checklist to carry — this is that same suggested-qty logic (same target:
   // parFloor/"Max", same cap: what substock actually has), one tap, cart untouched. Same
-  // ward-scoping as fillAll: only the currently-selected ward tab's items print.
+  // Bug fix: state.wardFilter has been permanently stuck at 'all' since the OPD/IPD ward tab
+  // UI was removed — the matchesWard()/labelWard reads this used to have acted as if it could
+  // still be 'opd'/'ipd', which in practice meant "every med" here (harmless) but always
+  // showed a shared med's OPD-side bin only, same gap as printPickList above.
   const printTodayReplenishList = useCallback(() => {
-    const wardLabel = state.wardFilter === 'opd' ? 'OPD' : state.wardFilter === 'ipd' ? 'IPD' : 'ทุกหอผู้ป่วย';
-    const items = state.meds.filter((m) => m.active && usesSubstock(m)
-      && matchesWard(m, state.wardFilter)
-      && m.floor < floorMinOf(m));
+    const items = state.meds.filter((m) => m.active && usesSubstock(m) && m.floor < floorMinOf(m));
     if (!items.length) { toast('วันนี้ไม่มีรายการที่ต่ำกว่าจุดต้องเติม (Min) — ยังไม่ต้องเติมหน้างาน'); return; }
-    const labelWard = state.wardFilter === 'ipd' ? 'ipd' : 'opd';
     const rows = items
       .map((m) => {
         const need = Math.max(0, m.parFloor - m.floor);
@@ -775,11 +777,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // shelf under par; the person carrying this sheet should know to also flag it for
         // the next "เบิกจากคลังใหญ่" run instead of assuming the job's done.
         const note = qty < need ? 'substock เหลือไม่พอเติมเต็ม par (ขาดอีก ' + nf(need - qty) + ' ' + m.unit + ')' : undefined;
-        return { bin: binFor(m, labelWard), name: m.name, qty, unit: m.unit, note };
+        return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note };
       })
       .filter((r) => r.qty > 0);
     if (!rows.length) { toast('รายการที่ต่ำกว่า Min ไม่มีของเหลือใน substock ให้เติมเลยสักรายการ — ต้องเบิกจากคลังใหญ่ก่อน'); return; }
-    const ok = printPickListSheet(rows, 'ใบเติมหน้างานประจำวัน — ' + wardLabel, thDate(Date.now()) + ' · หอผู้ป่วย: ' + wardLabel);
+    const ok = printPickListSheet(rows, 'ใบเติมหน้างานประจำวัน', thDate(Date.now()));
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state, toast]);
 
@@ -1212,18 +1214,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---------- labels ----------
   const setLabelType = useCallback((t: AppState['labelType']) => patch({ labelType: t }), [patch]);
   const printLabels = useCallback(() => {
-    // OPD and IPD shelves are physically different rooms with different bin codes — printing
-    // a combined batch would mix labels meant for two different places onto one sheet.
-    // Respects whatever ward tab the labels screen currently has open ('all' prints both).
-    const meds = state.meds.filter((m) => m.active && matchesWard(m, state.wardFilter));
-    // Which side of a shared med's two shelf codes to print — the tab actually open, or its
-    // own OPD/IPD side (never ambiguous) for a non-shared med. Only matters for `bin`/`sub`
-    // text; the `ward` badge below still shows each label's own real ward, same as before.
-    const labelWard = state.wardFilter === 'ipd' ? 'ipd' : 'opd';
+    // Bug fix: this used to scope by state.wardFilter (which side's tab was open) to decide
+    // which of a shared med's two shelf codes to print — but the OPD/IPD ward TABS were
+    // removed from every operational screen (see WardTabs.tsx's deletion), leaving
+    // state.wardFilter permanently stuck at 'all' with nothing left to ever change it. That
+    // silently made `labelWard` always resolve to 'opd' — a shared med's IPD-side shelf label
+    // became flat-out unprintable from here, with no error or indication anything was wrong.
+    // Fixed at the source instead of patching the dead wardFilter read: a shared med with a
+    // distinct binIpd genuinely has TWO physical shelf spots needing their own sticker, so it
+    // now emits one label row per real shelf position instead of guessing which single one to
+    // print — a non-shared med (one real shelf spot) still gets exactly one label, unchanged.
+    const meds = state.meds.filter((m) => m.active);
     let labels: PrintLabel[] = [];
     let heading = 'ฉลากตัวยา';
     if (state.labelType === 'med') {
-      labels = meds.map((m) => ({ payload: encodeQr('med', m.code), id: m.code, title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + binFor(m, labelWard), tag: m.had ? 'HIGH ALERT' : undefined, bin: binFor(m, labelWard), ward: wardOf(m) }));
+      labels = meds.flatMap((m): PrintLabel[] => {
+        const sides: Array<{ ward: Ward; bin: string }> = isSharedMed(m) && m.binIpd
+          ? [{ ward: 'opd', bin: m.bin }, { ward: 'ipd', bin: m.binIpd }]
+          : [{ ward: wardOf(m), bin: binFor(m, wardOf(m)) }];
+        return sides.map((s) => ({
+          payload: encodeQr('med', m.code), id: m.code, title: shortLabelName(m.name),
+          sub: 'หน่วย ' + m.unit + ' · ชั้น ' + s.bin, tag: m.had ? 'HIGH ALERT' : undefined, bin: s.bin, ward: s.ward,
+        }));
+      });
     } else if (state.labelType === 'lot') {
       heading = 'ฉลาก lot';
       // Bug fix: this used to iterate state.lots directly, ignoring both the active-only and
