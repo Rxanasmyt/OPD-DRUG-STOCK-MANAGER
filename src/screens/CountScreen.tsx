@@ -26,13 +26,17 @@ export default function CountScreen() {
           const q = parseInt(typed, 10);
           const has = typed !== '' && !isNaN(q);
           const delta = has ? q - m.floor : 0;
-          const daysSince = Math.floor((Date.now() - m.lastCountTs) / 86400000);
+          // Bug fix: m.lastCountTs is unset for any med that's never had this optional count
+          // committed (the common case — this screen is explicitly "ไม่จำเป็นต้องทำเป็นประจำ").
+          // Date.now() - undefined is NaN, which used to render literally as "นับล่าสุด NaN
+          // วันก่อน" for every such drug — a real, visible glitch, not a hypothetical one.
+          const daysSince = m.lastCountTs ? Math.floor((Date.now() - m.lastCountTs) / 86400000) : null;
           return (
             <div key={m.id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>{m.name}</div>
-                  <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>ระบบคำนวณ {nf(m.floor)} {m.unit} · นับล่าสุด {daysSince <= 0 ? 'วันนี้' : daysSince + ' วันก่อน'}</div>
+                  <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>ระบบคำนวณ {nf(m.floor)} {m.unit} · นับล่าสุด {daysSince === null ? 'ยังไม่เคยนับ' : daysSince <= 0 ? 'วันนี้' : daysSince + ' วันก่อน'}</div>
                   {has && delta !== 0 && (
                     <div style={{ fontSize: 11.5, marginTop: 2, fontWeight: 600, color: delta < 0 ? 'var(--red)' : 'var(--amber)' }}>
                       {delta < 0 ? 'น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' (คาดว่าจ่ายผ่าน HOSxP)' : 'มากกว่าระบบ ' + nf(delta) + ' ' + m.unit}

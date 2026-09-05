@@ -23,7 +23,11 @@ export interface Med {
   used30: number;
   usedPrev30: number;
   volatility: number;
-  lastCountTs: number;
+  // Optional in truth even though every current write path (addMed, seed.ts) sets it — a
+  // hand-edited Firestore doc or a future import path could still omit it, and CountScreen
+  // used to divide against it unconditionally (Date.now() - undefined = NaN, rendered
+  // literally as "นับล่าสุด NaN วันก่อน"). Marked optional so that gap can't silently reopen.
+  lastCountTs?: number;
   // Optional — missing on every med seeded before wards existed. Never read `.ward`/
   // `.noSubstock` directly; always go through `wardOf()`/`usesSubstock()` in selectors.ts so
   // old docs default correctly (opd / has substock) without a one-time migration write.

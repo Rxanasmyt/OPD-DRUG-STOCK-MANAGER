@@ -48,7 +48,12 @@ export default function TransferScreen() {
       if (state.filter === 'had') return m.had;
       return true;
     })
-    .sort((a, b) => a.floor / a.parFloor - b.floor / b.parFloor);
+    // Bug fix: a brand-new med with parFloor still 0 (Max not set yet) made this divide by
+    // zero — 0/0 is NaN, and a sort comparator that ever returns NaN breaks the sort's
+    // ordering guarantee for the WHOLE list, not just that one row (V8 doesn't handle NaN
+    // comparisons predictably). Math.max(1, ...) matches the same guard toneFor() already
+    // uses for this exact ratio elsewhere.
+    .sort((a, b) => a.floor / Math.max(1, a.parFloor) - b.floor / Math.max(1, b.parFloor));
 
   const cartIds = Object.keys(state.cart);
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
