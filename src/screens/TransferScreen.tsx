@@ -1,13 +1,20 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { toneFor, usesSubstock, floorMinOf } from '../store/selectors';
 import { nf, thDate, digitsOnly } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge } from '../components/Qty';
+import { MedMiniCard } from '../components/MedMiniCard';
 
 export default function TransferScreen() {
   const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, printPickList, printTodayReplenishList, go, openScanSearch } = useApp();
+  // Only one row's "เคลื่อนไหวล่าสุด" panel expanded at a time (opt-in, not automatic) — the
+  // list can render up to 60 rows, and MedMiniCard fetches a real Firestore query per drug, so
+  // expanding all of them at once would fire dozens of queries for a screen someone's trying
+  // to move through quickly. One at a time keeps it fast and never surprises with a slow
+  // screen after a search or filter change.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   // noSubstock meds (liquids/sprays — received straight to the shelf, see ReceiveScreen)
   // have nothing to transfer from; showing them here with permanently-stuck-at-0 +/- buttons
   // would just be confusing clutter, not a real "เติมหน้างาน" candidate.
@@ -123,9 +130,16 @@ export default function TransferScreen() {
                     FEFO: lot {f ? f.lotNo : '—'} · exp {f ? thDate(f.exp) : 'ไม่มีของใน substock'}
                     {f && <span className="muted"> (เหลือ {nf(f.qty)})</span>}
                   </div>
-                  <div style={{ marginTop: 5 }}>
+                  <div style={{ marginTop: 5, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={m.floor < floorMinOf(m) * 0.5} />
+                    <button
+                      onClick={() => setExpandedId(expandedId === m.id ? null : m.id)}
+                      style={{ border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 11, fontWeight: 600, padding: '2px 0' }}
+                    >
+                      {expandedId === m.id ? 'ซ่อนภาพรวม ▲' : 'ดูภาพรวม ▾'}
+                    </button>
                   </div>
+                  {expandedId === m.id && <MedMiniCard medId={m.id} unit={m.unit} />}
                 </div>
                 <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
                   <button onClick={() => bump(m.id, -1)} aria-label={'ลดจำนวน ' + m.name} className="press-spring" style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', width: 40, height: 40, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>−</button>

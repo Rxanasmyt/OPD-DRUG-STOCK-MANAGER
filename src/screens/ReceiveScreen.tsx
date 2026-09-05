@@ -4,6 +4,7 @@ import { nf, thDate, thTime } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
+import { MedMiniCard } from '../components/MedMiniCard';
 
 // Same severity bands as toneFor(), applied to substock/par instead of floor/parFloor —
 // this screen is about substock, so that's the ratio a pharmacist actually cares about here.
@@ -139,6 +140,14 @@ export default function ReceiveScreen() {
                 <span style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--amber-ink)', marginTop: 3 }}>ไม่มี substock — รับเข้าแล้วขึ้นหน้างานทันที ไม่ต้องเติมอีกขั้น</span>
               )}
             </div>
+            {/* ภาพรวมยานี้ก่อนกรอก lot/exp/จำนวน — เห็นเคลื่อนไหวล่าสุดของ substock ตัวนี้โดยไม่
+                ต้องออกจากฟอร์มไปหาที่บัตรสต็อกแยก (ซึ่งจะทำให้เสียสิ่งที่กำลังกรอกอยู่). เฉพาะยาที่
+                มี substock จริง — usesSubstock ที่ปิดใช้ ledger ก็ว่างเปล่าอยู่แล้ว ไม่มีประโยชน์โชว์ */}
+            {usesSubstock(recvMed) && (
+              <div style={{ marginBottom: 9 }}>
+                <MedMiniCard medId={recvMed.id} unit={recvMed.unit} />
+              </div>
+            )}
             <div className="grid-2" style={{ marginBottom: 9 }}>
               <label>
                 <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Lot no.</span>
