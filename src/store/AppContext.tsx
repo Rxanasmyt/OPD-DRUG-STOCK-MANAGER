@@ -1963,14 +1963,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       if (manual && purpose) logAudit({ type: 'qr_manual', note: 'กรอกรหัส QR ด้วยมือแทนการสแกน (' + med.name + ') — เหตุผล: ' + (state.qrManualReason.trim() || 'ไม่ระบุ') });
       if (purpose === 'receive') {
+        // Receiving still needs a lot no./expiry/qty typed in by hand per item (nothing on a
+        // shelf label can supply those), so there's no way around closing the scanner and
+        // switching to that form — same as before.
         pickRecvMed(med.id);
         toast('สแกนพบ ' + med.name + ' ที่ substock — กรอก lot วันหมดอายุ และจำนวนที่รับ');
+        patch({ qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '' });
       } else {
-        patch({ search: med.name, filter: 'all' });
+        // Bug fix (speed): เติมหน้างาน needs no form per item — bump() already adds the full
+        // suggested quantity in one shot — so closing the scanner after every single scan was
+        // pure friction: walk the shelf, scan low drug, camera closes, tap ▣ again, scan next,
+        // repeat. Now it stays open so a whole round of restocking scans in one continuous
+        // pass; ✕ (or tapping the backdrop) exits to review the cart when done.
         bump(med.id, 1);
-        toast('สแกนพบ ' + med.name + ' ที่ชั้นจ่ายยา — ปรับจำนวนแล้วยืนยัน');
+        toast('สแกนพบ ' + med.name + ' — เพิ่มเข้าตะกร้าแล้ว · สแกนตัวต่อไปได้เลย');
+        patch({ qrCode: '', qrManualOpen: false, qrManualReason: '' });
       }
-      patch({ qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '' });
       return;
     }
 

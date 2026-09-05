@@ -10,6 +10,17 @@ const inputStyle = { width: '100%', border: '1px solid var(--border)', backgroun
 
 interface LedgerRow { ts: number; type: string; qty: number; note: string; by: string; balance: number }
 
+// Traceability fix: "จ่าย" alone doesn't say WHY stock left substock — เติมหน้างาน (normal
+// dispensing to the floor) and ตัดหมดอายุ (writing off an expired lot) both showed as an
+// identical red number with nothing to tell them apart, which is exactly the kind of thing a
+// real stock-card review needs to distinguish at a glance. One small icon+label per row fixes
+// it without touching the color-coded รับ/จ่าย columns already in place.
+const TYPE_META: Record<string, { icon: string; label: string }> = {
+  receive_from_central: { icon: '📥', label: 'รับจากคลังใหญ่' },
+  transfer_to_floor: { icon: '🚚', label: 'เติมหน้างาน' },
+  expired: { icon: '🗑️', label: 'ตัดหมดอายุ' },
+};
+
 /** The digital replacement for the paper "บัตรคุมสต็อกยา" (yellow stock card) — same
  * วันที่/รับ/จ่าย/คงเหลือ layout staff already read off the physical card, generated from real
  * substock transaction history instead of copied there by hand. Pick a med, see it on screen
@@ -158,20 +169,25 @@ export default function SubstockCardScreen() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg-subtle)' }}>
-                    <Th w={28}>#</Th><Th w={58}>วันที่</Th><Th w={54} num>รับ</Th><Th w={54} num>จ่าย</Th><Th w={58} num>คงเหลือ</Th><Th>โดย</Th>
+                    <Th w={28}>#</Th><Th w={26} /><Th w={58}>วันที่</Th><Th w={54} num>รับ</Th><Th w={54} num>จ่าย</Th><Th w={58} num>คงเหลือ</Th><Th>โดย</Th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r, i) => (
-                    <tr key={i}>
-                      <Td num style={{ color: 'var(--muted)', fontSize: 10.5 }}>{i + 1}</Td>
-                      <Td>{thDate(r.ts)}</Td>
-                      <Td num style={{ fontWeight: 700, color: 'var(--green)' }}>{r.qty > 0 ? nf(r.qty) : ''}</Td>
-                      <Td num style={{ fontWeight: 700, color: 'var(--red)' }}>{r.qty < 0 ? nf(-r.qty) : ''}</Td>
-                      <Td num style={{ fontWeight: 700 }}>{nf(r.balance)}</Td>
-                      <Td style={{ color: 'var(--muted)', fontSize: 10.5, maxWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.by}</Td>
-                    </tr>
-                  ))}
+                  {rows.map((r, i) => {
+                    const meta = TYPE_META[r.type];
+                    const title = (meta ? meta.label : r.type) + (r.note ? ' — ' + r.note : '');
+                    return (
+                      <tr key={i} title={title}>
+                        <Td num style={{ color: 'var(--muted)', fontSize: 10.5 }}>{i + 1}</Td>
+                        <Td style={{ textAlign: 'center', fontSize: 12 }}>{meta ? meta.icon : ''}</Td>
+                        <Td>{thDate(r.ts)}</Td>
+                        <Td num style={{ fontWeight: 700, color: 'var(--green)' }}>{r.qty > 0 ? nf(r.qty) : ''}</Td>
+                        <Td num style={{ fontWeight: 700, color: 'var(--red)' }}>{r.qty < 0 ? nf(-r.qty) : ''}</Td>
+                        <Td num style={{ fontWeight: 700 }}>{nf(r.balance)}</Td>
+                        <Td style={{ color: 'var(--muted)', fontSize: 10.5, maxWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.by}</Td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               {rows.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ยานี้ยังไม่มีประวัติ substock</div>}
