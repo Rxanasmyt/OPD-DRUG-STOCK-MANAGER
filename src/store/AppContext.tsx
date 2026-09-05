@@ -387,7 +387,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (fbUser) => {
       if (!fbUser) {
-        patch({ authStatus: 'signedOut', myUid: null, role: null, screen: 'login', navStack: [] });
+        // Bug-hardening for a shared ward/kiosk device: sign-out used to leave the previous
+        // account's meds/lots/txs/users/pendingReceives arrays sitting in memory untouched —
+        // never actually WRONG data (every approved account reads the same shared formulary,
+        // so it's not a privacy leak), but a stale snapshot from before this device's
+        // connection resubscribes could in principle flash for a frame while the next person
+        // signs in, before their own fresh onSnapshot delivers. Clearing everything here (and
+        // dropping dbReady back to false) means every sign-in — same account or a different
+        // one — always starts from the same clean "กำลังโหลดข้อมูล…" state and only ever shows
+        // data that arrived AFTER this specific session's listeners went live.
+        patch({
+          authStatus: 'signedOut', myUid: null, role: null, screen: 'login', navStack: [],
+          meds: [], lots: [], txs: [], users: [], authLog: [], pendingReceives: [], pending: 0, dbReady: false,
+        });
         setMyProfile(null);
       } else {
         patch({ myUid: fbUser.uid });
