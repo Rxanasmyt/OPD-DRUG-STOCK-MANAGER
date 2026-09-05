@@ -790,7 +790,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!ids.length) return;
     const meds = state.meds, lotsCache = state.lots;
     let resultRows: AppState['doneRows'] = [];
-    const txPayloads: { medId: string; name: string; qty: number; unit: string; used: string[] }[] = [];
     try {
       await runTx(async (trx) => {
         const rows: AppState['doneRows'] = [];
@@ -834,7 +833,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         if (shortages.length) throw new Error('insufficient:' + shortages.join(', '));
 
-        txPayloads.length = 0;
+        // Bug fix (data integrity): this used to write the tx-log doc for each item in a
+        // SEPARATE writeBatch after this transaction committed — two round trips, not one
+        // atomic unit. A dropped connection or thrown error in that second batch (network
+        // blip right after this transaction lands, same device or not) left floor/lots
+        // updated but the corresponding transfer_to_floor tx row silently missing — the exact
+        // kind of gap that shows up later as "ยอดจากประวัติธุรกรรมไม่ตรงกับยอดจริง" on บัตร
+        // สต็อก (SubstockCardScreen's mismatch warning), with no way to tell it apart from a
+        // real out-of-band adjustment. A Firestore transaction can `set` a brand-new doc just
+        // like a batch can — moving the tx-log write in here makes "stock moved" and "history
+        // recorded" one all-or-nothing commit, so that specific class of ledger drift can no
+        // longer happen from this path.
+        const ts = Date.now();
         for (const medId of ids) {
           let need = cart[medId];
           const used: string[] = [];
@@ -851,19 +861,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // any medId that doesn't resolve, so every lookup here is guaranteed to hit.
           const m = meds.find((x) => x.id === medId)!;
           trx.update(doc(db, 'meds', medId), { floor: medReads[medId] + cart[medId] });
+          trx.set(doc(collection(db, 'txs')), {
+            type: 'transfer_to_floor', name: m.name, medId, qty: cart[medId], unit: m.unit, from: 'substock', to: 'floor',
+            note: 'FEFO lot ' + used.join(', '), by: userName(), ts,
+          } satisfies Omit<import('../types').Tx, 'id'>);
           rows.push({ name: m.name, sub: 'lot ' + used.join(', '), qty: nf(cart[medId]) + ' ' + m.unit, medId });
-          txPayloads.push({ medId, name: m.name, qty: cart[medId], unit: m.unit, used });
         }
         resultRows = rows;
       });
-      const batch = writeBatch(db);
-      txPayloads.forEach((p) => {
-        batch.set(doc(collection(db, 'txs')), {
-          type: 'transfer_to_floor', name: p.name, medId: p.medId, qty: p.qty, unit: p.unit, from: 'substock', to: 'floor',
-          note: 'FEFO lot ' + p.used.join(', '), by: userName(), ts: Date.now(),
-        } satisfies Omit<import('../types').Tx, 'id'>);
-      });
-      await withTimeout(batch.commit());
       setState((st) => ({ ...st, cart: {}, hadOk: {}, screen: 'done', navStack: pushNav(st.navStack, st.screen), doneKind: 'transfer', doneRows: resultRows }));
     } catch (e) {
       const msg = (e as Error)?.message || '';
