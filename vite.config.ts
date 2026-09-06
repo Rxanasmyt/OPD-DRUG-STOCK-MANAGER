@@ -43,6 +43,11 @@ export default defineConfig({
         // build output, always revalidate in the background on each load.
         globPatterns: ['**/*.{js,css,html,png,svg}'],
         cleanupOutdatedCaches: true,
+        // Adds a notificationclick handler (public/sw-custom.js) to the generated service
+        // worker — generateSW mode doesn't expose a way to write custom SW logic directly, but
+        // importScripts runs this file in the same worker. Needed so tapping the "ยาใกล้หมดอายุ"
+        // notification (src/utils/notify.ts) actually opens the app instead of just dismissing.
+        importScripts: ['sw-custom.js'],
       },
     }),
   ],

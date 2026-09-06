@@ -21,6 +21,7 @@ import { printLabelSheet, printPickListSheet, type PrintLabel } from '../utils/p
 import { parseHosxpUsageWorkbook, parseUsageCsvText, type RawUsageRow } from '../utils/usageImport';
 import { LOCS } from '../data/locations';
 import { withTimeout, TimeoutError } from '../utils/timeout';
+import { readNotifyEnabled, writeNotifyEnabled, requestPermission, currentPermission, maybeNotifyExpiring } from '../utils/notify';
 
 // Caps navStack length so a session left open for days (this is a PWA people keep pinned,
 // not something reloaded every visit) can't grow it unboundedly — nothing needs more than a
@@ -133,6 +134,11 @@ export interface AppCtx {
   /** Dismisses the "มีเวอร์ชันใหม่" banner without applying it — the update stays downloaded
    * and waiting; applyUpdate() (or just closing/reopening the app later) picks it up whenever. */
   dismissUpdate: () => void;
+  // ยาใกล้หมดอายุ notification — per-device opt-in, see utils/notify.ts.
+  notifyEnabled: boolean;
+  notifyPermission: NotificationPermission;
+  enableExpiryNotify: () => void;
+  disableExpiryNotify: () => void;
   go: (s: Screen) => void;
   back: () => void;
 
@@ -369,6 +375,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [theme]);
   const toggleTheme = useCallback(() => setThemeState((t) => (t === 'dark' ? 'light' : 'dark')), []);
 
+  // ---------- ยาใกล้หมดอายุ notification (per-device opt-in, see utils/notify.ts) ----------
+  const [notifyEnabled, setNotifyEnabledState] = useState<boolean>(readNotifyEnabled);
+  const [notifyPermission, setNotifyPermission] = useState<NotificationPermission>(currentPermission);
+
   const patch = useCallback((p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => {
     setState((s) => ({ ...s, ...(typeof p === 'function' ? p(s) : p) }));
   }, []);
@@ -486,6 +496,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => patch({ toast: null }), 2600);
   }, [patch]);
+
+  const enableExpiryNotify = useCallback(async () => {
+    const perm = await requestPermission();
+    setNotifyPermission(perm);
+    if (perm === 'granted') {
+      writeNotifyEnabled(true);
+      setNotifyEnabledState(true);
+      toast('เปิดแจ้งเตือนยาใกล้หมดอายุแล้ว — จะแจ้งตอนเปิดแอพถ้ามีรายการที่ต้องดู');
+    } else {
+      writeNotifyEnabled(false);
+      setNotifyEnabledState(false);
+      toast(perm === 'denied' ? 'เบราว์เซอร์บล็อกการแจ้งเตือน — ไปเปิดสิทธิ์แจ้งเตือนให้เว็บนี้ในตั้งค่าเบราว์เซอร์ก่อน' : 'ยังไม่ได้อนุญาตการแจ้งเตือน');
+    }
+  }, [toast]);
+  const disableExpiryNotify = useCallback(() => {
+    writeNotifyEnabled(false);
+    setNotifyEnabledState(false);
+  }, []);
 
   // In-app replacement for window.confirm() — see confirmDialog's doc comment in types.ts for
   // why: the native dialog can silently no-op inside some embedded WebView/PWA contexts,
@@ -621,6 +649,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     return () => unsubs.forEach((u) => u());
   }, [state.authStatus, myProfile?.role, patch, toast]);
+
+  // Checks real lot data for anything near/past expiry and, if the person opted in and granted
+  // OS permission, shows a local notification — at most once a day (see maybeNotifyExpiring's
+  // own throttle). Runs once meds/lots have actually loaded; re-running on later data changes
+  // is harmless since the day-level throttle makes every call after the first a no-op unless
+  // it's a genuinely new day. This is the ONLY place this check happens — see utils/notify.ts's
+  // doc comment for why a real background push isn't possible on this static site.
+  useEffect(() => {
+    if (state.authStatus !== 'signedIn' || !state.dbReady || !notifyEnabled) return;
+    const activeLots = state.lots.filter((l) => l.qty > 0 && state.meds.some((m) => m.id === l.medId && m.active));
+    const expiredCount = activeLots.filter((l) => daysUntil(l.exp) < 0).length;
+    const nearCount = activeLots.filter((l) => { const d = daysUntil(l.exp); return d >= 0 && d < state.expiryWarnDays; }).length;
+    void maybeNotifyExpiring(nearCount, expiredCount);
+  }, [state.authStatus, state.dbReady, state.meds, state.lots, state.expiryWarnDays, notifyEnabled]);
 
   const go = useCallback((s: Screen) => setState((st) => ({ ...st, screen: s, navStack: pushNav(st.navStack, st.screen) })), []);
   // Pops the real history stack instead of a single fixed "came from" pointer — see navStack
@@ -2202,7 +2244,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.historyFrom, state.historyTo, patch, toast, toastErr]);
 
   const value = useMemo<AppCtx>(() => ({
-    state, myProfile, theme, toggleTheme, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, respondConfirm, promptAsync, respondPrompt, applyUpdate, dismissUpdate, go, back,
+    state, myProfile, theme, toggleTheme, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, respondConfirm, promptAsync, respondPrompt, applyUpdate, dismissUpdate,
+    notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify, go, back,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
     setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, printPickList, printTodayReplenishList, removeFromCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, printWarehouseRequestList,

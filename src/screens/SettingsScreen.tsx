@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { suggestPar } from '../store/selectors';
 import { nf, digitsOnly, parseIntSafe, isoDate, fiscalYearStartIso, DAY } from '../utils/format';
+import { notificationsSupported } from '../utils/notify';
 
 export default function SettingsScreen() {
   const {
     state, warn, applyAllSuggested, recomputeUsageStats, go, updateGlobalSettings,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
+    notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify,
   } = useApp();
   const canEdit = state.role !== 'tech';
   const meds = state.meds.filter((m) => m.active);
@@ -73,6 +75,31 @@ export default function SettingsScreen() {
       {!canEdit && (
         <div style={{ fontSize: 12, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>บทบาทผู้ช่วยเภสัชกรดูค่าได้แต่แก้ไม่ได้ — การแก้ par level และชั้นวางสงวนไว้สำหรับเภสัชกรและ Admin</div>
       )}
+
+      {/* Per-device opt-in, not a par setting — visible/settable to every role since it's just
+          "แจ้งฉันตอนเปิดแอพ" on whatever phone/tablet this is, not something that affects anyone
+          else's view. See utils/notify.ts for why this can only ever fire while the app is
+          actually opened — a real background push needs a server this static site doesn't have. */}
+      <div className="card" style={{ padding: 13, marginBottom: 13 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}>แจ้งเตือนยาใกล้หมดอายุ</div>
+        <div className="muted" style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 10 }}>
+          แจ้งเตือนระดับเครื่อง (OS notification) ตอนเปิดแอพ ถ้ามียาใกล้หมดอายุหรือหมดอายุแล้ว — สูงสุดวันละ 1 ครั้ง ใช้เกณฑ์วันเดียวกับ "เกณฑ์แจ้งเตือนวันหมดอายุ" ด้านบน ต้องเปิดแอพจริงถึงจะแจ้งได้ (ไม่ใช่ push เบื้องหลังแบบแอพมือถือทั่วไป เพราะระบบนี้ไม่มีเซิร์ฟเวอร์คอยเช็คให้)
+        </div>
+        {!notificationsSupported() ? (
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>เบราว์เซอร์/อุปกรณ์นี้ไม่รองรับการแจ้งเตือนแบบนี้</div>
+        ) : notifyEnabled ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--green)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--green)' }} /> เปิดอยู่
+            </span>
+            <button onClick={disableExpiryNotify} style={{ marginLeft: 'auto', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}>ปิด</button>
+          </div>
+        ) : notifyPermission === 'denied' ? (
+          <div style={{ fontSize: 12, color: 'var(--red)' }}>เบราว์เซอร์บล็อกการแจ้งเตือนไว้ — ไปเปิดสิทธิ์แจ้งเตือนให้เว็บนี้ในตั้งค่าเบราว์เซอร์/ระบบก่อน แล้วลองใหม่</div>
+        ) : (
+          <button onClick={enableExpiryNotify} style={{ border: 0, background: 'var(--green)', color: '#fff', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>เปิดแจ้งเตือน</button>
+        )}
+      </div>
 
       <div style={{ background: 'var(--green-tint)', borderRadius: 12, padding: '12px 13px', marginBottom: 13 }}>
         <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}>par อัตโนมัติจากสถิติการใช้</div>
