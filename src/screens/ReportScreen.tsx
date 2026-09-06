@@ -1,10 +1,11 @@
 import { useApp } from '../store/AppContext';
-import { subQty, daysUntil } from '../store/selectors';
+import { subQty, daysUntil, usageAnomalies, daysOfStockLeft } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
 import type { ReportTab } from '../types';
+import { EmptyState } from '../components/EmptyState';
 
-const TABS: [ReportTab, string][] = [['aging', 'Stock aging'], ['turn', 'Turnover'], ['disc', 'Discrepancy log']];
-const REPORT_NAMES: Record<ReportTab, string> = { aging: 'stock_aging.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv' };
+const TABS: [ReportTab, string][] = [['aging', 'Stock aging'], ['turn', 'Turnover'], ['insights', '🧠 วิเคราะห์อัตโนมัติ'], ['disc', 'Discrepancy log']];
+const REPORT_NAMES: Record<ReportTab, string> = { aging: 'stock_aging.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv' };
 const AGING_BUCKETS: [string, number, number, string][] = [
   ['หมดอายุแล้ว', -99999, 0, 'var(--red)'],
   ['เหลือ ≤ 30 วัน', 0, 30, 'var(--red)'],
@@ -47,6 +48,19 @@ export default function ReportScreen() {
     });
 
   const discRows = state.txs.filter((x) => DISC_TYPES.indexOf(x.type) >= 0).slice(0, 30);
+
+  // "🧠 วิเคราะห์อัตโนมัติ" — real numbers computed on-device from usage data already synced
+  // (used30/usedPrev30 from recomputeUsageStats/commitUsageImport), not a call to any AI
+  // service — this app is a static site with no backend to hold an API key safely, so an
+  // actual LLM call from here would mean shipping that key in public client code. Two useful
+  // things fall straight out of data already on hand: which drugs' usage swung sharply enough
+  // to need attention, and which are projected to run out soonest at their current pace.
+  const anomalies = usageAnomalies(meds);
+  const stockoutRows = meds
+    .map((m) => ({ m, days: daysOfStockLeft(state, m) }))
+    .filter((x): x is { m: (typeof meds)[number]; days: number } => x.days !== null && x.days <= 21)
+    .sort((a, b) => a.days - b.days)
+    .slice(0, 20);
 
   return (
     <div style={{ animation: 'fade .18s' }}>
@@ -96,6 +110,54 @@ export default function ReportScreen() {
               </div>
             ))}
           </div>
+        )}
+
+        {state.reportTab === 'insights' && (
+          <>
+            <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, padding: '0 2px', marginBottom: 13 }}>
+              คำนวณจากสถิติการใช้ยาที่มีอยู่แล้วในระบบโดยตรง (ไม่ได้เรียกใช้ AI ภายนอกใดๆ — แอพนี้
+              เป็น static site ไม่มีเซิร์ฟเวอร์ที่จะเก็บกุญแจ API ได้อย่างปลอดภัย) อัปเดตอัตราการใช้
+              ให้ล่าสุดก่อนที่หน้า "ตั้งค่า" เพื่อให้ผลตรงกับความจริงที่สุด
+            </div>
+
+            <div style={{ fontSize: 13, fontWeight: 700, margin: '0 2px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+              📊 การใช้ยาผิดปกติ {anomalies.length > 0 && <span className="muted" style={{ fontWeight: 500, fontSize: 12 }}>({anomalies.length} รายการ)</span>}
+            </div>
+            <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 16 }}>
+              {anomalies.slice(0, 20).map((a, i) => (
+                <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, minWidth: 0 }}>{a.med.name}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: a.direction === 'up' ? 'var(--red)' : 'var(--amber-ink)', flex: 'none' }}>
+                      {a.direction === 'up' ? '📈 +' : '📉 '}{Math.round(a.changePct * 100)}%
+                    </span>
+                  </div>
+                  <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>
+                    30 วันล่าสุด {nf(a.med.used30)} {a.med.unit} · ก่อนหน้า {nf(a.med.usedPrev30)} {a.med.unit}
+                    {a.direction === 'up' ? ' — ลองพิจารณาปรับ par ขึ้นก่อนของจะไม่พอ' : ' — par ปัจจุบันอาจสูงเกินความจำเป็นแล้ว'}
+                  </div>
+                </div>
+              ))}
+              {anomalies.length === 0 && (
+                <EmptyState icon="📊" title="ไม่พบการใช้ยาที่ผิดปกติ" sub="อัตราการใช้ 30 วันล่าสุดของทุกรายการยังใกล้เคียงกับช่วงก่อนหน้า" />
+              )}
+            </div>
+
+            <div style={{ fontSize: 13, fontWeight: 700, margin: '0 2px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+              ⏳ คาดว่าจะหมดใน 21 วัน {stockoutRows.length > 0 && <span className="muted" style={{ fontWeight: 500, fontSize: 12 }}>({stockoutRows.length} รายการ)</span>}
+            </div>
+            <div className="card stagger" style={{ overflow: 'hidden' }}>
+              {stockoutRows.map(({ m, days }, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', alignItems: 'center' }}>
+                  <span style={{ fontSize: 13, minWidth: 0 }}>{m.name}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: days <= 7 ? 'var(--red)' : 'var(--amber-ink)', flex: 'none' }}>~{days} วัน</span>
+                </div>
+              ))}
+              {stockoutRows.length === 0 && (
+                <EmptyState icon="✅" title="ไม่มีรายการที่จะหมดใน 21 วันข้างหน้า" sub="คำนวณจากอัตราการใช้ปัจจุบันกับยอดคงเหลือรวม (หน้างาน + substock)" />
+              )}
+            </div>
+          </>
         )}
 
         {state.reportTab === 'disc' && (

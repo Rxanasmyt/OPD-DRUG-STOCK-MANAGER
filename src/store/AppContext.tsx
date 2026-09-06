@@ -12,7 +12,7 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isSharedMed, matchesWard, binFor, binDisplayAll } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -1248,7 +1248,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const exportReportCsv = useCallback(async () => {
     const st = state;
-    const names = { aging: 'stock_aging.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv' };
+    const names = { aging: 'stock_aging.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv' };
     // Matches whatever ward tab is open on screen — exporting "everything" while the screen
     // shows only OPD (or vice versa) would be a silently misleading report.
     const wardMeds = st.meds.filter((m) => matchesWard(m, st.wardFilter));
@@ -1281,6 +1281,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return [m.name, m.unit, oh, m.used30, isFinite(doh) ? doh : ''];
       });
       outcome = await downloadCsv([['medication', 'unit', 'on_hand', 'used_30d', 'days_on_hand'], ...rows], names.turn);
+    } else if (st.reportTab === 'insights') {
+      const anomalies = usageAnomalies(wardMeds);
+      const rows = anomalies.map((a) => [
+        a.med.name, a.med.used30, a.med.usedPrev30, Math.round(a.changePct * 100),
+        daysOfStockLeft(st, a.med) ?? '',
+      ]);
+      outcome = await downloadCsv([['medication', 'used_30d', 'used_prev_30d', 'change_pct', 'days_of_stock_left'], ...rows], names.insights);
     } else {
       // The live txs subscription is capped at the most recent 300 (kept small on purpose —
       // it only backs the "recent activity" UI). A compliance report can't silently drop

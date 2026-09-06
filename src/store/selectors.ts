@@ -71,6 +71,39 @@ export function subQty(state: AppState, medId: string): number {
   return sum;
 }
 
+export interface UsageAnomaly { med: Med; changePct: number; direction: 'up' | 'down' }
+
+/** Flags a drug whose usage rate this 30-day window (used30) has swung sharply from the
+ * previous one (usedPrev30) — a real, cheap "smart insight" computed entirely from data
+ * already synced (recomputeUsageStats/commitUsageImport), no AI API or network call needed.
+ * A genuine ±40%+ swing is worth a pharmacist's attention either direction: up could mean a
+ * real outbreak/seasonal spike (par needs raising before it runs out), down could mean a
+ * protocol changed or dispensing moved elsewhere (par is now oversized, tying up shelf space
+ * and expiry risk for no reason). Requires a real previous-period baseline (usedPrev30 > 0) —
+ * a drug with nothing to compare against isn't an "anomaly", it's just new/rare usage data,
+ * and flagging it would just be noise.
+ */
+export function usageAnomalies(meds: Med[], threshold = 0.4): UsageAnomaly[] {
+  return meds
+    .filter((m) => m.active && m.usedPrev30 > 0)
+    .map((m) => ({ med: m, changePct: (m.used30 - m.usedPrev30) / m.usedPrev30 }))
+    .filter((x) => Math.abs(x.changePct) >= threshold)
+    .map((x) => ({ med: x.med, changePct: x.changePct, direction: (x.changePct > 0 ? 'up' : 'down') as 'up' | 'down' }))
+    .sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct));
+}
+
+/** Whole-number days until a drug's combined on-hand (floor + substock) runs out at its
+ * current 30-day daily usage rate — null when there's no real usage rate to project from
+ * (used30 <= 0), rather than the misleading Infinity a raw division would give. Same "how much
+ * runway is left" math already used in ReportScreen's turnover tab, factored out so the
+ * insights tab (and anything else) can reuse it without duplicating the divide-by-zero guard. */
+export function daysOfStockLeft(state: AppState, m: Med): number | null {
+  if (!(m.used30 > 0)) return null;
+  const onHand = m.floor + subQty(state, m.id);
+  const daily = m.used30 / 30;
+  return Math.round(onHand / daily);
+}
+
 export function fefoLot(state: AppState, medId: string) {
   return state.lots
     .filter((l) => l.medId === medId && l.qty > 0)

@@ -1,6 +1,8 @@
+import { useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { usesSubstock } from '../store/selectors';
 import { nf, thDate, thTime } from '../utils/format';
+import { recognizeLotLabel } from '../utils/ocr';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
@@ -17,8 +19,30 @@ export default function ReceiveScreen() {
   const {
     state, sub, setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty,
     addRecv, removeRecvItem, commitReceive, approvePendingReceive, rejectPendingReceive, openScanSearch,
-    printWarehouseRequestList, promptAsync,
+    printWarehouseRequestList, promptAsync, toast,
   } = useApp();
+  const [ocrBusy, setOcrBusy] = useState(false);
+  const ocrInputRef = useRef<HTMLInputElement>(null);
+
+  // Camera-assisted lot/exp entry (on-device OCR, no API key/server — see utils/ocr.ts). An
+  // ASSIST only: never commits anything on its own, just pre-fills the two fields right below
+  // so a person still reviews/corrects them before "เพิ่มลงใบรับ" — drug packaging print is
+  // small and inconsistent enough that trusting this blindly would be a real safety risk.
+  const handleOcrPhoto = async (file: File) => {
+    setOcrBusy(true);
+    try {
+      const { lotNo, expIso } = await recognizeLotLabel(file);
+      if (lotNo) setRecvLot(lotNo);
+      if (expIso) setRecvExp(expIso);
+      if (!lotNo && !expIso) toast('อ่านฉลากไม่พบ lot หรือวันหมดอายุที่ชัดเจน — กรอกเองด้านล่าง');
+      else toast('อ่านฉลากแล้ว — ตรวจสอบให้ตรงกับฉลากจริงก่อนบันทึกเสมอ' + (!lotNo ? ' (ไม่พบ lot — กรอกเอง)' : '') + (!expIso ? ' (ไม่พบวันหมดอายุ — กรอกเอง)' : ''));
+    } catch (e) {
+      console.error('OCR read failed:', e);
+      toast('อ่านฉลากไม่สำเร็จ — กรอกเองแทน');
+    } finally {
+      setOcrBusy(false);
+    }
+  };
 
   const recvMed = state.recvMed ? state.meds.find((m) => m.id === state.recvMed) : null;
   // OPD/IPD ward tabs removed — one combined picker across the whole formulary.
@@ -148,6 +172,23 @@ export default function ReceiveScreen() {
                 <MedMiniCard medId={recvMed.id} unit={recvMed.unit} />
               </div>
             )}
+            <input
+              ref={ocrInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              style={{ display: 'none' }}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleOcrPhoto(f); e.target.value = ''; }}
+            />
+            <button
+              type="button"
+              onClick={() => ocrInputRef.current?.click()}
+              disabled={ocrBusy}
+              className="press-spring"
+              style={{ width: '100%', border: '1px dashed var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', padding: '10px 12px', borderRadius: 10, fontSize: 12.5, fontWeight: 600, minHeight: 42, marginBottom: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: ocrBusy ? 0.7 : 1 }}
+            >
+              {ocrBusy ? '⏳ กำลังอ่านฉลาก…' : '📷 ถ่ายรูปฉลากเพื่ออ่าน lot/วันหมดอายุอัตโนมัติ'}
+            </button>
             <div className="grid-2" style={{ marginBottom: 9 }}>
               <label>
                 <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Lot no.</span>
