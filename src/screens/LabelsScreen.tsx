@@ -60,7 +60,7 @@ export default function LabelsScreen() {
         ))}
       </div>
       {state.labelType === 'med' ? (
-        <div style={{ marginBottom: 14 }}>
+        <div className="stagger" style={{ marginBottom: 14 }}>
           {rows.map((r, i) => (
             <div key={i} style={{ background: '#fff', border: '1px solid #999', borderRadius: 8, marginBottom: 7, display: 'flex', alignItems: 'stretch', height: 64, overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,.04)' }}>
               <div style={{ flex: 'none', width: 34, background: '#f5c518', color: '#1a1a1a', fontWeight: 800, fontSize: 12.5, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', lineHeight: 1.1, borderRight: '1px solid #d9ac00' }}>{r.bin}</div>
@@ -77,7 +77,7 @@ export default function LabelsScreen() {
           ))}
         </div>
       ) : (
-        <div className="grid-2 tablet-2" style={{ marginBottom: 14, gridTemplateColumns: 'repeat(2,1fr)' }}>
+        <div className="grid-2 tablet-2 stagger" style={{ marginBottom: 14, gridTemplateColumns: 'repeat(2,1fr)' }}>
           {rows.map((r, i) => (
             <div key={i} style={{ background: '#fff', border: '1px solid #cfd1c8', borderRadius: 8, padding: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
               <div style={{ flex: 'none' }}><QrCode value={r.payload} size={52} /></div>

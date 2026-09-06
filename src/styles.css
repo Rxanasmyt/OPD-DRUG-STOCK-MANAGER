@@ -149,6 +149,15 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 @keyframes sheetIn { from { opacity: 0; transform: translateY(100%); } to { opacity: 1; transform: none; } }
 @keyframes backdropIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes checkPop { 0% { transform: scale(.5); opacity: 0; } 60% { transform: scale(1.08); opacity: 1; } 100% { transform: scale(1); } }
+@keyframes navSlideFwd { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: none; } }
+@keyframes navSlideBack { from { opacity: 0; transform: translateX(-18px); } to { opacity: 1; transform: none; } }
+
+/* Direction-aware screen transition (see App.tsx's navDir) — "เข้าลึกขึ้น" (a new screen pushed
+   on, e.g. tapping a nav tab or drilling into a detail) slides in from the right like most
+   mobile app navigation; "ย้อนกลับ" (back()) slides in from the left, so backing out reads as
+   genuinely different from moving forward instead of every screen change looking identical. */
+.nav-slide-fwd { animation: navSlideFwd .22s var(--ease-out) both; }
+.nav-slide-back { animation: navSlideBack .22s var(--ease-out) both; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

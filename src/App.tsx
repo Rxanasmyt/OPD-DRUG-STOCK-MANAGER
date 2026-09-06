@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useRef } from 'react';
 import { useApp } from './store/AppContext';
 import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
@@ -64,6 +64,18 @@ const NAV_DEF: [Screen, string, string][] = [
 export default function App() {
   const { state, roleLabel, go, back, theme, toggleTheme } = useApp();
 
+  // Direction-aware screen transition — every screen already fades itself in on mount, but
+  // that read identical whether you'd just drilled into a screen or backed out of one. Nav
+  // depth (state.navStack.length) only ever changes together with state.screen (see go()/
+  // back() in AppContext.tsx), so comparing it to what it was last render — synchronously,
+  // not in an effect, so the very first paint of the new screen already has the right
+  // direction — is enough to tell "forward" (slide in from the right, like pushing a new
+  // screen on) from "back" (slide in from the left, like popping one off) without any extra
+  // state or a more invasive shared-element transition system.
+  const prevDepthRef = useRef(state.navStack.length);
+  const navDir = state.navStack.length >= prevDepthRef.current ? 'fwd' : 'back';
+  prevDepthRef.current = state.navStack.length;
+
   if (state.authStatus !== 'signedIn') {
     return <LoginScreen />;
   }
@@ -124,9 +136,11 @@ export default function App() {
       )}
 
       <main style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
-        <Suspense fallback={<ScreenLoading />}>
-          <Screens screen={state.screen} />
-        </Suspense>
+        <div key={state.screen} className={navDir === 'fwd' ? 'nav-slide-fwd' : 'nav-slide-back'}>
+          <Suspense fallback={<ScreenLoading />}>
+            <Screens screen={state.screen} />
+          </Suspense>
+        </div>
       </main>
 
       <nav className="nav-float" style={{ flex: 'none', display: 'flex', background: 'var(--glass-bg)', backdropFilter: 'blur(18px) saturate(1.6)', WebkitBackdropFilter: 'blur(18px) saturate(1.6)', border: '1px solid var(--border)', position: 'relative', zIndex: 3 }}>
