@@ -2199,9 +2199,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (activeAdmins <= 1) { toast('ปิดใช้งานไม่ได้ — นี่คือ Admin ที่ใช้งานอยู่คนสุดท้าย ต้องมี Admin อย่างน้อย 1 คนเสมอ'); return; }
     }
     if (id === state.myUid && !next && !(await confirmAsync('คุณกำลังจะปิดใช้งานบัญชีของตัวเอง — จะออกจากระบบทันที และต้องให้ Admin คนอื่นเปิดให้ใหม่ ยืนยันหรือไม่?'))) return;
+    // Bug fix: this used to decide "first-time approval" vs "re-enable after being disabled"
+    // with `u.active === false && u.createdAt` — but `u.active` here is always false in this
+    // branch already (next=true means it was false), and every user has a createdAt, so that
+    // check was tautologically always true. A previously-active account that got disabled and
+    // is now being turned back on always logged/toasted as "อนุมัติบัญชี" (approved), which is
+    // misleading for someone who was never a pending new registration. `lastLogin` actually
+    // distinguishes the two cases: a never-logged-in account is a genuine first approval; one
+    // that has logged in before is being reinstated, not approved for the first time.
+    const isFirstApproval = next && !u.lastLogin;
     try {
       await updateDoc(doc(db, 'users', id), { active: next });
-      logAudit({ type: u.active ? 'user_status_changed' : 'user_approved', note: (next ? (u.active === false && u.createdAt ? 'อนุมัติบัญชี ' : 'เปิดใช้งานบัญชี ') : 'ปิดใช้งานบัญชี ') + u.name });
+      logAudit({ type: isFirstApproval ? 'user_approved' : 'user_status_changed', note: (next ? (isFirstApproval ? 'อนุมัติบัญชี ' : 'เปิดใช้งานบัญชี ') : 'ปิดใช้งานบัญชี ') + u.name });
       toast((next ? 'เปิดใช้งาน' : 'ปิดใช้งาน') + 'บัญชี ' + u.name + ' แล้ว');
     } catch (e) { console.error(e); toast('เปลี่ยนสถานะไม่สำเร็จ'); }
   }, [state.users, state.myUid, logAudit, toast, confirmAsync]);
