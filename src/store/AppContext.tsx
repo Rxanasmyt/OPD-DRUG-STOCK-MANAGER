@@ -294,6 +294,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(freshState);
   const [myProfile, setMyProfile] = useState<User | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
+  // Bug fix: the continuous เติมหน้างาน QR scan (scanner stays open across items — see
+  // qrDecodedImpl) relies on QrScanner's own debounce to not re-fire the SAME decoded code
+  // more than once per 1.5s — but that's a "don't spam every video frame" guard, not a "don't
+  // double-add this item" one. If a shelf label lingers in frame past 1.5s (pausing to read
+  // the confirmation toast, a shaky hand, or deliberately holding on a shelf-location QR),
+  // bump() would run again on a cart entry that's no longer 0, ADDING another step on top of
+  // the already-set suggested quantity — silently overshooting par with no indication anything
+  // doubled up. This tracks the last medId actually bumped by a scan and how long ago, so a
+  // lingering repeat of the exact same drug is ignored; scanning it again after actually
+  // moving on and coming back (the real "I need more of this" case) still works normally.
+  const lastScanBump = useRef<{ medId: string; ts: number } | null>(null);
   const parDebounce = useRef<Record<string, number>>({});
   const binDebounce = useRef<Record<string, number>>({});
   // par/bin edits are debounced 500ms so typing a new number doesn't fire a write per
@@ -2005,8 +2016,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // pure friction: walk the shelf, scan low drug, camera closes, tap ▣ again, scan next,
         // repeat. Now it stays open so a whole round of restocking scans in one continuous
         // pass; ✕ (or tapping the backdrop) exits to review the cart when done.
-        bump(med.id, 1);
-        toast('สแกนพบ ' + med.name + ' — เพิ่มเข้าตะกร้าแล้ว · สแกนตัวต่อไปได้เลย');
+        // Bug fix: guard against the same label lingering in frame re-triggering bump() and
+        // silently stacking another step on top of the cart entry it just set — see
+        // lastScanBump's doc comment above. 4s comfortably covers "still holding the phone on
+        // this label", short enough that a genuine rescan later (moved on, came back) is
+        // never blocked.
+        const now = Date.now();
+        const isRepeat = lastScanBump.current?.medId === med.id && now - lastScanBump.current.ts < 4000;
+        lastScanBump.current = { medId: med.id, ts: now };
+        if (!isRepeat) bump(med.id, 1);
+        toast(isRepeat ? med.name + ' — เพิ่มไปแล้ว ขยับกล้องไปยาตัวต่อไปได้เลย' : 'สแกนพบ ' + med.name + ' — เพิ่มเข้าตะกร้าแล้ว · สแกนตัวต่อไปได้เลย');
         patch({ qrCode: '', qrManualOpen: false, qrManualReason: '' });
       }
       return;
