@@ -1,10 +1,12 @@
 import { useApp } from '../store/AppContext';
 import { usesSubstock } from '../store/selectors';
 import { nf, fiscalYear } from '../utils/format';
+import { StepIndicator, TRANSFER_STEPS, RECEIVE_STEPS } from '../components/StepIndicator';
 
 export default function DoneScreen() {
   const { state, sub, go, doneAgain, goSubstockCardFor } = useApp();
   const medById = (id?: string) => (id ? state.meds.find((m) => m.id === id) : undefined);
+  const isTransferDone = state.doneKind === 'transfer';
   const title = state.doneKind === 'receive' ? 'รับเข้า substock สำเร็จ' : state.doneKind === 'recvPending' ? 'ส่งให้เภสัชกรอนุมัติแล้ว' : 'เติมหน้างานสำเร็จ';
   const subLine = state.doneKind === 'recvPending'
     ? 'ยอดจะเข้าสต็อกก็ต่อเมื่อเภสัชกร/แอดมินกดอนุมัติในหน้า "รับยาเข้า" — รายการอยู่ในสถานะรออนุมัติแล้ว'
@@ -15,7 +17,9 @@ export default function DoneScreen() {
   const showSubstock = state.doneKind !== 'recvPending';
 
   return (
-    <div style={{ padding: '34px 20px', textAlign: 'center', animation: 'fade .24s var(--ease-out)' }}>
+    <div style={{ animation: 'fade .24s var(--ease-out)' }}>
+      <StepIndicator steps={isTransferDone ? TRANSFER_STEPS : RECEIVE_STEPS} current={isTransferDone ? 2 : 1} />
+      <div style={{ padding: '24px 20px 34px', textAlign: 'center' }}>
       <div style={{ width: 62, height: 62, borderRadius: '50%', background: 'var(--green-tint)', color: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, margin: '0 auto 16px', animation: 'checkPop .5s var(--ease-out)' }}>✓</div>
       <div style={{ fontSize: 20, fontWeight: 700 }}>{title}</div>
       <div className="muted" style={{ fontSize: 13.5, marginTop: 6, lineHeight: 1.6 }}>{subLine}</div>
@@ -61,6 +65,7 @@ export default function DoneScreen() {
       <div style={{ display: 'flex', gap: 9 }}>
         <button onClick={() => go('home')} style={{ flex: 1, border: '1px solid var(--border)', background: 'var(--bg-card)', padding: 14, borderRadius: 12, fontSize: 14.5, fontWeight: 600, minHeight: 50 }}>กลับหน้าหลัก</button>
         <button onClick={doneAgain} className="btn-primary" style={{ flex: 1, padding: 14, borderRadius: 12, fontSize: 14.5, minHeight: 50 }}>ทำรายการต่อ</button>
+      </div>
       </div>
     </div>
   );

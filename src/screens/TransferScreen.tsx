@@ -7,6 +7,7 @@ import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge } from '../components/Qty';
 import { MedMiniCard } from '../components/MedMiniCard';
 import { EmptyState } from '../components/EmptyState';
+import { StepIndicator, TRANSFER_STEPS } from '../components/StepIndicator';
 
 export default function TransferScreen() {
   const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, printPickList, printTodayReplenishList, go, openScanSearch } = useApp();
@@ -61,6 +62,7 @@ export default function TransferScreen() {
 
   return (
     <div style={{ animation: 'fade .18s' }}>
+      <StepIndicator steps={TRANSFER_STEPS} current={0} />
       <div style={{ padding: '12px 14px 10px' }} className="sticky-bar">
         <div style={{ display: 'flex', gap: 8 }}>
           <input

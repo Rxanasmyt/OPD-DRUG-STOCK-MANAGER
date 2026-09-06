@@ -3,6 +3,7 @@ import { nf, thTime } from '../utils/format';
 import { wardOf, isSharedMed } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
 import { medColor } from '../utils/color';
+import { StepIndicator, TRANSFER_STEPS } from '../components/StepIndicator';
 
 export default function TConfirmScreen() {
   const { state, removeFromCart, startHadScan, commitTransfer, userName, roleLabel } = useApp();
@@ -50,7 +51,9 @@ export default function TConfirmScreen() {
     : cartWards.has('ipd') ? 'ชั้นจ่ายยา IPD' : 'ชั้นจ่ายยา OPD';
 
   return (
-    <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
+    <div style={{ animation: 'fade .18s' }}>
+      <StepIndicator steps={TRANSFER_STEPS} current={1} />
+      <div style={{ padding: '10px 14px 24px' }}>
       <div className="muted" style={{ fontSize: 12.5, marginBottom: 10 }}>ตัดจาก substock ตามหลัก FEFO (lot ที่หมดอายุก่อนถูกเลือกให้อัตโนมัติ) และเพิ่มเข้าหน้างาน</div>
 
       <div className="card" style={{ overflow: 'hidden', marginBottom: 14 }}>
@@ -89,6 +92,7 @@ export default function TConfirmScreen() {
       {cartIds.length > 0 && hadPending.length === 0 && (
         <button onClick={commitTransfer} className="btn-primary" style={{ width: '100%', padding: 16, borderRadius: 12, fontSize: 16, minHeight: 54 }}>ยืนยันการเติมหน้างาน</button>
       )}
+      </div>
     </div>
   );
 }

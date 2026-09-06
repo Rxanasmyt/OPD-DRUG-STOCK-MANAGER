@@ -7,6 +7,7 @@ import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
 import { MedMiniCard } from '../components/MedMiniCard';
+import { StepIndicator, RECEIVE_STEPS } from '../components/StepIndicator';
 
 // Same severity bands as toneFor(), applied to substock/par instead of floor/parFloor —
 // this screen is about substock, so that's the ratio a pharmacist actually cares about here.
@@ -66,7 +67,9 @@ export default function ReceiveScreen() {
   const myPending = pending.filter((r) => r.requestedByUid === state.myUid);
 
   return (
-    <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
+    <div style={{ animation: 'fade .18s' }}>
+      <StepIndicator steps={RECEIVE_STEPS} current={0} />
+      <div style={{ padding: '10px 14px 24px' }}>
       <button
         onClick={printWarehouseRequestList}
         className="btn-outline"
@@ -240,6 +243,7 @@ export default function ReceiveScreen() {
           )}
         </>
       )}
+      </div>
     </div>
   );
 }
