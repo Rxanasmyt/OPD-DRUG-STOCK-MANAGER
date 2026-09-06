@@ -180,14 +180,20 @@ export default function ReceiveScreen() {
               style={{ display: 'none' }}
               onChange={(e) => { const f = e.target.files?.[0]; if (f) handleOcrPhoto(f); e.target.value = ''; }}
             />
+            {/* Violet/cyan "smart feature" treatment (see .ai-* in styles.css) — this is the
+                one button on this screen actually inferring something (OCR) rather than just
+                taking typed input, so it gets a visually distinct, gently glowing border
+                instead of blending in with the amber receive-flow chrome around it. */}
             <button
               type="button"
               onClick={() => ocrInputRef.current?.click()}
               disabled={ocrBusy}
-              className="press-spring"
-              style={{ width: '100%', border: '1px dashed var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', padding: '10px 12px', borderRadius: 10, fontSize: 12.5, fontWeight: 600, minHeight: 42, marginBottom: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: ocrBusy ? 0.7 : 1 }}
+              className={'press-spring' + (ocrBusy ? '' : ' ai-glow')}
+              style={{ width: '100%', border: '1.5px solid var(--ai-1)', background: 'var(--bg-card)', padding: '10px 12px', borderRadius: 10, fontSize: 12.5, fontWeight: 700, minHeight: 42, marginBottom: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: ocrBusy ? 0.7 : 1 }}
             >
-              {ocrBusy ? '⏳ กำลังอ่านฉลาก…' : '📷 ถ่ายรูปฉลากเพื่ออ่าน lot/วันหมดอายุอัตโนมัติ'}
+              <span className={ocrBusy ? undefined : 'ai-text'} style={{ color: ocrBusy ? 'var(--muted)' : undefined }}>
+                {ocrBusy ? '⏳ กำลังอ่านฉลาก…' : '📷 ถ่ายรูปฉลากเพื่ออ่าน lot/วันหมดอายุอัตโนมัติ'}
+              </span>
             </button>
             <div className="grid-2" style={{ marginBottom: 9 }}>
               <label>

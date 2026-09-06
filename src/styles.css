@@ -24,6 +24,14 @@
   --had: #8f1f4f;
   --ipd: #5a4fcf;
   --ipd-bg: #eeecfb;
+  /* reserved ONLY for the app's actual on-device "smart" features (usage-anomaly insights,
+     OCR label read — see ReportScreen.tsx/ReceiveScreen.tsx) — a deliberately different hue
+     family from the green/amber/red/violet vocabulary everything else uses, so it reads as "a
+     different, smarter kind of feature" specifically where that's genuinely true, not sprinkled
+     everywhere as decoration. */
+  --ai-1: #6a5bff;
+  --ai-2: #22c3d6;
+  --ai-rgb: 106, 91, 255;
 
   --ease: cubic-bezier(.2, .7, .3, 1);
   --ease-out: cubic-bezier(.16, 1, .3, 1);
@@ -73,6 +81,9 @@
   --had: #e8639e;
   --ipd: #9d8fff;
   --ipd-bg: rgba(157, 143, 255, .16);
+  --ai-1: #8b7dff;
+  --ai-2: #4dd8e8;
+  --ai-rgb: 139, 125, 255;
 
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, .3);
   --shadow-sm: 0 2px 10px -2px rgba(0, 0, 0, .45);
@@ -262,6 +273,39 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 .stagger > *:nth-child(7) { animation-delay: 168ms; }
 .stagger > *:nth-child(8) { animation-delay: 196ms; }
 .stagger > *:nth-child(n+9) { animation-delay: 224ms; }
+
+/* "Smart feature" visual language — reserved for the app's genuine on-device AI-ish surfaces
+   (usage-anomaly insights tab, OCR label-read button) so the distinct violet/cyan hue reads as
+   a real signal ("this part works differently — it's inferring something, not just showing a
+   stored number") rather than random decoration sprinkled everywhere. */
+@keyframes aiGradientShift { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+@keyframes aiGlowPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--ai-rgb), 0), 0 0 0 1px rgba(var(--ai-rgb), .35); }
+  50% { box-shadow: 0 0 16px 2px rgba(var(--ai-rgb), .32), 0 0 0 1px rgba(var(--ai-rgb), .5); }
+}
+
+/* Animated two-tone gradient text — for the handful of headings that label a real smart
+   feature (e.g. "🧠 วิเคราะห์อัตโนมัติ"). Falls back to a flat solid color if the browser can't
+   clip a gradient to text (very old browsers) via the plain `color` set alongside it. */
+.ai-text {
+  color: var(--ai-1);
+  background: linear-gradient(90deg, var(--ai-1), var(--ai-2), var(--ai-1));
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: aiGradientShift 3.2s ease-in-out infinite;
+}
+
+/* A soft, slowly breathing violet glow ring — marks a button/card as a smart-feature entry
+   point (OCR capture, the insights tab chip) without relying on color alone: always paired
+   with the 🧠/📷 icon and label text already on that element. */
+.ai-glow { animation: aiGlowPulse 2.6s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-text { animation: none; background-position: 0 0; }
+  .ai-glow { animation: none; box-shadow: 0 0 0 1px rgba(var(--ai-rgb), .45); }
+}
 
 /* Sticky sub-headers (screen tab bars, search bars) — frosted-glass blur instead of a flat
  * opaque fill, so content scrolling underneath still reads as "underneath" rather than

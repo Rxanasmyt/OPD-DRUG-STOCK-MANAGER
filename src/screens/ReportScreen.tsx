@@ -66,9 +66,28 @@ export default function ReportScreen() {
     <div style={{ animation: 'fade .18s' }}>
       <div style={{ padding: '12px 14px 10px', position: 'sticky', top: 0, zIndex: 2 }} className="sticky-bar">
         <div style={{ display: 'flex', gap: 7, overflowX: 'auto', marginBottom: 9 }}>
-          {TABS.map(([t, label]) => (
-            <button key={t} className="chip" style={{ ...chip(state.reportTab === t), minHeight: 38 }} onClick={() => setReportTab(t)}>{label}</button>
-          ))}
+          {TABS.map(([t, label]) => {
+            const isAi = t === 'insights';
+            const active = state.reportTab === t;
+            // The insights tab gets its own violet/cyan treatment (see .ai-* in styles.css)
+            // instead of the plain green chip every other tab uses — it's the one tab
+            // computing something (anomaly detection, a forecast) rather than just
+            // filtering/displaying stored numbers, and the visual says so at a glance.
+            return (
+              <button
+                key={t}
+                className={'chip' + (isAi && active ? ' ai-glow' : '')}
+                style={isAi
+                  ? active
+                    ? { minHeight: 38, border: 0, background: 'linear-gradient(90deg, var(--ai-1), var(--ai-2))', color: '#fff', fontWeight: 700 }
+                    : { minHeight: 38, border: '1px solid var(--ai-1)', background: 'var(--bg-card)', color: 'var(--ai-1)' }
+                  : { ...chip(active), minHeight: 38 }}
+                onClick={() => setReportTab(t)}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
       </div>
       <div style={{ padding: '12px 14px 24px' }}>
@@ -120,8 +139,9 @@ export default function ReportScreen() {
               ให้ล่าสุดก่อนที่หน้า "ตั้งค่า" เพื่อให้ผลตรงกับความจริงที่สุด
             </div>
 
-            <div style={{ fontSize: 13, fontWeight: 700, margin: '0 2px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
-              📊 การใช้ยาผิดปกติ {anomalies.length > 0 && <span className="muted" style={{ fontWeight: 500, fontSize: 12 }}>({anomalies.length} รายการ)</span>}
+            <div style={{ fontSize: 13, margin: '0 2px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span className="ai-text" style={{ fontWeight: 800 }}>📊 การใช้ยาผิดปกติ</span>
+              {anomalies.length > 0 && <span className="muted" style={{ fontWeight: 500, fontSize: 12 }}>({anomalies.length} รายการ)</span>}
             </div>
             <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 16 }}>
               {anomalies.slice(0, 20).map((a, i) => (
@@ -143,8 +163,9 @@ export default function ReportScreen() {
               )}
             </div>
 
-            <div style={{ fontSize: 13, fontWeight: 700, margin: '0 2px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
-              ⏳ คาดว่าจะหมดใน 21 วัน {stockoutRows.length > 0 && <span className="muted" style={{ fontWeight: 500, fontSize: 12 }}>({stockoutRows.length} รายการ)</span>}
+            <div style={{ fontSize: 13, margin: '0 2px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span className="ai-text" style={{ fontWeight: 800 }}>⏳ คาดว่าจะหมดใน 21 วัน</span>
+              {stockoutRows.length > 0 && <span className="muted" style={{ fontWeight: 500, fontSize: 12 }}>({stockoutRows.length} รายการ)</span>}
             </div>
             <div className="card stagger" style={{ overflow: 'hidden' }}>
               {stockoutRows.map(({ m, days }, i) => (
