@@ -95,17 +95,23 @@ export default function ReceiveScreen() {
                 <div className="muted" style={{ fontSize: 11.5, marginTop: 3, lineHeight: 1.45 }}>
                   ใบเบิก {r.recvNo} · lot {r.lotNo} · exp {thDate(r.exp)} · ขอโดย {r.requestedBy} เมื่อ {thDate(r.ts)} {thTime(r.ts)}
                 </div>
-                {canApprove ? (
+                {canApprove ? (() => {
+                  const rowBusy = !!state.busy[`approveReceive:${r.id}`] || !!state.busy[`rejectReceive:${r.id}`];
+                  return (
                   <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                    <button onClick={() => approvePendingReceive(r.id)} style={{ flex: 1, border: 0, background: 'var(--green)', color: '#fff', padding: '8px 10px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}>อนุมัติ</button>
+                    <button onClick={() => approvePendingReceive(r.id)} disabled={rowBusy} style={{ flex: 1, border: 0, background: 'var(--green)', color: '#fff', padding: '8px 10px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, minHeight: 38, opacity: rowBusy ? 0.7 : 1 }}>
+                      {state.busy[`approveReceive:${r.id}`] ? 'กำลังบันทึก…' : 'อนุมัติ'}
+                    </button>
                     <button
                       onClick={async () => { const reason = await promptAsync('เหตุผลที่ปฏิเสธ (จะบันทึกลง audit log)'); if (reason !== null) rejectPendingReceive(r.id, reason.trim()); }}
-                      style={{ flex: 1, border: '1px solid var(--red)', background: 'var(--bg-card)', color: 'var(--red)', padding: '8px 10px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}
+                      disabled={rowBusy}
+                      style={{ flex: 1, border: '1px solid var(--red)', background: 'var(--bg-card)', color: 'var(--red)', padding: '8px 10px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, minHeight: 38, opacity: rowBusy ? 0.7 : 1 }}
                     >
-                      ปฏิเสธ
+                      {state.busy[`rejectReceive:${r.id}`] ? 'กำลังบันทึก…' : 'ปฏิเสธ'}
                     </button>
                   </div>
-                ) : (
+                  );
+                })() : (
                   <div style={{ fontSize: 11.5, color: 'var(--amber-ink)', marginTop: 6, fontWeight: 600 }}>รอเภสัชกร/แอดมินอนุมัติ</div>
                 )}
               </div>
@@ -234,10 +240,14 @@ export default function ReceiveScreen() {
             })}
           </div>
           {canApprove ? (
-            <button onClick={commitReceive} className="btn-primary" style={{ width: '100%', padding: 16, borderRadius: 12, fontSize: 16, minHeight: 54 }}>อนุมัติรับเข้า substock</button>
+            <button onClick={commitReceive} disabled={!!state.busy['receive']} className="btn-primary" style={{ width: '100%', padding: 16, borderRadius: 12, fontSize: 16, minHeight: 54, opacity: state.busy['receive'] ? 0.7 : 1 }}>
+              {state.busy['receive'] ? 'กำลังบันทึก…' : 'อนุมัติรับเข้า substock'}
+            </button>
           ) : (
             <>
-              <button onClick={commitReceive} style={{ width: '100%', border: '1px solid var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', padding: 16, borderRadius: 12, fontSize: 15.5, fontWeight: 600, minHeight: 54 }}>ส่งให้เภสัชกรอนุมัติ</button>
+              <button onClick={commitReceive} disabled={!!state.busy['receive']} style={{ width: '100%', border: '1px solid var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', padding: 16, borderRadius: 12, fontSize: 15.5, fontWeight: 600, minHeight: 54, opacity: state.busy['receive'] ? 0.7 : 1 }}>
+                {state.busy['receive'] ? 'กำลังบันทึก…' : 'ส่งให้เภสัชกรอนุมัติ'}
+              </button>
               <div className="muted" style={{ fontSize: 11.5, textAlign: 'center', marginTop: 7 }}>สิทธิ์ผู้ช่วยเภสัชกรบันทึกใบรับได้ แต่ยอดจะเข้าสต็อกเมื่อเภสัชกรอนุมัติ</div>
             </>
           )}

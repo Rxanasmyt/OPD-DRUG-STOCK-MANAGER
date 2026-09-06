@@ -90,7 +90,9 @@ export default function TConfirmScreen() {
         </button>
       )}
       {cartIds.length > 0 && hadPending.length === 0 && (
-        <button onClick={commitTransfer} className="btn-primary" style={{ width: '100%', padding: 16, borderRadius: 12, fontSize: 16, minHeight: 54 }}>ยืนยันการเติมหน้างาน</button>
+        <button onClick={commitTransfer} disabled={!!state.busy['transfer']} className="btn-primary" style={{ width: '100%', padding: 16, borderRadius: 12, fontSize: 16, minHeight: 54, opacity: state.busy['transfer'] ? 0.7 : 1 }}>
+          {state.busy['transfer'] ? 'กำลังบันทึก…' : 'ยืนยันการเติมหน้างาน'}
+        </button>
       )}
       </div>
     </div>

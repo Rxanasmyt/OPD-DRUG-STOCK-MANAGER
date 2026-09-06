@@ -51,11 +51,11 @@ export default function CountScreen() {
                   style={{ width: 78, flex: 'none', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 6px', fontSize: 14, fontWeight: 600, textAlign: 'center', minHeight: 42 }}
                 />
                 <button
-                  disabled={!has}
+                  disabled={!has || !!state.busy[`count:${m.id}`]}
                   onClick={() => commitCount(m.id)}
-                  style={{ flex: 'none', border: 0, background: has ? 'var(--green)' : 'var(--border-strong)', color: '#fff', padding: '9px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 42 }}
+                  style={{ flex: 'none', border: 0, background: has ? 'var(--green)' : 'var(--border-strong)', color: '#fff', padding: '9px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 42, opacity: state.busy[`count:${m.id}`] ? 0.7 : 1 }}
                 >
-                  บันทึก
+                  {state.busy[`count:${m.id}`] ? '…' : 'บันทึก'}
                 </button>
               </div>
             </div>

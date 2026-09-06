@@ -300,4 +300,14 @@ export interface AppState {
   // 'autoUpdate') specifically so this never reloads the page on its own mid-task; it just
   // shows a dismissible banner and updates only when someone taps it.
   updateAvailable: boolean;
+
+  // Reactive mirror of guardOnce()'s internal busy-key tracking (AppContext.tsx) — guardOnce
+  // itself already prevents a double-tap from running the same commit action twice, but
+  // nothing made that busy state visible on screen, so a real Firestore round trip (a slow
+  // ward wifi connection, not hypothetical) left a commit button looking completely inert
+  // with no spinner/disabled state — exactly the "did my tap even register?" confusion this
+  // was built to remove. Keyed the same as guardOnce's key (plus ':<firstArg>' for per-item
+  // actions like scrapLot/commitCount, one busy flag per lot/med rather than one for the
+  // whole screen).
+  busy: Record<string, boolean>;
 }

@@ -67,7 +67,9 @@ export default function AdjustScreen() {
                   <div style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>{m.name} <WardBadge med={m} /></div>
                   <div style={{ fontSize: 11.5, marginTop: 2, color: d < 0 ? 'var(--red)' : 'var(--amber)' }}>lot {l.lotNo} · exp {thDate(l.exp)} · {nf(l.qty)} {m.unit} · มูลค่า {nf(l.qty * m.price)} บาท</div>
                 </div>
-                <button onClick={() => scrapLot(l.id)} style={{ border: '1px solid var(--red)', background: 'var(--red-bg)', color: 'var(--red)', padding: '9px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, flex: 'none', minHeight: 40 }}>ตัดออก</button>
+                <button onClick={() => scrapLot(l.id)} disabled={!!state.busy[`scrapLot:${l.id}`]} style={{ border: '1px solid var(--red)', background: 'var(--red-bg)', color: 'var(--red)', padding: '9px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, flex: 'none', minHeight: 40, opacity: state.busy[`scrapLot:${l.id}`] ? 0.7 : 1 }}>
+                  {state.busy[`scrapLot:${l.id}`] ? 'กำลังตัด…' : 'ตัดออก'}
+                </button>
               </div>
             );
           })}
@@ -120,10 +122,10 @@ export default function AdjustScreen() {
               />
               <button
                 onClick={commitAdjust}
-                disabled={!state.adjReason || !state.adjQty}
-                style={{ width: '100%', border: 0, background: state.adjReason && state.adjQty ? 'var(--green)' : 'var(--border-strong)', color: '#fff', padding: 15, borderRadius: 11, fontSize: 15.5, fontWeight: 600, minHeight: 52, marginTop: 10 }}
+                disabled={!state.adjReason || !state.adjQty || !!state.busy['adjust']}
+                style={{ width: '100%', border: 0, background: state.adjReason && state.adjQty ? 'var(--green)' : 'var(--border-strong)', color: '#fff', padding: 15, borderRadius: 11, fontSize: 15.5, fontWeight: 600, minHeight: 52, marginTop: 10, opacity: state.busy['adjust'] ? 0.7 : 1 }}
               >
-                {state.adjType === 'return' ? 'บันทึกรับคืน' : 'บันทึกปรับยอด'}
+                {state.busy['adjust'] ? 'กำลังบันทึก…' : (state.adjType === 'return' ? 'บันทึกรับคืน' : 'บันทึกปรับยอด')}
               </button>
             </>
           )}

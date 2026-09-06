@@ -103,6 +103,7 @@ function freshState(): AppState {
     confirmDialog: null,
     promptDialog: null,
     updateAvailable: false,
+    busy: {},
   } as AppState;
 }
 
@@ -340,26 +341,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // instead of a silent hang.
   const runTx = useCallback(<T,>(fn: (trx: Transaction) => Promise<T>) => withTimeout(runTransaction(db, fn)), []);
 
-  // None of the commit-style buttons (ยืนยันการเติมหน้างาน, อนุมัติรับเข้า, บันทึกปรับยอด,
-  // etc.) disabled themselves while their async Firestore work was in flight — a fast double
-  // tap (very real on a touchscreen, more likely still with any network latency before the
-  // screen navigates away) could fire the same commit function twice before React ever
-  // re-renders, running two independent transactions against the same cart/lot/floor and
-  // silently double-deducting real stock. Wrapping the function itself (not just the button)
-  // closes this regardless of how a second invocation might happen — a stray double bind, a
-  // second event listener, not just a literal double-tap. Keyed so unrelated items (e.g.
-  // approving two different pending receives) don't block each other, only a genuine repeat
-  // of the exact same action.
-  const busyKeys = useRef<Set<string>>(new Set());
-  const guardOnce = useCallback(<A extends unknown[]>(key: string, fn: (...args: A) => Promise<void>) => {
-    return async (...args: A) => {
-      const k = args.length ? key + ':' + String(args[0]) : key;
-      if (busyKeys.current.has(k)) return;
-      busyKeys.current.add(k);
-      try { await fn(...args); } finally { busyKeys.current.delete(k); }
-    };
-  }, []);
-
   // ---------- theme (light/dark) — a per-device UI preference, not app data, so it lives in
   // localStorage rather than Firestore. Defaults to the OS/browser preference on first visit,
   // then whatever the person picked via the toggle from then on. ----------
@@ -383,6 +364,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const patch = useCallback((p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => {
     setState((s) => ({ ...s, ...(typeof p === 'function' ? p(s) : p) }));
   }, []);
+
+  // None of the commit-style buttons (ยืนยันการเติมหน้างาน, อนุมัติรับเข้า, บันทึกปรับยอด,
+  // etc.) disabled themselves while their async Firestore work was in flight — a fast double
+  // tap (very real on a touchscreen, more likely still with any network latency before the
+  // screen navigates away) could fire the same commit function twice before React ever
+  // re-renders, running two independent transactions against the same cart/lot/floor and
+  // silently double-deducting real stock. Wrapping the function itself (not just the button)
+  // closes this regardless of how a second invocation might happen — a stray double bind, a
+  // second event listener, not just a literal double-tap. Keyed so unrelated items (e.g.
+  // approving two different pending receives) don't block each other, only a genuine repeat
+  // of the exact same action.
+  const busyKeys = useRef<Set<string>>(new Set());
+  const guardOnce = useCallback(<A extends unknown[]>(key: string, fn: (...args: A) => Promise<void>) => {
+    return async (...args: A) => {
+      const k = args.length ? key + ':' + String(args[0]) : key;
+      if (busyKeys.current.has(k)) return;
+      busyKeys.current.add(k);
+      // Bug fix: guardOnce already prevented a double-tap from running the same commit twice
+      // (see the comment above) — but nothing about that busy state was ever REACTIVE, so a
+      // commit button gave zero visual feedback while its real Firestore round trip was in
+      // flight on a slow connection. Mirroring the same key into state.busy lets any screen
+      // show "กำลังบันทึก…"/disable the button for exactly as long as guardOnce is actually
+      // blocking a repeat — same lifetime, just made visible.
+      patch((st) => ({ busy: { ...st.busy, [k]: true } }));
+      try { await fn(...args); } finally {
+        busyKeys.current.delete(k);
+        patch((st) => { const b = { ...st.busy }; delete b[k]; return { busy: b }; });
+      }
+    };
+  }, [patch]);
 
   // ---------- network status (real, not simulated) ----------
   useEffect(() => {
