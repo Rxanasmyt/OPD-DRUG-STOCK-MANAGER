@@ -100,6 +100,7 @@ function freshState(): AppState {
 
     confirmDialog: null,
     promptDialog: null,
+    updateAvailable: false,
   } as AppState;
 }
 
@@ -125,6 +126,13 @@ export interface AppCtx {
   /** Answers the currently-shown in-app prompt dialog (state.promptDialog) — see
    * PromptDialog.tsx. */
   respondPrompt: (v: string | null) => void;
+  /** Activates the new service worker waiting since state.updateAvailable went true, then
+   * reloads once it takes over — see UpdateBanner.tsx. The only place this app ever reloads
+   * itself on a version change; never automatic. */
+  applyUpdate: () => void;
+  /** Dismisses the "มีเวอร์ชันใหม่" banner without applying it — the update stays downloaded
+   * and waiting; applyUpdate() (or just closing/reopening the app later) picks it up whenever. */
+  dismissUpdate: () => void;
   go: (s: Screen) => void;
   back: () => void;
 
@@ -520,6 +528,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     patch({ promptDialog: null });
     if (resolve) resolve(v);
   }, [patch]);
+
+  // Bug fix (stability): vite-plugin-pwa's 'autoUpdate' mode used to reload the page the
+  // instant it detected a new deployed version, with zero regard for whether someone was
+  // mid-scan, mid-form, or mid-transaction right then — this app gets redeployed often, so
+  // that was a real, recurring disruption, not a one-off. registerType is now 'prompt' (see
+  // vite.config.ts): the new service worker still downloads in the background exactly the
+  // same, it just waits for updateSWRef.current() to be called instead of firing itself.
+  const updateSWRef = useRef<((reloadPage?: boolean) => Promise<void>) | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    // Loaded lazily and only in the actual built PWA — this virtual module doesn't exist in
+    // plain `vite dev`, so importing it eagerly at module scope would break local dev.
+    import('virtual:pwa-register')
+      .then(({ registerSW }) => {
+        if (cancelled) return;
+        updateSWRef.current = registerSW({
+          onNeedRefresh() { patch({ updateAvailable: true }); },
+        });
+      })
+      .catch(() => { /* not running as an installed/built PWA (e.g. plain dev server) — no-op */ });
+    return () => { cancelled = true; };
+  }, [patch]);
+  const applyUpdate = useCallback(() => {
+    patch({ updateAvailable: false });
+    updateSWRef.current?.(true);
+  }, [patch]);
+  const dismissUpdate = useCallback(() => patch({ updateAvailable: false }), [patch]);
 
   // ---------- live data: only once approved ----------
   useEffect(() => {
@@ -2167,7 +2202,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.historyFrom, state.historyTo, patch, toast, toastErr]);
 
   const value = useMemo<AppCtx>(() => ({
-    state, myProfile, theme, toggleTheme, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, respondConfirm, promptAsync, respondPrompt, go, back,
+    state, myProfile, theme, toggleTheme, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, respondConfirm, promptAsync, respondPrompt, applyUpdate, dismissUpdate, go, back,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
     setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, printPickList, printTodayReplenishList, removeFromCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, printWarehouseRequestList,

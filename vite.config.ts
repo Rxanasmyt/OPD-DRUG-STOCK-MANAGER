@@ -11,7 +11,13 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // Bug fix (stability): 'autoUpdate' silently reloads the page the moment it detects a
+      // new deployed version — during active use (mid-scan, mid-form, mid-transaction) that's
+      // a real disruption, not a convenience, and this app gets redeployed often. 'prompt'
+      // still fetches the new service worker in the background the same way, but leaves
+      // activating it up to an explicit tap (see the "มีเวอร์ชันใหม่" banner wired up in
+      // AppContext.tsx/UpdateBanner.tsx) — nobody gets yanked out of what they're doing.
+      registerType: 'prompt',
       includeAssets: ['apple-touch-icon.png'],
       manifest: {
         id: base,

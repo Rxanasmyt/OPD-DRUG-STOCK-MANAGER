@@ -10,6 +10,7 @@ import MoreScreen from './screens/MoreScreen';
 import Toast from './components/Toast';
 import ConfirmDialog from './components/ConfirmDialog';
 import PromptDialog from './components/PromptDialog';
+import UpdateBanner from './components/UpdateBanner';
 import { ContextBar } from './components/ContextBar';
 import type { Screen } from './types';
 
@@ -162,6 +163,7 @@ export default function App() {
       </Suspense>
       <ConfirmDialog />
       <PromptDialog />
+      <UpdateBanner />
       <Toast />
     </div>
   );

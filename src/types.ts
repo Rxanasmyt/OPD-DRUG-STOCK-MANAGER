@@ -294,4 +294,10 @@ export interface AppState {
   // Same reasoning, for window.prompt() — see promptAsync()/PromptDialog.tsx. Used where a
   // short free-text reason is required alongside a yes/no (e.g. "เหตุผลที่ปฏิเสธ" ใบเบิก).
   promptDialog: { message: string } | null;
+
+  // True once a new deployed version's service worker is downloaded and waiting — see
+  // UpdateBanner.tsx/applyUpdate() in AppContext.tsx. registerType is 'prompt' (not
+  // 'autoUpdate') specifically so this never reloads the page on its own mid-task; it just
+  // shows a dismissible banner and updates only when someone taps it.
+  updateAvailable: boolean;
 }
