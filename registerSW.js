@@ -1,1 +1,0 @@
-if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/OPD-DRUG-STOCK-MANAGER/sw.js', { scope: '/OPD-DRUG-STOCK-MANAGER/' })})}
