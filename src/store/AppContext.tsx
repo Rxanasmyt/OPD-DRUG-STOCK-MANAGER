@@ -22,6 +22,7 @@ import { parseHosxpUsageWorkbook, parseUsageCsvText, type RawUsageRow } from '..
 import { LOCS } from '../data/locations';
 import { withTimeout, TimeoutError } from '../utils/timeout';
 import { readNotifyEnabled, writeNotifyEnabled, requestPermission, currentPermission, maybeNotifyExpiring } from '../utils/notify';
+import { hapticSuccess, hapticError } from '../utils/haptic';
 
 // Caps navStack length so a session left open for days (this is a PWA people keep pinned,
 // not something reloaded every visit) can't grow it unboundedly — nothing needs more than a
@@ -693,6 +694,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // recommended action (check your connection) than "something went wrong, try again".
   const toastErr = useCallback((e: unknown, fallback: string) => {
     console.error(e);
+    hapticError();
     toast(e instanceof TimeoutError ? e.message : fallback);
   }, [toast]);
 
@@ -971,6 +973,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         resultRows = rows;
       });
+      hapticSuccess();
       setState((st) => ({ ...st, cart: {}, hadOk: {}, screen: 'done', navStack: pushNav(st.navStack, st.screen), doneKind: 'transfer', doneRows: resultRows }));
     } catch (e) {
       const msg = (e as Error)?.message || '';
@@ -1025,6 +1028,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
         await withTimeout(batch.commit());
         await logAudit({ type: 'receive_pending', note: 'ใบเบิก ' + state.recvNo + ' · ' + items.length + ' รายการ — รออนุมัติ' });
+        hapticSuccess();
         setState((st) => ({
           ...st, screen: 'done', navStack: pushNav(st.navStack, st.screen), doneKind: 'recvPending',
           doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + it.lotNo + ' · exp ' + thDate(it.exp), qty: nf(it.qty) + ' ' + it.unit, medId: it.medId })),
@@ -1056,6 +1060,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
       });
       await withTimeout(batch.commit());
+      hapticSuccess();
       setState((st) => ({
         ...st, screen: 'done', navStack: pushNav(st.navStack, st.screen), doneKind: 'receive',
         doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + it.lotNo + ' · exp ' + thDate(it.exp), qty: nf(it.qty) + ' ' + it.unit, medId: it.medId })),
@@ -1215,6 +1220,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       await logTx({ type: t, name: m.name, medId: m.id, qty: sign * q, unit: m.unit, reason: state.adjReason, note: state.adjNote || '—', loc: 'floor' });
       patch({ adjQty: '', adjReason: '', adjNote: '', adjMed: null, adjSearch: '' });
+      hapticSuccess();
       toast('บันทึกแล้ว · ' + m.name + ' ' + (sign > 0 ? '+' : '−') + nf(q) + ' ' + m.unit);
     } catch (e) {
       toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
@@ -1229,6 +1235,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       await updateDoc(doc(db, 'lots', lotId), { qty: 0 });
       await logTx({ type: 'expired', name: m.name, medId: m.id, qty: -l.qty, unit: m.unit, reason: 'หมดอายุ / ใกล้หมดอายุ', note: 'lot ' + l.lotNo + ' exp ' + thDate(l.exp) + ' · มูลค่า ' + nf(l.qty * m.price) + ' บาท', loc: 'substock' });
+      hapticSuccess();
       toast('ตัด lot ' + l.lotNo + ' ออกจาก substock แล้ว · บันทึกลง discrepancy log');
     } catch (e) {
       console.error(e);
@@ -2085,6 +2092,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // shelf label can supply those), so there's no way around closing the scanner and
         // switching to that form — same as before.
         pickRecvMed(med.id);
+        hapticSuccess();
         toast('สแกนพบ ' + med.name + ' ที่ substock — กรอก lot วันหมดอายุ และจำนวนที่รับ');
         patch({ qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '' });
       } else {
@@ -2101,7 +2109,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const now = Date.now();
         const isRepeat = lastScanBump.current?.medId === med.id && now - lastScanBump.current.ts < 4000;
         lastScanBump.current = { medId: med.id, ts: now };
-        if (!isRepeat) bump(med.id, 1);
+        if (!isRepeat) { bump(med.id, 1); hapticSuccess(); }
         toast(isRepeat ? med.name + ' — เพิ่มไปแล้ว ขยับกล้องไปยาตัวต่อไปได้เลย' : 'สแกนพบ ' + med.name + ' — เพิ่มเข้าตะกร้าแล้ว · สแกนตัวต่อไปได้เลย');
         patch({ qrCode: '', qrManualOpen: false, qrManualReason: '' });
       }

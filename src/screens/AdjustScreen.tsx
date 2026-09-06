@@ -4,6 +4,7 @@ import { nf, thDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
+import { EmptyState } from '../components/EmptyState';
 import type { AdjType } from '../types';
 
 const TYPES: [AdjType, string, string][] = [
@@ -70,7 +71,7 @@ export default function AdjustScreen() {
               </div>
             );
           })}
-          {scrapRows.length === 0 && <div style={{ padding: 16, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ไม่มี lot ใกล้หมดอายุ</div>}
+          {scrapRows.length === 0 && <EmptyState icon="✅" title="ไม่มี lot ใกล้หมดอายุ" sub="ทุก lot ใน substock ตอนนี้ยังเหลืออายุมากกว่า 30 วัน" />}
         </div>
       )}
 

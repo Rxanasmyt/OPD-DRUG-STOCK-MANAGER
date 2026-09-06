@@ -11,6 +11,7 @@ import Toast from './components/Toast';
 import ConfirmDialog from './components/ConfirmDialog';
 import PromptDialog from './components/PromptDialog';
 import UpdateBanner from './components/UpdateBanner';
+import { SkeletonHome, SkeletonScreen } from './components/Skeleton';
 import { ContextBar } from './components/ContextBar';
 import type { Screen } from './types';
 
@@ -69,8 +70,8 @@ export default function App() {
 
   if (!state.dbReady) {
     return (
-      <div className="app-shell" style={{ justifyContent: 'center', alignItems: 'center' }}>
-        <div className="muted" style={{ fontSize: 13 }}>กำลังโหลดข้อมูล…</div>
+      <div className="app-shell" style={{ overflowY: 'auto' }}>
+        <SkeletonHome />
       </div>
     );
   }
@@ -171,8 +172,8 @@ export default function App() {
 
 function ScreenLoading() {
   return (
-    <div style={{ padding: '40px 20px', textAlign: 'center', animation: 'fade .15s' }}>
-      <div className="muted" style={{ fontSize: 12.5 }}>กำลังโหลด…</div>
+    <div style={{ animation: 'fade .15s' }}>
+      <SkeletonScreen />
     </div>
   );
 }

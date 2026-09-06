@@ -5,6 +5,7 @@ import { wardOf, wardLabel, floorMinOf, toneFor, isSharedMed, matchesWard } from
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
 import type { Med, Ward } from '../types';
+import { EmptyState } from '../components/EmptyState';
 
 type Filter = 'active' | 'inactive' | 'all';
 
@@ -272,7 +273,7 @@ export default function MedsScreen() {
             </div>
           );
         })}
-        {meds.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ไม่พบยาที่ค้นหา</div>}
+        {meds.length === 0 && <EmptyState icon="💊" title="ไม่พบยาที่ค้นหา" sub="ลองเปลี่ยนคำค้นหา หรือสลับตัวกรองสถานะ/หอผู้ป่วยด้านบน" />}
       </div>
       {meds.length > 150 && <div className="muted" style={{ fontSize: 11.5, textAlign: 'center', marginTop: 10 }}>แสดง 150 รายการแรก — ค้นหาชื่อยาเพื่อหารายการอื่น</div>}
     </div>

@@ -1,6 +1,7 @@
 import { useApp } from '../store/AppContext';
 import { thDate, thTime } from '../utils/format';
 import type { AdminTab, AuditFilter, Role, User } from '../types';
+import { EmptyState } from '../components/EmptyState';
 
 const ADMIN_TABS: [AdminTab, string][] = [['users', 'ผู้ใช้งาน'], ['audit', 'Audit log']];
 const ROLES: Role[] = ['pharm', 'tech', 'admin'];
@@ -116,7 +117,7 @@ export default function AdminScreen() {
                   </div>
                 );
               })}
-              {approved.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ยังไม่มีผู้ใช้งานที่อนุมัติแล้ว</div>}
+              {approved.length === 0 && <EmptyState icon="👤" title="ยังไม่มีผู้ใช้งานที่อนุมัติแล้ว" />}
             </div>
           </>
         )}
@@ -166,7 +167,13 @@ export default function AdminScreen() {
                   <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>โดย {e.by}</div>
                 </div>
               ))}
-              {filtered.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>{isHistory ? 'ไม่มีรายการในช่วงวันที่นี้' : 'ไม่มีรายการในตัวกรองนี้'}</div>}
+              {filtered.length === 0 && (
+                <EmptyState
+                  icon="📜"
+                  title={isHistory ? 'ไม่มีรายการในช่วงวันที่นี้' : 'ไม่มีรายการในตัวกรองนี้'}
+                  sub={isHistory ? 'ลองขยายช่วงวันที่ให้กว้างขึ้น' : 'ลองสลับตัวกรองด้านบน หรือค้นหาย้อนหลังตามช่วงวันที่'}
+                />
+              )}
             </div>
           </>
         )}

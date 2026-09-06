@@ -6,6 +6,8 @@ import { printSubstockCardSheet } from '../utils/print';
 import { downloadCsv } from '../utils/csv';
 import { MedDot } from '../components/MedDot';
 import { WardBadge } from '../components/WardBadge';
+import { SkeletonList } from '../components/Skeleton';
+import { EmptyState } from '../components/EmptyState';
 
 const inputStyle = { width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
 
@@ -244,7 +246,7 @@ export default function SubstockCardScreen() {
             )}
           </div>
 
-          {loading && <div style={{ textAlign: 'center', padding: 20, color: 'var(--muted)', fontSize: 13 }}>กำลังโหลดประวัติ…</div>}
+          {loading && <SkeletonList rows={5} />}
 
           {viewRows && !loading && (
             <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }} className="stagger">
@@ -276,9 +278,11 @@ export default function SubstockCardScreen() {
                 </tbody>
               </table>
               {viewRows.length === 0 && (
-                <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>
-                  {rows && rows.length > 0 ? 'ไม่มีประวัติ substock ใน' + (year === 'all' ? 'ช่วงนี้' : 'ปีงบ ' + year) : 'ยานี้ยังไม่มีประวัติ substock'}
-                </div>
+                <EmptyState
+                  icon="🗂️"
+                  title={rows && rows.length > 0 ? 'ไม่มีประวัติ substock ใน' + (year === 'all' ? 'ช่วงนี้' : 'ปีงบ ' + year) : 'ยานี้ยังไม่มีประวัติ substock'}
+                  sub={rows && rows.length > 0 ? 'ลองสลับดูปีงบอื่น หรือเลือก "ทุกปี"' : 'จะเริ่มมีประวัติทันทีที่รับเข้า/เติมหน้างาน/ตัดหมดอายุยานี้ครั้งแรก'}
+                />
               )}
             </div>
           )}

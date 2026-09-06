@@ -2,6 +2,22 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, thDate } from '../utils/format';
 
+function MiniCardSkeleton() {
+  return (
+    <div style={{ marginTop: 2 }}>
+      <div className="skeleton" style={{ width: 90, height: 9, borderRadius: 5, margin: '2px 2px 5px' }} />
+      <div style={{ border: '1px solid var(--border-soft)', borderRadius: 8, overflow: 'hidden' }}>
+        {[0, 1].map((i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', borderBottom: i === 0 ? '1px solid var(--border-soft)' : 0 }}>
+            <div className="skeleton" style={{ width: 48, height: 10, borderRadius: 5 }} />
+            <div className="skeleton" style={{ flex: 1, height: 10, borderRadius: 5 }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Same type→icon/label map as SubstockCardScreen.tsx (kept in sync there) — รับจากคลังใหญ่ /
 // เติมหน้างาน / ตัดหมดอายุ are the only three tx types that ever touch substock.
 const TYPE_META: Record<string, { icon: string; label: string }> = {
@@ -52,7 +68,7 @@ export function MedMiniCard({ medId, unit, tailCount = 4 }: { medId: string; uni
   }, [medId, tailCount]);
 
   if (loading) {
-    return <div className="muted" style={{ fontSize: 11.5, padding: '7px 2px' }}>กำลังโหลดประวัติล่าสุด…</div>;
+    return <MiniCardSkeleton />;
   }
   // Fail soft — offline or a slow connection shouldn't block or clutter the receive/transfer
   // form with an error the person didn't ask about; the full บัตรสต็อก screen already surfaces

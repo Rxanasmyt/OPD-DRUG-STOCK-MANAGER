@@ -6,6 +6,7 @@ import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge } from '../components/Qty';
 import { MedMiniCard } from '../components/MedMiniCard';
+import { EmptyState } from '../components/EmptyState';
 
 export default function TransferScreen() {
   const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, printPickList, printTodayReplenishList, go, openScanSearch } = useApp();
@@ -161,7 +162,7 @@ export default function TransferScreen() {
             </div>
           );
         })}
-        {filtered.length === 0 && <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, padding: '36px 10px' }}>ไม่พบรายการยาที่ค้นหา</div>}
+        {filtered.length === 0 && <EmptyState icon="💊" title="ไม่พบรายการยาที่ค้นหา" sub="ลองพิมพ์ชื่อยาแบบสั้นลง หรือเปลี่ยนตัวกรองด้านบน" />}
       </div>
 
       {cartIds.length > 0 && (
