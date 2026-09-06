@@ -10,12 +10,19 @@ import { useApp } from '../store/AppContext';
  */
 export default function UpdateBanner() {
   const { state, applyUpdate, dismissUpdate } = useApp();
-  if (!state.updateAvailable) return null;
+  // Never pop this up over the full-screen QR scanner (zIndex 20, covers everything) — that
+  // would be exactly the kind of "interrupts an active task" moment this whole feature exists
+  // to avoid. It just waits; nothing about the pending update expires by staying hidden here.
+  if (!state.updateAvailable || state.qrOpen) return null;
 
   return (
     <div
+      // Bug fix: Toast.tsx sits at bottom:78 (fires on nearly every action, so it's up often)
+      // — placing this at a similar height would let the two overlap and fight for the same
+      // strip of screen. Clearing well above it (and the bottom nav bar under that) keeps both
+      // legible if a toast happens to fire while this banner is still up.
       style={{
-        position: 'absolute', left: 10, right: 10, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 74px)', zIndex: 40,
+        position: 'absolute', left: 10, right: 10, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 150px)', zIndex: 40,
         background: 'var(--ink)', color: 'var(--ink-soft)', borderRadius: 14, padding: '12px 12px 12px 15px',
         display: 'flex', alignItems: 'center', gap: 10, boxShadow: 'var(--shadow-lg)', animation: 'sheetIn .3s var(--ease-out)',
       }}
