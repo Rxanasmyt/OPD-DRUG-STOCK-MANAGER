@@ -80,8 +80,8 @@ export default function ReconcileScreen() {
             </label>
           )}
 
-          <button onClick={commitReconcile} disabled={!canCommit} className="btn-primary" style={{ width: '100%', padding: 15, borderRadius: 12, fontSize: 15, minHeight: 52, opacity: canCommit ? 1 : 0.5 }}>
-            ตัดยอดหน้างานตามไฟล์นี้ และบันทึก discrepancy log{skippedCount > 0 ? ' (ข้าม ' + skippedCount + ' รายการที่จับคู่ไม่ได้)' : ''}
+          <button onClick={commitReconcile} disabled={!canCommit || !!state.busy['reconcile']} className="btn-primary" style={{ width: '100%', padding: 15, borderRadius: 12, fontSize: 15, minHeight: 52, opacity: canCommit && !state.busy['reconcile'] ? 1 : 0.5 }}>
+            {state.busy['reconcile'] ? 'กำลังตัดยอด…' : `ตัดยอดหน้างานตามไฟล์นี้ และบันทึก discrepancy log${skippedCount > 0 ? ' (ข้าม ' + skippedCount + ' รายการที่จับคู่ไม่ได้)' : ''}`}
           </button>
         </>
       )}

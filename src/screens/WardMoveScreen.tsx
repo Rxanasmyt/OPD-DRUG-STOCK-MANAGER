@@ -4,6 +4,7 @@ import { nf, digitsOnly } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
+import { SearchInput } from '../components/SearchInput';
 import type { Med } from '../types';
 
 const inputStyle = { width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
@@ -107,7 +108,7 @@ function PickerCard({ label, med, search, onSearch, options, onPick }: {
         </div>
       ) : (
         <>
-          <input value={search} onChange={(e) => onSearch(e.target.value)} placeholder="ค้นหาชื่อยา" style={inputStyle} />
+          <SearchInput value={search} onChange={onSearch} placeholder="ค้นหาชื่อยา" />
           {options.length > 0 && (
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 158, overflowY: 'auto', marginTop: 8 }}>
               {options.map((m) => (

@@ -8,6 +8,7 @@ import { Qty } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
 import { MedMiniCard } from '../components/MedMiniCard';
 import { StepIndicator, RECEIVE_STEPS } from '../components/StepIndicator';
+import { SearchInput } from '../components/SearchInput';
 
 // Same severity bands as toneFor(), applied to substock/par instead of floor/parFloor —
 // this screen is about substock, so that's the ratio a pharmacist actually cares about here.
@@ -136,7 +137,7 @@ export default function ReceiveScreen() {
         <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 2 }}>เพิ่มรายการ</div>
         <div className="muted" style={{ fontSize: 11.5, marginBottom: 9 }}>สแกน QR ที่ติดหน้ายาใน substock เพื่อระบุตัวยาอัตโนมัติ หรือค้นหาด้วยชื่อ</div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          <input value={state.recvSearch} onChange={(e) => setRecvSearch(e.target.value)} placeholder="ค้นหา / สแกนชื่อยา" style={{ ...inputStyle, flex: 1, minWidth: 0 }} />
+          <SearchInput value={state.recvSearch} onChange={setRecvSearch} placeholder="ค้นหา / สแกนชื่อยา" style={{ flex: 1, minWidth: 0 }} />
           <button onClick={() => openScanSearch('receive')} title="สแกน QR รับเข้า substock" style={{ border: '1px solid var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', borderRadius: 10, width: 46, minHeight: 44, fontSize: 17, flex: 'none' }}>▣</button>
         </div>
 

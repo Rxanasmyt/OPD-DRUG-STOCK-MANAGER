@@ -8,6 +8,7 @@ import { Qty, DeficitBadge } from '../components/Qty';
 import { MedMiniCard } from '../components/MedMiniCard';
 import { EmptyState } from '../components/EmptyState';
 import { StepIndicator, TRANSFER_STEPS } from '../components/StepIndicator';
+import { SearchInput } from '../components/SearchInput';
 
 export default function TransferScreen() {
   const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, printPickList, printTodayReplenishList, go, openScanSearch } = useApp();
@@ -65,11 +66,11 @@ export default function TransferScreen() {
       <StepIndicator steps={TRANSFER_STEPS} current={0} />
       <div style={{ padding: '12px 14px 10px' }} className="sticky-bar">
         <div style={{ display: 'flex', gap: 8 }}>
-          <input
+          <SearchInput
             value={state.search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={setSearch}
             placeholder="ค้นหาชื่อยา / สแกน QR"
-            style={{ flex: 1, minWidth: 0, border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 13px', fontSize: 14, minHeight: 44 }}
+            style={{ flex: 1, minWidth: 0 }}
           />
           <button onClick={() => openScanSearch('transfer')} title="สแกน QR เติมหน้างาน" style={{ border: '1px solid var(--green)', background: 'var(--green-tint)', color: 'var(--green)', borderRadius: 10, width: 46, minHeight: 44, fontSize: 17, flex: 'none' }}>▣</button>
         </div>

@@ -139,8 +139,12 @@ export default function SettingsScreen() {
         )}
         {canEdit && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button onClick={applyAllSuggested} style={{ border: 0, background: 'var(--green)', color: '#fff', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>ใช้ค่าแนะนำทั้งหมด ({suggestDiffCount} รายการเปลี่ยน)</button>
-            <button onClick={recomputeUsageStats} style={{ border: '1px solid var(--green)', background: 'var(--bg-card)', color: 'var(--green)', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>คำนวณสถิติการใช้ใหม่จากประวัติ HOSxP ↺</button>
+            <button onClick={applyAllSuggested} disabled={!!state.busy['applyAllSuggested']} style={{ border: 0, background: 'var(--green)', color: '#fff', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40, opacity: state.busy['applyAllSuggested'] ? 0.7 : 1 }}>
+              {state.busy['applyAllSuggested'] ? 'กำลังบันทึก…' : `ใช้ค่าแนะนำทั้งหมด (${suggestDiffCount} รายการเปลี่ยน)`}
+            </button>
+            <button onClick={recomputeUsageStats} disabled={!!state.busy['recomputeUsageStats']} style={{ border: '1px solid var(--green)', background: 'var(--bg-card)', color: 'var(--green)', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40, opacity: state.busy['recomputeUsageStats'] ? 0.7 : 1 }}>
+              {state.busy['recomputeUsageStats'] ? 'กำลังคำนวณ…' : 'คำนวณสถิติการใช้ใหม่จากประวัติ HOSxP ↺'}
+            </button>
           </div>
         )}
         <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 8 }}>อัตราการใช้คำนวณจากประวัติ "นำเข้าจาก HOSxP" เท่านั้น ไม่ได้อัปเดตอัตโนมัติทุกวัน — ควรกด "คำนวณสถิติการใช้ใหม่" เป็นระยะ (เช่น เดือนละครั้ง) หลังจากใช้งานนำเข้า HOSxP มาสม่ำเสมอแล้ว ถ้ากดตอนที่ยังไม่มีประวัติ HOSxP เลย ค่าจะกลายเป็น 0 ทั้งหมด</div>
@@ -207,11 +211,11 @@ export default function SettingsScreen() {
 
               <button
                 onClick={commitUsageImport}
-                disabled={!usageCanCommit}
+                disabled={!usageCanCommit || !!state.busy['usageImport']}
                 className="btn-primary"
-                style={{ width: '100%', padding: 14, borderRadius: 11, fontSize: 14, fontWeight: 600, minHeight: 48, opacity: usageCanCommit ? 1 : 0.5 }}
+                style={{ width: '100%', padding: 14, borderRadius: 11, fontSize: 14, fontWeight: 600, minHeight: 48, opacity: usageCanCommit && !state.busy['usageImport'] ? 1 : 0.5 }}
               >
-                นำเข้าอัตราการใช้ ({nf(usageMatched + usageFuzzy)} รายการ)
+                {state.busy['usageImport'] ? 'กำลังนำเข้า…' : `นำเข้าอัตราการใช้ (${nf(usageMatched + usageFuzzy)} รายการ)`}
               </button>
             </>
           )}

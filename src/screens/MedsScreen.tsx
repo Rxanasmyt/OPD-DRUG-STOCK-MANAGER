@@ -6,6 +6,7 @@ import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
 import type { Med, Ward } from '../types';
 import { EmptyState } from '../components/EmptyState';
+import { SearchInput } from '../components/SearchInput';
 
 type Filter = 'active' | 'inactive' | 'all';
 
@@ -195,7 +196,7 @@ export default function MedsScreen() {
         </button>
       )}
 
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาชื่อยา" style={{ ...inputStyle, marginBottom: 10 }} />
+      <SearchInput value={q} onChange={setQ} placeholder="ค้นหาชื่อยา" style={{ marginBottom: 10 }} />
 
       <div className="card stagger" style={{ overflow: 'hidden' }}>
         {meds.slice(0, 150).map((m) => {

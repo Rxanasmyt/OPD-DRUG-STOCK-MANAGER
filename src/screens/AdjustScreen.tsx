@@ -5,6 +5,7 @@ import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
 import { EmptyState } from '../components/EmptyState';
+import { SearchInput } from '../components/SearchInput';
 import type { AdjType } from '../types';
 
 const TYPES: [AdjType, string, string][] = [
@@ -82,7 +83,7 @@ export default function AdjustScreen() {
           <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 9 }}>
             {state.adjType === 'adjust' ? 'ปรับยอดตามที่นับได้' : state.adjType === 'return' ? 'รับคืนยาเข้าหน้างาน' : 'ตัดยาเสีย / ชำรุด'}
           </div>
-          <input value={state.adjSearch} onChange={(e) => setAdjSearch(e.target.value)} placeholder="ค้นหาชื่อยา" style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44, marginBottom: 9 }} />
+          <SearchInput value={state.adjSearch} onChange={setAdjSearch} placeholder="ค้นหาชื่อยา" style={{ marginBottom: 9 }} />
 
           {options.length > 0 && (
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 158, overflowY: 'auto', marginBottom: 9 }}>

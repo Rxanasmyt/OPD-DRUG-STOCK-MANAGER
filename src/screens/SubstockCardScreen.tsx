@@ -8,8 +8,7 @@ import { MedDot } from '../components/MedDot';
 import { WardBadge } from '../components/WardBadge';
 import { SkeletonList } from '../components/Skeleton';
 import { EmptyState } from '../components/EmptyState';
-
-const inputStyle = { width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
+import { SearchInput } from '../components/SearchInput';
 
 interface LedgerRow { ts: number; type: string; qty: number; note: string; by: string; balance: number }
 
@@ -153,7 +152,7 @@ export default function SubstockCardScreen() {
 
       {!medId && (
         <>
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่อยา" style={inputStyle} />
+          <SearchInput value={search} onChange={setSearch} placeholder="ค้นหาชื่อยา" />
           {options.length > 0 && (
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 280, overflowY: 'auto', marginTop: 9 }}>
               {options.map((m) => (
