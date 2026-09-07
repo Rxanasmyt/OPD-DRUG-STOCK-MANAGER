@@ -21,7 +21,7 @@ const DISC_TYPE_LABEL: Record<string, string> = {
 };
 
 export default function ReportScreen() {
-  const { state, setReportTab, exportReportCsv, goSubstockCardFor } = useApp();
+  const { state, setReportTab, exportReportCsv, exportAllReports, goSubstockCardFor } = useApp();
   // Discrepancy log had no way to narrow it down — always the same fixed most-recent-30 slice
   // of state.txs, with no type filter and no way to find one specific drug's history, unlike
   // AdminScreen's audit log right next door which has both. Same underlying data (the live
@@ -108,8 +108,19 @@ export default function ReportScreen() {
         </div>
       </div>
       <div style={{ padding: '12px 14px 24px' }}>
-        <button onClick={exportReportCsv} className="btn-outline" style={{ width: '100%', padding: 12, borderRadius: 11, fontSize: 14, fontWeight: 600, minHeight: 46, marginBottom: 12 }}>
-          ↓ Export CSV — {REPORT_NAMES[state.reportTab]}
+        <button
+          onClick={exportAllReports}
+          disabled={!!state.busy['exportAll']}
+          className="btn-primary"
+          style={{ width: '100%', padding: 13, borderRadius: 11, fontSize: 14, fontWeight: 700, minHeight: 48, marginBottom: 8, opacity: state.busy['exportAll'] ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+        >
+          {state.busy['exportAll'] ? 'กำลังรวบรวมข้อมูล…' : '📦 ดาวน์โหลดรายงานทั้งหมด (.xlsx ไฟล์เดียว)'}
+        </button>
+        <div className="muted" style={{ fontSize: 11, textAlign: 'center', marginBottom: 10, lineHeight: 1.5 }}>
+          รวม stock aging · turnover · วิเคราะห์อัตโนมัติ · discrepancy log (ประวัติทั้งหมด) · รายชื่อยาทั้งฟอร์มูลารี่ · lot ปัจจุบัน — คนละ sheet ในไฟล์เดียว
+        </div>
+        <button onClick={exportReportCsv} className="btn-outline" style={{ width: '100%', padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44, marginBottom: 12 }}>
+          ↓ Export CSV เฉพาะแท็บนี้ — {REPORT_NAMES[state.reportTab]}
         </button>
 
         {state.reportTab === 'aging' && (

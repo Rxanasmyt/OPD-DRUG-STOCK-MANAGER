@@ -206,6 +206,7 @@ export interface AppCtx {
   // report
   setReportTab: (t: AppState['reportTab']) => void;
   exportReportCsv: () => void;
+  exportAllReports: () => void;
 
   // labels
   setLabelType: (t: AppState['labelType']) => void;
@@ -1324,6 +1325,73 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     else if (outcome === 'unavailable') toast('ดาวน์โหลดไฟล์ไม่ได้ในเบราว์เซอร์นี้');
   }, [state, toast, toastErr]);
 
+  // ดึงข้อมูลทั้งหมดของหน้ารายงาน "ในคลิกเดียว" — ก่อนหน้านี้ต้องสลับไปทีละแท็บ (aging/turn/
+  // insights/disc) แล้วกด export แยกกันทีละไฟล์ 4 รอบ กว่าจะได้ภาพรวมครบ ทั้งที่ผู้ใช้ (เภสัชกร
+  // เตรียมรายงาน PTC, ผู้ดูแลระบบดึงข้อมูลไปวิเคราะห์ต่อ) มักอยากได้ "ทุกอย่าง" พร้อมกันมากกว่าทีละ
+  // ส่วน — รวมทุกรายงานบวกยาทั้งฟอร์มูลารี่และ lot ปัจจุบันเป็นไฟล์ .xlsx เดียว คนละ sheet ต่อชุด
+  // ข้อมูล เปิดดูสลับ sheet ได้ทันทีใน Excel/Google Sheets โดยไม่ต้องเปิดหลายไฟล์ CSV
+  const exportAllReports = useCallback(guardOnce('exportAll', async () => {
+    toast('กำลังรวบรวมข้อมูลทั้งหมด…');
+    try {
+      const XLSX = await import('xlsx');
+      const st = state;
+      const activeMeds = st.meds.filter((m) => m.active);
+      const wb = XLSX.utils.book_new();
+      const addSheet = (name: string, rows: (string | number)[][]) => {
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name);
+      };
+
+      // 1) Stock aging (มูลค่ายาตามช่วงอายุคงเหลือ)
+      const bDef: [string, number, number][] = [['หมดอายุแล้ว', -99999, 0], ['เหลือ ≤ 30 วัน', 0, 30], ['31–90 วัน', 30, 90], ['91–180 วัน', 90, 180], ['มากกว่า 180 วัน', 180, 99999]];
+      addSheet('stock_aging', [['bucket', 'lots', 'value_thb'], ...bDef.map(([label, lo, hi]) => {
+        const ls = st.lots.filter((l) => l.qty > 0 && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
+        const val = ls.reduce((s, l) => s + l.qty * (st.meds.find((m) => m.id === l.medId)?.price || 0), 0);
+        return [label, ls.length, Math.round(val)];
+      })]);
+
+      // 2) Turnover
+      addSheet('turnover', [['medication', 'unit', 'on_hand', 'used_30d', 'days_on_hand'], ...activeMeds.map((m) => {
+        const oh = m.floor + subQty(st, m.id);
+        const doh = Math.round(oh / (m.used30 / 30));
+        return [m.name, m.unit, oh, m.used30, isFinite(doh) ? doh : ''];
+      })]);
+
+      // 3) Usage insights — anomalies + stockout forecast, same on-device computations as the
+      // "🧠 วิเคราะห์อัตโนมัติ" report tab (see selectors.ts — no external AI call involved).
+      const anomalies = usageAnomalies(activeMeds);
+      addSheet('usage_anomalies', [['medication', 'used_30d', 'used_prev_30d', 'change_pct', 'direction'],
+        ...anomalies.map((a) => [a.med.name, a.med.used30, a.med.usedPrev30, Math.round(a.changePct * 100), a.direction])]);
+      const stockout = activeMeds
+        .map((m) => ({ m, days: daysOfStockLeft(st, m) }))
+        .filter((x): x is { m: Med; days: number } => x.days !== null)
+        .sort((a, b) => a.days - b.days);
+      addSheet('stockout_forecast', [['medication', 'days_of_stock_left'], ...stockout.map((x) => [x.m.name, x.days])]);
+
+      // 4) Discrepancy log — full history, not the capped-300 live feed (same re-fetch
+      // exportReportCsv's own 'disc' branch already does, for the same compliance reason: a
+      // "ทั้งหมด" export can't silently drop everything before the live cache's cutoff).
+      const discTypes = ['adjust', 'return', 'damaged', 'expired', 'count', 'reconcile_hosxp'];
+      const discSnap = await withTimeout(getDocs(query(collection(db, 'txs'), orderBy('ts', 'desc'))));
+      const discRows = discSnap.docs
+        .map((d) => d.data() as { type: string; ts: number; name: string; qty: number; unit: string; loc?: string; reason?: string; note?: string; by: string })
+        .filter((x) => discTypes.indexOf(x.type) >= 0)
+        .map((x) => [isoDate(x.ts), x.name, x.type, x.qty, x.unit, x.loc || '', x.reason || '', x.note || '', x.by]);
+      addSheet('discrepancy_log', [['date', 'medication', 'type', 'qty', 'unit', 'location', 'reason', 'note', 'performed_by'], ...discRows]);
+
+      // 5) Full formulary master data + 6) current lots — the underlying data every report
+      // above is computed FROM, for anyone who wants to build their own pivot/analysis rather
+      // than rely on the pre-built sheets.
+      addSheet('meds_master', [['code', 'name', 'ward', 'unit', 'price', 'bin', 'bin_ipd', 'floor', 'par_floor', 'par_sub', 'substock', 'used_30d', 'high_alert', 'active'],
+        ...st.meds.map((m) => [m.code, m.name, wardOf(m), m.unit, m.price, m.bin, m.binIpd || '', m.floor, m.parFloor, m.parSub, subQty(st, m.id), m.used30, m.had ? 'Y' : 'N', m.active ? 'Y' : 'N'])]);
+      addSheet('lots', [['medication', 'lot_no', 'expiry', 'qty'],
+        ...st.lots.filter((l) => l.qty > 0).map((l) => [st.meds.find((m) => m.id === l.medId)?.name || l.medId, l.lotNo, isoDate(l.exp), l.qty])]);
+
+      const fname = 'รายงานทั้งหมด_' + isoDate(Date.now()) + '.xlsx';
+      XLSX.writeFile(wb, fname);
+      toast('ดาวน์โหลด ' + fname + ' แล้ว — รวมทุกรายงานเป็นไฟล์เดียว คนละ sheet');
+    } catch (e) { toastErr(e, 'รวบรวมรายงานไม่สำเร็จ ลองใหม่อีกครั้ง'); }
+  }), [state, toast, toastErr, guardOnce]);
+
   // ---------- labels ----------
   const setLabelType = useCallback((t: AppState['labelType']) => patch({ labelType: t }), [patch]);
   const printLabels = useCallback(() => {
@@ -2287,7 +2355,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
-    setReportTab, exportReportCsv,
+    setReportTab, exportReportCsv, exportAllReports,
     setLabelType, printLabels,
     applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId,
