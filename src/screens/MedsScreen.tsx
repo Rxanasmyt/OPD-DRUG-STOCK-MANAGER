@@ -168,17 +168,19 @@ export default function MedsScreen() {
       {shareAllCount > 0 && (
         <button
           onClick={shareAllMeds}
-          style={{ width: '100%', border: 0, background: 'var(--green)', color: '#fff', padding: '11px 14px', borderRadius: 11, fontSize: 12.5, fontWeight: 600, minHeight: 44, marginBottom: 8 }}
+          disabled={!!state.busy['shareAllMeds']}
+          style={{ width: '100%', border: 0, background: 'var(--green)', color: '#fff', padding: '11px 14px', borderRadius: 11, fontSize: 12.5, fontWeight: 600, minHeight: 44, marginBottom: 8, opacity: state.busy['shareAllMeds'] ? 0.7 : 1 }}
         >
-          🔗 ใช้ยาทั้งหมดร่วมกันทั้ง OPD/IPD เลย ({shareAllCount} รายการ)
+          {state.busy['shareAllMeds'] ? 'กำลังตั้งค่า…' : `🔗 ใช้ยาทั้งหมดร่วมกันทั้ง OPD/IPD เลย (${shareAllCount} รายการ)`}
         </button>
       )}
       {mergeablePairCount > 0 && (
         <button
           onClick={mergeAllWardPairs}
-          style={{ width: '100%', border: '1px solid var(--green)', background: 'transparent', color: 'var(--green)', padding: '11px 14px', borderRadius: 11, fontSize: 12.5, fontWeight: 600, minHeight: 44, marginBottom: 10 }}
+          disabled={!!state.busy['mergeAllWardPairs']}
+          style={{ width: '100%', border: '1px solid var(--green)', background: 'transparent', color: 'var(--green)', padding: '11px 14px', borderRadius: 11, fontSize: 12.5, fontWeight: 600, minHeight: 44, marginBottom: 10, opacity: state.busy['mergeAllWardPairs'] ? 0.7 : 1 }}
         >
-          🔗 รวมสต็อก OPD+IPD ที่แยกเป็นคนละรายการอยู่ ({mergeablePairCount} คู่)
+          {state.busy['mergeAllWardPairs'] ? 'กำลังรวมสต็อก…' : `🔗 รวมสต็อก OPD+IPD ที่แยกเป็นคนละรายการอยู่ (${mergeablePairCount} คู่)`}
         </button>
       )}
       <div style={{ display: 'flex', gap: 7, marginBottom: 10 }}>
@@ -190,9 +192,10 @@ export default function MedsScreen() {
       {filter === 'inactive' && meds.length > 0 && (
         <button
           onClick={() => deleteAllInactiveMeds(meds.map((m) => m.id))}
-          style={{ width: '100%', border: '1px solid var(--red)', background: 'var(--red-bg)', color: 'var(--red)', padding: '11px 14px', borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 46, marginBottom: 10 }}
+          disabled={!!state.busy['deleteAllInactiveMeds']}
+          style={{ width: '100%', border: '1px solid var(--red)', background: 'var(--red-bg)', color: 'var(--red)', padding: '11px 14px', borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 46, marginBottom: 10, opacity: state.busy['deleteAllInactiveMeds'] ? 0.7 : 1 }}
         >
-          ลบยาที่ปิดใช้งานและยอดเป็น 0 ทั้งหมดออกจากระบบถาวร ({meds.length} รายการ)
+          {state.busy['deleteAllInactiveMeds'] ? 'กำลังลบ…' : `ลบยาที่ปิดใช้งานและยอดเป็น 0 ทั้งหมดออกจากระบบถาวร (${meds.length} รายการ)`}
         </button>
       )}
 
@@ -268,6 +271,7 @@ export default function MedsScreen() {
                     sibling={isSharedMed(m) ? undefined : state.meds.find((x) => x.id !== m.id && x.active && x.name === m.name && wardOf(x) !== wardOf(m))}
                     onSiblingBinChange={(siblingId, val) => setMedBin(siblingId, val)}
                     onMerge={(siblingId) => mergeWardMeds(m.id, siblingId)}
+                    mergeBusy={!!state.busy['mergeWardMeds:' + m.id]}
                   />
                 </div>
               )}
@@ -284,7 +288,7 @@ export default function MedsScreen() {
 /** The one place every editable fact about a med lives — name+strength, dosage form, unit,
  * price, high-alert flag, shelf/bin, and both par levels — used both for "เพิ่มยาใหม่" (blank)
  * and a row's "แก้ไขข้อมูล" (pre-filled), so there's exactly one form to keep in sync. */
-function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, onSiblingBinChange, onMerge }: {
+function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, onSiblingBinChange, onMerge, mergeBusy }: {
   heading: string | null;
   initial: MedFormValues;
   submitLabel: string;
@@ -297,6 +301,10 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
   /** Folds `sibling`'s real stock into this med as one pooled OPD/IPD record — see
    * mergeWardMeds() in AppContext.tsx. Only offered when a sibling exists. */
   onMerge?: (siblingId: string) => void;
+  /** True while this exact pair's mergeWardMeds() Firestore batch is in flight — a real write,
+   * not instant, so the button shows "กำลังรวม…"/disables itself same as every other commit
+   * button in the app instead of looking inert on a slow connection. */
+  mergeBusy?: boolean;
 }) {
   const [v, setV] = useState<MedFormValues>(initial);
   const set = <K extends keyof MedFormValues>(k: K, val: MedFormValues[K]) => setV((s) => ({ ...s, [k]: val }));
@@ -376,9 +384,10 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
             <button
               type="button"
               onClick={() => onMerge(sibling.id)}
-              style={{ width: '100%', border: 0, background: 'var(--green)', color: '#fff', padding: '10px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600 }}
+              disabled={mergeBusy}
+              style={{ width: '100%', border: 0, background: 'var(--green)', color: '#fff', padding: '10px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, opacity: mergeBusy ? 0.7 : 1 }}
             >
-              รวมสต็อก OPD+IPD เป็นยอดเดียวกัน (มีถามยืนยันอีกครั้ง)
+              {mergeBusy ? 'กำลังรวมสต็อก…' : 'รวมสต็อก OPD+IPD เป็นยอดเดียวกัน (มีถามยืนยันอีกครั้ง)'}
             </button>
           )}
         </div>

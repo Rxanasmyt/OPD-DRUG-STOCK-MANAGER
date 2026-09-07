@@ -391,7 +391,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const busyKeys = useRef<Set<string>>(new Set());
   const guardOnce = useCallback(<A extends unknown[]>(key: string, fn: (...args: A) => Promise<void>) => {
     return async (...args: A) => {
-      const k = args.length ? key + ':' + String(args[0]) : key;
+      // Bug fix: the ':' + String(args[0]) suffix exists so per-item actions (scrapLot(lotId),
+      // commitCount(medId), approveReceive(id)) key on that one item and don't block unrelated
+      // items — but String() on anything that isn't already a primitive silently does the
+      // wrong thing instead of erroring. deleteAllInactiveMeds(medIds: string[]) is the real
+      // case this bit: args[0] is an ARRAY, and String(anArray) joins it with commas — a
+      // formulary-sized cleanup call turned into a single busyKeys/state.busy entry keyed on a
+      // multi-hundred-character comma-joined id list. Not a crash, but it defeated the whole
+      // point of a stable, referenceable key (no screen could show busy state for it) and
+      // bloated state.busy for no reason. Only a genuine scalar id (string/number) gets the
+      // per-item suffix now; anything else (an array, object, undefined) falls back to the
+      // plain action key, same as a zero-arg bulk action like mergeAllWardPairs/shareAllMeds.
+      const first = args[0];
+      const isScalarId = typeof first === 'string' || typeof first === 'number';
+      const k = isScalarId ? key + ':' + first : key;
       if (busyKeys.current.has(k)) return;
       busyKeys.current.add(k);
       // Bug fix: guardOnce already prevented a double-tap from running the same commit twice
