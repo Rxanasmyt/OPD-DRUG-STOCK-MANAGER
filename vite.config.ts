@@ -1,4 +1,6 @@
-import { defineConfig } from 'vite';
+// vitest/config re-exports vite's defineConfig with the `test` field's types merged in — a
+// plain `vite build`/`vite dev` never reads that field, so this has no effect outside `vitest`.
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
@@ -72,4 +74,12 @@ export default defineConfig({
       },
     }),
   ],
+  // Dev/CI-only — `test` is ignored by `vite build`, so this has zero effect on the deployed
+  // app. Added alongside a first real unit-test suite (src/**/*.test.ts) covering the pure
+  // stock-math functions this app has run entirely on trust so far: FEFO lot picking, par
+  // suggestion, usage-anomaly detection, days-of-stock-left, QR encode/parse round-tripping,
+  // and the HOSxP import parsers. None of these were ever covered by anything but manual
+  // testing + tsc — a real gap for logic this safety-critical (miscounting a controlled drug's
+  // stock is not a cosmetic bug) on an app that redeploys as often as this one does.
+  test: { environment: 'node' },
 });
