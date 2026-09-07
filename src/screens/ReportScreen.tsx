@@ -1,8 +1,10 @@
 import { useApp } from '../store/AppContext';
+import { useState } from 'react';
 import { subQty, daysUntil, usageAnomalies, daysOfStockLeft } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
 import type { ReportTab } from '../types';
 import { EmptyState } from '../components/EmptyState';
+import { SearchInput } from '../components/SearchInput';
 
 const TABS: [ReportTab, string][] = [['aging', 'Stock aging'], ['turn', 'Turnover'], ['insights', '🧠 วิเคราะห์อัตโนมัติ'], ['disc', 'Discrepancy log']];
 const REPORT_NAMES: Record<ReportTab, string> = { aging: 'stock_aging.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv' };
@@ -14,9 +16,19 @@ const AGING_BUCKETS: [string, number, number, string][] = [
   ['มากกว่า 180 วัน', 180, 99999, 'var(--green)'],
 ];
 const DISC_TYPES = ['adjust', 'return', 'damaged', 'expired', 'count', 'reconcile_hosxp'];
+const DISC_TYPE_LABEL: Record<string, string> = {
+  adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'หมดอายุ', count: 'นับสต็อก', reconcile_hosxp: 'นำเข้า HOSxP',
+};
 
 export default function ReportScreen() {
-  const { state, setReportTab, exportReportCsv } = useApp();
+  const { state, setReportTab, exportReportCsv, goSubstockCardFor } = useApp();
+  // Discrepancy log had no way to narrow it down — always the same fixed most-recent-30 slice
+  // of state.txs, with no type filter and no way to find one specific drug's history, unlike
+  // AdminScreen's audit log right next door which has both. Same underlying data (the live
+  // txs feed), same treatment now: a type filter and a name search, both client-side since
+  // state.txs is already the same capped-300 realtime cache AdminScreen reads from.
+  const [discFilter, setDiscFilter] = useState<string>('all');
+  const [discSearch, setDiscSearch] = useState('');
   // OPD/IPD ward tabs removed — reports always cover the whole formulary.
   const meds = state.meds.filter((m) => m.active);
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
@@ -44,10 +56,15 @@ export default function ReportScreen() {
       // the same green as a genuinely healthy days-on-hand, falsely reading as "plenty of
       // stock" for a metric that's actually undefined for this drug.
       const tone = !isFinite(doh) ? 'var(--muted)' : doh < 14 ? 'var(--red)' : doh > 120 ? 'var(--amber)' : 'var(--green)';
-      return { name: m.name, used: nf(m.used30), doh: isFinite(doh) ? nf(doh) : '—', tone };
+      return { id: m.id, name: m.name, used: nf(m.used30), doh: isFinite(doh) ? nf(doh) : '—', tone };
     });
 
-  const discRows = state.txs.filter((x) => DISC_TYPES.indexOf(x.type) >= 0).slice(0, 30);
+  const discQ = discSearch.trim().toLowerCase();
+  const discRows = state.txs
+    .filter((x) => DISC_TYPES.indexOf(x.type) >= 0)
+    .filter((x) => discFilter === 'all' || x.type === discFilter)
+    .filter((x) => !discQ || x.name.toLowerCase().indexOf(discQ) >= 0)
+    .slice(0, 60);
 
   // "🧠 วิเคราะห์อัตโนมัติ" — real numbers computed on-device from usage data already synced
   // (used30/usedPrev30 from recomputeUsageStats/commitUsageImport), not a call to any AI
@@ -122,11 +139,17 @@ export default function ReportScreen() {
               <span style={{ flex: 1 }}>รายการยา</span><span style={{ width: 64, textAlign: 'right', flex: 'none' }}>จ่าย 30 วัน</span><span style={{ width: 52, textAlign: 'right', flex: 'none' }}>วันคงคลัง</span>
             </div>
             {turnRows.map((t, i) => (
-              <div key={i} style={{ display: 'flex', padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', alignItems: 'center' }}>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 13 }}>{t.name}</span>
-                <span style={{ width: 64, textAlign: 'right', flex: 'none', fontSize: 13 }}>{t.used}</span>
+              <button
+                key={i}
+                onClick={() => goSubstockCardFor(t.id)}
+                className="row-interactive"
+                title="ดูบัตรสต็อกยานี้"
+                style={{ display: 'flex', width: '100%', border: 0, background: 'transparent', textAlign: 'left', padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', alignItems: 'center' }}
+              >
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--ink)' }}>{t.name}</span>
+                <span style={{ width: 64, textAlign: 'right', flex: 'none', fontSize: 13, color: 'var(--ink)' }}>{t.used}</span>
                 <span style={{ width: 52, textAlign: 'right', flex: 'none', fontSize: 13, fontWeight: 600, color: t.tone }}>{t.doh}</span>
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -145,9 +168,15 @@ export default function ReportScreen() {
             </div>
             <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 16 }}>
               {anomalies.slice(0, 20).map((a, i) => (
-                <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)' }}>
+                <button
+                  key={i}
+                  onClick={() => goSubstockCardFor(a.med.id)}
+                  className="row-interactive"
+                  title="ดูบัตรสต็อกยานี้"
+                  style={{ display: 'block', width: '100%', border: 0, background: 'transparent', textAlign: 'left', padding: '10px 13px', borderBottom: '1px solid var(--border-soft)' }}
+                >
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, minWidth: 0 }}>{a.med.name}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, minWidth: 0, color: 'var(--ink)' }}>{a.med.name}</span>
                     <span style={{ fontSize: 13, fontWeight: 700, color: a.direction === 'up' ? 'var(--red)' : 'var(--amber-ink)', flex: 'none' }}>
                       {a.direction === 'up' ? '📈 +' : '📉 '}{Math.round(a.changePct * 100)}%
                     </span>
@@ -156,7 +185,7 @@ export default function ReportScreen() {
                     30 วันล่าสุด {nf(a.med.used30)} {a.med.unit} · ก่อนหน้า {nf(a.med.usedPrev30)} {a.med.unit}
                     {a.direction === 'up' ? ' — ลองพิจารณาปรับ par ขึ้นก่อนของจะไม่พอ' : ' — par ปัจจุบันอาจสูงเกินความจำเป็นแล้ว'}
                   </div>
-                </div>
+                </button>
               ))}
               {anomalies.length === 0 && (
                 <EmptyState icon="📊" title="ไม่พบการใช้ยาที่ผิดปกติ" sub="อัตราการใช้ 30 วันล่าสุดของทุกรายการยังใกล้เคียงกับช่วงก่อนหน้า" />
@@ -169,10 +198,16 @@ export default function ReportScreen() {
             </div>
             <div className="card stagger" style={{ overflow: 'hidden' }}>
               {stockoutRows.map(({ m, days }, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', alignItems: 'center' }}>
-                  <span style={{ fontSize: 13, minWidth: 0 }}>{m.name}</span>
+                <button
+                  key={i}
+                  onClick={() => goSubstockCardFor(m.id)}
+                  className="row-interactive"
+                  title="ดูบัตรสต็อกยานี้"
+                  style={{ display: 'flex', width: '100%', border: 0, background: 'transparent', textAlign: 'left', justifyContent: 'space-between', gap: 10, padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', alignItems: 'center' }}
+                >
+                  <span style={{ fontSize: 13, minWidth: 0, color: 'var(--ink)' }}>{m.name}</span>
                   <span style={{ fontSize: 13, fontWeight: 700, color: days <= 7 ? 'var(--red)' : 'var(--amber-ink)', flex: 'none' }}>~{days} วัน</span>
-                </div>
+                </button>
               ))}
               {stockoutRows.length === 0 && (
                 <EmptyState icon="✅" title="ไม่มีรายการที่จะหมดใน 21 วันข้างหน้า" sub="คำนวณจากอัตราการใช้ปัจจุบันกับยอดคงเหลือรวม (หน้างาน + substock)" />
@@ -182,19 +217,35 @@ export default function ReportScreen() {
         )}
 
         {state.reportTab === 'disc' && (
-          <div className="card stagger" style={{ overflow: 'hidden' }}>
-            {discRows.map((x) => (
-              <div key={x.id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-                  <span style={{ fontSize: 13.5, fontWeight: 600, minWidth: 0 }}>{x.name}</span>
-                  <span style={{ fontSize: 13.5, fontWeight: 700, color: x.qty < 0 ? 'var(--red)' : 'var(--green)', flex: 'none' }}>{(x.qty > 0 ? '+' : '') + nf(x.qty) + ' ' + x.unit}</span>
-                </div>
-                <div className="muted" style={{ fontSize: 11.5, marginTop: 3, lineHeight: 1.45 }}>{thDate(x.ts)} · {x.by} · {x.loc === 'floor' ? 'หน้างาน' : 'substock'}</div>
-                <div style={{ fontSize: 12, marginTop: 3 }}>เหตุผล: {(x.reason || '—') + (x.note && x.note !== '—' ? ' — ' + x.note : '')}</div>
-              </div>
-            ))}
-            {discRows.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ยังไม่มีรายการ</div>}
-          </div>
+          <>
+            <SearchInput value={discSearch} onChange={setDiscSearch} placeholder="ค้นหาชื่อยาในประวัตินี้" style={{ marginBottom: 9 }} />
+            <div style={{ display: 'flex', gap: 7, marginBottom: 11, overflowX: 'auto', paddingBottom: 2 }}>
+              <button className="chip" style={chip(discFilter === 'all')} onClick={() => setDiscFilter('all')}>ทั้งหมด</button>
+              {DISC_TYPES.map((t) => (
+                <button key={t} className="chip" style={chip(discFilter === t)} onClick={() => setDiscFilter(t)}>{DISC_TYPE_LABEL[t]}</button>
+              ))}
+            </div>
+            <div className="card stagger" style={{ overflow: 'hidden' }}>
+              {discRows.map((x) => {
+                const Row: 'button' | 'div' = x.medId ? 'button' : 'div';
+                return (
+                  <Row
+                    key={x.id}
+                    {...(x.medId ? { onClick: () => goSubstockCardFor(x.medId!), className: 'row-interactive', title: 'ดูบัตรสต็อกยานี้' } : {})}
+                    style={{ display: 'block', width: '100%', border: 0, background: 'transparent', textAlign: 'left', padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                      <span style={{ fontSize: 13.5, fontWeight: 600, minWidth: 0, color: 'var(--ink)' }}>{x.name}</span>
+                      <span style={{ fontSize: 13.5, fontWeight: 700, color: x.qty < 0 ? 'var(--red)' : 'var(--green)', flex: 'none' }}>{(x.qty > 0 ? '+' : '') + nf(x.qty) + ' ' + x.unit}</span>
+                    </div>
+                    <div className="muted" style={{ fontSize: 11.5, marginTop: 3, lineHeight: 1.45 }}>{thDate(x.ts)} · {x.by} · {x.loc === 'floor' ? 'หน้างาน' : 'substock'}</div>
+                    <div style={{ fontSize: 12, marginTop: 3, color: 'var(--ink)' }}>เหตุผล: {(x.reason || '—') + (x.note && x.note !== '—' ? ' — ' + x.note : '')}</div>
+                  </Row>
+                );
+              })}
+              {discRows.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ไม่พบรายการที่ตรงกับตัวกรอง</div>}
+            </div>
+          </>
         )}
       </div>
     </div>
