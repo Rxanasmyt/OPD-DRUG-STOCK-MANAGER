@@ -152,7 +152,7 @@ export default function SubstockCardScreen() {
 
       {!medId && (
         <>
-          <SearchInput value={search} onChange={setSearch} placeholder="ค้นหาชื่อยา" />
+          <SearchInput value={search} onChange={setSearch} placeholder="ค้นหาชื่อยา" onEnter={options.length === 1 ? () => openCard(options[0].id) : undefined} />
           {options.length > 0 && (
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 280, overflowY: 'auto', marginTop: 9 }}>
               {options.map((m) => (

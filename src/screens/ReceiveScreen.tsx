@@ -137,7 +137,13 @@ export default function ReceiveScreen() {
         <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 2 }}>เพิ่มรายการ</div>
         <div className="muted" style={{ fontSize: 11.5, marginBottom: 9 }}>สแกน QR ที่ติดหน้ายาใน substock เพื่อระบุตัวยาอัตโนมัติ หรือค้นหาด้วยชื่อ</div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          <SearchInput value={state.recvSearch} onChange={setRecvSearch} placeholder="ค้นหา / สแกนชื่อยา" style={{ flex: 1, minWidth: 0 }} />
+          <SearchInput
+            value={state.recvSearch}
+            onChange={setRecvSearch}
+            placeholder="ค้นหา / สแกนชื่อยา"
+            style={{ flex: 1, minWidth: 0 }}
+            onEnter={options.length === 1 ? () => pickRecvMed(options[0].id) : undefined}
+          />
           <button onClick={() => openScanSearch('receive')} title="สแกน QR รับเข้า substock" style={{ border: '1px solid var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', borderRadius: 10, width: 46, minHeight: 44, fontSize: 17, flex: 'none' }}>▣</button>
         </div>
 

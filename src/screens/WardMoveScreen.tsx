@@ -108,7 +108,7 @@ function PickerCard({ label, med, search, onSearch, options, onPick }: {
         </div>
       ) : (
         <>
-          <SearchInput value={search} onChange={onSearch} placeholder="ค้นหาชื่อยา" />
+          <SearchInput value={search} onChange={onSearch} placeholder="ค้นหาชื่อยา" onEnter={options.length === 1 ? () => onPick(options[0].id) : undefined} />
           {options.length > 0 && (
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 158, overflowY: 'auto', marginTop: 8 }}>
               {options.map((m) => (

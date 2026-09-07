@@ -7,9 +7,16 @@ import type { CSSProperties } from 'react';
  * same input+clear-button markup seven times, so the behavior (and any future tweak to it)
  * stays identical everywhere rather than drifting screen by screen. Wrapper `style` controls
  * layout (flex/minWidth/margin) the way the bare <input> used to; the input itself always
- * fills it and only reserves right-padding for the ✕ once there's something to clear. */
+ * fills it and only reserves right-padding for the ✕ once there's something to clear.
+ *
+ * `onEnter` (optional): every picker screen (รับยาเข้า, ปรับยอด, ย้ายชั้นวาง, บัตรสต็อกยา)
+ * already narrows to a dropdown of name matches as you type, but still made you reach over and
+ * tap the one result even when your typing had already narrowed it to exactly one — a real tax
+ * on the fast-typing/barcode-gun-into-a-text-field case this screen sees a lot. Callers pass a
+ * pick action gated to "exactly one match" so ↵ commits it, same as it always could on a native
+ * <select>; typing that still matches several/zero does nothing, so it never mis-picks. */
 export function SearchInput({
-  value, onChange, placeholder, style, inputStyle, autoFocus,
+  value, onChange, placeholder, style, inputStyle, autoFocus, onEnter,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -17,12 +24,14 @@ export function SearchInput({
   style?: CSSProperties;
   inputStyle?: CSSProperties;
   autoFocus?: boolean;
+  onEnter?: () => void;
 }) {
   return (
     <div style={{ position: 'relative', ...style }}>
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={onEnter ? (e) => { if (e.key === 'Enter') { e.preventDefault(); onEnter(); } } : undefined}
         placeholder={placeholder}
         autoFocus={autoFocus}
         style={{

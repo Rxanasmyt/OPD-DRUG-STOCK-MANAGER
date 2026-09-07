@@ -83,7 +83,13 @@ export default function AdjustScreen() {
           <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 9 }}>
             {state.adjType === 'adjust' ? 'ปรับยอดตามที่นับได้' : state.adjType === 'return' ? 'รับคืนยาเข้าหน้างาน' : 'ตัดยาเสีย / ชำรุด'}
           </div>
-          <SearchInput value={state.adjSearch} onChange={setAdjSearch} placeholder="ค้นหาชื่อยา" style={{ marginBottom: 9 }} />
+          <SearchInput
+            value={state.adjSearch}
+            onChange={setAdjSearch}
+            placeholder="ค้นหาชื่อยา"
+            style={{ marginBottom: 9 }}
+            onEnter={options.length === 1 ? () => pickAdjMed(options[0].id) : undefined}
+          />
 
           {options.length > 0 && (
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 158, overflowY: 'auto', marginBottom: 9 }}>
