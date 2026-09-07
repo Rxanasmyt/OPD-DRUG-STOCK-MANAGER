@@ -33,7 +33,9 @@ export function StepIndicator({ steps, current }: { steps: string[]; current: nu
                   transition: 'background var(--dur) var(--ease), box-shadow var(--dur) var(--ease)',
                 }}
               >
-                {done ? '✓' : i + 1}
+                <span key={done ? 'done' : 'pending'} style={{ display: 'inline-block', animation: done ? 'checkPop .4s var(--ease-out) both' : undefined }}>
+                  {done ? '✓' : i + 1}
+                </span>
               </div>
               <span
                 className={active ? undefined : 'muted'}

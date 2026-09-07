@@ -163,6 +163,10 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 @keyframes navSlideFwd { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: none; } }
 @keyframes navSlideBack { from { opacity: 0; transform: translateX(-18px); } to { opacity: 1; transform: none; } }
 
+/* A live-synced quantity (<Qty> — หน้างาน/substock figures fed by onSnapshot) just changed,
+   most likely from someone else's action on another device — see Qty.tsx's own doc comment. */
+@keyframes qtyPulse { 0% { transform: scale(1); } 40% { transform: scale(1.22); } 100% { transform: scale(1); } }
+
 /* Direction-aware screen transition (see App.tsx's navDir) — "เข้าลึกขึ้น" (a new screen pushed
    on, e.g. tapping a nav tab or drilling into a detail) slides in from the right like most
    mobile app navigation; "ย้อนกลับ" (back()) slides in from the left, so backing out reads as

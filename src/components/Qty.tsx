@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { nf } from '../utils/format';
 
 /**
@@ -5,11 +6,36 @@ import { nf } from '../utils/format';
  * from across the counter — the whole point of the "เห็นชัดเจนว่าเหลือยาเท่าไร" request. Used
  * anywhere a stock figure (หน้างาน, substock) appears next to its label, instead of every
  * screen inlining its own ad-hoc `<span>` with inconsistent weight/size.
+ *
+ * Every one of these is fed by a live Firestore onSnapshot — the whole point of this app being
+ * real-time across devices — but nothing ever showed that a number had actually just changed
+ * because of that: a pharmacist at the counter and a tech in the substock room both watching
+ * the same drug's card would see the figure silently morph mid-glance with zero indication
+ * "that just moved, someone else did something." A brief scale-pop on a genuine value change
+ * (never on first mount, and never a false trigger from an unrelated realtime update to some
+ * other field of the same doc — see the effect's own guard) makes a real-time update actually
+ * register as one, instead of reading identically to the number just happening to be that.
  */
 export function Qty({ value, unit, tone, size = 13 }: { value: number; unit?: string; tone?: string; size?: number }) {
+  const prevRef = useRef(value);
+  const [pulsing, setPulsing] = useState(false);
+  useEffect(() => {
+    if (prevRef.current === value) return;
+    prevRef.current = value;
+    setPulsing(true);
+    const t = window.setTimeout(() => setPulsing(false), 550);
+    return () => window.clearTimeout(t);
+  }, [value]);
   return (
     <>
-      <span style={{ fontWeight: 800, color: tone || 'inherit', fontSize: size }}>{nf(value)}</span>
+      <span
+        style={{
+          fontWeight: 800, color: tone || 'inherit', fontSize: size, display: 'inline-block',
+          animation: pulsing ? 'qtyPulse .55s var(--ease-spring)' : undefined,
+        }}
+      >
+        {nf(value)}
+      </span>
       {unit && <span className="muted" style={{ fontSize: size - 1.5 }}> {unit}</span>}
     </>
   );
