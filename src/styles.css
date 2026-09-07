@@ -129,6 +129,14 @@ input:focus, textarea:focus, select:focus {
 }
 input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; }
 
+/* Bug fix (contrast): LoginScreen's fields sit on the same green gradient/mesh background as
+   the rest of that screen — the app-wide green focus ring above all but disappears against it,
+   the one place in the app where "green means focused" doesn't actually stand out. A pale,
+   near-white ring reads clearly against that green backdrop instead (and still against the
+   dark-mode variant of --login-bg, which is a deep green-black, not just the light one). Class
+   selector's specificity beats the tag-selector rule above even with both !important. */
+.login-field:focus { border-color: rgba(255, 255, 255, .55) !important; box-shadow: 0 0 0 3px rgba(255, 255, 255, .16) !important; }
+
 button {
   cursor: pointer;
   transition:

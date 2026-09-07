@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { useApp } from '../store/AppContext';
 
 const FEATURES: [string, string, string][] = [
-  ['◈', 'ควบคุมสิทธิ์ตามบทบาท', 'Admin · เภสัชกร · ผู้ช่วยเภสัชกร — แต่ละบทบาทเห็น/แก้ได้ต่างกันจริง'],
-  ['◍', 'Audit log ทุกการทำรายการ', 'ล็อกอิน ปรับยอด อนุมัติ — ย้อนดูได้เสมอว่าใครทำอะไรเมื่อไร'],
-  ['◔', 'แจ้งเตือนยาใกล้หมดอายุ', 'ตั้งจำนวนวันแจ้งเตือนล่วงหน้าได้ในหน้าตั้งค่า'],
+  ['🛡️', 'ควบคุมสิทธิ์ตามบทบาท', 'Admin · เภสัชกร · ผู้ช่วยเภสัชกร — แต่ละบทบาทเห็น/แก้ได้ต่างกันจริง'],
+  ['📜', 'Audit log ทุกการทำรายการ', 'ล็อกอิน ปรับยอด อนุมัติ — ย้อนดูได้เสมอว่าใครทำอะไรเมื่อไร'],
+  ['⏰', 'แจ้งเตือนยาใกล้หมดอายุ', 'ตั้งจำนวนวันแจ้งเตือนล่วงหน้าได้ในหน้าตั้งค่า'],
 ];
 
 export default function LoginScreen() {
@@ -63,8 +63,8 @@ export default function LoginScreen() {
           the extra width on a tablet just gives the card more breathing room, not a second
           column, since a split layout only makes sense wider than this app is ever opened). */}
       <div style={{ position: 'relative', padding: 'calc(env(safe-area-inset-top, 0px) + 22px) 26px 4px', maxWidth: 440, margin: '0 auto', width: '100%' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 22, animation: 'fade .4s var(--ease-out) both' }}>
-          <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(255,255,255,.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, flex: 'none', animation: 'glowPulse 3.2s infinite' }}>💊</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 22, animation: 'fade .4s var(--ease-out) both' }}>
+          <div style={{ width: 46, height: 46, borderRadius: 14, background: 'linear-gradient(140deg, rgba(255,255,255,.28), rgba(255,255,255,.08))', border: '1px solid rgba(255,255,255,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 21, flex: 'none', animation: 'glowPulse 3.2s infinite', boxShadow: '0 6px 18px -6px rgba(0,0,0,.35)' }}>💊</div>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-soft)', lineHeight: 1.3 }}>KPNHOS-DRUG SUBSTOCK-OPD-IPD-MANAGEMENT</div>
             <div style={{ fontSize: 11.5, color: 'rgba(242,245,239,.65)', marginTop: 2 }}>รพ.กรงปินัง · ห้องยา OPD-IPD</div>
@@ -73,9 +73,14 @@ export default function LoginScreen() {
       </div>
 
       <div style={{ position: 'relative', maxWidth: 440, margin: '0 auto', width: '100%', padding: '0 20px calc(env(safe-area-inset-bottom, 0px) + 28px)' }}>
-        <div style={{ background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.14)', borderRadius: 20, padding: 24, animation: 'fade .4s var(--ease-out) both', animationDelay: '60ms', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ position: 'relative', overflow: 'hidden', background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.14)', borderRadius: 22, padding: 24, animation: 'fade .4s var(--ease-out) both', animationDelay: '60ms', boxShadow: 'var(--shadow-lg)' }}>
+          {/* A thin, slowly-shifting two-tone highlight along the top edge — the same "this
+              surface is genuinely alive, not a static screenshot" cue the rest of the app's
+              premium chrome (mesh-bg, glowPulse) already uses, scaled down to a hairline so it
+              reads as ambient polish, not a distraction from the actual form underneath. */}
+          <div aria-hidden="true" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg, transparent, rgba(255,255,255,.65), transparent)', backgroundSize: '200% 100%', animation: 'aiGradientShift 4.5s ease-in-out infinite' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-            <div style={{ width: 38, height: 38, borderRadius: 11, background: 'var(--ink-soft)', color: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17 }}>🔒</div>
+            <div style={{ width: 38, height: 38, borderRadius: 11, background: 'linear-gradient(140deg, var(--ink-soft), #d8e6dc)', color: 'var(--green-dark)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, boxShadow: '0 4px 12px -4px rgba(0,0,0,.3)' }}>🔒</div>
             <div style={{ fontSize: 19, fontWeight: 700, color: 'var(--ink-soft)' }}>{isRegister ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}</div>
           </div>
           <div style={{ fontSize: 12.5, color: 'rgba(242,245,239,.65)', marginBottom: 20 }}>
@@ -94,11 +99,11 @@ export default function LoginScreen() {
           >
             {isRegister && (
               <>
-                <Field icon="◉" label="ชื่อ-สกุล" value={state.authName} onChange={setAuthName} placeholder="เช่น ภญ.นูรฮายาตี ส." autoComplete="name" />
-                <Field icon="▤" label="แผนก" value={state.authDept} onChange={setAuthDept} placeholder="เภสัชกรรม" />
+                <Field icon="👤" label="ชื่อ-สกุล" value={state.authName} onChange={setAuthName} placeholder="เช่น ภญ.นูรฮายาตี ส." autoComplete="name" />
+                <Field icon="🏥" label="แผนก" value={state.authDept} onChange={setAuthDept} placeholder="เภสัชกรรม" />
               </>
             )}
-            <Field icon="◎" label="ชื่อผู้ใช้ / Username" value={state.authUsername} onChange={(v) => setAuthUsername(v.toLowerCase())} autoComplete="username" />
+            <Field icon="🪪" label="ชื่อผู้ใช้ / Username" value={state.authUsername} onChange={(v) => setAuthUsername(v.toLowerCase())} autoComplete="username" />
             {isRegister && <div style={{ fontSize: 11, opacity: 0.55, margin: '-4px 0 0' }}>ตัวอักษรอังกฤษเล็ก ตัวเลข . หรือ _ เท่านั้น (3-20 ตัว)</div>}
             <PasswordField value={state.authPassword} onChange={setAuthPassword} placeholder={isRegister ? 'อย่างน้อย 6 ตัวอักษร' : '••••••••'} autoComplete={isRegister ? 'new-password' : 'current-password'} />
 
@@ -118,10 +123,17 @@ export default function LoginScreen() {
             <button
               type="submit"
               disabled={state.authBusy}
-              className="login-btn"
-              style={{ border: 0, background: 'var(--ink-soft)', color: 'var(--ink)', padding: '15px 18px', borderRadius: 12, fontSize: 15, fontWeight: 600, marginTop: 4, minHeight: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+              className="login-btn press-spring"
+              style={{ border: 0, background: 'var(--ink-soft)', color: 'var(--ink)', padding: '15px 18px', borderRadius: 13, fontSize: 15, fontWeight: 700, marginTop: 4, minHeight: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 10px 26px -10px rgba(0,0,0,.4)' }}
             >
-              {state.authBusy ? 'กำลังดำเนินการ…' : (isRegister ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ') + ' →'}
+              {state.authBusy ? (
+                'กำลังดำเนินการ…'
+              ) : (
+                <>
+                  {isRegister ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}
+                  <span className="login-arrow" aria-hidden="true">→</span>
+                </>
+              )}
             </button>
           </form>
 
@@ -165,6 +177,7 @@ function Field({ icon, label, value, onChange, type = 'text', placeholder, autoC
           placeholder={placeholder}
           autoComplete={autoComplete}
           required
+          className="login-field"
           style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: '13px 14px 13px 36px', fontSize: 14.5, minHeight: 46 }}
         />
       </div>
@@ -178,7 +191,7 @@ function PasswordField({ value, onChange, placeholder, autoComplete }: { value: 
     <label style={{ display: 'block' }}>
       <span style={{ display: 'block', fontSize: 11.5, opacity: 0.7, marginBottom: 4, fontWeight: 600 }}>รหัสผ่าน</span>
       <div style={{ position: 'relative' }}>
-        <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', fontSize: 14, opacity: 0.55, pointerEvents: 'none' }}>◈</span>
+        <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', fontSize: 14, opacity: 0.55, pointerEvents: 'none' }}>🔑</span>
         <input
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -186,15 +199,17 @@ function PasswordField({ value, onChange, placeholder, autoComplete }: { value: 
           placeholder={placeholder}
           autoComplete={autoComplete}
           required
+          className="login-field"
           style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: '13px 40px 13px 36px', fontSize: 14.5, minHeight: 46 }}
         />
         <button
           type="button"
           onClick={() => setShow((s) => !s)}
           aria-label={show ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
-          style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 0, background: 'transparent', color: 'var(--ink-soft)', opacity: 0.65, width: 32, height: 32, borderRadius: 8, fontSize: 14 }}
+          className="press-spring"
+          style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 0, background: 'transparent', color: 'var(--ink-soft)', opacity: 0.75, width: 32, height: 32, borderRadius: 8, fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         >
-          {show ? '◡' : '◉'}
+          {show ? '🙈' : '👁️'}
         </button>
       </div>
     </label>
