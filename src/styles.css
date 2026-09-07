@@ -206,10 +206,19 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
   .app-shell { max-width: 900px; }
 }
 
+/* App-wide "elevated card" — every screen's list/section container uses this one class, so
+   this single definition is what actually delivers "ปรับ UI ใหม่ให้หมด" (redesign the whole
+   UI) everywhere at once rather than one screen at a time. Same shift HomeScreen's dashboard
+   redesign made locally (v2.94.0) — a flat 1px border reads as a plain box; a soft shadow +
+   hairline border reads as a surface actually sitting above the page. Border kept (very faint,
+   var(--border-soft) not var(--border)) rather than dropped entirely — pure shadow-only cards
+   can disappear on some displays/screenshots where the shadow doesn't render with enough
+   contrast; the hairline is a safety net, not the primary definition anymore. */
 .card {
   background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  box-shadow: var(--shadow-xs);
   transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease-out);
 }
 
@@ -221,11 +230,14 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
   padding: 7px 12px;
   cursor: pointer;
 }
-.btn { border: 0; border-radius: 12px; font-weight: 600; cursor: pointer; }
+.btn { border: 0; border-radius: 14px; font-weight: 600; cursor: pointer; }
 .btn-primary { background: var(--green); color: var(--ink-soft); box-shadow: var(--shadow-sm); }
 .btn-primary:not(:disabled):hover { box-shadow: 0 8px 20px -8px rgba(var(--green-rgb), .55); }
 .btn-primary:not(:disabled):active { transform: scale(.95); transition: transform .08s var(--ease-spring); }
-.btn-outline { background: #fff; border: 1px solid var(--green); color: var(--green); }
+/* Bug fix: literal #fff here stayed a bright white button inside an otherwise dark UI whenever
+   dark mode was on — every other surface in the app themes off var(--bg-card) exactly so this
+   doesn't happen; this one rule slipped through. */
+.btn-outline { background: var(--bg-card); border: 1px solid var(--green); color: var(--green); box-shadow: var(--shadow-xs); }
 .muted { color: var(--muted); }
 
 .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; }
