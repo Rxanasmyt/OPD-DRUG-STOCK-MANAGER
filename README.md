@@ -47,6 +47,17 @@ npm run build
 npm run preview
 ```
 
+## Test
+
+```bash
+npm test        # unit tests (vitest) — src/**/*.test.ts, covers the pure stock-math functions
+npm run lint     # type-check only (tsc --noEmit), no build output
+```
+
+`.github/workflows/ci.yml` runs both automatically on every push/PR to any branch — a pure gate,
+never deploys anything. `.github/workflows/deploy-pages.yml` is the separate workflow that
+actually builds + publishes to GitHub Pages, and only runs on pushes to `main`.
+
 ## โครงสร้าง
 
 - `src/firebase.ts` — เริ่มต้น Firebase app/Auth/Firestore

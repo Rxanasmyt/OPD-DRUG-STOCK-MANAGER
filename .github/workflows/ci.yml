@@ -1,0 +1,26 @@
+name: CI
+
+# Type-checks and runs the unit test suite (see src/**/*.test.ts, added in v2.87.0) on every
+# push and pull request against any branch — deploy-pages.yml only ever builds+deploys pushes
+# to `main`, so before this workflow existed nothing validated a change on a feature branch or
+# a PR until someone manually ran tsc/tests locally (or it silently landed broken). Deliberately
+# does NOT deploy anything — this is a pure gate, kept separate from deploy-pages.yml so a red
+# CI run here can never accidentally publish a broken build.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  typecheck-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test

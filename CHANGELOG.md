@@ -7,6 +7,20 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [2.88.0] - 2026-09-06
+
+### Added
+- **feat (CI/CD):** เพิ่ม `.github/workflows/ci.yml` — รัน type-check (`tsc --noEmit`) และชุด
+  unit test ที่เพิ่งเพิ่มไป (v2.87.0) อัตโนมัติทุกครั้งที่ push หรือเปิด pull request บน branch
+  ไหนก็ตาม เดิม workflow เดียวที่มีคือ `deploy-pages.yml` ซึ่ง build+deploy จริงเฉพาะตอน push เข้า
+  `main` เท่านั้น — งานทั้งหมดที่ทำบน feature branch (เหมือนที่ทำอยู่ตอนนี้ทั้ง session) ไม่เคยผ่าน
+  การตรวจสอบอัตโนมัติเลยจนกว่าจะรัน `tsc`/`test` เองบนเครื่อง หรือ merge เข้า main ไปแล้ว workflow
+  ใหม่นี้เป็น gate ล้วนๆ แยกจาก deploy-pages.yml เจตนา — ไม่ deploy อะไรทั้งนั้น กัน CI แดงไม่ให้
+  พลาดไป publish ของเสีย
+- **docs:** README เพิ่มหัวข้อ "Test" อธิบายคำสั่ง `npm test`/`npm run lint` และอธิบายว่า workflow
+  ไหนทำหน้าที่อะไร (`ci.yml` ตรวจสอบ vs `deploy-pages.yml` deploy จริง) — ป้องกันคนมาดูทีหลังสับสน
+  ว่าทำไมมี 2 workflow
+
 ## [2.87.0] - 2026-09-06
 
 ### Added
