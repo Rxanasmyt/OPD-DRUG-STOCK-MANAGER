@@ -114,6 +114,7 @@ export default function App() {
           className="theme-toggle press-spring"
           style={{ position: 'relative' }}
           title={theme === 'dark' ? 'สลับเป็นโหมดสว่าง' : 'สลับเป็นโหมดมืด'}
+          aria-label={theme === 'dark' ? 'สลับเป็นโหมดสว่าง' : 'สลับเป็นโหมดมืด'}
         >
           <span key={theme} className="icon" style={{ transform: theme === 'dark' ? 'rotate(0deg)' : 'rotate(180deg)' }}>{theme === 'dark' ? '☾' : '☀'}</span>
         </button>

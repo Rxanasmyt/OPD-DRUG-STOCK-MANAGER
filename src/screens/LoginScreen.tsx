@@ -19,6 +19,7 @@ export default function LoginScreen() {
       className="theme-toggle press-spring"
       style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', right: 20, zIndex: 2 }}
       title={theme === 'dark' ? 'สลับเป็นโหมดสว่าง' : 'สลับเป็นโหมดมืด'}
+      aria-label={theme === 'dark' ? 'สลับเป็นโหมดสว่าง' : 'สลับเป็นโหมดมืด'}
     >
       <span key={theme} className="icon">{theme === 'dark' ? '☾' : '☀'}</span>
     </button>

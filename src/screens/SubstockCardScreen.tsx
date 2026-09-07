@@ -209,6 +209,7 @@ export default function SubstockCardScreen() {
                   onClick={printCard}
                   disabled={!viewRows}
                   title="พิมพ์บัตรสต็อก"
+                  aria-label="พิมพ์บัตรสต็อก"
                   className="press-spring"
                   style={{ flex: 1, width: 54, border: '1px solid var(--border)', background: 'var(--bg-card)', color: viewRows ? 'var(--ink)' : 'var(--muted)', borderRadius: 10, fontSize: 19 }}
                 >
@@ -218,6 +219,7 @@ export default function SubstockCardScreen() {
                   onClick={exportCard}
                   disabled={!viewRows}
                   title="ดาวน์โหลดเป็น CSV"
+                  aria-label="ดาวน์โหลดเป็น CSV"
                   className="press-spring"
                   style={{ flex: 1, width: 54, border: '1px solid var(--border)', background: 'var(--bg-card)', color: viewRows ? 'var(--ink)' : 'var(--muted)', borderRadius: 10, fontSize: 17 }}
                 >

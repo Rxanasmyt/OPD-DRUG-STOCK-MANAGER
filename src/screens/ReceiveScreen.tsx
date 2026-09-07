@@ -144,7 +144,7 @@ export default function ReceiveScreen() {
             style={{ flex: 1, minWidth: 0 }}
             onEnter={options.length === 1 ? () => pickRecvMed(options[0].id) : undefined}
           />
-          <button onClick={() => openScanSearch('receive')} title="สแกน QR รับเข้า substock" style={{ border: '1px solid var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', borderRadius: 10, width: 46, minHeight: 44, fontSize: 17, flex: 'none' }}>▣</button>
+          <button onClick={() => openScanSearch('receive')} title="สแกน QR รับเข้า substock" aria-label="สแกน QR รับเข้า substock" style={{ border: '1px solid var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', borderRadius: 10, width: 46, minHeight: 44, fontSize: 17, flex: 'none' }}>▣</button>
         </div>
 
         {options.length > 0 && (

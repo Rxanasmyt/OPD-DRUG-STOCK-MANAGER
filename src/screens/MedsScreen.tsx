@@ -144,7 +144,7 @@ export default function MedsScreen() {
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
         <button onClick={() => { setAddOpen((v) => !v); setEditingId(null); }} className="btn-primary" style={{ flex: 1, padding: 13, borderRadius: 11, fontSize: 14, fontWeight: 600, minHeight: 48 }}>+ เพิ่มยาใหม่</button>
-        <button onClick={() => openScanSearch('viewMed')} className="btn-outline" style={{ flex: 'none', padding: '13px 16px', borderRadius: 11, fontSize: 17, minHeight: 48 }} title="สแกน QR ดูข้อมูลยา">▣</button>
+        <button onClick={() => openScanSearch('viewMed')} className="btn-outline" style={{ flex: 'none', padding: '13px 16px', borderRadius: 11, fontSize: 17, minHeight: 48 }} title="สแกน QR ดูข้อมูลยา" aria-label="สแกน QR ดูข้อมูลยา">▣</button>
       </div>
 
       {addOpen && (

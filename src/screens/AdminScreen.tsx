@@ -112,7 +112,7 @@ export default function AdminScreen() {
                         const active = u.role === r;
                         return <button key={r} onClick={() => setUserRole(u.id, r)} style={{ flex: 1, border: active ? '1px solid ' + ROLE_COLOR[r] : '1px solid var(--border)', background: active ? ROLE_BG[r] : 'var(--bg-card)', color: active ? ROLE_COLOR[r] : 'var(--ink)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 38 }}>{roleLabelOf(r)}</button>;
                       })}
-                      <button onClick={() => toggleUserActive(u.id)} title="ปิดใช้งานบัญชี" style={{ flex: 'none', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--red)', width: 38, height: 38, borderRadius: 9, fontSize: 15 }}>⏻</button>
+                      <button onClick={() => toggleUserActive(u.id)} title="ปิดใช้งานบัญชี" aria-label={'ปิดใช้งานบัญชี ' + u.name} style={{ flex: 'none', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--red)', width: 38, height: 38, borderRadius: 9, fontSize: 15 }}>⏻</button>
                     </div>
                   </div>
                 );
