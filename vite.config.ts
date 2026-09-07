@@ -8,6 +8,27 @@ const base = process.env.GITHUB_PAGES ? '/OPD-DRUG-STOCK-MANAGER/' : '/';
 
 export default defineConfig({
   base,
+  build: {
+    rollupOptions: {
+      output: {
+        // Bug-adjacent fix (performance): every single deploy this app ships (and it ships
+        // often — see CHANGELOG.md) used to force every returning device to re-download the
+        // ENTIRE ~1.1MB main bundle, because react/react-dom/firebase (which almost never
+        // change version-to-version) were bundled into the same one file as the app code that
+        // changes on every deploy. Splitting stable, rarely-changing vendor code into its own
+        // chunk(s) means a browser that already cached them from a previous visit only needs
+        // to fetch the actual app-code chunk on the next deploy — real bandwidth/time saved on
+        // a PWA opened repeatedly on the same ward wifi that prompted the "ไม่ให้รีโหลดแอพใหม่"
+        // stability work earlier. react-dom is intentionally split from qr/firebase since it's
+        // the least likely of the three to change together with app updates.
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
+          'vendor-qr': ['qrcode', 'jsqr'],
+        },
+      },
+    },
+  },
   plugins: [
     react(),
     VitePWA({
