@@ -48,7 +48,7 @@ export default defineConfig({
         short_name: 'KPNHOS Substock',
         description: 'KPNHOS-DRUG SUBSTOCK-OPD-IPD-MANAGEMENT — ระบบจัดการสต็อกยา OPD/IPD รพ.กรงปินัง — เติมหน้างานแบบ FEFO, รับเข้า substock, ปรับยอด, นำเข้า HOSxP, รายงาน และฉลาก QR',
         lang: 'th',
-        theme_color: '#17552f',
+        theme_color: '#0e8c82',
         background_color: '#f7f6f2',
         display: 'standalone',
         orientation: 'portrait',

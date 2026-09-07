@@ -100,7 +100,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <header style={{ background: 'linear-gradient(155deg, #1c6338 0%, var(--green) 55%, var(--green-dark) 100%)', color: 'var(--ink-soft)', padding: 'calc(env(safe-area-inset-top, 0px) + 12px) 16px 13px', display: 'flex', alignItems: 'center', gap: 10, flex: 'none', boxShadow: '0 4px 14px -6px rgba(14,58,32,.5)', position: 'relative', overflow: 'hidden', zIndex: 3 }}>
+      <header style={{ background: 'linear-gradient(155deg, #149c8f 0%, var(--green) 55%, var(--green-dark) 100%)', color: 'var(--ink-soft)', padding: 'calc(env(safe-area-inset-top, 0px) + 12px) 16px 13px', display: 'flex', alignItems: 'center', gap: 10, flex: 'none', boxShadow: '0 4px 14px -6px rgba(10,96,89,.5)', position: 'relative', overflow: 'hidden', zIndex: 3 }}>
         <div className="mesh-bg" aria-hidden="true" />
         {canBack && (
           <button onClick={back} style={{ position: 'relative', border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 32, height: 32, borderRadius: 9, fontSize: 16, flex: 'none' }}>←</button>

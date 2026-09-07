@@ -4,11 +4,21 @@
   --bg-card: #fff;
   --bg-subtle: #f2f3ee;
   --border-strong: #cfd1c8;
-  --green: #17552f;
-  --green-dark: #0e3a20;
-  --green-bright: #2fae63;
-  --green-tint: #eef3ee;
-  --green-rgb: 23, 85, 47;
+  /* Retheme to รพ.กรงปินัง's real hospital mark — a teal double-swoosh crest with a coral
+     accent stroke and a small teal four-petal cross. Kept the SAME variable names (--green*)
+     everywhere rather than renaming to --teal* across the whole app: every screen already
+     reads var(--green)/var(--green-dark)/etc. for its primary brand color, so swapping just the
+     VALUES here re-themes the entire app in one place with zero risk of missing a spot a
+     rename sweep could have missed. --brand-coral is new — the logo's one non-teal color,
+     used sparingly as a genuine accent (mesh backdrop, login highlight) rather than a second
+     primary, matching how the logo itself uses it (one accent stroke, not half the mark). */
+  --green: #0e8c82;
+  --green-dark: #0a6059;
+  --green-bright: #2fc4b4;
+  --green-tint: #e7f5f3;
+  --green-rgb: 14, 140, 130;
+  --brand-coral: #ef8f68;
+  --brand-coral-rgb: 239, 143, 104;
   --ink: #12211a;
   --ink-soft: #f2f5ef;
   --muted: #6b7269;
@@ -46,7 +56,7 @@
   --shadow-lg: 0 20px 48px -16px rgba(18, 33, 26, .32);
   --shadow-glow: 0 0 0 1px rgba(var(--green-rgb), .12), 0 8px 24px -8px rgba(var(--green-rgb), .35);
 
-  --login-bg: radial-gradient(120% 100% at 14% -10%, #1f6b3a 0%, var(--green) 46%, var(--green-dark) 100%);
+  --login-bg: radial-gradient(120% 100% at 14% -10%, #1aa89c 0%, var(--green) 46%, var(--green-dark) 100%);
   --glass-bg: rgba(255, 255, 255, .88);
   --sticky-glass: rgba(247, 246, 242, .82);
 }
@@ -61,11 +71,13 @@
   --bg-card: #17231c;
   --bg-subtle: #1e2b23;
   --border-strong: #35473c;
-  --green: #3ecb78;
-  --green-dark: #2fae63;
-  --green-bright: #5adc8c;
-  --green-tint: rgba(62, 203, 120, .14);
-  --green-rgb: 62, 203, 120;
+  --green: #3edbc9;
+  --green-dark: #2fae9c;
+  --green-bright: #64ebd9;
+  --green-tint: rgba(62, 219, 201, .14);
+  --green-rgb: 62, 219, 201;
+  --brand-coral: #f4a181;
+  --brand-coral-rgb: 244, 161, 129;
   --ink: #eef3ee;
   --ink-soft: #0e1a13;
   --muted: #8fa197;
@@ -91,7 +103,7 @@
   --shadow-lg: 0 24px 56px -16px rgba(0, 0, 0, .7);
   --shadow-glow: 0 0 0 1px rgba(var(--green-rgb), .25), 0 8px 28px -6px rgba(var(--green-rgb), .4);
 
-  --login-bg: radial-gradient(120% 100% at 14% -10%, #1a3d26 0%, #10241a 46%, #08130d 100%);
+  --login-bg: radial-gradient(120% 100% at 14% -10%, #123832 0%, #0c211d 46%, #050f0d 100%);
   --glass-bg: rgba(23, 35, 28, .82);
   --sticky-glass: rgba(16, 26, 20, .82);
 
@@ -373,8 +385,10 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
   content: ''; position: absolute; width: 140%; height: 140%; border-radius: 50%;
   filter: blur(40px); opacity: .55; animation: meshDrift 14s ease-in-out infinite;
 }
-.mesh-bg::before { top: -60%; left: -30%; background: radial-gradient(circle, rgba(90,220,140,.5), transparent 60%); }
-.mesh-bg::after { bottom: -70%; right: -30%; background: radial-gradient(circle, rgba(20,120,70,.55), transparent 60%); animation-delay: -7s; }
+/* Same two-tone language the real hospital crest uses — teal dominant, one coral accent, not
+   two competing greens. */
+.mesh-bg::before { top: -60%; left: -30%; background: radial-gradient(circle, rgba(45,196,180,.5), transparent 60%); }
+.mesh-bg::after { bottom: -70%; right: -30%; background: radial-gradient(circle, rgba(var(--brand-coral-rgb),.4), transparent 60%); animation-delay: -7s; }
 
 .theme-toggle {
   position: relative; flex: none; width: 40px; height: 40px; border-radius: 12px; border: 0;
