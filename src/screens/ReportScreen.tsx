@@ -119,7 +119,7 @@ export default function ReportScreen() {
         <div className="muted" style={{ fontSize: 11, textAlign: 'center', marginBottom: 10, lineHeight: 1.5 }}>
           รวมทุกอย่างในแอพเป็นไฟล์เดียว คนละ sheet: รายงานสำเร็จรูปทั้ง 4 ชุด · ธุรกรรมทุกประเภททั้งหมด
           (ไม่ใช่แค่ discrepancy) · audit log เต็ม · ใบรับที่รออนุมัติ · รายชื่อผู้ใช้ (เฉพาะ Admin) ·
-          ยาทั้งฟอร์มูลารี่ · lot ปัจจุบัน
+          ยาทั้งฟอร์มูลารี่ครบทุกฟิลด์ · lot ทุก lot ที่เคยรับเข้า (รวมที่หมด/ตัดออกแล้ว) · ค่าตั้งค่าระบบ
         </div>
         <button onClick={exportReportCsv} className="btn-outline" style={{ width: '100%', padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44, marginBottom: 12 }}>
           ↓ Export CSV เฉพาะแท็บนี้ — {REPORT_NAMES[state.reportTab]}

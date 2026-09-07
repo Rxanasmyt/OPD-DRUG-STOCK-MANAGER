@@ -1420,13 +1420,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ...st.users.map((u) => [u.username, u.name, u.dept, u.role, u.active ? 'Y' : 'N', new Date(u.createdAt).toISOString(), u.lastLogin ? new Date(u.lastLogin).toISOString() : ''])]);
       }
 
-      // 8) Full formulary master data + 9) current lots — the underlying data every report
-      // above is computed FROM, for anyone who wants to build their own pivot/analysis rather
-      // than rely on the pre-built sheets.
-      addSheet('meds_master', [['code', 'name', 'ward', 'unit', 'price', 'bin', 'bin_ipd', 'floor', 'par_floor', 'par_sub', 'substock', 'used_30d', 'high_alert', 'active'],
-        ...st.meds.map((m) => [m.code, m.name, wardOf(m), m.unit, m.price, m.bin, m.binIpd || '', m.floor, m.parFloor, m.parSub, subQty(st, m.id), m.used30, m.had ? 'Y' : 'N', m.active ? 'Y' : 'N'])]);
-      addSheet('lots', [['medication', 'lot_no', 'expiry', 'qty'],
-        ...st.lots.filter((l) => l.qty > 0).map((l) => [st.meds.find((m) => m.id === l.medId)?.name || l.medId, l.lotNo, isoDate(l.exp), l.qty])]);
+      // 8) Full formulary master data — every field on Med, not just the subset the pre-built
+      // reports happen to need, so this sheet alone is a complete point-in-time dump of the
+      // whole formulary (dosage form, min/max par, noSubstock/shared flags, volatility — the
+      // par-suggestion multiplier — and last period's usage for a real week-over-week
+      // comparison, not just this period's used_30d).
+      addSheet('meds_master', [
+        ['code', 'name', 'dosage_form', 'ward', 'unit', 'price', 'bin', 'bin_ipd', 'shared',
+         'floor', 'floor_min', 'par_floor', 'par_sub', 'substock', 'used_30d', 'used_prev_30d',
+         'volatility', 'no_substock', 'high_alert', 'active'],
+        ...st.meds.map((m) => [
+          m.code, m.name, m.dosageForm, wardOf(m), m.unit, m.price, m.bin, m.binIpd || '', isSharedMed(m) ? 'Y' : 'N',
+          m.floor, floorMinOf(m), m.parFloor, m.parSub, subQty(st, m.id), m.used30, m.usedPrev30,
+          m.volatility, m.noSubstock ? 'Y' : 'N', m.had ? 'Y' : 'N', m.active ? 'Y' : 'N',
+        ]),
+      ]);
+
+      // 9) EVERY lot ever received, not just the ones still holding stock — scrapLot()/a fully-
+      // transferred-out lot sets qty to 0 rather than deleting the doc (see scrapLot's own
+      // comment), so a qty>0 filter here would silently drop real historical records (when a
+      // lot arrived, what it was scrapped for) from a sheet whose whole point is "everything".
+      addSheet('lots', [['medication', 'lot_no', 'expiry', 'qty_remaining', 'status'],
+        ...st.lots
+          .slice()
+          .sort((a, b) => a.exp - b.exp)
+          .map((l) => [st.meds.find((m) => m.id === l.medId)?.name || l.medId, l.lotNo, isoDate(l.exp), l.qty, l.qty > 0 ? 'คงเหลือ' : 'หมด/ตัดออกแล้ว'])]);
+
+      // 10) Global settings (หน้าตั้งค่า → เกณฑ์แจ้งเตือน/par อัตโนมัติ) — real, saved app
+      // configuration (see the meta/settings Firestore doc this app writes via
+      // updateGlobalSettings), never included in any export before this.
+      addSheet('settings', [
+        ['setting', 'value'],
+        ['expiry_warn_days', st.expiryWarnDays],
+        ['par_floor_cover_days', st.parFloorCoverDays],
+        ['par_sub_cover_days', st.parSubCoverDays],
+      ]);
 
       const fname = 'ข้อมูลทั้งหมด_' + isoDate(Date.now()) + '.xlsx';
       XLSX.writeFile(wb, fname);
