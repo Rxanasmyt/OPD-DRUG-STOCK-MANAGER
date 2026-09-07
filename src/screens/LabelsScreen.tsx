@@ -59,6 +59,14 @@ export default function LabelsScreen() {
           <button key={t} className="chip" style={{ ...chip(state.labelType === t), flex: 1, textAlign: 'center', minHeight: 42 }} onClick={() => setLabelType(t)}>{label}</button>
         ))}
       </div>
+      {/* Bug-adjacent fix: the preview below always caps at 8 cards (rendering all 585+ QR
+          codes live would be needless work for a page whose only real job is "does this look
+          right before I print"), but nothing ever said so — a busy formulary made it read as
+          "the app only made 8 labels", when the print button underneath already prints every
+          one. Only shown once there's actually a gap between what's previewed and what prints. */}
+      {labelCount > rows.length && (
+        <div className="muted" style={{ fontSize: 11, marginBottom: 9 }}>แสดงตัวอย่าง {rows.length} จาก {labelCount} รายการ — ปุ่มพิมพ์ด้านล่างพิมพ์ครบทุกรายการ</div>
+      )}
       {state.labelType === 'med' ? (
         <div className="stagger" style={{ marginBottom: 14 }}>
           {rows.map((r, i) => (

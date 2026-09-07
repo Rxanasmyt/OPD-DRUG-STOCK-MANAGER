@@ -4,7 +4,7 @@ import versionRaw from '../../VERSION?raw';
 
 const APP_VERSION = versionRaw.trim();
 
-interface MenuItem { icon: string; label: string; sub: string; screen: Screen }
+interface MenuItem { icon: string; label: string; sub: string; screen: Screen; badge?: number }
 interface MenuGroup { title: string; items: MenuItem[] }
 
 /**
@@ -18,6 +18,10 @@ interface MenuGroup { title: string; items: MenuItem[] }
 export default function MoreScreen() {
   const { state, go, userName, roleLabel, logout } = useApp();
   const canEditPar = state.role !== 'tech';
+  // Same count the bottom nav's "เพิ่มเติม" tab badges now (see App.tsx) — repeated right on
+  // the row itself so it still reads clearly once someone's actually inside this screen and
+  // the nav's own badge is out of view.
+  const pendingUsers = state.users.filter((u) => !u.active).length;
 
   const groups: MenuGroup[] = [
     {
@@ -45,7 +49,7 @@ export default function MoreScreen() {
     },
     ...(state.role === 'admin' ? [{
       title: 'ผู้ดูแลระบบ',
-      items: [{ icon: '🛡️', label: 'จัดการผู้ใช้ & Audit log', sub: 'ควบคุมบัญชีผู้ใช้ ตามรอยทุกธุรกรรมในระบบ', screen: 'admin' as Screen }],
+      items: [{ icon: '🛡️', label: 'จัดการผู้ใช้ & Audit log', sub: 'ควบคุมบัญชีผู้ใช้ ตามรอยทุกธุรกรรมในระบบ', screen: 'admin' as Screen, badge: pendingUsers }],
     }] : []),
   ];
 
@@ -59,7 +63,12 @@ export default function MoreScreen() {
               <button key={m.label} onClick={() => go(m.screen)} className="row-interactive" style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '13px 13px', minHeight: 58, display: 'flex', alignItems: 'center', gap: 12 }}>
                 <span style={{ flex: 'none', width: 34, height: 34, borderRadius: 10, background: 'var(--green-tint)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>{m.icon}</span>
                 <span style={{ minWidth: 0, flex: 1 }}>
-                  <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{m.label}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <span style={{ fontSize: 14, fontWeight: 600 }}>{m.label}</span>
+                    {!!m.badge && (
+                      <span style={{ flex: 'none', minWidth: 17, height: 17, padding: '0 4px', borderRadius: 9, background: 'var(--amber)', color: '#1a1a1a', fontSize: 10.5, fontWeight: 800, lineHeight: '17px', textAlign: 'center' }}>{m.badge}</span>
+                    )}
+                  </span>
                   <span className="muted" style={{ display: 'block', fontSize: 11, marginTop: 1, lineHeight: 1.35 }}>{m.sub}</span>
                 </span>
                 <span className="row-arrow" style={{ color: 'var(--green)', fontSize: 16, flex: 'none' }}>→</span>

@@ -154,7 +154,14 @@ export default function App() {
           // A pending receive is real, actionable work sitting on someone's desk — pharm/admin
           // need to notice it without hunting for it, so badge the "รับเข้า" tab with a live
           // count from the same subscription the receive screen's own list uses.
-          const badge = s === 'receive' && state.role !== 'tech' ? state.pending : 0;
+          // Same reasoning for a pending user account: it sits inside "เพิ่มเติม" → "จัดการ
+          // ผู้ใช้ & Audit log", two taps deep, with nothing on the way in hinting it's there —
+          // an admin only found out by opening that screen speculatively. state.users is only
+          // ever subscribed for role === 'admin' (see AppContext.tsx), so this is naturally 0
+          // for every other role without needing its own guard here.
+          const badge = s === 'receive' && state.role !== 'tech' ? state.pending
+            : s === 'more' ? state.users.filter((u) => !u.active).length
+            : 0;
           return (
             <button
               key={s}
