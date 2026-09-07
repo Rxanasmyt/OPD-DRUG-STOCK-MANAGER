@@ -1380,13 +1380,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addSheet('stockout_forecast', [['medication', 'days_of_stock_left'], ...stockout.map((x) => [x.m.name, x.days])]);
 
       // 4) Every transaction ever logged (receive/transfer/ward-move/adjust/return/damaged/
-      // expired/count/reconcile — the FULL txs collection), fetched fresh once rather than the
-      // capped-300 live feed, so nothing before that cutoff silently goes missing from a "ทั้ง
-      // หมด" export. Both this sheet AND the older 'discrepancy_log' subset (adjust/return/
-      // damaged/expired/count/reconcile only — what a PTC report actually wants, without
-      // routine receive/transfer noise) come from this single fetch, not two separate queries.
-      toast('กำลังดึงประวัติธุรกรรมทั้งหมด…');
-      const txSnap = await withTimeout(getDocs(query(collection(db, 'txs'), orderBy('ts', 'desc'))));
+      // expired/count/reconcile — the FULL txs collection) + 5) the full audit log (login/
+      // สมัครสมาชิก/อนุมัติบัญชี/แก้ไขข้อมูลยา ฯลฯ, which never shows up in txs at all) — both
+      // fetched fresh rather than the capped-300 live feeds, so nothing before that cutoff
+      // silently goes missing from a "ทั้งหมด" export. Bug fix (speed): these two independent
+      // collections used to fetch one after the other (await, then await again) — two full
+      // round trips back-to-back for no reason, since neither query depends on the other's
+      // result. Promise.all runs them concurrently instead, same pattern exportAudit() already
+      // uses for the same two collections — the whole export finishes in however long the
+      // SLOWER of the two queries takes, not both added together.
+      toast('กำลังดึงประวัติธุรกรรมและ audit log ทั้งหมด…');
+      const [txSnap, auditSnap] = await withTimeout(Promise.all([
+        getDocs(query(collection(db, 'txs'), orderBy('ts', 'desc'))),
+        getDocs(query(collection(db, 'auditLog'), orderBy('ts', 'desc'))),
+      ]));
       const txDocs = txSnap.docs.map((d) => d.data() as {
         type: string; ts: number; name: string; qty: number; unit: string; loc?: string;
         reason?: string; note?: string; by: string; from?: string; to?: string;
@@ -1397,12 +1404,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           .map((x) => [isoDate(x.ts), x.name, x.type, x.qty, x.unit, x.loc || '', x.reason || '', x.note || '', x.by])]);
       addSheet('all_transactions', [['date_time', 'type', 'type_label', 'medication', 'qty', 'unit', 'from', 'to', 'location', 'reason', 'note', 'performed_by'],
         ...txDocs.map((x) => [new Date(x.ts).toISOString(), x.type, EVENT_TYPE_LABEL[x.type] || x.type, x.name, x.qty, x.unit, x.from || '', x.to || '', x.loc || '', x.reason || '', x.note || '', x.by])]);
-
-      // 5) Full audit log — login/สมัครสมาชิก/อนุมัติบัญชี/เปลี่ยนบทบาท/แก้ไขข้อมูลยา ฯลฯ — the
-      // account-and-config-change trail that never shows up in txs at all, same full re-fetch
-      // reasoning as above (live authLog feed is also capped at 300).
-      toast('กำลังดึง audit log ทั้งหมด…');
-      const auditSnap = await withTimeout(getDocs(query(collection(db, 'auditLog'), orderBy('ts', 'desc'))));
       addSheet('audit_log', [['date_time', 'type', 'type_label', 'by', 'note'],
         ...auditSnap.docs.map((d) => d.data() as { type: string; by: string; ts: number; note: string })
           .map((x) => [new Date(x.ts).toISOString(), x.type, EVENT_TYPE_LABEL[x.type] || x.type, x.by, x.note])]);
