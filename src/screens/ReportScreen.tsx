@@ -114,10 +114,12 @@ export default function ReportScreen() {
           className="btn-primary"
           style={{ width: '100%', padding: 13, borderRadius: 11, fontSize: 14, fontWeight: 700, minHeight: 48, marginBottom: 8, opacity: state.busy['exportAll'] ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
         >
-          {state.busy['exportAll'] ? 'กำลังรวบรวมข้อมูล…' : '📦 ดาวน์โหลดรายงานทั้งหมด (.xlsx ไฟล์เดียว)'}
+          {state.busy['exportAll'] ? 'กำลังรวบรวมข้อมูล…' : '📦 ดาวน์โหลดข้อมูลทั้งหมด (.xlsx ไฟล์เดียว)'}
         </button>
         <div className="muted" style={{ fontSize: 11, textAlign: 'center', marginBottom: 10, lineHeight: 1.5 }}>
-          รวม stock aging · turnover · วิเคราะห์อัตโนมัติ · discrepancy log (ประวัติทั้งหมด) · รายชื่อยาทั้งฟอร์มูลารี่ · lot ปัจจุบัน — คนละ sheet ในไฟล์เดียว
+          รวมทุกอย่างในแอพเป็นไฟล์เดียว คนละ sheet: รายงานสำเร็จรูปทั้ง 4 ชุด · ธุรกรรมทุกประเภททั้งหมด
+          (ไม่ใช่แค่ discrepancy) · audit log เต็ม · ใบรับที่รออนุมัติ · รายชื่อผู้ใช้ (เฉพาะ Admin) ·
+          ยาทั้งฟอร์มูลารี่ · lot ปัจจุบัน
         </div>
         <button onClick={exportReportCsv} className="btn-outline" style={{ width: '100%', padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44, marginBottom: 12 }}>
           ↓ Export CSV เฉพาะแท็บนี้ — {REPORT_NAMES[state.reportTab]}

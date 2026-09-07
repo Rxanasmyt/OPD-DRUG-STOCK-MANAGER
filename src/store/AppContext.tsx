@@ -64,6 +64,18 @@ function normBin(v: string): string {
   return v.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
 }
 
+// Thai label for every TxType/AuditType this app ever logs — shared by exportAudit() and
+// exportAllReports() (both need to turn a raw type string into something a person reading a
+// spreadsheet actually understands) so a newly added type only ever needs a label added once,
+// in one place. Module-scope (not per-render state) since it's a pure constant.
+const EVENT_TYPE_LABEL: Record<string, string> = {
+  login: 'เข้าสู่ระบบ', user_registered: 'สมัครสมาชิก', user_approved: 'อนุมัติบัญชี', user_role_changed: 'เปลี่ยนบทบาท', user_status_changed: 'เปิด/ปิดบัญชี', par_updated: 'ปรับ par level', qr_manual: 'กรอกรหัส QR ด้วยมือ',
+  med_added: 'เพิ่มยาใหม่', med_edited: 'แก้ไขข้อมูลยา', med_status_changed: 'เปิด/ปิดใช้งานยา', med_deleted: 'ลบยาถาวร',
+  receive_from_central: 'รับเข้า substock', receive_pending: 'รับเข้า (รออนุมัติ)', receive_rejected: 'ปฏิเสธคำขอรับเข้า', transfer_to_floor: 'เติมหน้างาน',
+  adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP',
+  ward_move_out: 'ย้ายชั้นวาง (ต้นทาง)', ward_move_in: 'ย้ายชั้นวาง (ปลายทาง)',
+};
+
 function freshState(): AppState {
   return {
     meds: [], lots: [], txs: [], users: [], authLog: [], dbReady: false,
@@ -1325,11 +1337,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     else if (outcome === 'unavailable') toast('ดาวน์โหลดไฟล์ไม่ได้ในเบราว์เซอร์นี้');
   }, [state, toast, toastErr]);
 
-  // ดึงข้อมูลทั้งหมดของหน้ารายงาน "ในคลิกเดียว" — ก่อนหน้านี้ต้องสลับไปทีละแท็บ (aging/turn/
-  // insights/disc) แล้วกด export แยกกันทีละไฟล์ 4 รอบ กว่าจะได้ภาพรวมครบ ทั้งที่ผู้ใช้ (เภสัชกร
-  // เตรียมรายงาน PTC, ผู้ดูแลระบบดึงข้อมูลไปวิเคราะห์ต่อ) มักอยากได้ "ทุกอย่าง" พร้อมกันมากกว่าทีละ
-  // ส่วน — รวมทุกรายงานบวกยาทั้งฟอร์มูลารี่และ lot ปัจจุบันเป็นไฟล์ .xlsx เดียว คนละ sheet ต่อชุด
-  // ข้อมูล เปิดดูสลับ sheet ได้ทันทีใน Excel/Google Sheets โดยไม่ต้องเปิดหลายไฟล์ CSV
+  // "ดึงข้อมูลได้ทุกอย่างที่เกี่ยวข้องกับข้อมูลในแอพ" — ก่อนหน้านี้ (v2.89.0) รวมแค่รายงานสำเร็จรูป
+  // 4 ชุด + master data ยา/lot; รอบนี้ขยายให้ครบทุกคอลเลกชันจริงใน Firestore ที่แอพนี้เก็บ ไม่ใช่แค่
+  // ส่วนที่มีหน้าจอ "รายงาน" ให้ดูอยู่แล้ว — ธุรกรรมทุกประเภท (ไม่ใช่แค่ discrepancy), audit log
+  // เต็ม (login/อนุมัติบัญชี/แก้ไขยา ฯลฯ), รายชื่อผู้ใช้ (เฉพาะ Admin ที่มีสิทธิ์เห็นอยู่แล้ว), และ
+  // ใบรับที่รออนุมัติ — เป็นไฟล์ .xlsx เดียว คนละ sheet ต่อชุดข้อมูล ไม่ต้องเปิดหลายไฟล์
   const exportAllReports = useCallback(guardOnce('exportAll', async () => {
     toast('กำลังรวบรวมข้อมูลทั้งหมด…');
     try {
@@ -1367,18 +1379,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .sort((a, b) => a.days - b.days);
       addSheet('stockout_forecast', [['medication', 'days_of_stock_left'], ...stockout.map((x) => [x.m.name, x.days])]);
 
-      // 4) Discrepancy log — full history, not the capped-300 live feed (same re-fetch
-      // exportReportCsv's own 'disc' branch already does, for the same compliance reason: a
-      // "ทั้งหมด" export can't silently drop everything before the live cache's cutoff).
+      // 4) Every transaction ever logged (receive/transfer/ward-move/adjust/return/damaged/
+      // expired/count/reconcile — the FULL txs collection), fetched fresh once rather than the
+      // capped-300 live feed, so nothing before that cutoff silently goes missing from a "ทั้ง
+      // หมด" export. Both this sheet AND the older 'discrepancy_log' subset (adjust/return/
+      // damaged/expired/count/reconcile only — what a PTC report actually wants, without
+      // routine receive/transfer noise) come from this single fetch, not two separate queries.
+      toast('กำลังดึงประวัติธุรกรรมทั้งหมด…');
+      const txSnap = await withTimeout(getDocs(query(collection(db, 'txs'), orderBy('ts', 'desc'))));
+      const txDocs = txSnap.docs.map((d) => d.data() as {
+        type: string; ts: number; name: string; qty: number; unit: string; loc?: string;
+        reason?: string; note?: string; by: string; from?: string; to?: string;
+      });
       const discTypes = ['adjust', 'return', 'damaged', 'expired', 'count', 'reconcile_hosxp'];
-      const discSnap = await withTimeout(getDocs(query(collection(db, 'txs'), orderBy('ts', 'desc'))));
-      const discRows = discSnap.docs
-        .map((d) => d.data() as { type: string; ts: number; name: string; qty: number; unit: string; loc?: string; reason?: string; note?: string; by: string })
-        .filter((x) => discTypes.indexOf(x.type) >= 0)
-        .map((x) => [isoDate(x.ts), x.name, x.type, x.qty, x.unit, x.loc || '', x.reason || '', x.note || '', x.by]);
-      addSheet('discrepancy_log', [['date', 'medication', 'type', 'qty', 'unit', 'location', 'reason', 'note', 'performed_by'], ...discRows]);
+      addSheet('discrepancy_log', [['date', 'medication', 'type', 'qty', 'unit', 'location', 'reason', 'note', 'performed_by'],
+        ...txDocs.filter((x) => discTypes.indexOf(x.type) >= 0)
+          .map((x) => [isoDate(x.ts), x.name, x.type, x.qty, x.unit, x.loc || '', x.reason || '', x.note || '', x.by])]);
+      addSheet('all_transactions', [['date_time', 'type', 'type_label', 'medication', 'qty', 'unit', 'from', 'to', 'location', 'reason', 'note', 'performed_by'],
+        ...txDocs.map((x) => [new Date(x.ts).toISOString(), x.type, EVENT_TYPE_LABEL[x.type] || x.type, x.name, x.qty, x.unit, x.from || '', x.to || '', x.loc || '', x.reason || '', x.note || '', x.by])]);
 
-      // 5) Full formulary master data + 6) current lots — the underlying data every report
+      // 5) Full audit log — login/สมัครสมาชิก/อนุมัติบัญชี/เปลี่ยนบทบาท/แก้ไขข้อมูลยา ฯลฯ — the
+      // account-and-config-change trail that never shows up in txs at all, same full re-fetch
+      // reasoning as above (live authLog feed is also capped at 300).
+      toast('กำลังดึง audit log ทั้งหมด…');
+      const auditSnap = await withTimeout(getDocs(query(collection(db, 'auditLog'), orderBy('ts', 'desc'))));
+      addSheet('audit_log', [['date_time', 'type', 'type_label', 'by', 'note'],
+        ...auditSnap.docs.map((d) => d.data() as { type: string; by: string; ts: number; note: string })
+          .map((x) => [new Date(x.ts).toISOString(), x.type, EVENT_TYPE_LABEL[x.type] || x.type, x.by, x.note])]);
+
+      // 6) Pending receives — ใบรับที่ยังรออนุมัติ ณ ตอนนี้ (already live-synced for every role
+      // that can see the receive screen, no extra fetch needed).
+      addSheet('pending_receives', [['status', 'recv_no', 'medication', 'lot_no', 'expiry', 'qty', 'unit', 'requested_by', 'requested_at'],
+        ...st.pendingReceives.map((r) => [r.status, r.recvNo, r.name, r.lotNo, isoDate(r.exp), r.qty, r.unit, r.requestedBy, new Date(r.ts).toISOString()])]);
+
+      // 7) User accounts — Admin only, same restriction the live subscription itself already
+      // enforces (state.users is only ever populated for role === 'admin' — see the live-data
+      // effect above), so this sheet comes out simply empty for every other role, no extra guard.
+      if (st.users.length) {
+        addSheet('users', [['username', 'name', 'dept', 'role', 'active', 'created_at', 'last_login'],
+          ...st.users.map((u) => [u.username, u.name, u.dept, u.role, u.active ? 'Y' : 'N', new Date(u.createdAt).toISOString(), u.lastLogin ? new Date(u.lastLogin).toISOString() : ''])]);
+      }
+
+      // 8) Full formulary master data + 9) current lots — the underlying data every report
       // above is computed FROM, for anyone who wants to build their own pivot/analysis rather
       // than rely on the pre-built sheets.
       addSheet('meds_master', [['code', 'name', 'ward', 'unit', 'price', 'bin', 'bin_ipd', 'floor', 'par_floor', 'par_sub', 'substock', 'used_30d', 'high_alert', 'active'],
@@ -1386,10 +1428,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addSheet('lots', [['medication', 'lot_no', 'expiry', 'qty'],
         ...st.lots.filter((l) => l.qty > 0).map((l) => [st.meds.find((m) => m.id === l.medId)?.name || l.medId, l.lotNo, isoDate(l.exp), l.qty])]);
 
-      const fname = 'รายงานทั้งหมด_' + isoDate(Date.now()) + '.xlsx';
+      const fname = 'ข้อมูลทั้งหมด_' + isoDate(Date.now()) + '.xlsx';
       XLSX.writeFile(wb, fname);
-      toast('ดาวน์โหลด ' + fname + ' แล้ว — รวมทุกรายงานเป็นไฟล์เดียว คนละ sheet');
-    } catch (e) { toastErr(e, 'รวบรวมรายงานไม่สำเร็จ ลองใหม่อีกครั้ง'); }
+      toast('ดาวน์โหลด ' + fname + ' แล้ว — รวมข้อมูลทุกอย่างในแอพเป็นไฟล์เดียว คนละ sheet');
+    } catch (e) { toastErr(e, 'รวบรวมข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง'); }
   }), [state, toast, toastErr, guardOnce]);
 
   // ---------- labels ----------
@@ -2284,13 +2326,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.users, state.myUid, logAudit, toast, confirmAsync]);
 
   const exportAudit = useCallback(async () => {
-    const typeLabel: Record<string, string> = {
-      login: 'เข้าสู่ระบบ', user_registered: 'สมัครสมาชิก', user_approved: 'อนุมัติบัญชี', user_role_changed: 'เปลี่ยนบทบาท', user_status_changed: 'เปิด/ปิดบัญชี', par_updated: 'ปรับ par level', qr_manual: 'กรอกรหัส QR ด้วยมือ',
-      med_added: 'เพิ่มยาใหม่', med_edited: 'แก้ไขข้อมูลยา', med_status_changed: 'เปิด/ปิดใช้งานยา', med_deleted: 'ลบยาถาวร',
-      receive_from_central: 'รับเข้า substock', receive_pending: 'รับเข้า (รออนุมัติ)', receive_rejected: 'ปฏิเสธคำขอรับเข้า', transfer_to_floor: 'เติมหน้างาน',
-      adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP',
-      ward_move_out: 'ย้ายชั้นวาง (ต้นทาง)', ward_move_in: 'ย้ายชั้นวาง (ปลายทาง)',
-    };
     // Same reasoning as exportReportCsv — the live subscriptions are capped at 300 each for
     // the on-screen "recent activity" feed; a real audit export needs the full history.
     toast('กำลังดึงประวัติทั้งหมด…');
@@ -2307,7 +2342,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           .map((x) => ({ type: x.type, by: x.by, ts: x.ts, note: (x.name ? x.name + ' — ' : '') + (x.note || '') })),
       ];
     } catch (e) { toastErr(e, 'ดึงประวัติไม่สำเร็จ ลองใหม่อีกครั้ง'); return; }
-    const outcome = await downloadCsv([['date_time', 'event', 'by', 'detail'], ...all.sort((a, b) => b.ts - a.ts).map((e) => [new Date(e.ts).toISOString(), typeLabel[e.type] || e.type, e.by, e.note])], 'audit_log.csv');
+    const outcome = await downloadCsv([['date_time', 'event', 'by', 'detail'], ...all.sort((a, b) => b.ts - a.ts).map((e) => [new Date(e.ts).toISOString(), EVENT_TYPE_LABEL[e.type] || e.type, e.by, e.note])], 'audit_log.csv');
     if (outcome === 'saved') toast('ดาวน์โหลด audit_log.csv แล้ว');
   }, [toast, toastErr]);
 
