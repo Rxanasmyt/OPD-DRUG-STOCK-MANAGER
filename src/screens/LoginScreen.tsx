@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useApp } from '../store/AppContext';
+import HospitalCrest from '../components/HospitalCrest';
 
 const FEATURES: [string, string, string][] = [
   ['🛡️', 'ควบคุมสิทธิ์ตามบทบาท', 'Admin · เภสัชกร · ผู้ช่วยเภสัชกร — แต่ละบทบาทเห็น/แก้ได้ต่างกันจริง'],
@@ -64,7 +65,7 @@ export default function LoginScreen() {
           column, since a split layout only makes sense wider than this app is ever opened). */}
       <div style={{ position: 'relative', padding: 'calc(env(safe-area-inset-top, 0px) + 22px) 26px 4px', maxWidth: 440, margin: '0 auto', width: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 22, animation: 'fade .4s var(--ease-out) both' }}>
-          <div style={{ width: 46, height: 46, borderRadius: 14, background: 'linear-gradient(140deg, rgba(255,255,255,.28), rgba(255,255,255,.08))', border: '1px solid rgba(255,255,255,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 21, flex: 'none', animation: 'glowPulse 3.2s infinite', boxShadow: '0 6px 18px -6px rgba(0,0,0,.35)' }}>💊</div>
+          <div style={{ width: 46, height: 46, borderRadius: 14, background: 'linear-gradient(140deg, rgba(255,255,255,.85), rgba(255,255,255,.6))', border: '1px solid rgba(255,255,255,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 6, flex: 'none', animation: 'glowPulse 3.2s infinite', boxShadow: '0 6px 18px -6px rgba(0,0,0,.35), 0 0 0 5px rgba(var(--brand-coral-rgb),.16)' }}><HospitalCrest size={30} /></div>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-soft)', lineHeight: 1.3 }}>KPNHOS-DRUG SUBSTOCK-OPD-IPD-MANAGEMENT</div>
             <div style={{ fontSize: 11.5, color: 'rgba(242,245,239,.65)', marginTop: 2 }}>รพ.กรงปินัง · ห้องยา OPD-IPD</div>
@@ -77,8 +78,10 @@ export default function LoginScreen() {
           {/* A thin, slowly-shifting two-tone highlight along the top edge — the same "this
               surface is genuinely alive, not a static screenshot" cue the rest of the app's
               premium chrome (mesh-bg, glowPulse) already uses, scaled down to a hairline so it
-              reads as ambient polish, not a distraction from the actual form underneath. */}
-          <div aria-hidden="true" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg, transparent, rgba(255,255,255,.65), transparent)', backgroundSize: '200% 100%', animation: 'aiGradientShift 4.5s ease-in-out infinite' }} />
+              reads as ambient polish, not a distraction from the actual form underneath. Tinted
+              teal→coral→teal so this hairline echoes the crest's own two-tone palette instead
+              of a generic white shimmer. */}
+          <div aria-hidden="true" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg, transparent, var(--green-bright), rgba(var(--brand-coral-rgb),.9), var(--green-bright), transparent)', backgroundSize: '200% 100%', animation: 'aiGradientShift 4.5s ease-in-out infinite' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
             <div style={{ width: 38, height: 38, borderRadius: 11, background: 'linear-gradient(140deg, var(--ink-soft), #d8e6dc)', color: 'var(--green-dark)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, boxShadow: '0 4px 12px -4px rgba(0,0,0,.3)' }}>🔒</div>
             <div style={{ fontSize: 19, fontWeight: 700, color: 'var(--ink-soft)' }}>{isRegister ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}</div>
