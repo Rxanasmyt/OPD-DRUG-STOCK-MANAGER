@@ -59,8 +59,16 @@ describe('titleSizeStep', () => {
     expect(titleSizeStep(caps)).toBeGreaterThanOrEqual(titleSizeStep(mixed));
   });
 
-  it('stays within the documented 0-5 range', () => {
+  it('stays within the documented 0-7 range', () => {
     expect(titleSizeStep('')).toBeGreaterThanOrEqual(0);
-    expect(titleSizeStep('x'.repeat(200))).toBe(5);
+    expect(titleSizeStep('x'.repeat(200))).toBe(7);
+  });
+
+  it('steps down further (not stuck at a 9pt floor) for a genuinely long HIGH ALERT-style name', () => {
+    // Regression guard: a name this long used to hit the old step-5 ceiling (the smallest size
+    // the old 6-step scale had) and still overflow the print label's single forced line — now
+    // it should land on one of the two newer, smaller steps instead of maxing out there.
+    const longHighAlertName = 'Norepinephrine (Levophed) 1 mg./ml Amphule 4 mL injection';
+    expect(titleSizeStep(longHighAlertName)).toBeGreaterThan(5);
   });
 });

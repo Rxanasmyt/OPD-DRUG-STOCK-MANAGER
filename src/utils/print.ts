@@ -33,8 +33,11 @@ function escapeHtml(s: string): string {
 
 // Font size (pt) per titleSizeStep() — a short name (most of them, once shortLabelName() has
 // trimmed packaging detail) reads large and bold; a longer one steps down instead of
-// truncating mid-strength (losing the "500 mg" is worse than smaller text).
-const TITLE_PT_BY_STEP = [17, 15, 13, 11.5, 10, 9];
+// truncating mid-strength (losing the "500 mg" is worse than smaller text). Combined with the
+// strip title's 2-line wrap (see .strip .title below), this now has real headroom for a long
+// HIGH ALERT drug name (brand name in parentheses + strength) instead of hitting a 9pt floor
+// and still truncating on one forced line.
+const TITLE_PT_BY_STEP = [17, 15, 13, 11.5, 10, 9, 8, 7];
 function titleFontSizePt(title: string): number {
   return TITLE_PT_BY_STEP[titleSizeStep(title)];
 }
@@ -123,10 +126,21 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
 
   .qr svg { width: 100%; height: 100%; }
   .title { font-size: 8pt; font-weight: 700; line-height: 1.2; margin-top: .5mm; }
-  /* Drug name + strength is the thing staff actually read at a glance while shelving — one
-     line only (name is pre-shortened to "generic + strength", packaging detail like "Vial"/
-     "(2 mL.)" trimmed off — see shortLabelName()), sized as large as that comfortably fits. */
-  .strip .title { font-size: 17pt; font-weight: 800; margin-top: 0; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #14231a; }
+  /* Drug name + strength is the thing staff actually read at a glance while shelving (name is
+     pre-shortened to "generic + strength", packaging detail like "Vial"/"(2 mL.)" trimmed off
+     — see shortLabelName()), sized as large as that comfortably fits.
+     Bug fix: this used to force the title onto one line (white-space: nowrap + ellipsis) even
+     after titleSizeStep() had already picked the smallest font — a long name (a brand name in
+     parentheses plus a strength is common on HIGH ALERT drugs specifically) still didn't fit
+     that one line and printed truncated with "…", on exactly the labels where misreading the
+     name matters most. Wrapping up to 2 lines (line-clamp, same effect as -webkit-box +
+     line-clamp in every Chromium/WebKit engine that opens this print tab) gives a long name
+     real room; a short name that already fits on one line renders identically either way. */
+  .strip .title {
+    font-size: 17pt; font-weight: 800; margin-top: 0; line-height: 1.15; color: #14231a;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    white-space: normal; overflow: hidden; text-overflow: ellipsis;
+  }
   .tag { font-size: 6pt; font-weight: 700; color: #b3261e; margin-top: .5mm; }
   .strip .tag { font-size: 8.5pt; margin-top: .8mm; letter-spacing: .02em; }
 

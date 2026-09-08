@@ -7,8 +7,10 @@ import { shortLabelName, titleSizeStep } from '../utils/labelName';
 
 // On-screen px per titleSizeStep() — mirrors print.ts's pt scale so the preview shows what
 // will actually print (just in px instead of pt, and one notch smaller since the strip is
-// stretched full mobile-width here vs a fixed 100mm print card).
-const TITLE_PX_BY_STEP = [17, 16, 14.5, 13, 11.5, 10.5];
+// stretched full mobile-width here vs a fixed 100mm print card). Kept the same length as
+// print.ts's TITLE_PT_BY_STEP (8 steps) — titleSizeStep() can return up to 7, and a shorter
+// array here would silently read undefined (NaN font-size) for the longest names.
+const TITLE_PX_BY_STEP = [17, 16, 14.5, 13, 11.5, 10.5, 9.5, 8.5];
 import { LOCS } from '../data/locations';
 import type { LabelType, Ward } from '../types';
 
@@ -80,7 +82,19 @@ export default function LabelsScreen() {
               <div style={{ flex: 'none', width: 34, background: '#f5c518', color: '#1a1a1a', fontWeight: 800, fontSize: 12.5, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', lineHeight: 1.1, borderRight: '1px solid #d9ac00' }}>{r.bin}</div>
               <div style={{ flex: 'none', padding: '0 9px', display: 'flex', alignItems: 'center' }}><QrCode value={r.payload} size={46} /></div>
               <div style={{ minWidth: 0, padding: '4px 10px', display: 'flex', flexDirection: 'column', justifyContent: 'center', borderLeft: '1px solid #e5e5e0' }}>
-                <div style={{ fontSize: TITLE_PX_BY_STEP[titleSizeStep(r.title)], fontWeight: 800, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#14231a' }}>{r.title}</div>
+                <div
+                  style={{
+                    fontSize: TITLE_PX_BY_STEP[titleSizeStep(r.title)], fontWeight: 800, lineHeight: 1.2, color: '#14231a',
+                    // Bug fix: this used to force the title onto one line and ellipsis-truncate
+                    // it — a long name (brand name in parentheses + strength, common on HIGH
+                    // ALERT drugs) still overflowed even at the smallest font, printing/showing
+                    // truncated. Matches print.ts's real 2-line wrap so this preview shows what
+                    // actually prints, not a worse-truncated version of it.
+                    display: '-webkit-box', WebkitBoxOrient: 'vertical' as const, WebkitLineClamp: 2, overflow: 'hidden',
+                  }}
+                >
+                  {r.title}
+                </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
                   <span style={{ fontSize: 9, color: '#777', fontWeight: 600, letterSpacing: '.03em' }}>{r.code}</span>
                   {printWardBadge(r.ward)}

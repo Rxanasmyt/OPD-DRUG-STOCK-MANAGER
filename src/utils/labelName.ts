@@ -21,10 +21,20 @@ function effectiveLength(title: string): number {
   return /[a-z]/.test(title) ? title.length : title.length * 1.15;
 }
 
-/** Picks the largest size step (as a 0–5 index, smaller is bigger) that still has a real
- * chance of fitting a shortened drug name on the shelf strip's one line — used to derive
- * both the print pt size and the on-screen preview px size from the same thresholds, so the
- * preview shows what will actually print. */
+/** Picks the largest size step (as a 0–7 index, smaller is bigger) that still has a real
+ * chance of fitting a shortened drug name on the shelf strip — used to derive both the print
+ * pt size and the on-screen preview px size from the same thresholds, so the preview shows
+ * what will actually print. The strip title wraps up to 2 lines (see print.ts's
+ * -webkit-line-clamp), so this only has to pick a size that keeps a name from truncating
+ * across those two lines, not one that crams everything onto a single line.
+ *
+ * Bug fix: this used to stop at step 5 (a flat 9pt floor for anything over 34 chars) with the
+ * title CSS forced to one line — a genuinely long name (common on HIGH ALERT drugs, which
+ * tend to carry both a brand name in parentheses and a strength, e.g. "Norepinephrine
+ * (Levophed) 1 mg./ml") still overflowed that single line at 9pt and printed truncated with
+ * "…", on exactly the drugs where misreading the name on a shelf label matters most. Two more
+ * steps (down to 7pt) plus the 2-line wrap give a 60+ character name real room instead of
+ * being cut off mid-name. */
 export function titleSizeStep(title: string): number {
   const n = effectiveLength(title);
   if (n <= 12) return 0;
@@ -32,7 +42,9 @@ export function titleSizeStep(title: string): number {
   if (n <= 20) return 2;
   if (n <= 26) return 3;
   if (n <= 34) return 4;
-  return 5;
+  if (n <= 46) return 5;
+  if (n <= 60) return 6;
+  return 7;
 }
 
 export function shortLabelName(raw: string): string {
