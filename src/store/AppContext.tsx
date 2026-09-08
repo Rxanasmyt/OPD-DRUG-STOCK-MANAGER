@@ -101,7 +101,7 @@ function freshState(): AppState {
 
     doneKind: null, doneRows: [], toast: null,
 
-    countInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false,
+    countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false,
 
     usageDateFrom: '', usageDateTo: '', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
 
@@ -272,6 +272,20 @@ export interface AppCtx {
    * transaction + discrepancy-log line as commitCount(), just without making someone
    * tap "บันทึก" once per row down a 40-item cycle count. */
   commitAllCounts: () => void;
+
+  /** Substock's counterpart to the floor count above — same "type what you physically
+   * counted, system fixes the difference" idea, but against the aggregate substock quantity
+   * (the sum of this med's lots) instead of `floor`. Substock isn't tracked as one plain
+   * number the way floor is (see Lot/subQty in selectors.ts) — a lot carries its own real
+   * lotNo/exp — so a counted surplus can't be attributed to any specific real lot and lands
+   * in one generic adjustment lot instead (see commitSubCount's comment for why its exp is a
+   * deliberate "unknown" sentinel, never a guessed date); a counted shortfall is real
+   * shrinkage and comes out of the actual lots FEFO, the same order transfer_to_floor already
+   * consumes them in. */
+  setSubCountInput: (medId: string, v: string) => void;
+  commitSubCount: (medId: string) => void;
+  /** Batch version of commitSubCount(), mirroring commitAllCounts(). */
+  commitAllSubCounts: () => void;
 
   // hosxp reconcile
   setHosxpText: (v: string) => void;
@@ -2055,14 +2069,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---------- virtual substock card ----------
   // Replaces the paper "ใบเบิกยาจากคลัง-จ่ายเข้าชั้นวางยา" ledger — รับ/จ่าย/คงเหลือ for one
   // med's substock, computed from real tx history instead of a card someone updates by hand.
-  // Only these three tx types ever touch substock (adjust/return/damaged/count/reconcile_hosxp
-  // /ward_move all only ever touch หน้างาน — see their commit functions): a receive from the
+  // adjust/return/damaged/reconcile_hosxp/ward_move all only ever touch หน้างาน (see their
+  // commit functions) — the only types that ever touch substock are: a receive from the
   // central warehouse (+), a FEFO transfer out to the shelf (-, though the tx itself stores a
-  // positive "amount moved" — flipped here to read as an outflow), and scrapping an expired
-  // lot (already stored negative). Fetched fresh each time (not the capped live 300) so the
-  // running balance is correct back to this med's very first substock transaction, however
-  // long ago that was.
-  const SUBSTOCK_LEDGER_TYPES = new Set(['receive_from_central', 'transfer_to_floor', 'expired']);
+  // positive "amount moved" — flipped here to read as an outflow), scrapping an expired lot
+  // (already stored negative), and a substock cycle count (commitSubCount — either sign,
+  // loc:'substock'; a *floor* count also logs type:'count' but tagged loc:'floor', so the
+  // loc check below is what keeps the two from bleeding into each other's ledger). Fetched
+  // fresh each time (not the capped live 300) so the running balance is correct back to this
+  // med's very first substock transaction, however long ago that was.
+  const SUBSTOCK_LEDGER_TYPES = new Set(['receive_from_central', 'transfer_to_floor', 'expired', 'count']);
   const fetchSubstockLedger = useCallback(async (medId: string) => {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return [];
@@ -2077,7 +2093,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('name', '==', m.name))));
     const rows = snap.docs
       .map((d) => d.data() as { type: string; ts: number; qty: number; note?: string; by: string; loc?: string; medId?: string })
-      .filter((x) => SUBSTOCK_LEDGER_TYPES.has(x.type) && (x.type !== 'expired' || x.loc === 'substock'))
+      // Bug-guard: 'count' is logged for BOTH floor counts (loc:'floor', commitCount) and
+      // substock counts (loc:'substock', commitSubCount) — without this loc check, a floor
+      // count would wrongly appear on this substock ledger the moment 'count' was added to
+      // SUBSTOCK_LEDGER_TYPES above (same class of bug the pre-existing 'expired' guard here
+      // was already written to prevent, generalized to the new type).
+      .filter((x) => SUBSTOCK_LEDGER_TYPES.has(x.type) && (x.type !== 'expired' || x.loc === 'substock') && (x.type !== 'count' || x.loc === 'substock'))
       .filter((x) => !hasNameTwin || x.medId === m.id)
       .map((x) => ({ ts: x.ts, type: x.type, qty: x.type === 'transfer_to_floor' ? -Math.abs(x.qty) : x.qty, note: x.note || '', by: x.by }))
       .sort((a, b) => a.ts - b.ts);
@@ -2156,6 +2177,125 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
       : 'บันทึกครบ ' + ok + ' รายการ' + (diffs > 0 ? ' · มีส่วนต่าง ' + diffs + ' รายการ (ดูได้ใน Discrepancy log)' : ' · ตรงกับระบบทุกรายการ'));
   }), [state.countInputs, state.meds, logTx, toast, patch, guardOnce]);
+
+  // ---------- substock count ----------
+  const setSubCountInput = useCallback((medId: string, v: string) => patch((st) => ({ subCountInputs: { ...st.subCountInputs, [medId]: digitsOnly(v) } })), [patch]);
+
+  // Applies one counted substock total against the med's real lots. Unlike floor (a single
+  // number on the med doc), substock is the SUM of however many lots this med has, each with
+  // its own real lotNo/exp — a counted total alone can't say which lot a difference belongs
+  // to, so the two directions are handled differently:
+  //  - short (counted < system): real shrinkage, taken out of the real lots FEFO (soonest-
+  //    expiring first) — the same order transfer_to_floor already consumes them in, so a
+  //    shortfall reads the same way an unrecorded dispense against those lots would.
+  //  - over (counted > system): stock the system has no lot for at all. There's no honest way
+  //    to guess which lot/expiry it belongs to from a bulk count alone, so it lands in one
+  //    generic adjustment lot per med with an explicit "unknown expiry" sentinel far enough out
+  //    (100 years) that it can never trip a false near-expiry/expired warning — a wrong GUESS at
+  //    a plausible-looking near date would be actively worse than admitting the date isn't
+  //    known. Whoever finds the real lot/expiry later can scrap this placeholder and log a
+  //    proper "รับเข้า" instead.
+  const commitSubCount = useCallback(guardOnce('subCount', async (medId: string) => {
+    const raw = state.subCountInputs[medId];
+    const q = parseInt(raw, 10);
+    if (isNaN(q)) return;
+    const m = state.meds.find((x) => x.id === medId);
+    if (!m) return;
+    try {
+      let delta = 0;
+      const lotIds = state.lots.filter((l) => l.medId === medId).map((l) => l.id);
+      await runTx(async (trx) => {
+        const liveLots: { id: string; qty: number; exp: number }[] = [];
+        for (const lotId of lotIds) {
+          const snap = await trx.get(doc(db, 'lots', lotId));
+          const data = snap.data() as { qty?: number; exp?: number } | undefined;
+          liveLots.push({ id: lotId, qty: data?.qty ?? 0, exp: data?.exp ?? 0 });
+        }
+        const curSub = liveLots.reduce((s, l) => s + l.qty, 0);
+        delta = q - curSub;
+        if (delta < 0) {
+          let need = -delta;
+          for (const l of [...liveLots].filter((x) => x.qty > 0).sort((a, b) => a.exp - b.exp)) {
+            if (need <= 0) break;
+            const take = Math.min(need, l.qty);
+            trx.update(doc(db, 'lots', l.id), { qty: l.qty - take });
+            need -= take;
+          }
+        } else if (delta > 0) {
+          const lotRef = doc(collection(db, 'lots'));
+          trx.set(lotRef, {
+            code: genLotCode(m.code, medId, lotRef.id), medId, lotNo: 'ปรับยอด (นับสต็อก)',
+            exp: Date.now() + 100 * 365 * DAY, qty: delta, loc: 'ปรับยอด',
+          });
+        }
+        trx.update(doc(db, 'meds', medId), { lastSubCountTs: Date.now() });
+      });
+      patch((st) => { const ci = { ...st.subCountInputs }; delete ci[medId]; return { subCountInputs: ci }; });
+      const note = delta < 0
+        ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — ตัดออกจาก lot ที่ใกล้หมดอายุที่สุดก่อน'
+        : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ลงเป็น lot ปรับยอด ยังไม่ทราบวันหมดอายุจริง ควรแก้ไขเมื่อทราบ' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
+      await logTx({ type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit, reason: 'นับสต็อก substock ประจำรอบ', note, loc: 'substock' });
+      toast(m.name + ' — ' + note);
+    } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
+  }), [state.subCountInputs, state.meds, state.lots, logTx, toast, toastErr, patch, guardOnce]);
+
+  /** Batch version of commitSubCount(), mirroring commitAllCounts() — sequential per-med
+   * transactions (never one lumped write) for the same reason: each has to re-read its own
+   * live lots before computing its delta, and a slow connection should degrade to "slower",
+   * not a burst of concurrent transactions contending on the same docs. */
+  const commitAllSubCounts = useCallback(guardOnce('subCountAll', async () => {
+    const entries = Object.entries(state.subCountInputs)
+      .map(([medId, raw]) => ({ medId, q: parseInt(raw, 10) }))
+      .filter((e) => !isNaN(e.q));
+    if (!entries.length) { toast('ยังไม่ได้กรอกจำนวนที่นับได้สักรายการ'); return; }
+    let ok = 0;
+    let diffs = 0;
+    let failed = 0;
+    for (const { medId, q } of entries) {
+      const m = state.meds.find((x) => x.id === medId);
+      if (!m) continue;
+      try {
+        let delta = 0;
+        const lotIds = state.lots.filter((l) => l.medId === medId).map((l) => l.id);
+        await runTx(async (trx) => {
+          const liveLots: { id: string; qty: number; exp: number }[] = [];
+          for (const lotId of lotIds) {
+            const snap = await trx.get(doc(db, 'lots', lotId));
+            const data = snap.data() as { qty?: number; exp?: number } | undefined;
+            liveLots.push({ id: lotId, qty: data?.qty ?? 0, exp: data?.exp ?? 0 });
+          }
+          const curSub = liveLots.reduce((s, l) => s + l.qty, 0);
+          delta = q - curSub;
+          if (delta < 0) {
+            let need = -delta;
+            for (const l of [...liveLots].filter((x) => x.qty > 0).sort((a, b) => a.exp - b.exp)) {
+              if (need <= 0) break;
+              const take = Math.min(need, l.qty);
+              trx.update(doc(db, 'lots', l.id), { qty: l.qty - take });
+              need -= take;
+            }
+          } else if (delta > 0) {
+            const lotRef = doc(collection(db, 'lots'));
+            trx.set(lotRef, {
+              code: genLotCode(m.code, medId, lotRef.id), medId, lotNo: 'ปรับยอด (นับสต็อก)',
+              exp: Date.now() + 100 * 365 * DAY, qty: delta, loc: 'ปรับยอด',
+            });
+          }
+          trx.update(doc(db, 'meds', medId), { lastSubCountTs: Date.now() });
+        });
+        patch((st) => { const ci = { ...st.subCountInputs }; delete ci[medId]; return { subCountInputs: ci }; });
+        const note = delta < 0
+          ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — ตัดออกจาก lot ที่ใกล้หมดอายุที่สุดก่อน'
+          : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ลงเป็น lot ปรับยอด ยังไม่ทราบวันหมดอายุจริง ควรแก้ไขเมื่อทราบ' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
+        await logTx({ type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit, reason: 'นับสต็อก substock ประจำรอบ (บันทึกทั้งชุด)', note, loc: 'substock' });
+        ok++;
+        if (delta !== 0) diffs++;
+      } catch (e) { console.error(e); failed++; }
+    }
+    toast(failed > 0
+      ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
+      : 'บันทึกครบ ' + ok + ' รายการ' + (diffs > 0 ? ' · มีส่วนต่าง ' + diffs + ' รายการ (ดูได้ใน Discrepancy log)' : ' · ตรงกับระบบทุกรายการ'));
+  }), [state.subCountInputs, state.meds, state.lots, logTx, toast, patch, guardOnce]);
 
   // ---------- hosxp reconcile ----------
   const setHosxpText = useCallback((v: string) => patch({ hosxpText: v }), [patch]);
@@ -2519,8 +2659,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const all = [
         ...auditSnap.docs.map((d) => d.data() as { type: string; by: string; ts: number; note: string }),
         ...txSnap.docs
-          .map((d) => d.data() as { type: string; by: string; ts: number; name?: string; note?: string; qty?: number; unit?: string })
-          .map((x) => ({ type: x.type, by: x.by, ts: x.ts, note: (x.name ? x.name + ' — ' : '') + (x.note || '') + (x.qty != null ? ' (' + (x.qty > 0 ? '+' : '') + x.qty + ' ' + (x.unit || '') + ')' : '') })),
+          .map((d) => d.data() as { type: string; by: string; ts: number; name?: string; note?: string; qty?: number; unit?: string; loc?: string })
+          .map((x) => ({ type: x.type, by: x.by, ts: x.ts, loc: x.loc, note: (x.name ? x.name + ' — ' : '') + (x.note || '') + (x.qty != null ? ' (' + (x.qty > 0 ? '+' : '') + x.qty + ' ' + (x.unit || '') + ')' : '') })),
       ].sort((a, b) => b.ts - a.ts);
       patch({ historyResults: all.slice(0, CAP), historyLoading: false });
       toast(
@@ -2548,7 +2688,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
-    fetchSubstockLedger, setCountInput, commitCount, commitAllCounts,
+    fetchSubstockLedger, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
     setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, commitReconcile,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,

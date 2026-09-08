@@ -20,6 +20,13 @@ const TYPE_LABEL: Record<string, string> = {
   adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP',
   ward_move_out: 'ย้ายชั้นวาง (ต้นทาง)', ward_move_in: 'ย้ายชั้นวาง (ปลายทาง)',
 };
+// commitCount (floor) and commitSubCount (substock) both log type:'count' — TYPE_LABEL alone
+// can't tell them apart (one key, one label), so this reads the row's loc too, the same
+// disambiguator fetchSubstockLedger's SUBSTOCK_LEDGER_TYPES filter uses for the same reason.
+function typeLabelOf(e: { type: string; loc?: string }): string {
+  if (e.type === 'count' && e.loc === 'substock') return 'นับสต็อก substock';
+  return TYPE_LABEL[e.type] || e.type;
+}
 
 export default function AdminScreen() {
   const {
@@ -38,7 +45,7 @@ export default function AdminScreen() {
   const isHistory = state.historyResults !== null;
   const liveEntries = [
     ...state.authLog,
-    ...state.txs.map((x) => ({ type: x.type, by: x.by, ts: x.ts, note: (x.name ? x.name + ' — ' : '') + (x.note || '') + (x.qty != null ? ' (' + (x.qty > 0 ? '+' : '') + x.qty + ' ' + (x.unit || '') + ')' : '') })),
+    ...state.txs.map((x) => ({ type: x.type, by: x.by, ts: x.ts, loc: x.loc, note: (x.name ? x.name + ' — ' : '') + (x.note || '') + (x.qty != null ? ' (' + (x.qty > 0 ? '+' : '') + x.qty + ' ' + (x.unit || '') + ')' : '') })),
   ];
   const baseEntries = isHistory ? state.historyResults! : liveEntries;
   const filtered = baseEntries
@@ -160,7 +167,7 @@ export default function AdminScreen() {
               {filtered.map((e, i) => (
                 <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: USER_TYPES.includes(e.type) ? 'var(--muted)' : 'var(--green)' }}>{TYPE_LABEL[e.type] || e.type}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: USER_TYPES.includes(e.type) ? 'var(--muted)' : 'var(--green)' }}>{typeLabelOf(e)}</span>
                     <span className="muted" style={{ fontSize: 11, flex: 'none' }}>{thDate(e.ts)} {thTime(e.ts)}</span>
                   </div>
                   <div style={{ fontSize: 12.5, marginTop: 2, lineHeight: 1.4 }}>{e.note}</div>

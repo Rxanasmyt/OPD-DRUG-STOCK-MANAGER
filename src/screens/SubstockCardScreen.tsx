@@ -21,6 +21,9 @@ const TYPE_META: Record<string, { icon: string; label: string }> = {
   receive_from_central: { icon: '📥', label: 'รับจากคลังใหญ่' },
   transfer_to_floor: { icon: '🚚', label: 'เติมหน้างาน' },
   expired: { icon: '🗑️', label: 'ตัดหมดอายุ' },
+  // Only ever reaches this ledger tagged loc:'substock' (see fetchSubstockLedger's guard in
+  // AppContext.tsx) — a floor count logs the same type but never appears here.
+  count: { icon: '🔢', label: 'นับสต็อก (ปรับยอด)' },
 };
 
 /** The digital replacement for the paper "บัตรคุมสต็อกยา" (yellow stock card) — same
@@ -86,13 +89,19 @@ export default function SubstockCardScreen() {
 
   const yearTotals = useMemo(() => {
     if (!viewRows) return null;
-    let received = 0, dispensed = 0, expired = 0;
+    let received = 0, dispensed = 0, expired = 0, counted = 0;
     for (const r of viewRows) {
-      if (r.qty > 0) received += r.qty;
+      // Bug fix: a substock count adjustment (type:'count', either sign — commitSubCount) used
+      // to fall through into "received" (any positive qty) or "dispensed" (any non-'expired'
+      // negative qty) here, mislabeling a shrinkage found during a cycle count as if it had
+      // really been transferred out to the floor, or a surplus found as if it had really come
+      // from the central warehouse — neither happened. Give it its own bucket instead.
+      if (r.type === 'count') counted += r.qty;
+      else if (r.qty > 0) received += r.qty;
       else if (r.type === 'expired') expired += -r.qty;
       else dispensed += -r.qty;
     }
-    return { received, dispensed, expired, net: received - dispensed - expired };
+    return { received, dispensed, expired, counted, net: received - dispensed - expired + counted };
   }, [viewRows]);
 
   // Arrived here from DoneScreen's "ดูบัตรสต็อก" right after a receive/transfer — open that
@@ -232,10 +241,11 @@ export default function SubstockCardScreen() {
                 ledger doesn't give at a glance, right below the live balance so both read
                 together: what's on the shelf now, and what it took to get there. */}
             {yearTotals && viewRows && viewRows.length > 0 && (
-              <div style={{ padding: '0 14px 12px', display: 'grid', gridTemplateColumns: yearTotals.expired > 0 ? '1fr 1fr 1fr' : '1fr 1fr', gap: 8 }}>
+              <div style={{ padding: '0 14px 12px', display: 'grid', gridTemplateColumns: (yearTotals.expired > 0 || yearTotals.counted !== 0) ? '1fr 1fr 1fr' : '1fr 1fr', gap: 8 }}>
                 <SummaryTile label="รับเข้ารวม" value={yearTotals.received} unit={med.unit} color="var(--green)" />
                 <SummaryTile label="เติมหน้างานรวม" value={yearTotals.dispensed} unit={med.unit} color="var(--red)" />
                 {yearTotals.expired > 0 && <SummaryTile label="ตัดหมดอายุรวม" value={yearTotals.expired} unit={med.unit} color="var(--amber-ink)" />}
+                {yearTotals.counted !== 0 && <SummaryTile label="ปรับยอดจากนับสต็อก" value={yearTotals.counted} unit={med.unit} color={yearTotals.counted > 0 ? 'var(--green)' : 'var(--red)'} />}
               </div>
             )}
             {mismatch && (

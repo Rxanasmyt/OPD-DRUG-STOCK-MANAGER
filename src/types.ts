@@ -28,6 +28,12 @@ export interface Med {
   // used to divide against it unconditionally (Date.now() - undefined = NaN, rendered
   // literally as "นับล่าสุด NaN วันก่อน"). Marked optional so that gap can't silently reopen.
   lastCountTs?: number;
+  // Same idea as lastCountTs but for a substock cycle count (see commitSubCount in
+  // AppContext.tsx) — kept as its own field rather than reusing lastCountTs because floor and
+  // substock are counted independently (different screens, different staleness clocks); folding
+  // them into one timestamp would make a fresh floor count wrongly read as "substock just
+  // verified" too, or vice versa.
+  lastSubCountTs?: number;
   // Optional — missing on every med seeded before wards existed. Never read `.ward`/
   // `.noSubstock` directly; always go through `wardOf()`/`usesSubstock()` in selectors.ts so
   // old docs default correctly (opd / has substock) without a one-time migration write.
@@ -256,6 +262,10 @@ export interface AppState {
   toast: string | null;
 
   countInputs: Record<string, string>;
+  // Substock's counterpart to countInputs — kept as a separate map (not a `loc` flag reusing
+  // the same one) so switching the count screen's location toggle back and forth never loses
+  // whichever set of numbers someone already typed for the other location.
+  subCountInputs: Record<string, string>;
   hosxpText: string;
   hosxpRows: { name: string; qty: number; match: HosxpMatch }[] | null;
   hosxpConfirmFuzzy: boolean;
@@ -282,7 +292,11 @@ export interface AppState {
   auditFilter: AuditFilter;
   historyFrom: string;
   historyTo: string;
-  historyResults: { type: string; by: string; ts: number; note: string }[] | null;
+  // loc is optional (absent on every audit-log-only row, which never had one) — present only
+  // on tx rows, and only there to tell a floor count apart from a substock count (both log
+  // type:'count' — see commitCount vs commitSubCount in AppContext.tsx) since they'd otherwise
+  // render under the identical audit-log label despite being two different screens/meanings.
+  historyResults: { type: string; by: string; ts: number; note: string; loc?: string }[] | null;
   historyLoading: boolean;
 
   expiryWarnDays: number;
