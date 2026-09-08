@@ -74,6 +74,22 @@ describe('shortLabelName — noise-word/paren stripping (name+strength only)', (
   it('leaves a name with nothing to strip untouched', () => {
     expect(shortLabelName('Amoxicillin 500 mg')).toBe('Amoxicillin 500 mg');
   });
+
+  it('never drops a strength that is written only inside parentheses', () => {
+    // Bug fix: the normal pass deletes parentheses wholesale, so a name whose strength is
+    // written ONLY inside them ("Aspirin (81 mg)") used to come out as bare "Aspirin" — the
+    // dose silently missing from the printed shelf label. The fallback unwraps parens (keeps
+    // the text, drops just the brackets) instead of deleting them whenever that would happen.
+    expect(shortLabelName('Aspirin (81 mg)')).toBe('Aspirin 81 mg');
+    expect(shortLabelName('Some Drug (250 mcg) Vial')).toBe('Some Drug 250 mcg');
+  });
+
+  it('still deletes a purely-noise parenthetical (brand name/packaging note) outright', () => {
+    // Confirms the fallback path above is NOT taken when the strength already survives outside
+    // the parens — these must keep behaving exactly as before.
+    expect(shortLabelName('Norepinephrine (Levophed) 1 mg./ml')).toBe('Norepinephrine 1 mg./ml');
+    expect(shortLabelName('FUROSEMIDE (Lasix) 20 mg')).toBe('FUROSEMIDE 20 mg');
+  });
 });
 
 describe('titleSizeStep', () => {

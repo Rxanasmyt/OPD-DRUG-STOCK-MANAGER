@@ -59,25 +59,40 @@ export function titleSizeStep(title: string): number {
   return 7;
 }
 
-export function shortLabelName(raw: string): string {
-  let s = raw.trim();
-  if (!s) return s;
-  // Every parenthetical aside first — a brand name ("(Levophed)"), a packaging note
-  // ("(2 mL.)"), whatever's inside — replaced with a space (not deleted outright) so
-  // "Name(Brand) 5 mg" doesn't glue into "Name5 mg" once it's gone.
-  s = s.replace(/\s*\([^()]*\)\s*/g, ' ');
-  // Then every dosage-form/route/packaging/admin-code noise word, wherever it falls.
+/** Runs the noise-word strip + dash/whitespace/punctuation cleanup shared by both the normal
+ * (parens deleted) and fallback (parens unwrapped) passes below — kept as one function so the
+ * two passes can't drift apart on anything but how they treat parentheses. */
+function stripNoiseAndClean(s: string): string {
   s = s.replace(NOISE_WORDS_EN, ' ');
   s = s.replace(NOISE_WORDS_TH, ' ');
-  // A leftover bare "-" that used to separate a now-removed word from the rest (e.g.
-  // "MORPHINE - PL 10 mg./ml" → "MORPHINE -  10 mg./ml" once "PL" is gone) reads as an odd
-  // dangling dash, not a real part of the name — collapse it along with the run of
-  // whitespace around it. A hyphen genuinely inside a word (Co-trimoxazole) is untouched,
-  // since there's no whitespace on both sides of it there.
   s = s.replace(/\s+-\s+/g, ' ');
   s = s.replace(/\s{2,}/g, ' ').trim();
   s = s.replace(TRAILING_PUNCT, '').replace(LEADING_PUNCT, '').trim();
+  return s;
+}
+
+export function shortLabelName(raw: string): string {
+  const trimmedRaw = raw.trim();
+  if (!trimmedRaw) return trimmedRaw;
+  // Every parenthetical aside first — a brand name ("(Levophed)"), a packaging note
+  // ("(2 mL.)"), whatever's inside — replaced with a space (not deleted outright) so
+  // "Name(Brand) 5 mg" doesn't glue into "Name5 mg" once it's gone.
+  let s = trimmedRaw.replace(/\s*\([^()]*\)\s*/g, ' ');
+  // Then every dosage-form/route/packaging/admin-code noise word, wherever it falls, plus
+  // dash/whitespace/punctuation cleanup.
+  s = stripNoiseAndClean(s);
+  // Bug fix: a name whose only digit/strength lives inside parentheses — e.g. "Aspirin (81
+  // mg)" — used to come out as bare "Aspirin" once the paren-deletion pass above threw the
+  // strength away with it, silently dropping the dose from the printed shelf label (exactly
+  // what this function exists to always keep — see the module doc). Detect that: if the raw
+  // name had a digit anywhere but the aggressively-stripped result has none left, redo the
+  // strip with parentheses only unwrapped (kept, not deleted) so a strength written inside
+  // them survives; still runs through the same noise-word/cleanup pass, so a packaging note
+  // like "(2 mL.)" is still trimmed down to "2 mL." rather than surviving verbatim.
+  if (/\d/.test(trimmedRaw) && !/\d/.test(s)) {
+    s = stripNoiseAndClean(trimmedRaw.replace(/[()]/g, ' '));
+  }
   // Don't return an empty/near-empty string for a name that's nothing but noise words once
   // trimmed — the original (however long) is still more useful on the shelf than nothing.
-  return s.length >= 3 ? s : raw.trim();
+  return s.length >= 3 ? s : trimmedRaw;
 }
