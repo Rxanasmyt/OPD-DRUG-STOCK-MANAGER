@@ -40,6 +40,42 @@ describe('shortLabelName', () => {
   });
 });
 
+describe('shortLabelName — noise-word/paren stripping (name+strength only)', () => {
+  it('strips a dosage-form word from the MIDDLE of the name, not just the end', () => {
+    // "Amiodarone injection 150 mg/3ml" — the old trailing-only stripping never touched this.
+    expect(shortLabelName('Amiodarone injection 150 mg/3ml')).toBe('Amiodarone 150 mg/3ml');
+    expect(shortLabelName('KCl injection 20 mEq')).toBe('KCl 20 mEq');
+  });
+
+  it('strips this hospital\'s own "PL" formulary-list marker and the dangling dash it leaves', () => {
+    // Real formulary pattern: "<name> - PL <strength>" — a HIGH ALERT drug in this exact shape
+    // prompted the request ("MORPHINE - PL 10 mg./ml" reads far worse than "MORPHINE 10 mg./ml").
+    expect(shortLabelName('MORPHINE - PL 10 mg./ml')).toBe('MORPHINE 10 mg./ml');
+    expect(shortLabelName('25 mg CARVEDILOL - PL 25 mg. เม็ด')).toBe('25 mg CARVEDILOL 25 mg');
+  });
+
+  it('strips a non-trailing parenthetical (brand name), not just a trailing one', () => {
+    // "(Levophed)" sits in the middle, followed by the strength — the trailing-only regex
+    // this used to have never reached it.
+    expect(shortLabelName('Norepinephrine (Levophed) 1 mg./ml')).toBe('Norepinephrine 1 mg./ml');
+  });
+
+  it('strips a Thai dosage-form/unit word from the middle', () => {
+    expect(shortLabelName('WARFARIN (สีชมพู) 5 mg. เม็ด')).toBe('WARFARIN 5 mg');
+  });
+
+  it('never mangles a word that only superficially contains a noise word', () => {
+    // \b-anchored — "cap" must never match inside "Captopril", "sol" never inside a name
+    // that merely contains those letters in sequence without being its own word.
+    expect(shortLabelName('Captopril 25 mg')).toBe('Captopril 25 mg');
+    expect(shortLabelName('Co-trimoxazole 480 mg')).toBe('Co-trimoxazole 480 mg');
+  });
+
+  it('leaves a name with nothing to strip untouched', () => {
+    expect(shortLabelName('Amoxicillin 500 mg')).toBe('Amoxicillin 500 mg');
+  });
+});
+
 describe('titleSizeStep', () => {
   it('picks a larger step (smaller text) as the name gets longer', () => {
     const steps = [
