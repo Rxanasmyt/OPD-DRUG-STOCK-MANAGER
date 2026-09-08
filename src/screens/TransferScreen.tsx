@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { toneFor, usesSubstock, floorMinOf, categoryOf } from '../store/selectors';
+import { toneFor, usesSubstock, floorMinOf, categoryOf, binDisplayAll } from '../store/selectors';
 import { nf, thDate, digitsOnly } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
@@ -12,7 +12,7 @@ import { SearchInput } from '../components/SearchInput';
 import { DRUG_CATEGORIES } from '../data/categories';
 
 export default function TransferScreen() {
-  const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, printPickList, printTodayReplenishList, go, openScanSearch } = useApp();
+  const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, clearCart, printPickList, printTodayReplenishList, go, openScanSearch } = useApp();
   // Only one row's "เคลื่อนไหวล่าสุด" panel expanded at a time (opt-in, not automatic) — the
   // list can render up to 60 rows, and MedMiniCard fetches a real Firestore query per drug, so
   // expanding all of them at once would fire dozens of queries for a screen someone's trying
@@ -25,6 +25,12 @@ export default function TransferScreen() {
   // global AppContext state — same pattern as MedsScreen's wardTab, a pure display filter with
   // nothing else in the app needing to read it.
   const [catTab, setCatTab] = useState<'all' | string>('all');
+  // How the list is ordered. 'need' (default) keeps the original behavior — emptiest shelves
+  // relative to their own Max first, so the most urgent refills are always on top. 'bin' walks
+  // the list in shelf-code order instead, which is what someone actually pushing a cart down
+  // the aisle wants: one pass past each shelf rather than criss-crossing the room in urgency
+  // order. 'name' is for when someone is looking up a specific drug in a familiar list.
+  const [sort, setSort] = useState<'need' | 'bin' | 'name'>('need');
   // noSubstock meds (liquids/sprays — received straight to the shelf, see ReceiveScreen)
   // have nothing to transfer from; showing them here with permanently-stuck-at-0 +/- buttons
   // would just be confusing clutter, not a real "เติมหน้างาน" candidate.
@@ -74,7 +80,19 @@ export default function TransferScreen() {
     // ordering guarantee for the WHOLE list, not just that one row (V8 doesn't handle NaN
     // comparisons predictably). Math.max(1, ...) matches the same guard toneFor() already
     // uses for this exact ratio elsewhere.
-    .sort((a, b) => a.floor / Math.max(1, a.parFloor) - b.floor / Math.max(1, b.parFloor));
+    .sort((a, b) => {
+      if (sort === 'name') return a.name.localeCompare(b.name, 'th');
+      if (sort === 'bin') {
+        // Blank shelf codes sort last rather than first — an unassigned bin is not "shelf A",
+        // it's "nobody has told the app where this lives yet", and floating those to the top
+        // of a walking route would be actively wrong.
+        const ab = binDisplayAll(a);
+        const bb = binDisplayAll(b);
+        if (!ab !== !bb) return ab ? -1 : 1;
+        return ab.localeCompare(bb, 'en') || a.name.localeCompare(b.name, 'th');
+      }
+      return a.floor / Math.max(1, a.parFloor) - b.floor / Math.max(1, b.parFloor);
+    });
 
   const cartIds = Object.keys(state.cart);
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
@@ -113,6 +131,13 @@ export default function TransferScreen() {
           {DRUG_CATEGORIES.map((c) => catCounts[c.id] ? (
             <button key={c.id} className="chip" style={chip(catTab === c.id)} onClick={() => setCatTab(c.id)}>{c.label} ({catCounts[c.id]})</button>
           ) : null)}
+        </div>
+        {/* ลำดับการแสดง — "ตามชั้นวาง" คือลำดับสำหรับเดินหยิบของจริงรอบเดียวจบ ไม่ต้องเดินย้อนไปมา */}
+        <div style={{ display: 'flex', gap: 7, marginTop: 8, overflowX: 'auto', paddingBottom: 2 }}>
+          <span className="muted" style={{ fontSize: 11, flex: 'none', alignSelf: 'center', paddingRight: 2 }}>เรียง:</span>
+          <button className="chip" style={chip(sort === 'need')} onClick={() => setSort('need')}>ขาดมากสุดก่อน</button>
+          <button className="chip" style={chip(sort === 'bin')} onClick={() => setSort('bin')}>ตามชั้นวาง</button>
+          <button className="chip" style={chip(sort === 'name')} onClick={() => setSort('name')}>ตามชื่อยา</button>
         </div>
         {recentMeds.length > 0 && (
           <div style={{ display: 'flex', gap: 7, marginTop: 8, overflowX: 'auto', paddingBottom: 2 }}>
@@ -202,6 +227,7 @@ export default function TransferScreen() {
               <span style={{ display: 'block', color: 'var(--had)', fontWeight: 600 }}>มียา high alert — ต้องสแกน QR ยืนยัน</span>
             )}
           </div>
+          <button onClick={clearCart} title="ล้างตะกร้าทั้งหมด" aria-label="ล้างตะกร้าทั้งหมด" style={{ flex: 'none', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--muted)', width: 50, height: 50, borderRadius: 12, fontSize: 18 }}>🗑</button>
           <button onClick={printPickList} title="พิมพ์ใบจัดยาเติมชั้น" aria-label="พิมพ์ใบจัดยาเติมชั้น" style={{ flex: 'none', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', width: 50, height: 50, borderRadius: 12, fontSize: 18 }}>🖨</button>
           <button onClick={() => go('tconfirm')} className="btn-primary" style={{ padding: '14px 22px', borderRadius: 12, fontSize: 15, fontWeight: 600, minHeight: 50, boxShadow: '0 6px 18px -6px rgba(23,85,47,.7)' }}>ตรวจสอบ →</button>
         </div>

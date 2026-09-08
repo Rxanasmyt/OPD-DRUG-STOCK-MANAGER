@@ -1,13 +1,13 @@
 import { useApp } from '../store/AppContext';
 import { useState } from 'react';
-import { subQty, daysUntil, usageAnomalies, daysOfStockLeft } from '../store/selectors';
+import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
 import type { ReportTab } from '../types';
 import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
 
-const TABS: [ReportTab, string][] = [['aging', 'Stock aging'], ['turn', 'Turnover'], ['insights', '🧠 วิเคราะห์อัตโนมัติ'], ['disc', 'Discrepancy log']];
-const REPORT_NAMES: Record<ReportTab, string> = { aging: 'stock_aging.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv' };
+const TABS: [ReportTab, string][] = [['aging', 'Stock aging'], ['category', 'แยกตามหมวดยา'], ['turn', 'Turnover'], ['insights', '🧠 วิเคราะห์อัตโนมัติ'], ['disc', 'Discrepancy log']];
+const REPORT_NAMES: Record<ReportTab, string> = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv' };
 const AGING_BUCKETS: [string, number, number, string][] = [
   ['หมดอายุแล้ว', -99999, 0, 'var(--red)'],
   ['เหลือ ≤ 30 วัน', 0, 30, 'var(--red)'],
@@ -58,6 +58,14 @@ export default function ReportScreen() {
       const tone = !isFinite(doh) ? 'var(--muted)' : doh < 14 ? 'var(--red)' : doh > 120 ? 'var(--amber)' : 'var(--green)';
       return { id: m.id, name: m.name, used: nf(m.used30), doh: isFinite(doh) ? nf(doh) : '—', tone };
     });
+
+  // Per-therapeutic-group rollup — the report the drug categories added in v3.2.0 were
+  // ultimately for: which groups tie up the most money, which are running low across the
+  // board, and which have expiry risk concentrated in them. Same pure selector the CSV export
+  // uses, so the exported spreadsheet can never disagree with what's on screen.
+  const catRows = categoryStats(state, meds, state.expiryWarnDays);
+  const catMaxValue = Math.max(1, ...catRows.map((r) => r.value));
+  const catTotalValue = catRows.reduce((s2, r) => s2 + r.value, 0);
 
   const discQ = discSearch.trim().toLowerCase();
   const discRows = state.txs
@@ -142,6 +150,38 @@ export default function ReportScreen() {
             </div>
             <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, padding: '0 2px' }}>
               มูลค่าที่เสี่ยงหมดอายุใน 90 วัน <b style={{ color: 'var(--amber-ink)' }}>{nf(riskValue)} บาท</b> — ใช้ประกอบรายงาน PTC เรื่องการบริหารยาใกล้หมดอายุ
+            </div>
+          </>
+        )}
+
+        {state.reportTab === 'category' && (
+          <>
+            <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, padding: '0 2px', marginBottom: 11 }}>
+              มูลค่าคงคลัง = (ยอดหน้างาน + substock) × ราคาต่อหน่วย · "ต่ำกว่า Min" คือจำนวนรายการที่ต้องเติมด่วนในหมวดนั้น ·
+              "เสี่ยงหมดอายุ" คิดจาก lot ที่เหลือ ≤ {state.expiryWarnDays} วัน (ตั้งค่าได้ในหน้าตั้งค่า)
+            </div>
+            <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 12 }}>
+              {catRows.map((r) => (
+                <div key={r.id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, minWidth: 0 }}>{r.label}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, flex: 'none' }}>{nf(r.value)} บาท</span>
+                  </div>
+                  <div className="bar-track" style={{ height: 5, background: 'var(--border-soft)', borderRadius: 3, marginTop: 7 }}>
+                    <div className="bar-fill" style={{ height: '100%', width: Math.max(2, Math.round((r.value / catMaxValue) * 100)) + '%', background: 'var(--green)', borderRadius: 3 }} />
+                  </div>
+                  <div className="muted" style={{ fontSize: 11.5, marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    <span>{nf(r.meds)} รายการ</span>
+                    <span style={r.low > 0 ? { color: 'var(--red)', fontWeight: 700 } : undefined}>ต่ำกว่า Min {nf(r.low)}</span>
+                    <span style={r.atRisk > 0 ? { color: 'var(--amber-ink)', fontWeight: 700 } : undefined}>เสี่ยงหมดอายุ {nf(r.atRisk)} บาท</span>
+                    <span>จ่าย 30 วัน {nf(r.used30)}</span>
+                  </div>
+                </div>
+              ))}
+              {catRows.length === 0 && <EmptyState icon="🏷" title="ยังไม่มีข้อมูลหมวดยา" sub="เพิ่มยาเข้าระบบ หรือกด 'จัดหมวดหมู่ยาทั้งหมดอัตโนมัติ' ในหน้าจัดการรายการยาก่อน" />}
+            </div>
+            <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, padding: '0 2px' }}>
+              มูลค่าคงคลังรวมทุกหมวด <b style={{ color: 'var(--ink)' }}>{nf(catTotalValue)} บาท</b> — ใช้ประกอบรายงาน PTC/บัญชียา เรื่องสัดส่วนมูลค่าคงคลังแยกตามกลุ่มยา
             </div>
           </>
         )}

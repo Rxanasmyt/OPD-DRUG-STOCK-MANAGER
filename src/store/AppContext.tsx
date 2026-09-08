@@ -12,7 +12,7 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -181,6 +181,9 @@ export interface AppCtx {
   printTodayReplenishList: () => void;
   printWarehouseRequestList: () => void;
   removeFromCart: (id: string) => void;
+  /** Empties the whole fill cart in one action — the only way out of a mis-built cart used
+   * to be removing rows one at a time (or committing a transfer nobody wanted). */
+  clearCart: () => void;
   commitTransfer: () => void;
 
   // receive
@@ -265,6 +268,10 @@ export interface AppCtx {
   fetchSubstockLedger: (medId: string) => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
   setCountInput: (medId: string, v: string) => void;
   commitCount: (medId: string) => void;
+  /** Commits every count typed on the นับสต็อก screen in one action — same per-med
+   * transaction + discrepancy-log line as commitCount(), just without making someone
+   * tap "บันทึก" once per row down a 40-item cycle count. */
+  commitAllCounts: () => void;
 
   // hosxp reconcile
   setHosxpText: (v: string) => void;
@@ -852,6 +859,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setState((st) => { const c = { ...st.cart }; delete c[id]; return { ...st, cart: c }; });
   }, []);
 
+  const clearCart = useCallback(async () => {
+    // Asks first: a cart can represent several minutes of walking the shelves deciding
+    // quantities, and this throws all of it away with no undo (nothing is written to
+    // Firestore until commitTransfer, so there is no history to restore it from).
+    if (!(await confirmAsync('ล้างตะกร้าเติมหน้างานทั้งหมด? จำนวนที่ใส่ไว้ทุกรายการจะหายไป (ยังไม่ได้บันทึกลงระบบ กู้คืนไม่ได้)'))) return;
+    patch({ cart: {}, hadOk: {} });
+    toast('ล้างตะกร้าแล้ว');
+  }, [patch, toast]);
   const fillAll = useCallback(() => {
     setState((st) => {
       const cart = { ...st.cart };
@@ -1293,7 +1308,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const exportReportCsv = useCallback(async () => {
     const st = state;
-    const names = { aging: 'stock_aging.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv' };
+    const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv' };
     // Matches whatever ward tab is open on screen — exporting "everything" while the screen
     // shows only OPD (or vice versa) would be a silently misleading report.
     const wardMeds = st.meds.filter((m) => matchesWard(m, st.wardFilter));
@@ -1315,6 +1330,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return [label, ls.length, Math.round(val)];
       });
       outcome = await downloadCsv([['bucket', 'lots', 'value_thb'], ...rows], names.aging);
+    } else if (st.reportTab === 'category') {
+      // Same categoryStats() the on-screen table renders from — one source of truth, so an
+      // exported spreadsheet can never quietly disagree with what the pharmacist just read.
+      const rows = categoryStats(st, wardMeds.filter((m) => m.active), st.expiryWarnDays)
+        .map((r) => [r.label, r.meds, r.low, Math.round(r.value), Math.round(r.atRisk), r.used30]);
+      outcome = await downloadCsv([['category', 'medications', 'below_min', 'stock_value_thb', 'expiry_risk_value_thb', 'used_30d'], ...rows], names.category);
     } else if (st.reportTab === 'turn') {
       const rows = wardMeds.filter((m) => m.active).map((m) => {
         const oh = m.floor + subQty(st, m.id);
@@ -1381,6 +1402,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const val = ls.reduce((s, l) => s + l.qty * (st.meds.find((m) => m.id === l.medId)?.price || 0), 0);
         return [label, ls.length, Math.round(val)];
       })]);
+
+      // 1b) Stock by therapeutic category (มูลค่าคงคลังแยกตามหมวดกลุ่มยา) — same
+      // categoryStats() the on-screen report and the per-tab CSV both use.
+      addSheet('stock_by_category', [['category', 'medications', 'below_min', 'stock_value_thb', 'expiry_risk_value_thb', 'used_30d'],
+        ...categoryStats(st, activeMeds, st.expiryWarnDays).map((r) => [r.label, r.meds, r.low, Math.round(r.value), Math.round(r.atRisk), r.used30])]);
 
       // 2) Turnover
       addSheet('turnover', [['medication', 'unit', 'on_hand', 'used_30d', 'days_on_hand'], ...activeMeds.map((m) => {
@@ -2086,6 +2112,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
   }), [state.countInputs, state.meds, logTx, toast, toastErr, patch, guardOnce]);
 
+  // Batch version of commitCount() for a real cycle count: someone walks the shelf typing
+  // numbers into 20-40 rows, then commits the lot in one tap. Deliberately NOT one big
+  // Firestore batch write — each med still goes through its own transaction that re-reads the
+  // live floor before computing the delta (exactly as commitCount does), because the whole
+  // point of the count is the difference against the CURRENT number, not against whatever this
+  // device last synced. Sequential rather than parallel so a slow ward connection degrades
+  // into "slower", not into a burst of concurrent transactions retrying against each other.
+  // Each med also keeps its own discrepancy-log line — the log is the audit trail, and one
+  // lumped "counted 30 things" entry would destroy its per-drug usefulness.
+  const commitAllCounts = useCallback(guardOnce('countAll', async () => {
+    const entries = Object.entries(state.countInputs)
+      .map(([medId, raw]) => ({ medId, q: parseInt(raw, 10) }))
+      .filter((e) => !isNaN(e.q));
+    if (!entries.length) { toast('ยังไม่ได้กรอกจำนวนที่นับได้สักรายการ'); return; }
+    let ok = 0;
+    let diffs = 0;
+    let failed = 0;
+    for (const { medId, q } of entries) {
+      const m = state.meds.find((x) => x.id === medId);
+      if (!m) continue;
+      try {
+        let delta = 0;
+        await runTx(async (trx) => {
+          const ref = doc(db, 'meds', medId);
+          const snap = await trx.get(ref);
+          const curFloor = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
+          delta = q - curFloor;
+          trx.update(ref, { floor: q, lastCountTs: Date.now() });
+        });
+        patch((st) => { const ci = { ...st.countInputs }; delete ci[medId]; return { countInputs: ci }; });
+        const note = delta < 0
+          ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — คาดว่าจ่ายผ่าน HOSxP แต่ยังไม่ reconcile'
+          : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ควรตรวจสอบย้อนหลัง' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
+        await logTx({ type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit, reason: 'นับสต็อกหน้างานประจำรอบ (บันทึกทั้งชุด)', note, loc: 'floor' });
+        ok++;
+        if (delta !== 0) diffs++;
+      } catch (e) { console.error(e); failed++; }
+    }
+    // A partial failure leaves the rows it couldn't save still filled in on screen (they're
+    // only cleared per-med on success above), so retrying is just tapping the button again.
+    toast(failed > 0
+      ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
+      : 'บันทึกครบ ' + ok + ' รายการ' + (diffs > 0 ? ' · มีส่วนต่าง ' + diffs + ' รายการ (ดูได้ใน Discrepancy log)' : ' · ตรงกับระบบทุกรายการ'));
+  }), [state.countInputs, state.meds, logTx, toast, patch, guardOnce]);
+
   // ---------- hosxp reconcile ----------
   const setHosxpText = useCallback((v: string) => patch({ hosxpText: v }), [patch]);
 
@@ -2467,7 +2538,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     state, myProfile, theme, toggleTheme, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, respondConfirm, promptAsync, respondPrompt, applyUpdate, dismissUpdate,
     notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify, go, back,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
-    setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, printPickList, printTodayReplenishList, removeFromCart, commitTransfer,
+    setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, printPickList, printTodayReplenishList, removeFromCart, clearCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, printWarehouseRequestList,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
@@ -2477,7 +2548,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
-    fetchSubstockLedger, setCountInput, commitCount,
+    fetchSubstockLedger, setCountInput, commitCount, commitAllCounts,
     setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, commitReconcile,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,

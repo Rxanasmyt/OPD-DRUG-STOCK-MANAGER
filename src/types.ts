@@ -160,7 +160,7 @@ export type Screen =
   | 'report' | 'labels' | 'settings' | 'more' | 'count' | 'reconcile' | 'admin' | 'meds' | 'wardmove' | 'substockcard';
 
 export type AdjType = 'adjust' | 'return' | 'damaged' | 'expired';
-export type ReportTab = 'aging' | 'turn' | 'disc' | 'insights';
+export type ReportTab = 'aging' | 'turn' | 'disc' | 'insights' | 'category';
 export type LabelType = 'med' | 'lot' | 'loc';
 
 /** How a HOSxP file's drug name resolved against the formulary — see matchHosxpMed().

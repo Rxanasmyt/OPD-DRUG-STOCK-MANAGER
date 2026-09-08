@@ -1,6 +1,6 @@
 import type { AppState, HosxpMatch, Med, Role, Ward } from '../types';
 import { DAY, daysUntil } from '../utils/format';
-import { UNCATEGORIZED } from '../data/categories';
+import { UNCATEGORIZED, DRUG_CATEGORIES, categoryLabel } from '../data/categories';
 
 /** Pure, stateless helpers derived from AppState — no mutation, safe to call during render. */
 
@@ -99,6 +99,55 @@ export function usageAnomalies(meds: Med[], threshold = 0.4): UsageAnomaly[] {
     .filter((x) => Math.abs(x.changePct) >= threshold)
     .map((x) => ({ med: x.med, changePct: x.changePct, direction: (x.changePct > 0 ? 'up' : 'down') as 'up' | 'down' }))
     .sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct));
+}
+
+/** One row of the "แยกตามหมวด" report — everything that matters about a therapeutic group at
+ * a glance: how much of the formulary it is, what it's worth sitting on the shelf right now,
+ * and how much of it is in trouble (below Min, or expiring soon). Pure and state-derived, so
+ * it's unit-testable and identical between the on-screen table and the CSV export. */
+export interface CategoryStat {
+  id: string;
+  label: string;
+  meds: number;
+  /** Meds in this group currently below their reorder point (Min) — the "needs attention" number. */
+  low: number;
+  /** Stock value on hand = (floor + substock) × unit price, in baht. */
+  value: number;
+  /** Value of lots in this group expiring within `expiryWarnDays` (including already expired). */
+  atRisk: number;
+  /** Units dispensed in the last 30 days across the group — how "busy" the group is, which is
+   * the thing that separates a big-but-idle group from a small-but-constantly-moving one. */
+  used30: number;
+}
+
+export function categoryStats(state: AppState, meds: Med[], expiryWarnDays: number): CategoryStat[] {
+  const byCat = new Map<string, CategoryStat>();
+  const rowFor = (id: string) => {
+    let r = byCat.get(id);
+    if (!r) { r = { id, label: categoryLabel(id), meds: 0, low: 0, value: 0, atRisk: 0, used30: 0 }; byCat.set(id, r); }
+    return r;
+  };
+  meds.forEach((m) => {
+    const r = rowFor(categoryOf(m));
+    r.meds++;
+    if (m.floor < floorMinOf(m)) r.low++;
+    r.value += (m.floor + subQty(state, m.id)) * (m.price || 0);
+    r.used30 += m.used30 || 0;
+  });
+  // At-risk value comes from real lots, not from the med's own floor number: only substock
+  // lots carry an expiry date at all, so this is deliberately lot-derived rather than a
+  // fraction of the value above.
+  const medById = new Map(meds.map((m) => [m.id, m]));
+  state.lots.forEach((l) => {
+    const m = medById.get(l.medId);
+    if (!m || l.qty <= 0) return;
+    if (daysUntil(l.exp) <= expiryWarnDays) rowFor(categoryOf(m)).atRisk += l.qty * (m.price || 0);
+  });
+  // Fixed display order (DRUG_CATEGORIES' own order, "ยังไม่ระบุหมวด" last as listed there)
+  // rather than sorted by value — a report someone reads every week shouldn't reshuffle its
+  // rows just because one group's stock moved.
+  const order = DRUG_CATEGORIES.map((c) => c.id);
+  return order.filter((id) => byCat.has(id)).map((id) => byCat.get(id)!);
 }
 
 /** Whole-number days until a drug's combined on-hand (floor + substock) runs out at its

@@ -3,7 +3,7 @@ import type { AppState, Med } from '../types';
 import {
   wardOf, matchesWard, binFor, binDisplayAll, floorMinOf, subQty, usageAnomalies,
   daysOfStockLeft, fefoLot, toneFor, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
-  categoryOf,
+  categoryOf, categoryStats,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
 
@@ -20,7 +20,12 @@ function med(overrides: Partial<Med> = {}): Med {
 }
 
 function state(overrides: Partial<AppState> = {}): AppState {
-  return { lots: [], meds: [] } as unknown as AppState;
+  // Bug fix: this used to ignore `overrides` entirely (always returned the same bare
+  // { lots: [], meds: [] }), so a test fixture that read state.lots for anything but the
+  // default empty array would silently get nothing back — harmless while no test needed real
+  // lots, but a real trap for the next test that does (see categoryStats below, which reads
+  // state.lots directly for expiry-risk value).
+  return { lots: [], meds: [], expiryWarnDays: 30, ...overrides } as unknown as AppState;
 }
 
 describe('wardOf / matchesWard / binFor / binDisplayAll', () => {
@@ -71,6 +76,54 @@ describe('categoryOf / categoryLabel', () => {
     expect(categoryLabel('antimicrobial')).toBe('ยาต้านจุลชีพ (ปฏิชีวนะ/เชื้อรา/ไวรัส)');
     expect(categoryLabel('not-a-real-id')).toBe('อื่นๆ / ยังไม่ระบุหมวด');
     expect(categoryLabel(undefined)).toBe('อื่นๆ / ยังไม่ระบุหมวด');
+  });
+});
+
+describe('categoryStats', () => {
+  it('rolls up meds into their category — count, low-stock, and value', () => {
+    const meds = [
+      med({ id: 'a', category: 'pain', floor: 5, floorMin: 10, price: 2, used30: 3 }), // low
+      med({ id: 'b', category: 'pain', floor: 20, floorMin: 10, price: 3, used30: 1 }), // not low
+      med({ id: 'c', category: 'cardio', floor: 15, floorMin: 5, price: 10, used30: 0 }),
+    ];
+    const rows = categoryStats(state({ meds }), meds, 30);
+    const pain = rows.find((r) => r.id === 'pain')!;
+    const cardio = rows.find((r) => r.id === 'cardio')!;
+    expect(pain.meds).toBe(2);
+    expect(pain.low).toBe(1);
+    expect(pain.value).toBe(5 * 2 + 20 * 3); // (floor + substock=0) * price, summed
+    expect(pain.used30).toBe(4);
+    expect(cardio.meds).toBe(1);
+    expect(cardio.low).toBe(0);
+  });
+
+  it('uncategorized meds fall into the "other" bucket, never dropped', () => {
+    const meds = [med({ id: 'x', category: undefined })];
+    const rows = categoryStats(state({ meds }), meds, 30);
+    expect(rows.map((r) => r.id)).toEqual(['other']);
+  });
+
+  it('at-risk value comes from real lots expiring within the warn window, not from floor', () => {
+    const meds = [med({ id: 'a', category: 'pain', price: 5 })];
+    const soon = Date.now() + 5 * 24 * 60 * 60 * 1000; // 5 days out
+    const far = Date.now() + 200 * 24 * 60 * 60 * 1000;
+    const lots = [
+      { id: 'l1', code: 'L1', medId: 'a', lotNo: '1', exp: soon, qty: 10, loc: 'A1' },
+      { id: 'l2', code: 'L2', medId: 'a', lotNo: '2', exp: far, qty: 100, loc: 'A1' },
+    ];
+    const rows = categoryStats(state({ meds, lots }), meds, 30);
+    expect(rows[0].atRisk).toBe(10 * 5); // only the soon-expiring lot counts
+  });
+
+  it('returns rows in DRUG_CATEGORIES order, not sorted by value', () => {
+    // 'emergency' is listed well after 'pain' in DRUG_CATEGORIES despite having the bigger
+    // value here — order must still follow the fixed list, not the numbers.
+    const meds = [
+      med({ id: 'a', category: 'emergency', floor: 1000, price: 100 }),
+      med({ id: 'b', category: 'pain', floor: 1, price: 1 }),
+    ];
+    const rows = categoryStats(state({ meds }), meds, 30);
+    expect(rows.map((r) => r.id)).toEqual(['pain', 'emergency']);
   });
 });
 
