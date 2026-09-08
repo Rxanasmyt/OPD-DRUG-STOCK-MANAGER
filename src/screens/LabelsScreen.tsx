@@ -1,9 +1,12 @@
+import { useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { daysUntil, wardOf, binFor, isSharedMed } from '../store/selectors';
 import { thDate } from '../utils/format';
 import { QrCode } from '../components/QrCode';
 import { encodeQr } from '../utils/qr';
 import { shortLabelName, titleSizeStep } from '../utils/labelName';
+import { SearchInput } from '../components/SearchInput';
+import { MedDot } from '../components/MedDot';
 
 // On-screen px per titleSizeStep() — mirrors print.ts's pt scale so the preview shows what
 // will actually print (just in px instead of pt, and one notch smaller since the strip is
@@ -31,11 +34,22 @@ function printWardBadge(ward?: Ward) {
 }
 
 export default function LabelsScreen() {
-  const { state, setLabelType, printLabels, warn } = useApp();
+  const { state, setLabelType, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels, warn } = useApp();
+  const [pickerQuery, setPickerQuery] = useState('');
   // OPD/IPD ward tabs removed — one combined list; a shared med's label shows its default
   // (OPD-side) shelf code via binFor()'s own fallback.
-  const meds = state.meds.filter((m) => m.active);
+  const activeMeds = state.meds.filter((m) => m.active);
+  // Mirrors printLabels()'s own "empty picker = print everything" rule exactly (see
+  // AppContext.tsx) — this preview has to agree with what the button below it actually prints,
+  // or someone could pick a handful of drugs, see the preview still show the whole formulary
+  // (or vice versa), and print the wrong set without any way to tell beforehand.
+  const selectedIds = Object.keys(state.labelSelected).filter((id) => state.labelSelected[id]);
+  const selectedSet = new Set(selectedIds);
+  const meds = selectedSet.size === 0 ? activeMeds : activeMeds.filter((m) => selectedSet.has(m.id));
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
+  const pickerMatches = pickerQuery.trim()
+    ? activeMeds.filter((m) => m.name.toLowerCase().indexOf(pickerQuery.trim().toLowerCase()) >= 0).slice(0, 20)
+    : [];
 
   const medIds = new Set(meds.map((m) => m.id));
   const wardLots = state.lots.filter((l) => medIds.has(l.medId));
@@ -67,6 +81,50 @@ export default function LabelsScreen() {
           <button key={t} className="chip" style={{ ...chip(state.labelType === t), flex: 1, textAlign: 'center', minHeight: 42 }} onClick={() => setLabelType(t)}>{label}</button>
         ))}
       </div>
+
+      {/* Locations aren't per-med — the picker below only makes sense for ฉลากตัวยา/ฉลาก lot,
+          both of which come from the same active-med list this filters. */}
+      {state.labelType !== 'loc' && (
+        <div className="card" style={{ padding: 12, marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>เลือกยาเฉพาะบางตัว (ไม่บังคับ)</div>
+          <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.5, marginBottom: 8 }}>
+            {selectedSet.size > 0
+              ? `เลือกไว้ ${selectedSet.size} รายการ — ปุ่มพิมพ์ด้านล่างจะพิมพ์เฉพาะที่เลือกเท่านั้น`
+              : 'ไม่เลือกเลย = พิมพ์ทั้งหมด (ค่าเริ่มต้น) — ค้นหาแล้วติ๊กเพื่อพิมพ์เฉพาะบางตัว'}
+          </div>
+          <SearchInput value={pickerQuery} onChange={setPickerQuery} placeholder="ค้นหาชื่อยาเพื่อเลือก" style={{ marginBottom: pickerMatches.length || selectedSet.size ? 9 : 0 }} />
+          {pickerMatches.length > 0 && (
+            <>
+              <button
+                onClick={() => selectAllLabels(pickerMatches.map((m) => m.id))}
+                style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '6px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 600, marginBottom: 8 }}
+              >
+                เลือกทั้งหมดที่ค้นเจอ ({pickerMatches.length})
+              </button>
+              <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 240, overflowY: 'auto' }}>
+                {pickerMatches.map((m) => {
+                  const on = !!state.labelSelected[m.id];
+                  return (
+                    <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 11px', borderBottom: '1px solid var(--border-soft)', cursor: 'pointer', background: on ? 'var(--green-tint)' : undefined }}>
+                      <input type="checkbox" checked={on} onChange={() => toggleLabelSelected(m.id)} style={{ width: 17, height: 17, flex: 'none' }} />
+                      <span style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}><MedDot code={m.code} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span></span>
+                    </label>
+                  );
+                })}
+              </div>
+            </>
+          )}
+          {selectedSet.size > 0 && (
+            <button
+              onClick={clearLabelSelected}
+              style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--red)', padding: '9px 10px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, marginTop: 9 }}
+            >
+              ล้างที่เลือกทั้งหมด ({selectedSet.size})
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Bug-adjacent fix: the preview below always caps at 8 cards (rendering all 585+ QR
           codes live would be needless work for a page whose only real job is "does this look
           right before I print"), but nothing ever said so — a busy formulary made it read as
@@ -122,7 +180,9 @@ export default function LabelsScreen() {
           ))}
         </div>
       )}
-      <button onClick={printLabels} className="btn-primary" style={{ width: '100%', padding: 15, borderRadius: 11, fontSize: 15, minHeight: 52 }}>พิมพ์ฉลากทั้งชุด ({labelCount} ดวง · A4 กระดาษสติกเกอร์)</button>
+      <button onClick={printLabels} className="btn-primary" style={{ width: '100%', padding: 15, borderRadius: 11, fontSize: 15, minHeight: 52 }}>
+        {state.labelType !== 'loc' && selectedSet.size > 0 ? 'พิมพ์ยาที่เลือก' : 'พิมพ์ฉลากทั้งชุด'} ({labelCount} ดวง · A4 กระดาษสติกเกอร์)
+      </button>
       <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginTop: 11 }}>
         พิมพ์ลงกระดาษ A4 แล้วตัดติดหน้ายา/lot/ชั้นวางได้เลย — QR แต่ละดวงสแกนด้วยกล้องมือถือหรือแท็บเล็ตผ่านปุ่ม ▣ ในหน้ารับเข้า/เติมหน้างานได้ทันที
         {state.labelType === 'med' && <> ฉลากตัวยาพิมพ์ที่ขนาดจริง 2×10 ซม. ต่อดวง — 1 แผ่น A4 จุ 28 ดวงพอดี (2 คอลัมน์ × 14 แถว)</>}

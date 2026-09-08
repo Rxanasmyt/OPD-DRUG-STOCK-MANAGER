@@ -247,6 +247,14 @@ export interface AppState {
 
   reportTab: ReportTab;
   labelType: LabelType;
+  // Which meds are checked in the label picker (see LabelsScreen.tsx) — a Record, not a Set,
+  // to match every other multi-select flag map in this state (hadOk, countInputs, ...), all
+  // chosen for the same reason: it patches/spreads cleanly through the plain-object state
+  // updates this app uses everywhere, where a Set would need its own clone-on-write handling.
+  // EMPTY means "nothing hand-picked" — printLabels()/the on-screen preview both read that as
+  // "print/preview everything active", not "print nothing", so leaving this alone never
+  // silently narrows what a fresh visit to the screen prints.
+  labelSelected: Record<string, boolean>;
 
   qrOpen: boolean;
   qrManualOpen: boolean;

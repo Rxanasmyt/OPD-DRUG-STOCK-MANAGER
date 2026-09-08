@@ -95,7 +95,7 @@ function freshState(): AppState {
 
     adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '',
 
-    reportTab: 'aging', labelType: 'med',
+    reportTab: 'aging', labelType: 'med', labelSelected: {},
 
     qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: null, hadOk: {},
 
@@ -226,6 +226,12 @@ export interface AppCtx {
 
   // labels
   setLabelType: (t: AppState['labelType']) => void;
+  /** Toggle one med in the label picker (see LabelsScreen.tsx). */
+  toggleLabelSelected: (medId: string) => void;
+  /** Check every one of the given med ids at once — used for the picker's "เลือกทั้งหมด" over
+   * whatever's currently matching the search box, not literally every med in the formulary. */
+  selectAllLabels: (medIds: string[]) => void;
+  clearLabelSelected: () => void;
   printLabels: () => void;
 
   // settings / par
@@ -1526,6 +1532,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ---------- labels ----------
   const setLabelType = useCallback((t: AppState['labelType']) => patch({ labelType: t }), [patch]);
+  const toggleLabelSelected = useCallback((medId: string) => patch((st) => ({ labelSelected: { ...st.labelSelected, [medId]: !st.labelSelected[medId] } })), [patch]);
+  const selectAllLabels = useCallback((medIds: string[]) => patch((st) => {
+    const next = { ...st.labelSelected };
+    medIds.forEach((id) => { next[id] = true; });
+    return { labelSelected: next };
+  }), [patch]);
+  const clearLabelSelected = useCallback(() => patch({ labelSelected: {} }), [patch]);
   const printLabels = useCallback(() => {
     // Bug fix: this used to scope by state.wardFilter (which side's tab was open) to decide
     // which of a shared med's two shelf codes to print — but the OPD/IPD ward TABS were
@@ -1537,7 +1550,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // distinct binIpd genuinely has TWO physical shelf spots needing their own sticker, so it
     // now emits one label row per real shelf position instead of guessing which single one to
     // print — a non-shared med (one real shelf spot) still gets exactly one label, unchanged.
-    const meds = state.meds.filter((m) => m.active);
+    // An empty picker (nobody checked anything) means "print everything active", same as
+    // before this picker existed — only narrows to the checked meds once at least one is
+    // actually checked, so leaving the picker untouched can never silently print less than
+    // the old unconditional full-formulary behavior did.
+    const selectedIds = Object.keys(state.labelSelected).filter((id) => state.labelSelected[id]);
+    const selectedSet = new Set(selectedIds);
+    const meds = state.meds.filter((m) => m.active && (selectedSet.size === 0 || selectedSet.has(m.id)));
     let labels: PrintLabel[] = [];
     let heading = 'ฉลากตัวยา';
     if (state.labelType === 'med') {
@@ -1568,7 +1587,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!labels.length) { toast('ไม่มีรายการให้พิมพ์ฉลาก'); return; }
     const ok = printLabelSheet(labels, heading);
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว — เลือกกระดาษสติกเกอร์ A4 แล้วสั่งพิมพ์' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
-  }, [state.meds, state.lots, state.labelType, state.wardFilter, state.expiryWarnDays, toast]);
+  }, [state.meds, state.lots, state.labelType, state.wardFilter, state.expiryWarnDays, state.labelSelected, toast]);
 
   // ---------- settings / par ----------
   const applyOnePar = useCallback(async (medId: string, which: 'sub' | 'floor') => {
@@ -2684,7 +2703,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
     setReportTab, exportReportCsv, exportAllReports,
-    setLabelType, printLabels,
+    setLabelType, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
