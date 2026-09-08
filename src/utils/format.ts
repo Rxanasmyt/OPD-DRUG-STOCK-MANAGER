@@ -1,7 +1,15 @@
 export const DAY = 86400000;
 
+// Bug fix: Math.round(n) can itself produce a real -0 (e.g. Math.round(-0.4), or arithmetic
+// like -(before - after) in commitReconcile when a HOSxP-reported dispense is clamped against
+// a drug already at 0 on the shelf) — and (-0).toLocaleString('en-US') is a genuine JS quirk
+// that renders as the literal string "-0", not "0". That reached real screens: ReportScreen's
+// discrepancy log colors a row red only when qty < 0 (false for -0, so it shows green) while
+// the number itself still prints "-0 <unit>" — a confusing, wrong-looking row for a perfectly
+// normal reconcile of an already-empty shelf. `|| 0` folds -0 back to +0 (falsy, like 0 itself)
+// without touching any other value, which is always truthy when nonzero.
 export function nf(n: number): string {
-  return Math.round(n).toLocaleString('en-US');
+  return (Math.round(n) || 0).toLocaleString('en-US');
 }
 
 export function thDate(ms: number): string {

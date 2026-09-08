@@ -7,6 +7,16 @@ describe('nf', () => {
     expect(nf(0)).toBe('0');
     expect(nf(-42)).toBe('-42');
   });
+
+  it('never renders negative zero as "-0"', () => {
+    // Regression guard: (-0).toLocaleString('en-US') is literally "-0" in JS. A real -0 can
+    // reach here from Math.round(-0.4), or from reconcile math like -(before - after) when a
+    // HOSxP dispense is clamped against a drug already at 0 on the shelf (commitReconcile in
+    // AppContext.tsx) — which used to print a confusing "-0" on ReportScreen's discrepancy log.
+    expect(nf(-0)).toBe('0');
+    expect(nf(-0.4)).toBe('0');
+    expect(nf(-(0 - 0))).toBe('0');
+  });
 });
 
 describe('isoDate', () => {
