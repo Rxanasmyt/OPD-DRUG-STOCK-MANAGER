@@ -2,21 +2,22 @@ import { qrSvgMarkup } from './qr';
 import { titleSizeStep } from './labelName';
 import { fiscalYear, thDateLong } from './format';
 
-// Same crest shapes as src/components/HospitalCrest.tsx, reproduced here as a raw markup
-// string rather than imported — this file builds plain HTML documents via
-// window.document.write(), not React, so there's no JSX tree to render it into. Kept in sync
-// by eye (the shapes/colors rarely change); literal hex rather than CSS var(--...) since a
-// printed page has no theme/dark-mode to inherit from.
+// Same crest shapes as src/components/HospitalCrest.tsx (see that file's header comment for
+// the redraw-fidelity/no-file-access caveat), reproduced here as a raw markup string rather
+// than imported — this file builds plain HTML documents via window.document.write(), not
+// React, so there's no JSX tree to render it into. Kept in sync by eye (the shapes/colors
+// rarely change); literal hex rather than CSS var(--...) since a printed page has no
+// theme/dark-mode to inherit from.
 function crestSvgMarkup(sizePx: number): string {
   return `<svg width="${sizePx}" height="${sizePx}" viewBox="0 0 200 200" aria-hidden="true">
     <defs><path id="crest-wing" d="M 6 30 C 4 8 30 -4 62 6 C 40 34 78 110 100 168 C 66 158 18 140 4 82 C 1 62 2 44 6 30 Z" /></defs>
-    <use href="#crest-wing" fill="#35c4b3" />
+    <use href="#crest-wing" fill="#38c6b5" />
     <use href="#crest-wing" fill="#0e8c82" transform="translate(100,168) scale(0.85) translate(-100,-168)" />
     <g transform="translate(200,0) scale(-1,1)">
       <use href="#crest-wing" fill="#f2a077" />
       <use href="#crest-wing" fill="#0e8c82" transform="translate(100,168) scale(0.85) translate(-100,-168)" />
     </g>
-    <g transform="translate(168,148) scale(0.8)">
+    <g transform="translate(172,152) scale(0.9)">
       <path d="M 0 -20 C 8 -20 10 -8 0 0 C -10 -8 -8 -20 0 -20 Z" fill="#0e8c82" />
       <path d="M 0 20 C 8 20 10 8 0 0 C -10 8 -8 20 0 20 Z" fill="#0e8c82" />
       <path d="M -20 0 C -20 -8 -8 -10 0 0 C -8 10 -20 8 -20 0 Z" fill="#0e8c82" />
