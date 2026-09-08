@@ -1,6 +1,29 @@
 import { qrSvgMarkup } from './qr';
 import { titleSizeStep } from './labelName';
-import { fiscalYear } from './format';
+import { fiscalYear, thDateLong } from './format';
+
+// Same crest shapes as src/components/HospitalCrest.tsx, reproduced here as a raw markup
+// string rather than imported — this file builds plain HTML documents via
+// window.document.write(), not React, so there's no JSX tree to render it into. Kept in sync
+// by eye (the shapes/colors rarely change); literal hex rather than CSS var(--...) since a
+// printed page has no theme/dark-mode to inherit from.
+function crestSvgMarkup(sizePx: number): string {
+  return `<svg width="${sizePx}" height="${sizePx}" viewBox="0 0 200 200" aria-hidden="true">
+    <defs><path id="crest-wing" d="M 6 30 C 4 8 30 -4 62 6 C 40 34 78 110 100 168 C 66 158 18 140 4 82 C 1 62 2 44 6 30 Z" /></defs>
+    <use href="#crest-wing" fill="#35c4b3" />
+    <use href="#crest-wing" fill="#0e8c82" transform="translate(100,168) scale(0.85) translate(-100,-168)" />
+    <g transform="translate(200,0) scale(-1,1)">
+      <use href="#crest-wing" fill="#f2a077" />
+      <use href="#crest-wing" fill="#0e8c82" transform="translate(100,168) scale(0.85) translate(-100,-168)" />
+    </g>
+    <g transform="translate(168,148) scale(0.8)">
+      <path d="M 0 -20 C 8 -20 10 -8 0 0 C -10 -8 -8 -20 0 -20 Z" fill="#0e8c82" />
+      <path d="M 0 20 C 8 20 10 8 0 0 C -10 8 -8 20 0 20 Z" fill="#0e8c82" />
+      <path d="M -20 0 C -20 -8 -8 -10 0 0 C -8 10 -20 8 -20 0 Z" fill="#0e8c82" />
+      <path d="M 20 0 C 20 -8 8 -10 0 0 C 8 10 20 8 20 0 Z" fill="#0e8c82" />
+    </g>
+  </svg>`;
+}
 
 export interface PrintLabel {
   payload: string;
@@ -153,14 +176,27 @@ export interface PickListRow {
 }
 
 /**
- * The "Auto Pick-List" for the morning shelf-fill routine — a plain, sorted-by-shelf-position
- * A4 sheet someone can carry while walking the substock room, instead of trying to remember
- * (or re-derive on a phone screen) what the app's suggested-fill cart said. Deliberately not a
+ * The "Auto Pick-List" for the morning shelf-fill routine — a sorted-by-shelf-position A4
+ * sheet someone can carry while walking the substock room, instead of trying to remember (or
+ * re-derive on a phone screen) what the app's suggested-fill cart said. Deliberately not a
  * QR/label sheet — this is a checklist to work from and cross off, not something that gets cut
  * up and stuck anywhere.
+ *
+ * Styled as a formal document (letterhead with the hospital crest, TH Sarabun — the Thai
+ * government-mandated official-document typeface, per the 2015 cabinet resolution on font
+ * standardization — a full spelled-out date, and a signature block) rather than a plain
+ * checklist, so the same sheet also works as the paper record of what left/entered stock —
+ * ต้องใช้เป็นเอกสารทางราชการได้ (สำหรับใช้อ้างอิง/แนบสำนวนได้ ไม่ใช่แค่กระดาษกากบาทระหว่างเดิน).
  */
-export function printPickListSheet(rows: PickListRow[], heading: string, subheading: string, colLabels: { bin: string; qty: string } = { bin: 'ชั้น', qty: 'จำนวนที่ต้องหยิบ' }): boolean {
+export function printPickListSheet(
+  rows: PickListRow[],
+  heading: string,
+  subheading: string,
+  colLabels: { bin: string; qty: string } = { bin: 'ชั้น', qty: 'จำนวนที่ต้องหยิบ' },
+  meta: { printedBy?: string } = {},
+): boolean {
   const sorted = rows.slice().sort((a, b) => a.bin.localeCompare(b.bin));
+  const now = Date.now();
   const body = sorted
     .map((r, i) => `<tr>
       <td class="n">${i + 1}</td>
@@ -173,33 +209,75 @@ export function printPickListSheet(rows: PickListRow[], heading: string, subhead
 
   const html = `<!doctype html>
 <html lang="th"><head><meta charset="utf-8"><title>${escapeHtml(heading)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  @page { size: A4; margin: 14mm; }
+  @page { size: A4; margin: 16mm 14mm; }
   * { box-sizing: border-box; }
-  body { font-family: 'Noto Sans Thai', system-ui, -apple-system, sans-serif; margin: 0; color: #12211a; }
-  h1 { font-size: 16pt; margin: 0 0 2mm; }
-  .meta { font-size: 10pt; color: #555; margin-bottom: 6mm; }
-  table { width: 100%; border-collapse: collapse; font-size: 11pt; }
-  th { text-align: left; font-size: 9pt; color: #666; border-bottom: 1.5pt solid #12211a; padding: 2mm 3mm; }
-  td { padding: 2.5mm 3mm; border-bottom: 0.4pt solid #ccc; }
-  .n { width: 8mm; color: #888; }
-  .bin { width: 26mm; font-weight: 800; white-space: nowrap; }
-  .qty { width: 32mm; font-weight: 700; text-align: right; }
+  /* Sarabun is the closest freely-loadable match to TH Sarabun New — the typeface the 2015
+     cabinet resolution set as the standard for official Thai government documents — with
+     'Noto Sans Thai'/system sans as a fallback if the page prints before the web font loads. */
+  body { font-family: 'Sarabun', 'Noto Sans Thai', system-ui, -apple-system, sans-serif; margin: 0; color: #14211a; font-size: 11.5pt; }
+
+  .letterhead { display: flex; align-items: center; gap: 4mm; padding-bottom: 3mm; border-bottom: 1pt solid #14211a; }
+  .letterhead .crest { flex: none; width: 15mm; height: 15mm; }
+  .letterhead .org .h1 { font-size: 14.5pt; font-weight: 700; line-height: 1.3; }
+  .letterhead .org .h2 { font-size: 10.5pt; color: #444; line-height: 1.3; }
+
+  .doctitle { text-align: center; font-size: 16.5pt; font-weight: 700; margin: 5mm 0 1mm; letter-spacing: .01em; }
+  .docsub { text-align: center; font-size: 10.5pt; color: #555; margin-bottom: 4mm; }
+
+  .metabox { width: 100%; border-collapse: collapse; font-size: 10.5pt; margin-bottom: 5mm; }
+  .metabox td { border: 0.6pt solid #b8c4bd; padding: 1.8mm 3mm; }
+  .metabox .k { background: #eef6f4; font-weight: 700; color: #245a52; width: 24mm; white-space: nowrap; }
+  .metabox .v { width: 63mm; }
+
+  table.rows { width: 100%; border-collapse: collapse; font-size: 11pt; }
+  table.rows th { text-align: left; font-size: 9.5pt; font-weight: 700; color: #14211a; background: #eef6f4; border: 0.6pt solid #9fb8b1; padding: 2.2mm 3mm; }
+  table.rows td { padding: 2.4mm 3mm; border: 0.5pt solid #cdd6d1; }
+  table.rows tbody tr:nth-child(even) { background: #f8faf9; }
+  .n { width: 8mm; color: #667; text-align: center; }
+  .bin { width: 24mm; font-weight: 700; white-space: nowrap; }
+  .qty { width: 34mm; font-weight: 700; text-align: right; }
   .check { width: 12mm; text-align: center; font-size: 13pt; }
-  .note { font-size: 8.5pt; color: #b8710f; font-weight: 600; margin-top: 0.5mm; }
+  .note { font-size: 8.5pt; color: #a15c00; font-weight: 600; margin-top: 0.5mm; }
+
+  .signoff { display: flex; justify-content: space-between; gap: 8mm; margin-top: 14mm; break-inside: avoid; }
+  .signoff .sig { flex: 1; text-align: center; font-size: 10pt; }
+  .signoff .sig .line { border-bottom: 0.6pt solid #14211a; height: 11mm; }
+  .signoff .sig .lbl { margin-top: 2mm; font-weight: 700; }
+  .signoff .sig .date { margin-top: 5mm; color: #555; }
+
   @media screen {
     body { background: #eee; padding: 14mm; }
-    .sheet { background: #fff; padding: 14mm; margin: 0 auto; max-width: 210mm; box-shadow: 0 0 0 1px #ddd; }
+    .sheet { background: #fff; padding: 14mm 12mm; margin: 0 auto; max-width: 210mm; box-shadow: 0 0 0 1px #ddd; }
   }
 </style></head>
 <body>
   <div class="sheet">
-    <h1>${escapeHtml(heading)}</h1>
-    <div class="meta">${escapeHtml(subheading)} · ${sorted.length} รายการ · พิมพ์เมื่อ ${new Date().toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}</div>
-    <table>
+    <div class="letterhead">
+      <div class="crest">${crestSvgMarkup(56)}</div>
+      <div class="org">
+        <div class="h1">โรงพยาบาลกรงปินัง</div>
+        <div class="h2">ห้องยา ฝ่ายเภสัชกรรม</div>
+      </div>
+    </div>
+    <div class="doctitle">${escapeHtml(heading)}</div>
+    <div class="docsub">${escapeHtml(subheading)}</div>
+    <table class="metabox">
+      <tr><td class="k">วันที่</td><td class="v">${escapeHtml(thDateLong(now))}</td><td class="k">จำนวนรายการ</td><td class="v">${sorted.length} รายการ</td></tr>
+      <tr><td class="k">ผู้จัดทำรายการ</td><td class="v">${escapeHtml(meta.printedBy || '—')}</td><td class="k">พิมพ์เมื่อ</td><td class="v">${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }))}</td></tr>
+    </table>
+    <table class="rows">
       <thead><tr><th class="n">#</th><th class="bin">${escapeHtml(colLabels.bin)}</th><th class="name">รายการยา</th><th class="qty">${escapeHtml(colLabels.qty)}</th><th class="check">✓</th></tr></thead>
       <tbody>${body}</tbody>
     </table>
+    <div class="signoff">
+      <div class="sig"><div class="line"></div><div class="lbl">ผู้จัดทำรายการ</div><div class="date">วันที่ ____ /____ /______</div></div>
+      <div class="sig"><div class="line"></div><div class="lbl">ผู้ตรวจสอบ / ผู้รับของ</div><div class="date">วันที่ ____ /____ /______</div></div>
+      <div class="sig"><div class="line"></div><div class="lbl">ผู้อนุมัติ</div><div class="date">วันที่ ____ /____ /______</div></div>
+    </div>
   </div>
   <script>window.onload = function () { window.print(); };</script>
 </body></html>`;

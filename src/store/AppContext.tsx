@@ -887,9 +887,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .map((id) => state.meds.find((m) => m.id === id))
       .filter((m): m is Med => !!m)
       .map((m) => ({ bin: binDisplayAll(m), name: m.name, qty: state.cart[m.id], unit: m.unit }));
-    const ok = printPickListSheet(rows, 'ใบจัดยาเติมชั้น', thDate(Date.now()));
+    const ok = printPickListSheet(rows, 'ใบจัดยาเติมชั้น', 'ตามรายการที่เลือกในตะกร้าเติมหน้างาน', undefined, { printedBy: userName() });
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
-  }, [state.cart, state.meds, toast]);
+  }, [state.cart, state.meds, toast, userName]);
 
   // The daily version of the above — "วันนี้ต้องเติมอะไรบ้าง" printed straight from current
   // floor-vs-Min numbers, with zero dependence on the cart. A จพ.เภสัช doing the morning walk
@@ -916,9 +916,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
       .filter((r) => r.qty > 0);
     if (!rows.length) { toast('รายการที่ต่ำกว่า Min ไม่มีของเหลือใน substock ให้เติมเลยสักรายการ — ต้องเบิกจากคลังใหญ่ก่อน'); return; }
-    const ok = printPickListSheet(rows, 'ใบเติมหน้างานประจำวัน', thDate(Date.now()));
+    const ok = printPickListSheet(rows, 'ใบเติมหน้างานประจำวัน', 'รายการที่ต่ำกว่าจุดต้องเติม (Min) ประจำวันนี้', undefined, { printedBy: userName() });
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
-  }, [state, toast]);
+  }, [state, toast, userName]);
 
   // "ระบบเตือนเบิก Substock (2 Weeks Cycle)" — since central-warehouse pickup only happens
   // once every two weeks (not daily like the shelf fill), what's actually needed is a
@@ -929,9 +929,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const items = state.meds.filter((m) => m.active && subQty(state, m.id) < m.parSub);
     if (!items.length) { toast('ทุกรายการยังสูงกว่า par substock — ยังไม่ต้องเบิกเพิ่ม'); return; }
     const rows = items.map((m) => ({ bin: m.code, name: m.name, qty: Math.max(0, m.parSub - subQty(state, m.id)), unit: m.unit }));
-    const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการที่ต่ำกว่า par substock ทั้งระบบ', { bin: 'รหัสยา', qty: 'จำนวนที่ควรเบิก' });
+    const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการที่ต่ำกว่า par substock ทั้งระบบ', { bin: 'รหัสยา', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() });
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
-  }, [state, toast]);
+  }, [state, toast, userName]);
 
   const commitTransfer = useCallback(guardOnce('transfer', async () => {
     const cart = { ...state.cart };

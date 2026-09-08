@@ -8,6 +8,15 @@ export function thDate(ms: number): string {
   return new Date(ms).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit' });
 }
 
+/** Full, spelled-out Thai date (e.g. "8 กันยายน 2569") — the form official Thai documents use
+ * (a requisition/ใบเบิก header never abbreviates the month or truncates the year), as opposed
+ * to thDate()'s short "08 ก.ย. 69" used everywhere else in the app's own on-screen UI. Only
+ * printed sheets meant to double as a formal paper document need this; screen text stays with
+ * the compact thDate(). */
+export function thDateLong(ms: number): string {
+  return new Date(ms).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
 export function thTime(ms: number): string {
   return new Date(ms).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
 }
