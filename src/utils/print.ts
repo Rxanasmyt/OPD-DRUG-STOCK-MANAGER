@@ -1,29 +1,13 @@
 import { qrSvgMarkup } from './qr';
 import { titleSizeStep } from './labelName';
 import { fiscalYear, thDateLong } from './format';
+import { HOSPITAL_CREST_DATA_URI } from './crestImage';
 
-// Same crest shapes as src/components/HospitalCrest.tsx (see that file's header comment for
-// the redraw-fidelity/no-file-access caveat), reproduced here as a raw markup string rather
-// than imported — this file builds plain HTML documents via window.document.write(), not
-// React, so there's no JSX tree to render it into. Kept in sync by eye (the shapes/colors
-// rarely change); literal hex rather than CSS var(--...) since a printed page has no
-// theme/dark-mode to inherit from.
-function crestSvgMarkup(sizePx: number): string {
-  return `<svg width="${sizePx}" height="${sizePx}" viewBox="0 0 200 200" aria-hidden="true">
-    <defs><path id="crest-wing" d="M 6 30 C 4 8 30 -4 62 6 C 40 34 78 110 100 168 C 66 158 18 140 4 82 C 1 62 2 44 6 30 Z" /></defs>
-    <use href="#crest-wing" fill="#38c6b5" />
-    <use href="#crest-wing" fill="#0e8c82" transform="translate(100,168) scale(0.85) translate(-100,-168)" />
-    <g transform="translate(200,0) scale(-1,1)">
-      <use href="#crest-wing" fill="#f2a077" />
-      <use href="#crest-wing" fill="#0e8c82" transform="translate(100,168) scale(0.85) translate(-100,-168)" />
-    </g>
-    <g transform="translate(172,152) scale(0.9)">
-      <path d="M 0 -20 C 8 -20 10 -8 0 0 C -10 -8 -8 -20 0 -20 Z" fill="#0e8c82" />
-      <path d="M 0 20 C 8 20 10 8 0 0 C -10 8 -8 20 0 20 Z" fill="#0e8c82" />
-      <path d="M -20 0 C -20 -8 -8 -10 0 0 C -8 10 -20 8 -20 0 Z" fill="#0e8c82" />
-      <path d="M 20 0 C 20 -8 8 -10 0 0 C 8 10 20 8 20 0 Z" fill="#0e8c82" />
-    </g>
-  </svg>`;
+// The real crest (see HospitalCrest.tsx / crestImage.ts) as a plain <img>, sized to fit an
+// sizePx-tall box while keeping its real (non-square) aspect ratio — the source crop is
+// wider than tall, and stretching it to a forced square would visibly distort it.
+function crestImgMarkup(sizePx: number): string {
+  return `<img src="${HOSPITAL_CREST_DATA_URI}" alt="ตรารพ.กรงปินัง" style="height:${sizePx}px;width:auto;display:block;" />`;
 }
 
 export interface PrintLabel {
@@ -222,7 +206,7 @@ export function printPickListSheet(
   body { font-family: 'Sarabun', 'Noto Sans Thai', system-ui, -apple-system, sans-serif; margin: 0; color: #14211a; font-size: 11.5pt; }
 
   .letterhead { display: flex; align-items: center; gap: 4mm; padding-bottom: 3mm; border-bottom: 1pt solid #14211a; }
-  .letterhead .crest { flex: none; width: 15mm; height: 15mm; }
+  .letterhead .crest { flex: none; display: flex; align-items: center; }
   .letterhead .org .h1 { font-size: 14.5pt; font-weight: 700; line-height: 1.3; }
   .letterhead .org .h2 { font-size: 10.5pt; color: #444; line-height: 1.3; }
 
@@ -258,7 +242,7 @@ export function printPickListSheet(
 <body>
   <div class="sheet">
     <div class="letterhead">
-      <div class="crest">${crestSvgMarkup(56)}</div>
+      <div class="crest">${crestImgMarkup(56)}</div>
       <div class="org">
         <div class="h1">โรงพยาบาลกรงปินัง</div>
         <div class="h2">ห้องยา ฝ่ายเภสัชกรรม</div>
