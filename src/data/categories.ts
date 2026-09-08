@@ -16,13 +16,15 @@ export interface DrugCategory {
 }
 
 export const DRUG_CATEGORIES: DrugCategory[] = [
-  { id: 'pain', label: 'ยาแก้ปวด/ลดไข้/ต้านอักเสบ' },
+  { id: 'pain', label: 'ยาแก้ปวด/ลดไข้/ต้านอักเสบ (NSAID)' },
+  { id: 'steroid', label: 'ยาสเตียรอยด์/คอร์ติโคสเตียรอยด์' },
   { id: 'antimicrobial', label: 'ยาต้านจุลชีพ (ปฏิชีวนะ/เชื้อรา/ไวรัส)' },
   { id: 'cardio', label: 'ยาโรคหัวใจ/หลอดเลือด/ความดัน' },
   { id: 'endocrine', label: 'ยาเบาหวาน/ต่อมไร้ท่อ/ไขมันในเลือด' },
   { id: 'resp', label: 'ยาระบบทางเดินหายใจ/หอบหืด' },
   { id: 'gi', label: 'ยาระบบทางเดินอาหาร' },
   { id: 'neuro_psych', label: 'ยาระบบประสาท/จิตเวช/นอนไม่หลับ' },
+  { id: 'anesthetic', label: 'ยาชา/ยาคลายกล้ามเนื้อ' },
   { id: 'allergy', label: 'ยาแก้แพ้/ภูมิแพ้' },
   { id: 'derm', label: 'ยาผิวหนัง/ยาทาภายนอก' },
   { id: 'eye_ent', label: 'ยาตา/หู/คอ/จมูก' },

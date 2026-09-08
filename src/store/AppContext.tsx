@@ -20,6 +20,7 @@ import { shortLabelName } from '../utils/labelName';
 import { printLabelSheet, printPickListSheet, type PrintLabel } from '../utils/print';
 import { parseHosxpUsageWorkbook, parseUsageCsvText, type RawUsageRow } from '../utils/usageImport';
 import { LOCS } from '../data/locations';
+import { suggestCategoryId } from '../data/categorySuggest';
 import { withTimeout, TimeoutError } from '../utils/timeout';
 import { readNotifyEnabled, writeNotifyEnabled, requestPermission, currentPermission, maybeNotifyExpiring } from '../utils/notify';
 import { hapticSuccess, hapticError } from '../utils/haptic';
@@ -249,6 +250,10 @@ export interface AppCtx {
    * that has no separate IPD records at all yet (mergeAllWardPairs finds nothing to fold
    * together there, since there's no second record's stock to combine). */
   shareAllMeds: () => void;
+  /** Bulk-fills Med.category from each med's own name via the keyword engine in
+   * data/categorySuggest.ts — only touches meds with no category set yet, only when a
+   * keyword actually matches. Never overwrites a human's existing choice. */
+  autoCategorizeAll: () => void;
   toggleMedActive: (medId: string) => void;
   deleteMed: (medId: string) => void;
   deleteAllInactiveMeds: (medIds?: string[]) => void;
@@ -1905,6 +1910,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { toastErr(e, 'ตั้งค่าไม่สำเร็จ'); }
   }), [canEditPar, state.meds, logAudit, toast, toastErr, guardOnce]);
 
+  // One-tap bulk fill for Med.category — see data/categorySuggest.ts for the keyword engine
+  // behind it. Deliberately narrow in what it's allowed to touch: only meds with NO category
+  // set yet (never overwrites a category a human already chose, including one this same
+  // action set on a previous run), and only ones the keyword list actually recognizes (a med
+  // it can't match keeps falling back to "ยังไม่ระบุหมวด" via categoryOf() same as before —
+  // never forced into a guessed bucket just to make the uncategorized count hit zero).
+  const autoCategorizeAll = useCallback(guardOnce('autoCategorizeAll', async () => {
+    if (!canEditPar) return;
+    const candidates = state.meds
+      .map((m) => ({ m, cat: m.category ? null : suggestCategoryId(m.name) }))
+      .filter((x): x is { m: Med; cat: string } => !!x.cat);
+    if (!candidates.length) { toast('ไม่มียาที่ระบบแนะนำหมวดให้ได้เพิ่มแล้ว — ที่เหลือต้องเลือกหมวดเอง'); return; }
+    const uncategorizedTotal = state.meds.filter((m) => !m.category).length;
+    if (!(await confirmAsync(
+      'ให้ระบบจัดหมวดยาอัตโนมัติจากชื่อยา ' + candidates.length + ' รายการ (จากทั้งหมด ' + uncategorizedTotal + ' รายการที่ยังไม่มีหมวด)?\n\n'
+      + 'จับคู่จากชื่อสามัญที่รู้จัก (เช่น Paracetamol → ยาแก้ปวด, Amoxicillin → ยาต้านจุลชีพ) — '
+      + 'ยาที่ตั้งหมวดไว้แล้วจะไม่ถูกแก้ไข ส่วนยาที่ระบบไม่รู้จักชื่อจะยังคงเป็น "ยังไม่ระบุหมวด" ให้เลือกเองภายหลัง'
+    ))) return;
+    try {
+      for (let i = 0; i < candidates.length; i += 400) {
+        const batch = writeBatch(db);
+        candidates.slice(i, i + 400).forEach(({ m, cat }) => batch.update(doc(db, 'meds', m.id), { category: cat }));
+        await withTimeout(batch.commit());
+      }
+      const leftover = uncategorizedTotal - candidates.length;
+      logAudit({ type: 'med_edited', note: 'จัดหมวดยาอัตโนมัติจากชื่อยา ' + candidates.length + ' รายการ' });
+      toast('จัดหมวดให้แล้ว ' + candidates.length + ' รายการ' + (leftover > 0 ? ' — เหลืออีก ' + leftover + ' รายการที่ระบบไม่รู้จักชื่อ ต้องเลือกหมวดเอง' : ''));
+    } catch (e) { toastErr(e, 'จัดหมวดอัตโนมัติไม่สำเร็จ'); }
+  }), [canEditPar, state.meds, logAudit, toast, toastErr, guardOnce]);
+
   const toggleMedActive = useCallback(async (medId: string) => {
     if (!canEditPar) return;
     const m = state.meds.find((x) => x.id === medId);
@@ -2440,7 +2475,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setReportTab, exportReportCsv, exportAllReports,
     setLabelType, printLabels,
     applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
-    addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId,
+    addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, setCountInput, commitCount,
     setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, commitReconcile,

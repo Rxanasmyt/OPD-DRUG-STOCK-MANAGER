@@ -66,7 +66,7 @@ function formFromMed(m: Med): MedFormValues {
 }
 
 export default function MedsScreen() {
-  const { state, sub, addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, setMedBin, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId, openScanSearch } = useApp();
+  const { state, sub, addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, setMedBin, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId, openScanSearch } = useApp();
   const canEdit = state.role !== 'tech';
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('active');
@@ -124,6 +124,16 @@ export default function MedsScreen() {
   // records into), but this is still > 0 because every plain OPD-only med qualifies to just be
   // flagged shared outright — see shareAllMeds() in AppContext.tsx.
   const shareAllCount = useMemo(() => state.meds.filter((m) => m.active && !isSharedMed(m)).length, [state.meds]);
+
+  // Count for "จัดหมวดหมู่ยาทั้งหมดอัตโนมัติ" — how many currently-uncategorized meds the
+  // keyword engine (data/categorySuggest.ts) can actually put a category on right now. Meds
+  // that already have a category, or whose name matches nothing in the keyword list, don't
+  // count — see autoCategorizeAll() in AppContext.tsx for the same exact rule applied to the
+  // real bulk write.
+  const autoCategorizableCount = useMemo(
+    () => state.meds.filter((m) => !m.category && suggestCategoryId(m.name)).length,
+    [state.meds],
+  );
 
   // Category counts computed BEFORE the category tab itself narrows anything — so each chip
   // can show how many meds are in that group under the current status/ward/search filters,
@@ -194,6 +204,16 @@ export default function MedsScreen() {
         <button className="chip" style={{ ...chip(wardTab === 'ipd'), flex: 1, textAlign: 'center', ...(wardTab === 'ipd' ? { background: WARD_COLOR.ipd, borderColor: WARD_COLOR.ipd } : {}) }} onClick={() => setWardTab('ipd')}>IPD</button>
       </div>
 
+      {autoCategorizableCount > 0 && (
+        <button
+          onClick={autoCategorizeAll}
+          disabled={!!state.busy['autoCategorizeAll']}
+          title="จับคู่จากชื่อยาสามัญที่ระบบรู้จัก — ยาที่ตั้งหมวดไว้แล้วจะไม่ถูกแก้ไข ยาที่ระบบไม่รู้จักชื่อจะยังไม่ถูกแตะต้อง"
+          style={{ width: '100%', border: '1px solid var(--green)', background: 'var(--green-tint)', color: 'var(--green)', padding: '11px 14px', borderRadius: 11, fontSize: 12.5, fontWeight: 600, minHeight: 44, marginBottom: 10, opacity: state.busy['autoCategorizeAll'] ? 0.7 : 1 }}
+        >
+          {state.busy['autoCategorizeAll'] ? 'กำลังจัดหมวด…' : `🏷 จัดหมวดหมู่ยาทั้งหมดอัตโนมัติ (${autoCategorizableCount} รายการ)`}
+        </button>
+      )}
       {/* หมวดกลุ่มยา — เลื่อนดูได้ทางขวา แต่ละชิปโชว์จำนวนยาในหมวดนั้นภายใต้ตัวกรองด้านบน ทำให้
           เห็นได้ทันทีว่ากลุ่มไหนมีของเยอะ (จ่ายออกบ่อย) กลุ่มไหนมีน้อย (ใช้นาน ๆ ครั้ง) */}
       <div style={{ display: 'flex', gap: 7, marginBottom: 10, overflowX: 'auto', paddingBottom: 2 }}>

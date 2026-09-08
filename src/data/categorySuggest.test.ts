@@ -13,6 +13,12 @@ describe('suggestCategoryId', () => {
     expect(suggestCategoryId('AMOXICILLIN 500')).toBe('antimicrobial');
   });
 
+  it('matches the newer steroid/anesthetic/supply categories', () => {
+    expect(suggestCategoryId('Prednisolone 5 mg')).toBe('steroid');
+    expect(suggestCategoryId('Lidocaine 2%')).toBe('anesthetic');
+    expect(suggestCategoryId('Sterile Gauze 4x4')).toBe('supply');
+  });
+
   it('returns null (never a guess) for a name matching no keyword', () => {
     expect(suggestCategoryId('Some Unlisted Drug XYZ 10 mg')).toBeNull();
   });
