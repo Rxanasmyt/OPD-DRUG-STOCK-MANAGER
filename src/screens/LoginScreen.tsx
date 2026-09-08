@@ -65,7 +65,7 @@ export default function LoginScreen() {
           column, since a split layout only makes sense wider than this app is ever opened). */}
       <div style={{ position: 'relative', padding: 'calc(env(safe-area-inset-top, 0px) + 22px) 26px 4px', maxWidth: 440, margin: '0 auto', width: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 22, animation: 'fade .4s var(--ease-out) both' }}>
-          <div style={{ width: 46, height: 46, borderRadius: 14, background: 'linear-gradient(140deg, rgba(255,255,255,.85), rgba(255,255,255,.6))', border: '1px solid rgba(255,255,255,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 6, flex: 'none', animation: 'glowPulse 3.2s infinite', boxShadow: '0 6px 18px -6px rgba(0,0,0,.35), 0 0 0 5px rgba(var(--brand-coral-rgb),.16)' }}><HospitalCrest size={30} /></div>
+          <div style={{ width: 46, height: 46, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, #ffffff, #f4f2ec)', border: '1px solid rgba(255,255,255,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 8, flex: 'none', animation: 'glowPulse 3.2s infinite', boxShadow: '0 6px 18px -6px rgba(0,0,0,.35), 0 0 0 5px rgba(var(--brand-coral-rgb),.16)' }}><HospitalCrest size={28} /></div>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-soft)', lineHeight: 1.3 }}>KPNHOS-DRUG SUBSTOCK-OPD-IPD-MANAGEMENT</div>
             <div style={{ fontSize: 11.5, color: 'rgba(242,245,239,.65)', marginTop: 2 }}>รพ.กรงปินัง · ห้องยา OPD-IPD</div>
