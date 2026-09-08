@@ -49,6 +49,11 @@ export interface Med {
   // selectors.ts rather than reading `shared`/`binIpd` directly.
   shared?: boolean;
   binIpd?: string;
+  // Therapeutic group id — see src/data/categories.ts for the fixed list this must be one of
+  // (or absent). Optional because every med added before this feature existed has none; always
+  // read via categoryOf() in selectors.ts so those fall back to the same "ยังไม่ระบุหมวด" bucket
+  // instead of being invisible in a category-grouped/filtered view.
+  category?: string;
 }
 
 export interface Lot {

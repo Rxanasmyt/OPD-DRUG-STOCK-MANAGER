@@ -1,5 +1,6 @@
 import type { AppState, HosxpMatch, Med, Role, Ward } from '../types';
 import { DAY, daysUntil } from '../utils/format';
+import { UNCATEGORIZED } from '../data/categories';
 
 /** Pure, stateless helpers derived from AppState — no mutation, safe to call during render. */
 
@@ -32,6 +33,14 @@ export function isSharedMed(m: Med): boolean {
  * filter (both wards draw from the same floor/par), everything else uses its single ward. */
 export function matchesWard(m: Med, filter: 'all' | Ward): boolean {
   return filter === 'all' || isSharedMed(m) || wardOf(m) === filter;
+}
+
+/** Same optional-field-with-a-default pattern as wardOf()/usesSubstock() — every med added
+ * before drug categories existed (and any doc whose stored category no longer matches the
+ * fixed list in data/categories.ts) falls back to the same "ยังไม่ระบุหมวด" bucket instead of
+ * silently vanishing from a category filter/group. */
+export function categoryOf(m: Med): string {
+  return m.category || UNCATEGORIZED;
 }
 
 /** Shelf/bin code to display for `m` when looking at it from ward `w` — the IPD-side code on

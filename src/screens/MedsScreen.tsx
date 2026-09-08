@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly } from '../utils/format';
-import { wardOf, wardLabel, floorMinOf, toneFor, isSharedMed, matchesWard } from '../store/selectors';
+import { wardOf, wardLabel, floorMinOf, toneFor, isSharedMed, matchesWard, categoryOf } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
 import type { Med, Ward } from '../types';
 import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
+import { DRUG_CATEGORIES, categoryLabel } from '../data/categories';
+import { suggestCategoryId } from '../data/categorySuggest';
 
 type Filter = 'active' | 'inactive' | 'all';
 
@@ -43,6 +45,7 @@ interface MedFormValues {
   // รายการเดียวกัน — คนละกลไกกับ "รวมสต็อก" (mergeWardMeds) ที่ใช้ตอนมีสต็อกแยกสองรายการอยู่แล้ว
   shared: boolean;
   binIpd: string;
+  category: string;
 }
 
 function blankForm(): MedFormValues {
@@ -50,7 +53,7 @@ function blankForm(): MedFormValues {
   // one-day-dose pulls straight off the OPD shelf), so a brand-new med should start there and
   // let someone opt OUT (untick "เลิกใช้ร่วมกัน") for the minority that genuinely need separate
   // stock, rather than opting in every single time.
-  return { name: '', dosageForm: '', unit: '', price: '', had: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: true, binIpd: '' };
+  return { name: '', dosageForm: '', unit: '', price: '', had: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: true, binIpd: '', category: '' };
 }
 
 function formFromMed(m: Med): MedFormValues {
@@ -58,7 +61,7 @@ function formFromMed(m: Med): MedFormValues {
     name: m.name, dosageForm: m.dosageForm, unit: m.unit, price: m.price ? String(m.price) : '',
     had: m.had, bin: m.bin, parSub: String(m.parSub), parFloor: String(m.parFloor), floorMin: String(floorMinOf(m)),
     ward: wardOf(m), noSubstock: !!m.noSubstock, volatility: m.volatility.toFixed(2),
-    shared: isSharedMed(m), binIpd: m.binIpd || '',
+    shared: isSharedMed(m), binIpd: m.binIpd || '', category: m.category || '',
   };
 }
 
@@ -68,6 +71,7 @@ export default function MedsScreen() {
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('active');
   const [wardTab, setWardTab] = useState<'all' | Ward>('all');
+  const [catTab, setCatTab] = useState<'all' | string>('all');
   const [addOpen, setAddOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -84,6 +88,7 @@ export default function MedsScreen() {
     // the ward filter below was hiding, so nothing visibly happened (no edit panel, nothing
     // to scroll to) even though the scan itself worked fine.
     setWardTab('all');
+    setCatTab('all');
     // Bug fix: this used to clear the search box instead — with a 585-item formulary and the
     // list below capped to the first 150 (alphabetically sorted) results, a scanned med whose
     // name sorts past position 150 would never actually render, so editingId pointed at a row
@@ -120,11 +125,34 @@ export default function MedsScreen() {
   // flagged shared outright — see shareAllMeds() in AppContext.tsx.
   const shareAllCount = useMemo(() => state.meds.filter((m) => m.active && !isSharedMed(m)).length, [state.meds]);
 
-  const meds = state.meds
+  // Category counts computed BEFORE the category tab itself narrows anything — so each chip
+  // can show how many meds are in that group under the current status/ward/search filters,
+  // which is the whole point ("บางกลุ่มจ่ายออกเยอะ บางกลุ่มใช้น้อย"): the counts are what let
+  // someone spot a high-volume group vs. a rarely-touched one at a glance, before even tapping.
+  const medsBeforeCat = state.meds
     .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : !m.active))
     .filter((m) => matchesWard(m, wardTab))
-    .filter((m) => !q.trim() || m.name.toLowerCase().indexOf(q.trim().toLowerCase()) >= 0)
+    .filter((m) => !q.trim() || m.name.toLowerCase().indexOf(q.trim().toLowerCase()) >= 0);
+
+  const catCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    medsBeforeCat.forEach((m) => { const c = categoryOf(m); counts[c] = (counts[c] || 0) + 1; });
+    return counts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.meds, filter, wardTab, q]);
+
+  const meds = medsBeforeCat
+    .filter((m) => catTab === 'all' || categoryOf(m) === catTab)
     .sort((a, b) => a.name.localeCompare(b.name, 'th'));
+
+  // Grouped-by-category view of the visible list — only built (and only shown) when browsing
+  // "ทุกหมวด" with nothing narrowing it down further; picking one category tab already IS the
+  // narrow view, repeating its own name as a lone group header on top would be noise.
+  const groups = catTab === 'all'
+    ? DRUG_CATEGORIES
+      .map((c) => ({ id: c.id, label: c.label, items: meds.filter((m) => categoryOf(m) === c.id) }))
+      .filter((g) => g.items.length > 0)
+    : null;
 
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
 
@@ -154,7 +182,7 @@ export default function MedsScreen() {
           submitLabel="บันทึก"
           onCancel={() => setAddOpen(false)}
           onSubmit={(v) => {
-            addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined });
+            addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined });
             setAddOpen(false);
           }}
         />
@@ -164,6 +192,15 @@ export default function MedsScreen() {
         <button className="chip" style={{ ...chip(wardTab === 'all'), flex: 1, textAlign: 'center' }} onClick={() => setWardTab('all')}>ทุกหอผู้ป่วย</button>
         <button className="chip" style={{ ...chip(wardTab === 'opd'), flex: 1, textAlign: 'center', ...(wardTab === 'opd' ? { background: WARD_COLOR.opd, borderColor: WARD_COLOR.opd } : {}) }} onClick={() => setWardTab('opd')}>OPD</button>
         <button className="chip" style={{ ...chip(wardTab === 'ipd'), flex: 1, textAlign: 'center', ...(wardTab === 'ipd' ? { background: WARD_COLOR.ipd, borderColor: WARD_COLOR.ipd } : {}) }} onClick={() => setWardTab('ipd')}>IPD</button>
+      </div>
+
+      {/* หมวดกลุ่มยา — เลื่อนดูได้ทางขวา แต่ละชิปโชว์จำนวนยาในหมวดนั้นภายใต้ตัวกรองด้านบน ทำให้
+          เห็นได้ทันทีว่ากลุ่มไหนมีของเยอะ (จ่ายออกบ่อย) กลุ่มไหนมีน้อย (ใช้นาน ๆ ครั้ง) */}
+      <div style={{ display: 'flex', gap: 7, marginBottom: 10, overflowX: 'auto', paddingBottom: 2 }}>
+        <button className="chip" style={{ ...chip(catTab === 'all'), flex: 'none' }} onClick={() => setCatTab('all')}>ทุกหมวด ({medsBeforeCat.length})</button>
+        {DRUG_CATEGORIES.map((c) => catCounts[c.id] ? (
+          <button key={c.id} className="chip" style={{ ...chip(catTab === c.id), flex: 'none' }} onClick={() => setCatTab(c.id)}>{c.label} ({catCounts[c.id]})</button>
+        ) : null)}
       </div>
       {shareAllCount > 0 && (
         <button
@@ -202,11 +239,22 @@ export default function MedsScreen() {
       <SearchInput value={q} onChange={setQ} placeholder="ค้นหาชื่อยา" style={{ marginBottom: 10 }} />
 
       <div className="card stagger" style={{ overflow: 'hidden' }}>
-        {meds.slice(0, 150).map((m) => {
+        {/* Category headers only render in the "ทุกหมวด" view — picking one category tab
+            above is already the narrowed view, so repeating that same name as a lone header
+            here would just be noise. groups (when present) determines display order, which
+            is DRUG_CATEGORIES' own order rather than plain alphabetical. */}
+        {(groups ? groups.flatMap((g) => g.items.map((m, i) => ({ m, header: i === 0 ? g : null }))) : meds.map((m) => ({ m, header: null })))
+          .slice(0, 150)
+          .map(({ m, header }) => {
           const stockLeft = m.floor > 0 || sub(m.id) > 0;
           const isEditing = editingId === m.id;
           return (
             <div key={m.id} ref={(el) => { rowRefs.current[m.id] = el; }} style={{ borderBottom: '1px solid var(--border-soft)' }}>
+              {header && (
+                <div style={{ padding: '9px 13px', background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-soft)', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}>
+                  {header.label} · {header.items.length} รายการ
+                </div>
+              )}
               <div style={{ padding: '11px 13px', background: isEditing ? 'var(--green-tint)' : undefined }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
                   <div style={{ minWidth: 0 }}>
@@ -259,7 +307,7 @@ export default function MedsScreen() {
                     submitLabel="บันทึกการแก้ไข"
                     onCancel={() => setEditingId(null)}
                     onSubmit={(v) => {
-                      updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined });
+                      updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined });
                       setEditingId(null);
                     }}
                     // ยาชื่อเดียวกันที่แยกรายการไว้คนละ ward (คนละ Firestore doc ตามหลักการออกแบบ
@@ -308,6 +356,7 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
 }) {
   const [v, setV] = useState<MedFormValues>(initial);
   const set = <K extends keyof MedFormValues>(k: K, val: MedFormValues[K]) => setV((s) => ({ ...s, [k]: val }));
+  const suggestedCategory = suggestCategoryId(v.name);
   const setShared = (on: boolean) => setV((s) => ({ ...s, shared: on, binIpd: on ? s.binIpd : '' }));
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
 
@@ -318,6 +367,26 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
         <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>ชื่อยา + ขนาด (เช่น Enalapril 5 mg)</span>
         <input value={v.name} onChange={(e) => set('name', e.target.value)} style={inputStyle} />
       </label>
+      <label style={{ display: 'block', marginBottom: v.category ? 9 : 5 }}>
+        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>หมวดกลุ่มยา</span>
+        <select value={v.category} onChange={(e) => set('category', e.target.value)} style={{ ...inputStyle, appearance: 'auto' as const }}>
+          <option value="">— ยังไม่ระบุหมวด —</option>
+          {DRUG_CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+        </select>
+      </label>
+      {/* Suggested from the drug's own name (see data/categorySuggest.ts) — never applied on
+          its own, only offered as a one-tap accept, so a wrong guess never silently lands on
+          a real med. Only shown while the category is still blank; picking anything (this
+          suggestion or a manual choice) hides it. */}
+      {!v.category && suggestedCategory && (
+        <button
+          type="button"
+          onClick={() => set('category', suggestedCategory)}
+          style={{ display: 'block', width: '100%', textAlign: 'left', border: '1px dashed var(--green)', background: 'var(--green-tint)', color: 'var(--green)', borderRadius: 9, padding: '7px 10px', fontSize: 11.5, fontWeight: 600, marginBottom: 9 }}
+        >
+          ระบบแนะนำหมวด: {categoryLabel(suggestedCategory)} — แตะเพื่อใช้
+        </button>
+      )}
       <div className="grid-2" style={{ marginBottom: 9 }}>
         <label>
           <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>รูปแบบยา</span>

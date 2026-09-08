@@ -3,7 +3,9 @@ import type { AppState, Med } from '../types';
 import {
   wardOf, matchesWard, binFor, binDisplayAll, floorMinOf, subQty, usageAnomalies,
   daysOfStockLeft, fefoLot, toneFor, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
+  categoryOf,
 } from './selectors';
+import { categoryLabel } from '../data/categories';
 
 // Minimal, fully-typed fixture — every test overrides only the fields it cares about, so a
 // future required field on Med surfaces here as a type error instead of a runtime surprise in
@@ -53,6 +55,22 @@ describe('wardOf / matchesWard / binFor / binDisplayAll', () => {
     expect(binDisplayAll(med({ bin: 'A1', shared: true, binIpd: 'B2' }))).toBe('A1/B2');
     expect(binDisplayAll(med({ bin: 'A1', shared: true, binIpd: 'A1' }))).toBe('A1');
     expect(binDisplayAll(med({ bin: 'A1' }))).toBe('A1');
+  });
+});
+
+describe('categoryOf / categoryLabel', () => {
+  it('falls back to "other" for a med with no category set', () => {
+    expect(categoryOf(med())).toBe('other');
+  });
+
+  it('returns the med\'s own category id when set', () => {
+    expect(categoryOf(med({ category: 'antimicrobial' }))).toBe('antimicrobial');
+  });
+
+  it('categoryLabel resolves a known id and falls back for an unknown/missing one', () => {
+    expect(categoryLabel('antimicrobial')).toBe('ยาต้านจุลชีพ (ปฏิชีวนะ/เชื้อรา/ไวรัส)');
+    expect(categoryLabel('not-a-real-id')).toBe('อื่นๆ / ยังไม่ระบุหมวด');
+    expect(categoryLabel(undefined)).toBe('อื่นๆ / ยังไม่ระบุหมวด');
   });
 });
 

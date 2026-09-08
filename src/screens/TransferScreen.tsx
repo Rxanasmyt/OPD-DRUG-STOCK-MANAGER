@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { toneFor, usesSubstock, floorMinOf } from '../store/selectors';
+import { toneFor, usesSubstock, floorMinOf, categoryOf } from '../store/selectors';
 import { nf, thDate, digitsOnly } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
@@ -9,6 +9,7 @@ import { MedMiniCard } from '../components/MedMiniCard';
 import { EmptyState } from '../components/EmptyState';
 import { StepIndicator, TRANSFER_STEPS } from '../components/StepIndicator';
 import { SearchInput } from '../components/SearchInput';
+import { DRUG_CATEGORIES } from '../data/categories';
 
 export default function TransferScreen() {
   const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, printPickList, printTodayReplenishList, go, openScanSearch } = useApp();
@@ -18,6 +19,12 @@ export default function TransferScreen() {
   // to move through quickly. One at a time keeps it fast and never surprises with a slow
   // screen after a search or filter change.
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // หมวดกลุ่มยา — ตัวกรองแยกต่างหากจากตัวกรอง low/all/had ด้านบน (คนละมิติกัน ใช้ร่วมกันได้):
+  // กลุ่มที่จ่ายออกทุกวัน (ยาแก้ปวด/ปฏิชีวนะ) ไล่ดูรวดเดียวได้ ส่วนกลุ่มที่ใช้นาน ๆ ครั้ง (ยาฉุกเฉิน)
+  // ก็กรองดูเฉพาะกลุ่มนั้นได้โดยไม่ต้องไล่สายตาผ่านรายการทั้งหมดทุกเช้า. Local view state, not
+  // global AppContext state — same pattern as MedsScreen's wardTab, a pure display filter with
+  // nothing else in the app needing to read it.
+  const [catTab, setCatTab] = useState<'all' | string>('all');
   // noSubstock meds (liquids/sprays — received straight to the shelf, see ReceiveScreen)
   // have nothing to transfer from; showing them here with permanently-stuck-at-0 +/- buttons
   // would just be confusing clutter, not a real "เติมหน้างาน" candidate.
@@ -44,13 +51,24 @@ export default function TransferScreen() {
     }
     return out;
   }, [state.txs, state.cart, meds, q]);
-  const filtered = meds
-    .filter((m) => {
-      if (q && m.name.toLowerCase().indexOf(q) < 0) return false;
-      if (state.filter === 'low') return m.floor < floorMinOf(m);
-      if (state.filter === 'had') return m.had;
-      return true;
-    })
+  const filteredByStatus = meds.filter((m) => {
+    if (q && m.name.toLowerCase().indexOf(q) < 0) return false;
+    if (state.filter === 'low') return m.floor < floorMinOf(m);
+    if (state.filter === 'had') return m.had;
+    return true;
+  });
+  // Counts per category under the low/all/had + search filter above but BEFORE the category
+  // tab itself narrows anything — same reasoning as MedsScreen's catCounts: seeing "ยาแก้ปวด…
+  // (18)" next to "ยาฉุกเฉิน… (2)" is what makes a high-volume vs. low-volume group visible at
+  // a glance, before even tapping a chip.
+  const catCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    filteredByStatus.forEach((m) => { const c = categoryOf(m); counts[c] = (counts[c] || 0) + 1; });
+    return counts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meds, state.filter, q]);
+  const filtered = filteredByStatus
+    .filter((m) => catTab === 'all' || categoryOf(m) === catTab)
     // Bug fix: a brand-new med with parFloor still 0 (Max not set yet) made this divide by
     // zero — 0/0 is NaN, and a sort comparator that ever returns NaN breaks the sort's
     // ordering guarantee for the WHOLE list, not just that one row (V8 doesn't handle NaN
@@ -87,6 +105,14 @@ export default function TransferScreen() {
           >
             🖨 พิมพ์ใบเติมหน้างานวันนี้{low.length > 0 ? ' (' + low.length + ')' : ''}
           </button>
+        </div>
+        {/* หมวดกลุ่มยา — คนละมิติกับตัวกรอง low/all/had ด้านบน ใช้ร่วมกันได้ ให้เลือกดูเฉพาะกลุ่มที่
+            จ่ายออกเยอะทุกวันแยกจากกลุ่มที่ใช้นาน ๆ ครั้งได้ ไม่ต้องไล่สายตาผ่านทั้งฟอร์มมิวลารี */}
+        <div style={{ display: 'flex', gap: 7, marginTop: 8, overflowX: 'auto', paddingBottom: 2 }}>
+          <button className="chip" style={chip(catTab === 'all')} onClick={() => setCatTab('all')}>ทุกหมวด</button>
+          {DRUG_CATEGORIES.map((c) => catCounts[c.id] ? (
+            <button key={c.id} className="chip" style={chip(catTab === c.id)} onClick={() => setCatTab(c.id)}>{c.label} ({catCounts[c.id]})</button>
+          ) : null)}
         </div>
         {recentMeds.length > 0 && (
           <div style={{ display: 'flex', gap: 7, marginTop: 8, overflowX: 'auto', paddingBottom: 2 }}>
