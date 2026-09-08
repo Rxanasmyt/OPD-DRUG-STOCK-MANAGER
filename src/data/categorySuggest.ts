@@ -81,6 +81,13 @@ const RULES: [string, string][] = [
   ['senna', 'gi'], ['bisacodyl', 'gi'], ['lactulose', 'gi'], ['simeticone', 'gi'], ['simethicone', 'gi'],
   ['charcoal', 'gi'], ['multi-enzyme', 'gi'], ['digestive enzyme', 'gi'], ['ท้องเสีย', 'gi'],
   // ยาระบบประสาท/จิตเวช/นอนไม่หลับ
+  // Bug fix: 'diazepam inj' further down (ยาฉุกเฉิน/ช่วยชีวิต) was unreachable — RULES is
+  // matched top-to-bottom with first-match-wins (see this file's own header comment: "more
+  // specific keywords are listed before broad ones"), but the broad 'diazepam' rule below used
+  // to sit BEFORE it, so any injectable diazepam name (a real status-epilepticus/emergency
+  // stock item) always matched here first and got mis-bucketed as neuro_psych, never falling
+  // through to the more specific emergency rule. Listed here, ahead of the generic 'diazepam'.
+  ['diazepam inj', 'emergency'],
   ['diazepam', 'neuro_psych'], ['lorazepam', 'neuro_psych'], ['alprazolam', 'neuro_psych'],
   ['midazolam', 'neuro_psych'], ['amitriptyline', 'neuro_psych'], ['nortriptyline', 'neuro_psych'],
   ['fluoxetine', 'neuro_psych'], ['sertraline', 'neuro_psych'], ['escitalopram', 'neuro_psych'],
@@ -123,7 +130,7 @@ const RULES: [string, string][] = [
   ['adrenaline', 'emergency'], ['epinephrine', 'emergency'], ['atropine', 'emergency'],
   ['naloxone', 'emergency'], ['sodium bicarbonate', 'emergency'], ['calcium gluconate', 'emergency'],
   ['amiodarone', 'emergency'], ['dopamine', 'emergency'], ['norepinephrine', 'emergency'],
-  ['succinylcholine', 'emergency'], ['diazepam inj', 'emergency'],
+  ['succinylcholine', 'emergency'],
   // เวชภัณฑ์ที่ไม่ใช่ยา
   ['gauze', 'supply'], ['ผ้าก๊อซ', 'supply'], ['bandage', 'supply'], ['ผ้าพันแผล', 'supply'],
   ['syringe', 'supply'], ['กระบอกฉีดยา', 'supply'], ['needle', 'supply'], ['เข็มฉีดยา', 'supply'],

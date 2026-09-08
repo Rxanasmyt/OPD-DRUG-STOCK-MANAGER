@@ -49,7 +49,13 @@ export default function LabelsScreen() {
       })
     : LOCS.map((b) => ({ code: 'LOC-' + b, bin: undefined as string | undefined, payload: encodeQr('loc', 'LOC-' + b), title: 'ชั้นจ่ายยา ' + b, sub: 'หน้างาน OPD · สแกนเพื่อเปิดรายการในชั้นนี้', tag: '', tagColor: 'var(--muted)', ward: undefined as Ward | undefined }));
 
-  const labelCount = state.labelType === 'loc' ? LOCS.length : state.labelType === 'lot' ? wardLots.length : meds.length;
+  // Bug fix: printLabels() (AppContext.tsx) emits TWO label rows for a shared med that has a
+  // distinct binIpd — one per real shelf spot (OPD + IPD) — but this count used to just be
+  // meds.length, silently undercounting the "พิมพ์ฉลากทั้งชุด (N ดวง)" button whenever the
+  // formulary has any such shared meds. That number is what someone actually buying/counting
+  // out A4 sticker sheets relies on before printing, so it has to match what really prints.
+  const medLabelCount = meds.reduce((n, m) => n + (isSharedMed(m) && m.binIpd ? 2 : 1), 0);
+  const labelCount = state.labelType === 'loc' ? LOCS.length : state.labelType === 'lot' ? wardLots.length : medLabelCount;
 
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>

@@ -22,4 +22,12 @@ describe('suggestCategoryId', () => {
   it('returns null (never a guess) for a name matching no keyword', () => {
     expect(suggestCategoryId('Some Unlisted Drug XYZ 10 mg')).toBeNull();
   });
+
+  // Bug fix regression: the broad 'diazepam' rule used to sit before the more specific
+  // 'diazepam inj' rule, so RULES' own first-match-wins order made the emergency-specific
+  // rule unreachable — every diazepam name (injectable or not) fell into neuro_psych.
+  it('prefers the more specific "diazepam inj" rule over the broad "diazepam" one', () => {
+    expect(suggestCategoryId('Diazepam Inj 10 mg/2 mL Amp')).toBe('emergency');
+    expect(suggestCategoryId('Diazepam 5 mg Tablet')).toBe('neuro_psych');
+  });
 });
