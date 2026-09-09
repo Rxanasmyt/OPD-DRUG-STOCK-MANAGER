@@ -10,7 +10,7 @@ import { SearchInput } from '../components/SearchInput';
 import { DRUG_CATEGORIES, categoryLabel } from '../data/categories';
 import { suggestCategoryId } from '../data/categorySuggest';
 
-type Filter = 'active' | 'inactive' | 'all';
+type Filter = 'active' | 'inactive' | 'all' | 'parOne';
 
 // Bug fix (mobile fit): iOS Safari auto-zooms the whole page in the instant a text input with
 // a computed font-size under 16px receives focus (it assumes you need it magnified to read) —
@@ -160,8 +160,25 @@ export default function MedsScreen() {
   // can show how many meds are in that group under the current status/ward/search filters,
   // which is the whole point ("บางกลุ่มจ่ายออกเยอะ บางกลุ่มใช้น้อย"): the counts are what let
   // someone spot a high-volume group vs. a rarely-touched one at a glance, before even tapping.
+  // "Max=Min=1" diagnostic: floorMinOf()'s own default-fallback (30% of Max, rounded to a nice
+  // step) computes 0 whenever Max is 1 — Math.round(1*0.3/1)*1 = 0 — so the ONLY way a med ever
+  // actually shows Min=1 alongside Max=1 is a real, explicit `floorMin: 1` stored on it (never
+  // the auto-default). That in turn only happens two ways: someone typed "1" into the "จุดต่ำสุด
+  // ต้องเติม (Min)" field by hand (this form, below), or a still-active med that legitimately
+  // has almost no daily usage got "ใช้ค่าแนะนำ" applied — suggestPar()'s roundStep() has a hard
+  // floor of 1 (`Math.max(step, ...)`, selectors.ts) so a near-zero-but-nonzero used30 can
+  // legitimately round Max down to 1, and if Min had already been hand-set to 1 earlier (or to
+  // match Max) it stays there. Either way this is real par data, not a bug in itself — but a Min
+  // that equals Max leaves genuinely zero warning room before a shelf reads "ต้องเติมด่วน", so
+  // it's worth being able to find at a glance instead of opening each med's edit form one by one.
+  const parOneOnly = filter === 'parOne';
+  const parOneCount = useMemo(
+    () => state.meds.filter((m) => m.active && m.parFloor === 1 && floorMinOf(m) === 1).length,
+    [state.meds],
+  );
+
   const medsBeforeCat = state.meds
-    .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : !m.active))
+    .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : filter === 'inactive' ? !m.active : (m.parFloor === 1 && floorMinOf(m) === 1)))
     .filter((m) => matchesWard(m, wardTab))
     .filter((m) => !q.trim() || m.name.toLowerCase().indexOf(q.trim().toLowerCase()) >= 0);
 
@@ -261,11 +278,31 @@ export default function MedsScreen() {
           {state.busy['mergeAllWardPairs'] ? 'กำลังรวมสต็อก…' : `🔗 รวมสต็อก OPD+IPD ที่แยกเป็นคนละรายการอยู่ (${mergeablePairCount} คู่)`}
         </button>
       )}
-      <div style={{ display: 'flex', gap: 7, marginBottom: 10 }}>
+      <div style={{ display: 'flex', gap: 7, marginBottom: parOneCount > 0 ? 8 : 10, flexWrap: 'wrap' }}>
         <button className="chip" style={chip(filter === 'active')} onClick={() => setFilter('active')}>ใช้งานอยู่</button>
         <button className="chip" style={chip(filter === 'inactive')} onClick={() => setFilter('inactive')}>ปิดใช้งาน</button>
         <button className="chip" style={chip(filter === 'all')} onClick={() => setFilter('all')}>ทั้งหมด</button>
+        {/* Diagnostic filter, only shown when there's actually something to find — see
+            parOneCount's doc comment above for exactly why a match here always means someone
+            explicitly typed Min=1 (never floorMinOf()'s own auto-default). */}
+        {parOneCount > 0 && (
+          <button
+            className="chip"
+            style={{ border: parOneOnly ? '1px solid var(--amber)' : '1px solid var(--border)', background: parOneOnly ? 'var(--amber)' : 'var(--bg-card)', color: parOneOnly ? '#fff' : 'var(--amber-ink)' }}
+            onClick={() => setFilter(parOneOnly ? 'active' : 'parOne')}
+          >
+            ⚠ Max=Min=1 ({parOneCount})
+          </button>
+        )}
       </div>
+      {parOneOnly && (
+        <div className="muted" style={{ fontSize: 11, lineHeight: 1.6, marginBottom: 10, background: 'var(--amber-bg)', color: 'var(--amber-ink)', borderRadius: 10, padding: '9px 11px' }}>
+          ยา {parOneCount} รายการนี้มีจุดต่ำสุด (Min) เท่ากับจุดสูงสุด (Max) พอดี = 1 หน่วย — เกิดจากมีคนกรอก
+          "Min" เป็น 1 ไว้ตรงๆ (ไม่ใช่ค่า default อัตโนมัติ ซึ่งกรณี Max=1 ระบบจะคำนวณ Min เริ่มต้นให้เป็น 0
+          เสมอ) อาจเป็นเพราะยาตัวนั้นใช้น้อยมากจริง หรือกรอกไว้ตอนที่ยังไม่มีสถิติการใช้แม่นพอ — แตะยา
+          แต่ละตัวด้านล่างเพื่อดู/แก้ Max-Min ได้เลย
+        </div>
+      )}
 
       {filter === 'inactive' && meds.length > 0 && (
         <button
@@ -310,6 +347,10 @@ export default function MedsScreen() {
                     {m.active && (
                       <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
                         หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={11} /> · substock {nf(sub(m.id))} {m.unit}
+                        {/* Only surfaced under the Max=Min=1 diagnostic filter above — showing
+                            the actual numbers right on the row is the whole point of that
+                            filter (spot them without opening each edit form one by one). */}
+                        {parOneOnly && <span style={{ color: 'var(--amber-ink)', fontWeight: 600 }}> · Max {nf(m.parFloor)} / Min {nf(floorMinOf(m))} {m.unit}</span>}
                       </div>
                     )}
                     <div style={{ display: 'flex', gap: 5, marginTop: 5 }}>
