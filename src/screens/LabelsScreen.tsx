@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
 import { daysUntil, wardOf, binFor, isSharedMed } from '../store/selectors';
 import { thDate } from '../utils/format';
@@ -14,34 +14,42 @@ import type { LabelType, Ward } from '../types';
 // card isn't a fixed physical size — it stretches to whatever width mobile/tablet gives it).
 const TITLE_MAX_PX = 19;
 const TITLE_MIN_PX = 7;
+// Bin/shelf code — mirrors print.ts's MAX_BINCODE_PT/MIN_BINCODE_PT. A long code (e.g. a HAD
+// sub-shelf code like "HAD1-1") used to sit at a fixed 12.5px and wrap onto a second line,
+// visibly overflowing the yellow bin tag's fixed-width box — see AutoFitText below.
+const BIN_MAX_PX = 12.5;
+// Lower floor than the title's — matches print.ts's MIN_BINCODE_PT (a supporting field, not
+// the primary read; still reads clearly bold on the solid yellow tag at this size).
+const BIN_MIN_PX = 6;
 
-/** Renders the shelf-strip title auto-fitted to always end in one line, same as the real
- * printout (see print.ts's titleFontSizePt) — measures the actual rendered width of its own
- * box (via ResizeObserver, since this card's width is responsive, not a fixed mm size like the
- * print CSS) and asks fitSingleLineFontSizePx() for the largest font that fits it, instead of
- * picking from a step table. `white-space: nowrap` + `text-overflow: ellipsis` stays as the
- * backstop for a name still too dense at TITLE_MIN_PX, matching print.ts's CSS exactly. */
-function StripTitle({ text, color }: { text: string; color: string }) {
+/** Auto-fits `text` to the largest font size that renders it on a single line within its own
+ * box, same technique print.ts uses for the real printout (see its titleFontSizePt/
+ * bincodeFontSizePt) — measures the box's actual rendered width (via ResizeObserver, since
+ * this card's width is responsive, not a fixed mm size like the print CSS) and asks
+ * fitSingleLineFontSizePx() for the largest font that fits it, instead of a fixed size that
+ * can wrap or overflow for a longer-than-usual name/code. `white-space: nowrap` +
+ * `text-overflow: ellipsis` stays as the backstop for text still too dense at `minPx`. */
+function AutoFitText({ text, maxPx, minPx, color, style }: { text: string; maxPx: number; minPx: number; color: string; style?: CSSProperties }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [fontSize, setFontSize] = useState(TITLE_MAX_PX);
+  const [fontSize, setFontSize] = useState(maxPx);
 
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     const fit = () => {
       const width = el.clientWidth;
-      if (width > 0) setFontSize(fitSingleLineFontSizePx(text, width, TITLE_MAX_PX, TITLE_MIN_PX));
+      if (width > 0) setFontSize(fitSingleLineFontSizePx(text, width, maxPx, minPx));
     };
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [text]);
+  }, [text, maxPx, minPx]);
 
   return (
     <div
       ref={ref}
-      style={{ fontSize, fontWeight: 800, lineHeight: 1.2, color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+      style={{ fontSize, fontWeight: 800, lineHeight: 1.2, color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', ...style }}
     >
       {text}
     </div>
@@ -234,8 +242,8 @@ export default function LabelsScreen() {
               HIGH ALERT tag to render bigger. */}
           {rows.map((r, i) => (
             <div key={i} style={{ background: '#fff', border: '1px solid #999', borderRadius: 8, marginBottom: 7, display: 'flex', alignItems: 'stretch', height: 64, overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,.04)' }}>
-              <div style={{ flex: 'none', width: 34, background: '#f5c518', color: '#1a1a1a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, textAlign: 'center', padding: '3px 2px', borderRight: '1px solid #d9ac00' }}>
-                <span style={{ fontWeight: 800, fontSize: 12.5, lineHeight: 1.1 }}>{r.bin}</span>
+              <div style={{ flex: 'none', width: 36, background: '#f5c518', color: '#1a1a1a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, textAlign: 'center', padding: '3px 2px', borderRight: '1px solid #d9ac00' }}>
+                <AutoFitText text={r.bin || ''} maxPx={BIN_MAX_PX} minPx={BIN_MIN_PX} color="#1a1a1a" style={{ width: '100%' }} />
                 {printWardBadge(r.ward, true)}
               </div>
               <div style={{ flex: 'none', padding: '0 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
@@ -243,7 +251,7 @@ export default function LabelsScreen() {
                 <span style={{ fontSize: 8, color: '#777', fontWeight: 600, letterSpacing: '.02em', marginTop: 2 }}>{r.code}</span>
               </div>
               <div style={{ minWidth: 0, padding: '4px 10px', display: 'flex', flexDirection: 'column', justifyContent: 'center', borderLeft: '1px solid #e5e5e0' }}>
-                <StripTitle text={r.title} color="#14231a" />
+                <AutoFitText text={r.title} maxPx={TITLE_MAX_PX} minPx={TITLE_MIN_PX} color="#14231a" />
                 {r.tag && <div style={{ fontSize: 13, color: r.tagColor, fontWeight: 800, marginTop: 2 }}>{r.tag}</div>}
               </div>
             </div>

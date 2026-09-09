@@ -47,11 +47,12 @@ const MAX_TITLE_PT = 19;
 const MIN_TITLE_PT = 7;
 const PT_TO_PX = 96 / 72; // same CSS reference-px basis this stylesheet's mm/pt units resolve to
 const MM_TO_PX = 96 / 25.4;
-// .strip is 100mm wide: .bin (11.5mm + 0.3mm border) + .qrwrap (15mm QR + 1.7mm/1.4mm L/R
-// margin = 18.1mm) + .meta's own L/R padding (2.8mm × 2) + its left border (0.25mm) all eat
+// .strip is 100mm wide: .bin (12mm + 0.3mm border) + .qrwrap (15mm QR + 1.7mm/0.9mm L/R
+// margin = 17.6mm) + .meta's own L/R padding (2.8mm × 2) + its left border (0.25mm) all eat
 // into it before any text — see the .strip/.bin/.qrwrap/.meta rules below. What's left for the
-// title text itself: 100 − 11.8 − 18.1 − 5.6 − 0.25 = 64.25mm. Recompute this if any of those
-// widths change.
+// title text itself: 100 − 12.3 − 17.6 − 5.6 − 0.25 = 64.25mm (unchanged from before .bin grew
+// 0.5mm — that 0.5mm came out of .qrwrap's own margin, not the title's share). Recompute this
+// if any of those widths change.
 const STRIP_TITLE_MAX_WIDTH_PX = 64.25 * MM_TO_PX;
 function titleFontSizePt(title: string): number {
   const fittedPx = fitSingleLineFontSizePx(
@@ -59,6 +60,30 @@ function titleFontSizePt(title: string): number {
     STRIP_TITLE_MAX_WIDTH_PX,
     MAX_TITLE_PT * PT_TO_PX,
     MIN_TITLE_PT * PT_TO_PX,
+  );
+  return fittedPx / PT_TO_PX;
+}
+
+// Bug fix: the bin/shelf code (e.g. "J4") sat at a fixed 12.5pt regardless of length — fine for
+// the usual 2-3 char codes, but a longer sub-shelf code (e.g. this hospital's HAD sub-bins like
+// "HAD1-1") wrapped onto a second line at that fixed size and visibly overflowed the yellow bin
+// tag's fixed-width box (see .strip .bin below). Same fix as the title above: measure and fit
+// to the box's real width instead of assuming every code is short.
+const MAX_BINCODE_PT = 12.5;
+// Lower floor than the title's — the shelf code is a supporting field, not the primary read,
+// and 6pt bold on the solid yellow tag still reads clearly at arm's length (about the same
+// scale as the 5–5.5pt ward badge/med code text already on this label).
+const MIN_BINCODE_PT = 6;
+// .strip .bin is 12mm wide with 1mm padding on every side and a 0.3mm right border (all inside
+// its box-sizing: border-box width) — content width left for the code text itself:
+// 12 − 1×2 − 0.3 = 9.7mm. Recompute this if .strip .bin's width/padding/border changes.
+const STRIP_BINCODE_MAX_WIDTH_PX = 9.7 * MM_TO_PX;
+function bincodeFontSizePt(bin: string): number {
+  const fittedPx = fitSingleLineFontSizePx(
+    bin,
+    STRIP_BINCODE_MAX_WIDTH_PX,
+    MAX_BINCODE_PT * PT_TO_PX,
+    MIN_BINCODE_PT * PT_TO_PX,
   );
   return fittedPx / PT_TO_PX;
 }
@@ -106,7 +131,7 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
         // for the title to use instead — see titleFontSizePt()'s doc comment above.
         return `<div class="strip">
           <div class="bin">
-            <div class="bincode">${escapeHtml(l.bin || '')}</div>
+            <div class="bincode" style="font-size:${bincodeFontSizePt(l.bin || '')}pt">${escapeHtml(l.bin || '')}</div>
             ${stripWardBadge(l.ward)}
           </div>
           <div class="qrwrap">
@@ -159,13 +184,19 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
      centered line; the badge used to live on the title row instead — see the strip markup
      comment above) so it reads as "shelf J9, IPD side" in one glance without stealing room
      from the name. */
-  .strip .bin { flex: none; width: 11.5mm; background: #f5c518; color: #1a1a1a; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .8mm; text-align: center; padding: 1mm; border-right: 0.3mm solid #d9ac00; }
-  .strip .bin .bincode { font-weight: 800; font-size: 12.5pt; line-height: 1.05; }
+  /* Bug fix: bin code box widened 11.5mm → 12mm (the 0.5mm taken from .qrwrap's right margin
+     below, so the strip's total width and the title's available width are unaffected — see
+     STRIP_BINCODE_MAX_WIDTH_PX/STRIP_TITLE_MAX_WIDTH_PX derivations above) — a bin code longer
+     than the usual 2-3 chars (e.g. a HAD sub-shelf code like "HAD1-1") needs the extra room to
+     stay legible at bincodeFontSizePt()'s floor instead of ellipsis-truncating. */
+  .strip .bin { flex: none; width: 12mm; background: #f5c518; color: #1a1a1a; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .8mm; text-align: center; padding: 1mm; border-right: 0.3mm solid #d9ac00; }
+  .strip .bin .bincode { font-weight: 800; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
   .strip .bin .wardtag { font-size: 5pt; padding: .25mm 1.1mm; }
   /* QR trimmed from the old 16.6mm down to 15mm — still comfortably scannable at arm's length
      (well above what a modern phone camera needs even in ordinary shelf lighting) — to make
-     real room for the med code line underneath it, which used to sit on the title row instead. */
-  .strip .qrwrap { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 1mm 1.4mm 1mm 1.7mm; }
+     real room for the med code line underneath it, which used to sit on the title row instead.
+     Right margin trimmed 1.4mm → 0.9mm to give .strip .bin the extra 0.5mm above. */
+  .strip .qrwrap { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 1mm 0.9mm 1mm 1.7mm; }
   .strip .qrwrap .qr { width: 15mm; height: 15mm; }
   .strip .medcode { font-size: 5.5pt; color: #666; font-weight: 600; letter-spacing: .03em; margin-top: .6mm; }
   .strip .meta { flex: 1; min-width: 0; padding: 0 2.8mm; display: flex; flex-direction: column; justify-content: center; overflow: hidden; border-left: 0.25mm solid #e5e5e0; }
