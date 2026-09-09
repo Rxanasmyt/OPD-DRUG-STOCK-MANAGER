@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly } from '../utils/format';
-import { wardOf, wardLabel, floorMinOf, toneFor, isSharedMed, matchesWard, categoryOf } from '../store/selectors';
+import { wardOf, wardLabel, floorMinOf, toneFor, isSharedMed, categoryOf } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
 import type { Med, Ward } from '../types';
@@ -91,7 +91,7 @@ export default function MedsScreen() {
   const canEdit = state.role !== 'tech';
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('active');
-  const [wardTab, setWardTab] = useState<'all' | Ward>('all');
+  const [wardTab, setWardTab] = useState<'all' | 'shared' | Ward>('all');
   const [catTab, setCatTab] = useState<'all' | string>('all');
   const [addOpen, setAddOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -177,10 +177,36 @@ export default function MedsScreen() {
     [state.meds],
   );
 
-  const medsBeforeCat = state.meds
+  const medsBeforeWard = state.meds
     .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : filter === 'inactive' ? !m.active : (m.parFloor === 1 && floorMinOf(m) === 1)))
-    .filter((m) => matchesWard(m, wardTab))
     .filter((m) => !q.trim() || m.name.toLowerCase().indexOf(q.trim().toLowerCase()) >= 0);
+
+  // Bug fix (clarity): matchesWard() (used everywhere else — TransferScreen/ReceiveScreen/etc.)
+  // deliberately puts a shared med under BOTH the "OPD" and "IPD" tab, since it really is
+  // stocked on one shelf either ward draws from — correct for those actual dispensing
+  // workflows. This management list is a different job (browsing/auditing the catalog, not
+  // picking what to restock), where that overlap was exactly the complaint: "OPD" and "IPD"
+  // here each silently included every shared med too, so the three groups were never actually
+  // distinct and neither tab's count meant "OPD-only" or "IPD-only". A local, non-overlapping
+  // split instead: "ร่วม OPD+IPD" (shared), "OPD" (ward-only, not shared), "IPD" (ward-only,
+  // not shared) — every active/inactive med lands in exactly one of these three, so they sum
+  // back up to "ทุกหอผู้ป่วย" with no double-counting.
+  const wardCounts = useMemo(() => {
+    const counts = { all: medsBeforeWard.length, shared: 0, opd: 0, ipd: 0 };
+    medsBeforeWard.forEach((m) => {
+      if (isSharedMed(m)) counts.shared++;
+      else if (wardOf(m) === 'opd') counts.opd++;
+      else counts.ipd++;
+    });
+    return counts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.meds, filter, q]);
+
+  const medsBeforeCat = medsBeforeWard.filter((m) => {
+    if (wardTab === 'all') return true;
+    if (wardTab === 'shared') return isSharedMed(m);
+    return !isSharedMed(m) && wardOf(m) === wardTab;
+  });
 
   const catCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -236,10 +262,16 @@ export default function MedsScreen() {
         />
       )}
 
-      <div style={{ display: 'flex', gap: 7, marginBottom: 8 }}>
-        <button className="chip" style={{ ...chip(wardTab === 'all'), flex: 1, textAlign: 'center' }} onClick={() => setWardTab('all')}>ทุกหอผู้ป่วย</button>
-        <button className="chip" style={{ ...chip(wardTab === 'opd'), flex: 1, textAlign: 'center', ...(wardTab === 'opd' ? { background: WARD_COLOR.opd, borderColor: WARD_COLOR.opd } : {}) }} onClick={() => setWardTab('opd')}>OPD</button>
-        <button className="chip" style={{ ...chip(wardTab === 'ipd'), flex: 1, textAlign: 'center', ...(wardTab === 'ipd' ? { background: WARD_COLOR.ipd, borderColor: WARD_COLOR.ipd } : {}) }} onClick={() => setWardTab('ipd')}>IPD</button>
+      {/* Bug fix (clarity): "OPD"/"IPD" used to each silently include every shared med too (see
+          wardCounts's doc comment above) — split into 4 non-overlapping groups so each tab's
+          count actually means what its label says. Wraps to 2 rows on a narrow phone instead of
+          squeezing 4 chips onto one (flex-wrap, not overflow-x scroll — every group is meant to
+          be visible at a glance here, not tucked off-screen). */}
+      <div style={{ display: 'flex', gap: 7, marginBottom: 8, flexWrap: 'wrap' }}>
+        <button className="chip" style={{ ...chip(wardTab === 'all'), flex: 1, textAlign: 'center' }} onClick={() => setWardTab('all')}>ทุกหอผู้ป่วย ({wardCounts.all})</button>
+        <button className="chip" style={{ ...chip(wardTab === 'shared'), flex: 1, textAlign: 'center', ...(wardTab === 'shared' ? { background: 'var(--green)', borderColor: 'var(--green)' } : {}) }} onClick={() => setWardTab('shared')}>ร่วม OPD+IPD ({wardCounts.shared})</button>
+        <button className="chip" style={{ ...chip(wardTab === 'opd'), flex: 1, textAlign: 'center', ...(wardTab === 'opd' ? { background: WARD_COLOR.opd, borderColor: WARD_COLOR.opd } : {}) }} onClick={() => setWardTab('opd')}>OPD เดี่ยว ({wardCounts.opd})</button>
+        <button className="chip" style={{ ...chip(wardTab === 'ipd'), flex: 1, textAlign: 'center', ...(wardTab === 'ipd' ? { background: WARD_COLOR.ipd, borderColor: WARD_COLOR.ipd } : {}) }} onClick={() => setWardTab('ipd')}>IPD เดี่ยว ({wardCounts.ipd})</button>
       </div>
 
       {autoCategorizableCount > 0 && (
