@@ -90,6 +90,22 @@ describe('shortLabelName — noise-word/paren stripping (name+strength only)', (
     expect(shortLabelName('Norepinephrine (Levophed) 1 mg./ml')).toBe('Norepinephrine 1 mg./ml');
     expect(shortLabelName('FUROSEMIDE (Lasix) 20 mg')).toBe('FUROSEMIDE 20 mg');
   });
+
+  it('strips this formulary\'s own bare "ตรา..." (brand) marker — real herbal-formulary names, no parens involved', () => {
+    // Real med_list.csv entries: a manufacturer brand marker glued straight onto the name with
+    // no parens, either space-separated or, in some rows, run together with no space at all.
+    expect(shortLabelName('ประสะจันทน์แดง ตราธนัทเฮิร์บ 500mg. แคปซูล')).toBe('ประสะจันทน์แดง 500mg');
+    expect(shortLabelName('ยาบำรุงโลหิตตราธงทอง 500 mg. แค็บซูล')).toBe('ยาบำรุงโลหิต 500 mg');
+  });
+
+  it('strips packaging/program-drug words missing from the original list (found in real formulary data)', () => {
+    expect(shortLabelName('น้ำมันกัญชา 2 mg. หยด')).toBe('น้ำมันกัญชา 2 mg');
+    expect(shortLabelName('ยาเขียวหอม 25 g. กระปุก')).toBe('ยาเขียวหอม 25 g');
+    // "ยาโครงการ"/"ยาสนับสนุน" (special-program drug markers) appear bare in real data, not
+    // always wrapped in parens the way "PL" is — the paren-only strip alone would miss these.
+    expect(shortLabelName('TLD ยาโครงการ 50 mg')).toBe('TLD 50 mg');
+    expect(shortLabelName('Folic acid ยาสนับสนุน 400 mcg')).toBe('Folic acid 400 mcg');
+  });
 });
 
 describe('titleSizeStep', () => {

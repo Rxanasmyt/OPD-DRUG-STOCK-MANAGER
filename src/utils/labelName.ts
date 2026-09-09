@@ -2,8 +2,10 @@
  * Shortens a drug's full master-data name down to just "generic name + strength" for the
  * shelf label, where the whole point is reading it in one glance while shelving — everything
  * else on the master-data name (dosage form, route, packaging/container, this hospital's own
- * "PL" formulary-list marker, a brand name tucked in parentheses) is display noise for that
- * purpose, not something that helps identify the drug or how much of it there is. Trimming it
+ * "PL"/"ยาโครงการ"/"ยาสนับสนุน" formulary/program markers, a brand name tucked in parentheses
+ * or — this formulary's own traditional-medicine convention — glued on as a bare "ตรา..."
+ * marker with no parens at all) is display noise for that purpose, not something that helps
+ * identify the drug or how much of it there is. Trimming it
  * out is also what buys back room for titleSizeStep() to render the remaining name+strength
  * bigger — a shorter effective string naturally lands on an earlier (larger-font) step.
  * Display-only — never touches the underlying Med.name.
@@ -21,8 +23,19 @@
 // already a non-word character and a second \b there behaves inconsistently across engines.
 const NOISE_WORDS_EN =
   /\b(?:injection|inj|tablets?|tabs?|capsules?|caps?|cream|ointment|oint|syrup|suspension|susp|solution|sol|drops?|spray|patch|suppository|powder|gel|lotion|elixir|pl|vial|amphule|ampoules?|ampules?|amph?|tube|syringe|bag|bottle|sachet|inhaler|aerosol|cartridge|pen)\b\.?/gi;
+// Bug fix: this hospital's traditional-medicine/herbal formulary entries (ยาสมุนไพร — a real,
+// actively-carried part of it, not a demo/inactive edge case) carry a manufacturer brand
+// marker of their own, e.g. "ประสะจันทน์แดง ตราธนัทเฮิร์บ 500mg. แคปซูล" or, with no space at
+// all, "ยาบำรุงโลหิตตราธงทอง 500 mg. แค็บซูล" — same "brand name is display noise, not part of
+// what identifies the drug" reasoning the parenthetical-brand-name strip below already applies
+// to a Western-style name like "Norepinephrine (Levophed)", just written this formulary's own
+// way (a "ตรา" ["brand"] marker glued straight onto the generic name, no parens, no space).
+// เพิ่ม "แค็บซูล" (สะกดอีกแบบของ "แคปซูล" ที่พบจริงในข้อมูล), "กระปุก"/"หยด" (หน่วยบรรจุที่ตกหล่น
+// จากรายการเดิม), และ "ยาโครงการ"/"ยาสนับสนุน" (ป้ายกำกับยาในโครงการพิเศษ ที่พบทั้งแบบมีวงเล็บ —
+// ตัดออกอยู่แล้วจากขั้นตอนตัดวงเล็บ — และแบบไม่มีวงเล็บ ซึ่งขั้นตอนนั้นตัดไม่ถึง)
+const BRAND_MARKER_TH = /ตรา\S+/g;
 const NOISE_WORDS_TH =
-  /(?:เม็ด|แคปซูล|ยาฉีด|ฉีด|ครีม|ยาน้ำ|น้ำเชื่อม|ยาพ่น|ผง|เจล|ขี้ผึ้ง|ยาหยอด|ยาทา|ซอง|ขวด|หลอด|แผง|ชุด)/g;
+  /(?:เม็ด|แคปซูล|แค็บซูล|ยาฉีด|ฉีด|ครีม|ยาน้ำ|น้ำเชื่อม|ยาพ่น|ผง|เจล|ขี้ผึ้ง|ยาหยอด|ยาทา|ซอง|ขวด|หลอด|แผง|ชุด|กระปุก|หยด|ยาโครงการ|ยาสนับสนุน)/g;
 const TRAILING_PUNCT = /[.,;:\-–]+\s*$/;
 const LEADING_PUNCT = /^[.,;:\-–]+\s*/;
 
@@ -65,6 +78,7 @@ export function titleSizeStep(title: string): number {
 function stripNoiseAndClean(s: string): string {
   s = s.replace(NOISE_WORDS_EN, ' ');
   s = s.replace(NOISE_WORDS_TH, ' ');
+  s = s.replace(BRAND_MARKER_TH, ' ');
   s = s.replace(/\s+-\s+/g, ' ');
   s = s.replace(/\s{2,}/g, ' ').trim();
   s = s.replace(TRAILING_PUNCT, '').replace(LEADING_PUNCT, '').trim();
