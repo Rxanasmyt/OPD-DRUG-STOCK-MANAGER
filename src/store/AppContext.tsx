@@ -533,15 +533,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // immediately (no reason to delay good news), but one that downgrades to pendingApproval/
     // signedOut is debounced — only committed if a better snapshot doesn't show up shortly
     // after to cancel it. A genuine pending/deactivated account still lands there correctly,
-    // just ~0.6s later; nothing here can mask a real, lasting deactivation.
+    // just briefly later; nothing here can mask a real, lasting deactivation.
+    // Bug fix (real report): a flat 600ms debounce assumed the real server round-trip always
+    // beats it — true on a fast connection, not out at this hospital's actual signal (5G bars
+    // shown, but rural/patchy real throughput), where the corrected snapshot can easily take
+    // several seconds. 600ms wasn't a flash-suppressor there, it just always fired first,
+    // landing on "รอ Admin อนุมัติบัญชี" for an already-approved account every time. Use
+    // snap.metadata.fromCache instead of guessing a bigger flat number: a cache-served
+    // snapshot (the actual source of the stale/wrong read) gets real room for the network
+    // round-trip; a snapshot the server has already confirmed is trustworthy right away.
     let downgradeTimer: number | undefined;
     const clearDowngrade = () => window.clearTimeout(downgradeTimer);
     const unsub = onSnapshot(
       doc(db, 'users', state.myUid),
       (snap) => {
+        const downgradeDelay = snap.metadata.fromCache ? 4000 : 300;
         if (!snap.exists()) {
           clearDowngrade();
-          downgradeTimer = window.setTimeout(() => patch({ authStatus: 'signedOut' }), 600);
+          downgradeTimer = window.setTimeout(() => patch({ authStatus: 'signedOut' }), downgradeDelay);
           return;
         }
         const profile = { id: snap.id, ...snap.data() } as User;
@@ -559,7 +568,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         downgradeTimer = window.setTimeout(() => {
           setMyProfile(profile);
           patch({ role: null, authStatus: 'pendingApproval' });
-        }, 600);
+        }, downgradeDelay);
       },
       () => { clearDowngrade(); patch({ authStatus: 'signedOut' }); },
     );
@@ -689,10 +698,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       if (label === 'meds') patch({ dbReady: true });
     };
+    // Bug fix (real report): the onErr() safety net above only fires for a snapshot that
+    // actively FAILS (permission-denied, rules error) — it does nothing for one that just
+    // never fires at all, success or error, which a genuinely stalled connection (this
+    // hospital's real rural signal, not the "5G" bars shown) can do to a *first-ever* login on
+    // a device with no local IndexedDB cache yet to serve instantly while the network catches
+    // up. That left the person stuck on the SkeletonHome loading screen indefinitely with no
+    // toast, no error, nothing to act on. A 20s bound is generous for even a slow connection
+    // (well past the redirect delay/effect-remount case this is guarding against) but still
+    // eventually lands somewhere real instead of never. Cleared the instant 'meds' actually
+    // resolves either way, so this never fires on a normal-speed connection.
+    const stallTimer = window.setTimeout(() => {
+      if (!toasted) {
+        toasted = true;
+        toast('เชื่อมต่อข้อมูลช้าผิดปกติ — ลองโหลดหน้าใหม่ ถ้ายังไม่หายให้แจ้งผู้ดูแลระบบ');
+      }
+      patch({ dbReady: true });
+    }, 20000);
     const unsubs = [
       onSnapshot(collection(db, 'meds'), (snap) => {
+        window.clearTimeout(stallTimer);
         patch({ meds: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Med[], dbReady: true });
-      }, onErr('meds')),
+      }, (e) => { window.clearTimeout(stallTimer); onErr('meds')(e); }),
       onSnapshot(collection(db, 'lots'), (snap) => {
         patch({ lots: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as AppState['lots'] });
       }, onErr('lots')),
@@ -730,7 +757,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         patch({ users: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as User[] });
       }, onErr('users')));
     }
-    return () => unsubs.forEach((u) => u());
+    return () => { window.clearTimeout(stallTimer); unsubs.forEach((u) => u()); };
   }, [state.authStatus, myProfile?.role, patch, toast]);
 
   // Checks real lot data for anything near/past expiry and, if the person opted in and granted
