@@ -1302,17 +1302,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!m || !q || !state.adjReason) { toast('ต้องเลือกยา จำนวน และเหตุผลให้ครบ'); return; }
     const t = state.adjType!;
     const sign = t === 'return' ? 1 : -1;
+    // Bug fix (ledger accuracy): a 'damaged'/'adjust' deduction (sign -1) used to log qty as a
+    // flat `sign * q` regardless of what actually happened to floor — but the write below
+    // clamps at 0 (Math.max(0, ...)), same guard commitReconcile already needed for the exact
+    // same reason. A real, easy-to-hit case: floor reads 3 (already partly dispensed since the
+    // last sync) and someone enters "damaged 10" for what they physically found — floor really
+    // only drops 3→0 (delta -3), but the old code logged qty:-10 to the discrepancy log/audit
+    // trail regardless, a permanent record that overstates the write-off by 7 units against a
+    // floor that never held them. Track before/after like commitReconcile does and log the
+    // real applied delta, not the raw typed amount.
+    let before = 0, after = 0;
     try {
       await runTx(async (trx) => {
         const ref = doc(db, 'meds', m.id);
         const snap = await trx.get(ref);
-        const curFloor = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
-        trx.update(ref, { floor: Math.max(0, curFloor + sign * q) });
+        before = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
+        after = Math.max(0, before + sign * q);
+        trx.update(ref, { floor: after });
       });
-      await logTx({ type: t, name: m.name, medId: m.id, qty: sign * q, unit: m.unit, reason: state.adjReason, note: state.adjNote || '—', loc: 'floor' });
+      const appliedQty = after - before;
+      await logTx({ type: t, name: m.name, medId: m.id, qty: appliedQty, unit: m.unit, reason: state.adjReason, note: state.adjNote || '—', loc: 'floor' });
       patch({ adjQty: '', adjReason: '', adjNote: '', adjMed: null, adjSearch: '' });
       hapticSuccess();
-      toast('บันทึกแล้ว · ' + m.name + ' ' + (sign > 0 ? '+' : '−') + nf(q) + ' ' + m.unit);
+      toast('บันทึกแล้ว · ' + m.name + ' ' + (appliedQty > 0 ? '+' : appliedQty < 0 ? '−' : '') + nf(Math.abs(appliedQty)) + ' ' + m.unit);
     } catch (e) {
       toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
