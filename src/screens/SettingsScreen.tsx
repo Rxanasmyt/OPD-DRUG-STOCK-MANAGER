@@ -112,7 +112,7 @@ export default function SettingsScreen() {
                 value={floorDraft}
                 onChange={(e) => setFloorDraft(digitsOnly(e.target.value))}
                 inputMode="numeric"
-                style={{ width: 70, border: '1px solid var(--border)', borderRadius: 9, padding: '8px 9px', fontSize: 14, fontWeight: 600, textAlign: 'center' }}
+                style={{ width: 70, border: '1px solid var(--border)', borderRadius: 9, padding: '8px 9px', fontSize: 16, fontWeight: 600, textAlign: 'center' }}
               />
             </label>
             <label>
@@ -121,7 +121,7 @@ export default function SettingsScreen() {
                 value={subDraft}
                 onChange={(e) => setSubDraft(digitsOnly(e.target.value))}
                 inputMode="numeric"
-                style={{ width: 70, border: '1px solid var(--border)', borderRadius: 9, padding: '8px 9px', fontSize: 14, fontWeight: 600, textAlign: 'center' }}
+                style={{ width: 70, border: '1px solid var(--border)', borderRadius: 9, padding: '8px 9px', fontSize: 16, fontWeight: 600, textAlign: 'center' }}
               />
             </label>
             {coverDirty && (
@@ -160,11 +160,11 @@ export default function SettingsScreen() {
           <div className="grid-2" style={{ marginBottom: 8 }}>
             <label>
               <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>จากวันที่</span>
-              <input type="date" value={state.usageDateFrom} onChange={(e) => setUsageDateFrom(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 13, minHeight: 40 }} />
+              <input type="date" value={state.usageDateFrom} onChange={(e) => setUsageDateFrom(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 16, minHeight: 40 }} />
             </label>
             <label>
               <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>ถึงวันที่</span>
-              <input type="date" value={state.usageDateTo} onChange={(e) => setUsageDateTo(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 13, minHeight: 40 }} />
+              <input type="date" value={state.usageDateTo} onChange={(e) => setUsageDateTo(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 16, minHeight: 40 }} />
             </label>
           </div>
           <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>

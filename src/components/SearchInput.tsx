@@ -36,7 +36,11 @@ export function SearchInput({
         autoFocus={autoFocus}
         style={{
           width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10,
-          padding: value ? '11px 38px 11px 13px' : '11px 13px', fontSize: 14, minHeight: 44,
+          // Bug fix (mobile fit): iOS Safari auto-zooms the whole page in on focus for any text
+          // input with a computed font-size under 16px — since this one component IS the
+          // "ค้นหาชื่อยา" field on seven different screens (see doc comment above), that zoom
+          // hit the single most-tapped control in the whole app on every iPhone/iPad, every time.
+          padding: value ? '11px 38px 11px 13px' : '11px 13px', fontSize: 16, minHeight: 44,
           ...inputStyle,
         }}
       />

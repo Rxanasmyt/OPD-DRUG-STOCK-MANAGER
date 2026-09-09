@@ -191,7 +191,11 @@ export default function SubstockCardScreen() {
                 <select
                   value={year}
                   onChange={(e) => setYear(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-                  style={{ border: '1px solid rgba(42,31,10,.35)', background: 'rgba(255,255,255,.55)', color: '#2a1f0a', padding: '5px 8px', borderRadius: 8, fontSize: 11.5, fontWeight: 700 }}
+                  // Bug fix (mobile fit): a <select> under 16px triggers the same iOS Safari
+                  // auto-zoom-on-focus as a text input — tapping this year picker zoomed the
+                  // whole page in. Padding trimmed slightly to keep the pill's proportions
+                  // close to before now that the text itself is bigger.
+                  style={{ border: '1px solid rgba(42,31,10,.35)', background: 'rgba(255,255,255,.55)', color: '#2a1f0a', padding: '4px 6px', borderRadius: 8, fontSize: 16, fontWeight: 700 }}
                 >
                   {years.length === 0 && <option value={fiscalYear()}>ปีงบประมาณ {fiscalYear()}</option>}
                   {years.map((y) => <option key={y} value={y}>ปีงบ {y}</option>)}

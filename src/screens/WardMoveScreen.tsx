@@ -7,7 +7,10 @@ import { WardBadge } from '../components/WardBadge';
 import { SearchInput } from '../components/SearchInput';
 import type { Med } from '../types';
 
-const inputStyle = { width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
+// Bug fix (mobile fit): under 16px, iOS Safari auto-zooms the whole page on focus — every
+// field on this screen shares this const, so bumping it here is what actually keeps the
+// layout fitting the screen while typing on an iPhone/iPad instead of zooming in on tap.
+const inputStyle = { width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 16, minHeight: 44 };
 
 /** For the case that prompted this screen: a drawer of injectables kept locked in the IPD
  * room, with a subset physically moved to an OPD stat drawer for frequent OPD codes/urgent

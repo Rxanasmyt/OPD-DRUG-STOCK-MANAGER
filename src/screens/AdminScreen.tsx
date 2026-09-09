@@ -137,11 +137,11 @@ export default function AdminScreen() {
               <div className="grid-2" style={{ marginBottom: 9 }}>
                 <label>
                   <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>จากวันที่</span>
-                  <input type="date" value={state.historyFrom} onChange={(e) => setHistoryFrom(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 13, minHeight: 40 }} />
+                  <input type="date" value={state.historyFrom} onChange={(e) => setHistoryFrom(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 16, minHeight: 40 }} />
                 </label>
                 <label>
                   <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>ถึงวันที่</span>
-                  <input type="date" value={state.historyTo} onChange={(e) => setHistoryTo(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 13, minHeight: 40 }} />
+                  <input type="date" value={state.historyTo} onChange={(e) => setHistoryTo(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 16, minHeight: 40 }} />
                 </label>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>

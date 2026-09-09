@@ -129,17 +129,21 @@ export default function QrModal() {
               <div style={{ fontSize: 15, fontWeight: 600 }}>กรอกรหัสด้วยมือ</div>
               <button onClick={qrManual} aria-label="ปิดช่องกรอกรหัสด้วยมือ" style={{ border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 30, height: 30, borderRadius: 8, fontSize: 14 }}>✕</button>
             </div>
+            {/* Bug fix (mobile fit): under 16px, iOS Safari zooms the whole page in on focus —
+                both manual-entry fields below sat at 13.5-14px, so falling back to typing a
+                code by hand (the whole point of this path — the camera failed or the label's
+                damaged) zoomed the layout right when someone least needed the screen to move. */}
             <input
               value={state.qrCode}
               onChange={(e) => setQrCode(e.target.value)}
               placeholder="เช่น MED-0035"
-              style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: 12, fontSize: 14, minHeight: 46, marginBottom: 8 }}
+              style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: 12, fontSize: 16, minHeight: 46, marginBottom: 8 }}
             />
             <input
               value={state.qrManualReason}
               onChange={(e) => setQrManualReason(e.target.value)}
               placeholder="เหตุผลที่สแกนไม่ได้ เช่น ฉลากขาด/เลอะ"
-              style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: 12, fontSize: 13.5, minHeight: 44, marginBottom: 8 }}
+              style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: 12, fontSize: 16, minHeight: 44, marginBottom: 8 }}
             />
             <button
               onClick={() => qrDecoded(state.qrCode, true)}

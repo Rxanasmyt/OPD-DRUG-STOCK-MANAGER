@@ -181,7 +181,10 @@ function Field({ icon, label, value, onChange, type = 'text', placeholder, autoC
           autoComplete={autoComplete}
           required
           className="login-field"
-          style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: '13px 14px 13px 36px', fontSize: 14.5, minHeight: 46 }}
+          // Bug fix (mobile fit): a text input under 16px makes iOS Safari auto-zoom the
+          // whole page in on focus — the very first thing anyone does on this app on their
+          // phone is tap this field, so the zoom hit every single login on an iPhone/iPad.
+          style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: '13px 14px 13px 36px', fontSize: 16, minHeight: 46 }}
         />
       </div>
     </label>
@@ -203,7 +206,7 @@ function PasswordField({ value, onChange, placeholder, autoComplete }: { value: 
           autoComplete={autoComplete}
           required
           className="login-field"
-          style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: '13px 40px 13px 36px', fontSize: 14.5, minHeight: 46 }}
+          style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: '13px 40px 13px 36px', fontSize: 16, minHeight: 46 }}
         />
         <button
           type="button"

@@ -54,7 +54,10 @@ export default function PromptDialog() {
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') respondPrompt(value); }}
-          style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44, marginBottom: 16 }}
+          // Bug fix (mobile fit): under 16px, iOS Safari zooms the whole page in the instant
+          // this field gets focus — this dialog is shared by every "type a value" prompt in
+          // the app, so the zoom hit whichever screen happened to be showing behind it.
+          style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 16, minHeight: 44, marginBottom: 16 }}
         />
         <div style={{ display: 'flex', gap: 8 }}>
           <button

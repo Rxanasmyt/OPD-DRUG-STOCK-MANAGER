@@ -266,4 +266,8 @@ export default function ReceiveScreen() {
 }
 
 import type { CSSProperties } from 'react';
-const inputStyle: CSSProperties = { width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
+// Bug fix (mobile fit): a font-size under 16px on a real text input makes iOS Safari auto-
+// zoom the whole page in on focus (it assumes the text needs magnifying) — every field on
+// this screen (lot no., expiry, qty, ใบเบิก no.) went through this const at 14px, so tapping
+// any of them mid-receive zoomed the layout out of "fits the screen" until tapping away again.
+const inputStyle: CSSProperties = { width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 16, minHeight: 44 };

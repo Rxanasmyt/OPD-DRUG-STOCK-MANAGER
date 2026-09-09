@@ -199,7 +199,10 @@ export default function CountScreen() {
                   inputMode="numeric"
                   aria-label={'จำนวนที่นับได้ ' + m.name}
                   placeholder="นับได้"
-                  style={{ width: 78, flex: 'none', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 6px', fontSize: 14, fontWeight: 600, textAlign: 'center', minHeight: 42 }}
+                  // Bug fix (mobile fit): under 16px, iOS Safari zooms the whole page in the
+                  // moment this field is focused — a real problem on a screen meant for
+                  // walking the shelf and typing a count into row after row quickly.
+                  style={{ width: 78, flex: 'none', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 6px', fontSize: 16, fontWeight: 600, textAlign: 'center', minHeight: 42 }}
                 />
                 <button
                   disabled={!has || !!state.busy[oneBusyKey(m.id)]}

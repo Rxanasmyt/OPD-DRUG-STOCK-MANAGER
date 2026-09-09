@@ -12,7 +12,14 @@ import { suggestCategoryId } from '../data/categorySuggest';
 
 type Filter = 'active' | 'inactive' | 'all';
 
-const inputStyle = { width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 14, minHeight: 44 };
+// Bug fix (mobile fit): iOS Safari auto-zooms the whole page in the instant a text input with
+// a computed font-size under 16px receives focus (it assumes you need it magnified to read) —
+// on an iPhone/iPad this yanked the layout out of "fits the screen" the moment anyone tapped
+// into a field on this form, and stayed zoomed in until they tapped away, making data entry
+// slower and more awkward than typing into a field that never needed zooming in the first
+// place. 16px is the documented threshold iOS actually checks; every input on this form goes
+// through this one const, so raising it here fixes every field at once.
+const inputStyle = { width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 16, minHeight: 44 };
 
 // Bug fix: the inline per-row bin edit (setMedBin in AppContext.tsx) has always sanitized to
 // uppercase-alphanumeric-only, but this form's own bin/binIpd fields just took raw typed text
