@@ -964,7 +964,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // along whenever that cycle comes up — not a scheduled notification demanding a specific
   // day (nothing here can page anyone; this is a static site with no backend to run a timer).
   const printWarehouseRequestList = useCallback(() => {
-    const items = state.meds.filter((m) => m.active && subQty(state, m.id) < m.parSub);
+    // Bug fix: unlike printTodayReplenishList right above (which already guards with
+    // usesSubstock(m)), this was missing the same check — a med marked noSubstock (liquids/
+    // inhalers/sprays that go straight from the central warehouse to the shelf, see
+    // commitReceive) never gets substock lots, so subQty() is permanently 0 for it, but its
+    // parSub field is deliberately NOT cleared when noSubstock is toggled on (see MedsScreen's
+    // form, kept in case someone unchecks it later) — any such med with a leftover nonzero
+    // parSub from before it was marked noSubstock showed up on this print sheet forever,
+    // telling staff to request substock replenishment for a stage that doesn't exist for it.
+    const items = state.meds.filter((m) => m.active && usesSubstock(m) && subQty(state, m.id) < m.parSub);
     if (!items.length) { toast('ทุกรายการยังสูงกว่า par substock — ยังไม่ต้องเบิกเพิ่ม'); return; }
     const rows = items.map((m) => ({ bin: m.code, name: m.name, qty: Math.max(0, m.parSub - subQty(state, m.id)), unit: m.unit }));
     const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการที่ต่ำกว่า par substock ทั้งระบบ', { bin: 'รหัสยา', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() });
