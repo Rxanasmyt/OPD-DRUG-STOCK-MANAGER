@@ -270,8 +270,8 @@ export default function MedsScreen() {
       <div style={{ display: 'flex', gap: 7, marginBottom: 8, flexWrap: 'wrap' }}>
         <button className="chip" style={{ ...chip(wardTab === 'all'), flex: 1, textAlign: 'center' }} onClick={() => setWardTab('all')}>ทุกหอผู้ป่วย ({wardCounts.all})</button>
         <button className="chip" style={{ ...chip(wardTab === 'shared'), flex: 1, textAlign: 'center', ...(wardTab === 'shared' ? { background: 'var(--green)', borderColor: 'var(--green)' } : {}) }} onClick={() => setWardTab('shared')}>ร่วม OPD+IPD ({wardCounts.shared})</button>
-        <button className="chip" style={{ ...chip(wardTab === 'opd'), flex: 1, textAlign: 'center', ...(wardTab === 'opd' ? { background: WARD_COLOR.opd, borderColor: WARD_COLOR.opd } : {}) }} onClick={() => setWardTab('opd')}>OPD เดี่ยว ({wardCounts.opd})</button>
-        <button className="chip" style={{ ...chip(wardTab === 'ipd'), flex: 1, textAlign: 'center', ...(wardTab === 'ipd' ? { background: WARD_COLOR.ipd, borderColor: WARD_COLOR.ipd } : {}) }} onClick={() => setWardTab('ipd')}>IPD เดี่ยว ({wardCounts.ipd})</button>
+        <button className="chip" style={{ ...chip(wardTab === 'opd'), flex: 1, textAlign: 'center', ...(wardTab === 'opd' ? { background: WARD_COLOR.opd, borderColor: WARD_COLOR.opd } : {}) }} onClick={() => setWardTab('opd')}>OPD ({wardCounts.opd})</button>
+        <button className="chip" style={{ ...chip(wardTab === 'ipd'), flex: 1, textAlign: 'center', ...(wardTab === 'ipd' ? { background: WARD_COLOR.ipd, borderColor: WARD_COLOR.ipd } : {}) }} onClick={() => setWardTab('ipd')}>IPD ({wardCounts.ipd})</button>
       </div>
 
       {autoCategorizableCount > 0 && (
