@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shortLabelName, titleSizeStep } from './labelName';
+import { shortLabelName, titleSizeStep, splitTitleForDisplay } from './labelName';
 
 describe('shortLabelName', () => {
   it('trims a trailing English packaging word', () => {
@@ -105,6 +105,31 @@ describe('shortLabelName — noise-word/paren stripping (name+strength only)', (
     // always wrapped in parens the way "PL" is — the paren-only strip alone would miss these.
     expect(shortLabelName('TLD ยาโครงการ 50 mg')).toBe('TLD 50 mg');
     expect(shortLabelName('Folic acid ยาสนับสนุน 400 mcg')).toBe('Folic acid 400 mcg');
+  });
+});
+
+describe('splitTitleForDisplay', () => {
+  it('splits at the first digit — name before, dose (never to be truncated) after', () => {
+    expect(splitTitleForDisplay('Amoxicillin 500 mg')).toEqual({ name: 'Amoxicillin', dose: '500 mg' });
+  });
+
+  it('keeps a long generic name\'s own abbreviation prefix intact ahead of the dose', () => {
+    // Real formulary case: the redundant spelled-out name is what should get ellipsis-
+    // truncated if it doesn't fit — the leading abbreviation and the full dose never should.
+    expect(splitTitleForDisplay('ERIG-Rabies Immunoglobulin 400U/2ml 400 U/2ml'))
+      .toEqual({ name: 'ERIG-Rabies Immunoglobulin', dose: '400U/2ml 400 U/2ml' });
+    expect(splitTitleForDisplay('DMPA-MEDROXYPROGESTERONE ACETATE 150 mg'))
+      .toEqual({ name: 'DMPA-MEDROXYPROGESTERONE ACETATE', dose: '150 mg' });
+  });
+
+  it('returns an empty dose (name = whole title) when there is no digit anywhere', () => {
+    expect(splitTitleForDisplay('Some Drug No Strength Listed')).toEqual({ name: 'Some Drug No Strength Listed', dose: '' });
+  });
+
+  it('never drops any part of the dose — round-trips back to the original title', () => {
+    const title = 'HBIG-Hepatitis B Immune Globulin 100 u./0.5ml';
+    const { name, dose } = splitTitleForDisplay(title);
+    expect((name + ' ' + dose).replace(/\s+/g, ' ').trim()).toBe(title);
   });
 });
 

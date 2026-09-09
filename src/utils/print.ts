@@ -1,5 +1,5 @@
 import { qrSvgMarkup } from './qr';
-import { fitSingleLineFontSizePx } from './labelName';
+import { fitSingleLineFontSizePx, splitTitleForDisplay } from './labelName';
 import { fiscalYear, thDateLong } from './format';
 import { HOSPITAL_CREST_DATA_URI } from './crestImage';
 
@@ -139,7 +139,15 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
             <div class="medcode">${escapeHtml(l.id)}</div>
           </div>
           <div class="meta">
-            <div class="title" style="font-size:${titleFontSizePt(l.title)}pt">${escapeHtml(l.title)}</div>
+            ${(() => {
+              // Bug fix (safety): split into a shrinkable/ellipsis-able name span and a dose
+              // span that's never allowed to truncate — see splitTitleForDisplay()'s doc
+              // comment for why (a name too dense to fit even at the smallest font used to
+              // ellipsis-truncate from the end, and the dose is always what's there).
+              const { name, dose } = splitTitleForDisplay(l.title);
+              const doseHtml = dose ? `<span class="tdose">${escapeHtml(dose)}</span>` : '';
+              return `<div class="title" style="font-size:${titleFontSizePt(l.title)}pt"><span class="tname">${escapeHtml(name)}</span>${doseHtml}</div>`;
+            })()}
             ${l.tag ? `<div class="tag">${escapeHtml(l.tag)}</div>` : ''}
           </div>
         </div>`;
@@ -208,14 +216,22 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
      — see shortLabelName()), sized as large as that comfortably fits.
      Bug fix (consistency): must always end in one line — see titleFontSizePt()'s doc comment
      above for why this is now a real canvas-measured fit instead of a step guess, and why a
-     wrapped second line (the previous design) is gone. white-space: nowrap + ellipsis here is
-     just the backstop for the rare name that's still too dense at MIN_TITLE_PT — every other
-     title's font-size is already computed to fit exactly, so the ellipsis never actually
-     engages for those. */
+     wrapped second line (the previous design) is gone.
+     Bug fix (safety): a flex row of two spans, not one plain ellipsis-able block — a name too
+     dense to fit even at MIN_TITLE_PT needs an ellipsis SOMEWHERE, but it must never be able to
+     eat the dose (see splitTitleForDisplay()'s doc comment: this used to print something like
+     "150 iu./m…" with the unit cut off). .tname is the only part allowed to shrink/truncate;
+     .tdose is a flex-none sibling after it, always rendered in full. */
   .strip .title {
     font-size: 17pt; font-weight: 800; margin-top: 0; line-height: 1.15; color: #14231a;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    display: flex; align-items: baseline; min-width: 0;
   }
+  .strip .title .tname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 auto; }
+  /* margin-left (not a literal space character in the markup) for the gap before the dose — a
+     space character sitting right at the .tname ellipsis boundary can visually collapse away
+     depending on the engine, since it's the last/first character across an element boundary;
+     a real margin always renders. */
+  .strip .title .tdose { flex: none; white-space: nowrap; margin-left: .35mm; }
   .tag { font-size: 6pt; font-weight: 700; color: #b3261e; margin-top: .5mm; }
   /* Bumped from 8.5pt now that the row it used to share the strip with (med code + ward badge)
      is gone — a HIGH ALERT drug is exactly the case where this line needs to read as loudly

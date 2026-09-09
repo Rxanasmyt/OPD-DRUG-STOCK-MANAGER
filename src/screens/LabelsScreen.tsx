@@ -4,7 +4,7 @@ import { daysUntil, wardOf, binFor, isSharedMed } from '../store/selectors';
 import { thDate } from '../utils/format';
 import { QrCode } from '../components/QrCode';
 import { encodeQr } from '../utils/qr';
-import { shortLabelName, fitSingleLineFontSizePx } from '../utils/labelName';
+import { shortLabelName, fitSingleLineFontSizePx, splitTitleForDisplay } from '../utils/labelName';
 import { SearchInput } from '../components/SearchInput';
 import { MedDot } from '../components/MedDot';
 import { LOCS } from '../data/locations';
@@ -52,6 +52,39 @@ function AutoFitText({ text, maxPx, minPx, color, style }: { text: string; maxPx
       style={{ fontSize, fontWeight: 800, lineHeight: 1.2, color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', ...style }}
     >
       {text}
+    </div>
+  );
+}
+
+/** Same auto-fit sizing as AutoFitText, but for the strip title specifically — splits the text
+ * into a shrinkable/ellipsis-able name span and a dose span that's never allowed to truncate
+ * (see labelName.ts's splitTitleForDisplay() for why: a name too dense to fit even at
+ * TITLE_MIN_PX used to let the ellipsis eat the dose itself, since shortLabelName() always
+ * puts it at the end of the string — exactly the one thing a shelf label must never lose).
+ * Mirrors print.ts's `.strip .title`/`.tname`/`.tdose` markup so this preview matches what
+ * actually prints. */
+function AutoFitTitle({ text, color }: { text: string; color: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [fontSize, setFontSize] = useState(TITLE_MAX_PX);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => {
+      const width = el.clientWidth;
+      if (width > 0) setFontSize(fitSingleLineFontSizePx(text, width, TITLE_MAX_PX, TITLE_MIN_PX));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [text]);
+
+  const { name, dose } = splitTitleForDisplay(text);
+  return (
+    <div ref={ref} style={{ fontSize, fontWeight: 800, lineHeight: 1.2, color, display: 'flex', alignItems: 'baseline', minWidth: 0 }}>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: '1 1 auto' }}>{name}</span>
+      {dose && <span style={{ flex: 'none', whiteSpace: 'nowrap', marginLeft: 3 }}>{dose}</span>}
     </div>
   );
 }
@@ -251,7 +284,7 @@ export default function LabelsScreen() {
                 <span style={{ fontSize: 8, color: '#777', fontWeight: 600, letterSpacing: '.02em', marginTop: 2 }}>{r.code}</span>
               </div>
               <div style={{ minWidth: 0, padding: '4px 10px', display: 'flex', flexDirection: 'column', justifyContent: 'center', borderLeft: '1px solid #e5e5e0' }}>
-                <AutoFitText text={r.title} maxPx={TITLE_MAX_PX} minPx={TITLE_MIN_PX} color="#14231a" />
+                <AutoFitTitle text={r.title} color="#14231a" />
                 {r.tag && <div style={{ fontSize: 13, color: r.tagColor, fontWeight: 800, marginTop: 2 }}>{r.tag}</div>}
               </div>
             </div>

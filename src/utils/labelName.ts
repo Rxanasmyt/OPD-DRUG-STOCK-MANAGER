@@ -167,3 +167,35 @@ export function shortLabelName(raw: string): string {
   // trimmed — the original (however long) is still more useful on the shelf than nothing.
   return s.length >= 3 ? s : trimmedRaw;
 }
+
+/**
+ * Splits an already-shortened title into a `name` part that's safe to truncate with an
+ * ellipsis when it doesn't fit, and a `dose` part that must never be — see AutoFitTitle
+ * (LabelsScreen.tsx) / the `.strip .title` markup (print.ts), which render these as two
+ * separate spans: a shrinkable/ellipsis-able name, then the dose appended after it in full,
+ * always.
+ *
+ * Bug fix: the strip title used to be one single-line, single-span box with CSS
+ * `text-overflow: ellipsis` — correct for the common case, but for a name too dense to fit
+ * even at the smallest font (an immunoglobulin/vaccine name with a long generic name is the
+ * recurring real case — see labelName.test.ts), the ellipsis truncates from the END of the
+ * string, and shortLabelName() always puts the dose there. The result: the dose/strength —
+ * the one thing this label exists to get right — was exactly what silently got eaten,
+ * printing something like "150 iu./m…" with the unit cut off, on precisely the drugs where
+ * that's most dangerous to misread.
+ *
+ * Split point: the index of the first digit in the title. A generic drug name is never itself
+ * a bare number, so the strength — which always starts with a digit once shortLabelName() has
+ * run — is reliably everything from there to the end; the text before it is safe to shrink/
+ * truncate. This also happens to solve "use the popular abbreviation for a long name" for
+ * free: this formulary's own convention for a few long generic names is "ABBREV-Full spelled-
+ * out name" (e.g. "ERIG-Rabies Immunoglobulin", "DMPA-MEDROXYPROGESTERONE ACETATE") — since the
+ * abbreviation sits at the START of the name part and an ellipsis truncates from the END, a
+ * name that's too long to fit still reads e.g. "ERIG-Rabies Immunoglob…" — the abbreviation
+ * survives, only the redundant spelled-out tail is what gets cut.
+ */
+export function splitTitleForDisplay(title: string): { name: string; dose: string } {
+  const idx = title.search(/\d/);
+  if (idx < 0) return { name: title, dose: '' };
+  return { name: title.slice(0, idx).trim(), dose: title.slice(idx).trim() };
+}
