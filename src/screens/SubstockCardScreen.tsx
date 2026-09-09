@@ -241,7 +241,15 @@ export default function SubstockCardScreen() {
                 ledger doesn't give at a glance, right below the live balance so both read
                 together: what's on the shelf now, and what it took to get there. */}
             {yearTotals && viewRows && viewRows.length > 0 && (
-              <div style={{ padding: '0 14px 12px', display: 'grid', gridTemplateColumns: (yearTotals.expired > 0 || yearTotals.counted !== 0) ? '1fr 1fr 1fr' : '1fr 1fr', gap: 8 }}>
+              // Bug fix: this used to hardcode either 2 or 3 columns based on whether ANY one
+              // of the two optional tiles (ตัดหมดอายุ, ปรับยอดจากนับสต็อก) was showing — true for
+              // a med with both an expired-lot scrap AND a substock count adjustment in the same
+              // fiscal year (an entirely ordinary combination, not a rare edge case), which then
+              // renders 4 SummaryTiles into a 3-column grid: the 4th tile wraps onto its own row
+              // alone at 1/3 width instead of lining up with the other three. Count the tiles
+              // that will actually render and size the grid to that, so any combination (2, 3,
+              // or 4 tiles) always fills its row evenly.
+              <div style={{ padding: '0 14px 12px', display: 'grid', gridTemplateColumns: `repeat(${2 + (yearTotals.expired > 0 ? 1 : 0) + (yearTotals.counted !== 0 ? 1 : 0)}, 1fr)`, gap: 8 }}>
                 <SummaryTile label="รับเข้ารวม" value={yearTotals.received} unit={med.unit} color="var(--green)" />
                 <SummaryTile label="เติมหน้างานรวม" value={yearTotals.dispensed} unit={med.unit} color="var(--red)" />
                 {yearTotals.expired > 0 && <SummaryTile label="ตัดหมดอายุรวม" value={yearTotals.expired} unit={med.unit} color="var(--amber-ink)" />}
