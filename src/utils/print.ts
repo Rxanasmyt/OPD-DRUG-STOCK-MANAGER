@@ -1,5 +1,5 @@
 import { qrSvgMarkup } from './qr';
-import { titleSizeStep } from './labelName';
+import { fitSingleLineFontSizePx } from './labelName';
 import { fiscalYear, thDateLong } from './format';
 import { HOSPITAL_CREST_DATA_URI } from './crestImage';
 
@@ -31,24 +31,36 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 }
 
-// Font size (pt) per titleSizeStep() — a short name (most of them, once shortLabelName() has
-// trimmed packaging detail) reads large and bold; a longer one steps down instead of
-// truncating mid-strength (losing the "500 mg" is worse than smaller text). Combined with the
-// strip title's 2-line wrap (see .strip .title below), this now has real headroom for a long
-// HIGH ALERT drug name (brand name in parentheses + strength) instead of hitting a 9pt floor
-// and still truncating on one forced line.
-// Bug fix (readability): bumped up a step from the previous [17,15,13,11.5,10,9,8,7] — moving
-// the med code (MED-xxxx) out from beside the title down under the QR, and the OPD/IPD badge
-// off the title row down onto the bin tag (see the strip markup/CSS below), frees the vertical
-// room in .strip .meta that row used to take. Name+strength is the one thing staff actually
-// need to read at a glance while shelving — everything else on the label exists to support
-// that, not compete with it for space — so that freed room goes straight into bigger text
-// here, not into whitespace. The horizontal column width is unchanged (only vertical space
-// freed up), so this stays within what already fit on one/two lines before; verified against
-// real short and long (HIGH ALERT, brand-name-in-parens) formulary names with a real render.
-const TITLE_PT_BY_STEP = [19, 16.5, 14.5, 13, 11, 10, 9, 7.5];
+// Bug fix (readability/consistency): the title used to pick from a handful of discrete font
+// sizes by character count (titleSizeStep/TITLE_PT_BY_STEP) and wrap onto up to 2 lines when a
+// name ran long. Per what was asked, the strip title must always end in a single line — a
+// wrapped second line made some labels visibly taller-reading / less uniform than others next
+// to them on the same sheet. Single line means roughly half the width budget a 2-line wrap had,
+// so the same discrete steps would either overflow or need a much more conservative (guessed)
+// recalibration. Measuring the actual title with a real canvas (fitSingleLineFontSizePx) and
+// scaling it to exactly fill the strip's real available width is correct for any name instead
+// of a guess — see that function's doc comment. `.strip .title`'s CSS below still carries
+// `text-overflow: ellipsis` as a hard backstop so an extreme outlier (past MIN_TITLE_PT, where
+// shrinking further would be unreadable rather than useful) still visibly ends in one line
+// instead of overflowing the box, it just loses its tail.
+const MAX_TITLE_PT = 19;
+const MIN_TITLE_PT = 7;
+const PT_TO_PX = 96 / 72; // same CSS reference-px basis this stylesheet's mm/pt units resolve to
+const MM_TO_PX = 96 / 25.4;
+// .strip is 100mm wide: .bin (11.5mm + 0.3mm border) + .qrwrap (15mm QR + 1.7mm/1.4mm L/R
+// margin = 18.1mm) + .meta's own L/R padding (2.8mm × 2) + its left border (0.25mm) all eat
+// into it before any text — see the .strip/.bin/.qrwrap/.meta rules below. What's left for the
+// title text itself: 100 − 11.8 − 18.1 − 5.6 − 0.25 = 64.25mm. Recompute this if any of those
+// widths change.
+const STRIP_TITLE_MAX_WIDTH_PX = 64.25 * MM_TO_PX;
 function titleFontSizePt(title: string): number {
-  return TITLE_PT_BY_STEP[titleSizeStep(title)];
+  const fittedPx = fitSingleLineFontSizePx(
+    title,
+    STRIP_TITLE_MAX_WIDTH_PX,
+    MAX_TITLE_PT * PT_TO_PX,
+    MIN_TITLE_PT * PT_TO_PX,
+  );
+  return fittedPx / PT_TO_PX;
 }
 
 /**
@@ -91,7 +103,7 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
         // hand; the ward just needs to be visible, not prominent). Moved the code under the
         // QR (small — it's a fallback, not a primary read) and the ward badge onto the bin
         // tag itself (right next to the shelf code it's clarifying), freeing that whole row
-        // for the title to use instead — see TITLE_PT_BY_STEP's doc comment above.
+        // for the title to use instead — see titleFontSizePt()'s doc comment above.
         return `<div class="strip">
           <div class="bin">
             <div class="bincode">${escapeHtml(l.bin || '')}</div>
@@ -163,17 +175,15 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
   /* Drug name + strength is the thing staff actually read at a glance while shelving (name is
      pre-shortened to "generic + strength", packaging detail like "Vial"/"(2 mL.)" trimmed off
      — see shortLabelName()), sized as large as that comfortably fits.
-     Bug fix: this used to force the title onto one line (white-space: nowrap + ellipsis) even
-     after titleSizeStep() had already picked the smallest font — a long name (a brand name in
-     parentheses plus a strength is common on HIGH ALERT drugs specifically) still didn't fit
-     that one line and printed truncated with "…", on exactly the labels where misreading the
-     name matters most. Wrapping up to 2 lines (line-clamp, same effect as -webkit-box +
-     line-clamp in every Chromium/WebKit engine that opens this print tab) gives a long name
-     real room; a short name that already fits on one line renders identically either way. */
+     Bug fix (consistency): must always end in one line — see titleFontSizePt()'s doc comment
+     above for why this is now a real canvas-measured fit instead of a step guess, and why a
+     wrapped second line (the previous design) is gone. white-space: nowrap + ellipsis here is
+     just the backstop for the rare name that's still too dense at MIN_TITLE_PT — every other
+     title's font-size is already computed to fit exactly, so the ellipsis never actually
+     engages for those. */
   .strip .title {
     font-size: 17pt; font-weight: 800; margin-top: 0; line-height: 1.15; color: #14231a;
-    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-    white-space: normal; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .tag { font-size: 6pt; font-weight: 700; color: #b3261e; margin-top: .5mm; }
   /* Bumped from 8.5pt now that the row it used to share the strip with (med code + ward badge)

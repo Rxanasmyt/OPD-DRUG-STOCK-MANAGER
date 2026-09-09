@@ -71,6 +71,63 @@ function stripNoiseAndClean(s: string): string {
   return s;
 }
 
+/** Reference font size (px) the auto-fit measurement below renders at before scaling — large
+ * enough that canvas sub-pixel rounding doesn't meaningfully skew the measured width. */
+const FIT_REFERENCE_PX = 200;
+
+/**
+ * Finds the largest font size (px) that renders `text` within `maxWidthPx` on a single line,
+ * for the given font weight/family — used to guarantee the shelf-strip title (see print.ts's
+ * `.strip .title` and LabelsScreen's matching preview) always ends in one line, per what was
+ * asked, instead of the old character-count heuristic (titleSizeStep/TITLE_PT_BY_STEP) that
+ * only ever picked from a handful of discrete steps and was calibrated for a name that could
+ * wrap onto a *second* line if it ran long — half the usable width once a name has to fit on
+ * one line only. A fixed step table recalibrated for one line would still just be a guess
+ * about average character width; real names mix narrow lowercase Latin, wide ALL-CAPS Latin,
+ * and Thai script in every proportion, so guessing is exactly what causes the "some drug names
+ * still don't feel proportioned right" complaint this exists to fix. Measuring the *actual*
+ * glyphs with a canvas at a large reference size, then scaling that measured width down to fit,
+ * is correct for any string instead of merely usually-close.
+ *
+ * Returns `maxPx` unscaled for an empty string (nothing to measure), and clamps the result to
+ * `minPx` (a name that's too dense to render legibly at any size that fits ends up ellipsis-
+ * truncated by the CSS `text-overflow: ellipsis` on the caller's single-line box, rather than
+ * shrunk down to unreadable). Falls back to `maxPx` if canvas measurement isn't available at
+ * all (e.g. a non-browser test/SSR context) — same as never having auto-fit, not a crash.
+ */
+export function fitSingleLineFontSizePx(
+  text: string,
+  maxWidthPx: number,
+  maxPx: number,
+  minPx: number,
+  fontWeight = 800,
+  fontFamily = "'Noto Sans Thai', system-ui, -apple-system, sans-serif",
+): number {
+  const trimmed = text.trim();
+  if (!trimmed || maxWidthPx <= 0) return maxPx;
+  let ctx: CanvasRenderingContext2D | null = null;
+  try {
+    if (typeof document !== 'undefined') {
+      ctx = document.createElement('canvas').getContext('2d');
+    }
+  } catch {
+    ctx = null;
+  }
+  if (!ctx) return maxPx;
+  ctx.font = `${fontWeight} ${FIT_REFERENCE_PX}px ${fontFamily}`;
+  const naturalWidth = ctx.measureText(trimmed).width;
+  if (naturalWidth <= 0) return maxPx;
+  // Bug fix: fitting to exactly maxWidthPx left zero margin — a canvas's advance-width sum
+  // (measureText) isn't pixel-identical to how the same browser lays out that text in a real
+  // box (hinting/rounding differences of ~1px), so a "perfectly" fitted title routinely came
+  // out a hair wider than its box once actually rendered, silently tripping the CSS
+  // text-overflow: ellipsis backstop on the caller's box — every title looked truncated,
+  // including ones with room to spare. Target 97% of the real width so the fitted size always
+  // lands comfortably inside it.
+  const fitted = (maxWidthPx * 0.97 / naturalWidth) * FIT_REFERENCE_PX;
+  return Math.min(maxPx, Math.max(minPx, fitted));
+}
+
 export function shortLabelName(raw: string): string {
   const trimmedRaw = raw.trim();
   if (!trimmedRaw) return trimmedRaw;

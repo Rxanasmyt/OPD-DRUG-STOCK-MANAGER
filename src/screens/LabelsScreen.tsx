@@ -1,24 +1,52 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { daysUntil, wardOf, binFor, isSharedMed } from '../store/selectors';
 import { thDate } from '../utils/format';
 import { QrCode } from '../components/QrCode';
 import { encodeQr } from '../utils/qr';
-import { shortLabelName, titleSizeStep } from '../utils/labelName';
+import { shortLabelName, fitSingleLineFontSizePx } from '../utils/labelName';
 import { SearchInput } from '../components/SearchInput';
 import { MedDot } from '../components/MedDot';
-
-// On-screen px per titleSizeStep() — mirrors print.ts's pt scale so the preview shows what
-// will actually print (just in px instead of pt, and one notch smaller since the strip is
-// stretched full mobile-width here vs a fixed 100mm print card). Kept the same length as
-// print.ts's TITLE_PT_BY_STEP (8 steps) — titleSizeStep() can return up to 7, and a shorter
-// array here would silently read undefined (NaN font-size) for the longest names.
-// Bumped to match print.ts's TITLE_PT_BY_STEP bump — moving the med code and OPD/IPD badge
-// off the title's row (see the strip preview markup below) freed real vertical room for the
-// name to use instead.
-const TITLE_PX_BY_STEP = [19, 17.5, 16, 14.5, 12.5, 11.5, 10.5, 9];
 import { LOCS } from '../data/locations';
 import type { LabelType, Ward } from '../types';
+
+// Mirrors print.ts's MAX_TITLE_PT/MIN_TITLE_PT (its pt values, here in px since the preview
+// card isn't a fixed physical size — it stretches to whatever width mobile/tablet gives it).
+const TITLE_MAX_PX = 19;
+const TITLE_MIN_PX = 7;
+
+/** Renders the shelf-strip title auto-fitted to always end in one line, same as the real
+ * printout (see print.ts's titleFontSizePt) — measures the actual rendered width of its own
+ * box (via ResizeObserver, since this card's width is responsive, not a fixed mm size like the
+ * print CSS) and asks fitSingleLineFontSizePx() for the largest font that fits it, instead of
+ * picking from a step table. `white-space: nowrap` + `text-overflow: ellipsis` stays as the
+ * backstop for a name still too dense at TITLE_MIN_PX, matching print.ts's CSS exactly. */
+function StripTitle({ text, color }: { text: string; color: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [fontSize, setFontSize] = useState(TITLE_MAX_PX);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => {
+      const width = el.clientWidth;
+      if (width > 0) setFontSize(fitSingleLineFontSizePx(text, width, TITLE_MAX_PX, TITLE_MIN_PX));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [text]);
+
+  return (
+    <div
+      ref={ref}
+      style={{ fontSize, fontWeight: 800, lineHeight: 1.2, color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+    >
+      {text}
+    </div>
+  );
+}
 
 const TABS: [LabelType, string][] = [['med', 'ฉลากตัวยา'], ['lot', 'ฉลาก lot'], ['loc', 'ฉลากชั้นวาง']];
 
@@ -215,19 +243,7 @@ export default function LabelsScreen() {
                 <span style={{ fontSize: 8, color: '#777', fontWeight: 600, letterSpacing: '.02em', marginTop: 2 }}>{r.code}</span>
               </div>
               <div style={{ minWidth: 0, padding: '4px 10px', display: 'flex', flexDirection: 'column', justifyContent: 'center', borderLeft: '1px solid #e5e5e0' }}>
-                <div
-                  style={{
-                    fontSize: TITLE_PX_BY_STEP[titleSizeStep(r.title)], fontWeight: 800, lineHeight: 1.2, color: '#14231a',
-                    // Bug fix: this used to force the title onto one line and ellipsis-truncate
-                    // it — a long name (brand name in parentheses + strength, common on HIGH
-                    // ALERT drugs) still overflowed even at the smallest font, printing/showing
-                    // truncated. Matches print.ts's real 2-line wrap so this preview shows what
-                    // actually prints, not a worse-truncated version of it.
-                    display: '-webkit-box', WebkitBoxOrient: 'vertical' as const, WebkitLineClamp: 2, overflow: 'hidden',
-                  }}
-                >
-                  {r.title}
-                </div>
+                <StripTitle text={r.title} color="#14231a" />
                 {r.tag && <div style={{ fontSize: 13, color: r.tagColor, fontWeight: 800, marginTop: 2 }}>{r.tag}</div>}
               </div>
             </div>
