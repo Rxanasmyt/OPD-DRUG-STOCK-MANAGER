@@ -61,8 +61,15 @@ function clampVolatility(v: number): number {
   return Math.round(Math.min(3, Math.max(1, v)) * 100) / 100;
 }
 
+// Bug fix (usability): bin/binIpd/binSub text is never itself encoded into a QR — the
+// printed labels' QR always carries the med's own code, this is just the display text on
+// the tag (and what a scanned FLOOR location QR, a separate fixed LOCS list, gets matched
+// against) — so there was never a real QR-format reason to reject Thai script or "-", even
+// though staff naturally write shelf codes like "ตู้ยา-1" in Thai. Widened to match sanitizeBin
+// (MedsScreen.tsx) exactly, so the client-side preview and this server-side write can never
+// disagree about what's a valid shelf code.
 function normBin(v: string): string {
-  return v.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+  return v.trim().toUpperCase().replace(/[^A-Z0-9\u0E00-\u0E7F-]/g, '').slice(0, 10);
 }
 
 // Thai label for every TxType/AuditType this app ever logs — shared by exportAudit() and
@@ -1690,7 +1697,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setMedBin = useCallback((medId: string, v: string) => {
     if (!canEditPar) return;
-    const val = v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    // Same widened charset as normBin/sanitizeBin — see normBin's doc comment.
+    const val = v.toUpperCase().replace(/[^A-Z0-9\u0E00-\u0E7F-]/g, '').slice(0, 10);
     setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, bin: val } : x)) }));
     const key = 'bin:' + medId;
     window.clearTimeout(binDebounce.current[medId]);

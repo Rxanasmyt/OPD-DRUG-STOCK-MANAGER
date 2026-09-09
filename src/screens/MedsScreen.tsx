@@ -28,8 +28,17 @@ const inputStyle = { width: '100%', border: '1px solid var(--border)', backgroun
 // EXACTLY — so typing "a1", "A1 ", or "A-1" here here silently produced a bin that could never
 // match its own shelf's QR code, breaking "สแกน QR ที่ชั้นวาง" for that drug with no error
 // shown anywhere. Same sanitize rule as setMedBin, applied at the same point.
+// Shelf code text (bin/binIpd/binSub) is never itself encoded into a QR — the printed "ฉลาก
+// ตัวยา"/"ฉลากชั้นวาง substock" strip's QR always carries the med's own code (see printLabels()
+// in AppContext.tsx), and this text is just what's shown on the tag next to it plus what a
+// scanned FLOOR location QR (LOCS — a separate, fixed A1..D2 list, unrelated to what's typed
+// here) gets string-matched against. So there was never a real QR-format reason to force
+// Latin-only: this used to reject Thai script and "-" outright, even though staff naturally
+// write shelf codes like "ตู้ยา-1" or "ชั้น-A" in Thai. Widened to Thai script (U+0E00-U+0E7F)
+// + "-" alongside the existing A-Z0-9; length cap raised a little (8→10) since a short Thai
+// label needs more code units than the equivalent Latin one.
 function sanitizeBin(v: string): string {
-  return v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+  return v.toUpperCase().replace(/[^A-Z0-9\u0E00-\u0E7F-]/g, '').slice(0, 10);
 }
 const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: 'var(--ipd)' };
 const WARD_BG: Record<Ward, string> = { opd: 'var(--green-tint)', ipd: 'var(--ipd-bg)' };
@@ -436,14 +445,14 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
         </label>
         <label>
           <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{v.shared ? 'ชั้นวาง (OPD)' : 'ชั้นวาง'}</span>
-          <input value={v.bin} onChange={(e) => set('bin', sanitizeBin(e.target.value))} placeholder="เช่น J4" style={{ ...inputStyle, textTransform: 'uppercase' as const }} />
+          <input value={v.bin} onChange={(e) => set('bin', sanitizeBin(e.target.value))} placeholder="เช่น J4 หรือ ตู้ยา-1" style={{ ...inputStyle, textTransform: 'uppercase' as const }} />
         </label>
       </div>
       {v.shared ? (
         <div style={{ marginBottom: 9 }}>
           <label style={{ display: 'block', marginBottom: 7 }}>
             <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>ชั้นวาง (IPD)</span>
-            <input value={v.binIpd} onChange={(e) => set('binIpd', sanitizeBin(e.target.value))} placeholder="เช่น J4" style={{ ...inputStyle, textTransform: 'uppercase' as const, borderColor: WARD_COLOR.ipd }} />
+            <input value={v.binIpd} onChange={(e) => set('binIpd', sanitizeBin(e.target.value))} placeholder="เช่น J4 หรือ ตู้ยา-1" style={{ ...inputStyle, textTransform: 'uppercase' as const, borderColor: WARD_COLOR.ipd }} />
           </label>
           <div style={{ fontSize: 10.5, lineHeight: 1.5, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 9, padding: '8px 10px' }}>
             ใช้สต็อกร่วมกันทั้ง OPD และ IPD — หน้างาน/par/substock เป็นยอดเดียวกันหมด ต่างกันแค่รหัสชั้นวางที่แสดงตามฝั่งที่ดู (IPD หยิบยาจากชั้น OPD ตรง ๆ)
@@ -474,7 +483,7 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
             <input
               value={sibling.bin}
               onChange={(e) => onSiblingBinChange(sibling.id, e.target.value)}
-              placeholder="เช่น J4"
+              placeholder="เช่น J4 หรือ ตู้ยา-1"
               style={{ ...inputStyle, textTransform: 'uppercase' as const, borderColor: WARD_COLOR[wardOf(sibling)] }}
             />
             <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 5 }}>
@@ -498,7 +507,7 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
         <input
           value={v.binSub}
           onChange={(e) => set('binSub', sanitizeBin(e.target.value))}
-          placeholder="เช่น A1 — ว่างไว้ถ้ายังไม่ได้กำหนด"
+          placeholder="เช่น A1 หรือ ชั้น-1 — ว่างไว้ถ้ายังไม่ได้กำหนด"
           disabled={v.noSubstock}
           style={{ ...inputStyle, textTransform: 'uppercase' as const, ...(v.noSubstock ? { background: 'var(--bg-subtle)', color: 'var(--muted)' } : {}) }}
         />
