@@ -196,10 +196,12 @@ describe('daysOfStockLeft', () => {
     expect(daysOfStockLeft(state(), med({ used30: 0 }))).toBeNull();
   });
 
-  it('projects days remaining from combined floor + substock at the current daily rate', () => {
+  it('projects days remaining from combined floor + substock at the current weekday-adjusted daily rate', () => {
     const st = { lots: [{ id: 'l1', code: 'L1', medId: 'm1', lotNo: '1', exp: 0, qty: 30, loc: 'x' }] } as unknown as AppState;
-    // floor 30 + substock 30 = 60 on hand; used30=30 -> 1/day -> 60 days
-    expect(daysOfStockLeft(st, med({ id: 'm1', floor: 30, used30: 30 }))).toBe(60);
+    // floor 30 + substock 30 = 60 on hand; used30=30 -> daily = 30 / (30*5/7) ≈ 1.4/day ->
+    // round(60 / 1.4) = 43 days — NOT the naive used30/30 = 1/day -> 60 days (see
+    // dailyUsageRate()'s doc comment for why the divisor isn't a flat 30).
+    expect(daysOfStockLeft(st, med({ id: 'm1', floor: 30, used30: 30 }))).toBe(43);
   });
 });
 
@@ -251,8 +253,19 @@ describe('suggestPar', () => {
   });
 
   it('scales floor/sub par by cover days and volatility', () => {
-    const out = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21); // daily = 1
-    expect(out).toEqual({ floor: roundStep(3), sub: roundStep(21) });
+    // daily = 30 / (30*5/7) ≈ 1.4286 — not the naive used30/30 = 1 (see dailyUsageRate()).
+    const daily = 30 / (30 * (5 / 7));
+    const out = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
+    expect(out).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21) });
+  });
+
+  it('sizes a no-substock med\'s floor par off subCoverDays, not floorCoverDays — it has no substock buffer to absorb the wait for the next central-warehouse refill', () => {
+    const daily = 30 / (30 * (5 / 7));
+    const withSubstock = suggestPar(med({ used30: 30, volatility: 1, noSubstock: false }), 3, 21);
+    const noSubstock = suggestPar(med({ used30: 30, volatility: 1, noSubstock: true }), 3, 21);
+    expect(withSubstock).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21) });
+    // Same subCoverDays basis drives both floor and sub once there's no substock stage.
+    expect(noSubstock).toEqual({ floor: roundStep(daily * 21), sub: roundStep(daily * 21) });
   });
 });
 

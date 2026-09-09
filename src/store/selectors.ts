@@ -150,16 +150,35 @@ export function categoryStats(state: AppState, meds: Med[], expiryWarnDays: numb
   return order.filter((id) => byCat.has(id)).map((id) => byCat.get(id)!);
 }
 
+// Bug fix: every "daily usage rate" in this app used to be a flat `used30 / 30` — used30 is a
+// 30-calendar-day dispensing total, but this is an OPD/IPD hospital pharmacy that dispenses on
+// weekdays, not evenly across the week; Saturday/Sunday usage is noticeably lower than a normal
+// weekday's. Dividing by all 30 calendar days blends those quiet weekend days into the average,
+// underestimating the rate that actually matters — how fast a shelf empties DURING the working
+// week it has to survive. A par (Max) sized off that diluted average can run out mid-week even
+// though it "covered" its nominal number of days, since the days that emptied it fastest were
+// weighted the same as the slow weekend ones that barely used anything.
+// Fix: divide by the number of WEEKDAYS in a 30-day window instead of all 30 days — this
+// hospital has no per-day usage breakdown to compute an exact split (used30 is a single
+// imported period total, see usageImport.ts), so this assumes the standard 5/7 weekday
+// fraction and that weekend dispensing is small enough to treat as part of that same weekday
+// total, which is the conservative (safer, not smaller) direction: it raises the daily rate
+// used for every par/runway calculation below, rather than lowering it.
+const WEEKDAYS_PER_30_DAYS = 30 * (5 / 7); // ≈ 21.43
+export function dailyUsageRate(m: Med): number {
+  return m.used30 / WEEKDAYS_PER_30_DAYS;
+}
+
 /** Whole-number days until a drug's combined on-hand (floor + substock) runs out at its
- * current 30-day daily usage rate — null when there's no real usage rate to project from
- * (used30 <= 0), rather than the misleading Infinity a raw division would give. Same "how much
- * runway is left" math already used in ReportScreen's turnover tab, factored out so the
- * insights tab (and anything else) can reuse it without duplicating the divide-by-zero guard. */
+ * current weekday-adjusted daily usage rate (see dailyUsageRate()) — null when there's no real
+ * usage rate to project from (used30 <= 0), rather than the misleading Infinity a raw division
+ * would give. Same "how much runway is left" math already used in ReportScreen's turnover tab,
+ * factored out so the insights tab (and anything else) can reuse it without duplicating the
+ * divide-by-zero guard. */
 export function daysOfStockLeft(state: AppState, m: Med): number | null {
   if (!(m.used30 > 0)) return null;
   const onHand = m.floor + subQty(state, m.id);
-  const daily = m.used30 / 30;
-  return Math.round(onHand / daily);
+  return Math.round(onHand / dailyUsageRate(m));
 }
 
 export function fefoLot(state: AppState, medId: string) {
@@ -233,9 +252,18 @@ export function matchHosxpMed(meds: Med[], rawName: string): HosxpMatch {
 
 export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number): { floor: number; sub: number } | null {
   if (!(m.used30 > 0)) return null; // ไม่มีสถิติการใช้จริง ห้ามแนะนำ par (roundStep(0) จะได้ 1 เสมอ ทำให้ค่าแนะนำผิดเพี้ยน)
-  const daily = m.used30 / 30;
+  const daily = dailyUsageRate(m);
+  // Bug fix: a med with no substock stage (usesSubstock() false — see Med.noSubstock) skips
+  // straight from the central-warehouse to the OPD/IPD shelf; its shelf stock has to survive
+  // the full ~2-week central-warehouse refill cycle (subCoverDays) on its own, not the short
+  // few-day substock-to-shelf top-up cycle (floorCoverDays) that assumes a substock room is
+  // right there to refill it quickly. Sizing its floor par off floorCoverDays (as every med
+  // with a real substock buffer correctly does) chronically undersized it — there's no buffer
+  // behind it to absorb the difference. Give it the same cover-days basis a substock par would
+  // get, since its shelf effectively *is* its substock for stocking purposes.
+  const floorDays = usesSubstock(m) ? floorCoverDays : subCoverDays;
   return {
-    floor: roundStep(daily * floorCoverDays * m.volatility),
+    floor: roundStep(daily * floorDays * m.volatility),
     sub: roundStep(daily * subCoverDays * m.volatility),
   };
 }

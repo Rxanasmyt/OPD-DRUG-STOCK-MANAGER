@@ -12,7 +12,7 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -1396,7 +1396,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // divides by zero here; the on-screen "รายงาน" tab already guards this with
         // isFinite(doh), but this CSV export didn't, so it used to write the literal text
         // "Infinity" (or "NaN" when on-hand is also 0) into a real exported spreadsheet.
-        const doh = Math.round(oh / (m.used30 / 30));
+        const doh = Math.round(oh / dailyUsageRate(m));
         return [m.name, m.unit, oh, m.used30, isFinite(doh) ? doh : ''];
       });
       outcome = await downloadCsv([['medication', 'unit', 'on_hand', 'used_30d', 'days_on_hand'], ...rows], names.turn);
@@ -1464,7 +1464,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // 2) Turnover
       addSheet('turnover', [['medication', 'unit', 'on_hand', 'used_30d', 'days_on_hand'], ...activeMeds.map((m) => {
         const oh = m.floor + subQty(st, m.id);
-        const doh = Math.round(oh / (m.used30 / 30));
+        const doh = Math.round(oh / dailyUsageRate(m));
         return [m.name, m.unit, oh, m.used30, isFinite(doh) ? doh : ''];
       })]);
 

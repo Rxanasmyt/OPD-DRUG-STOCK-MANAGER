@@ -1,6 +1,6 @@
 import { useApp } from '../store/AppContext';
 import { useState } from 'react';
-import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats } from '../store/selectors';
+import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
 import type { ReportTab } from '../types';
 import { EmptyState } from '../components/EmptyState';
@@ -50,7 +50,7 @@ export default function ReportScreen() {
     .slice(0, 30)
     .map((m) => {
       const onHand = m.floor + subQty(state, m.id);
-      const doh = Math.round(onHand / (m.used30 / 30));
+      const doh = Math.round(onHand / dailyUsageRate(m));
       // A drug with no recorded usage (used30 === 0) divides to Infinity/NaN here — already
       // shown as "—" rather than a broken number, but the tone below used to fall through to
       // the same green as a genuinely healthy days-on-hand, falsely reading as "plenty of
