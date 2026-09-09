@@ -13,7 +13,10 @@ import { MedDot } from '../components/MedDot';
 // stretched full mobile-width here vs a fixed 100mm print card). Kept the same length as
 // print.ts's TITLE_PT_BY_STEP (8 steps) — titleSizeStep() can return up to 7, and a shorter
 // array here would silently read undefined (NaN font-size) for the longest names.
-const TITLE_PX_BY_STEP = [17, 16, 14.5, 13, 11.5, 10.5, 9.5, 8.5];
+// Bumped to match print.ts's TITLE_PT_BY_STEP bump — moving the med code and OPD/IPD badge
+// off the title's row (see the strip preview markup below) freed real vertical room for the
+// name to use instead.
+const TITLE_PX_BY_STEP = [19, 17.5, 16, 14.5, 12.5, 11.5, 10.5, 9];
 import { LOCS } from '../data/locations';
 import type { LabelType, Ward } from '../types';
 
@@ -23,11 +26,14 @@ const TABS: [LabelType, string][] = [['med', 'ฉลากตัวยา'], ['l
 // borders) since they represent actual printed paper, not themed app chrome — this badge
 // matches that same literal palette (and the literal ink colors print.ts uses for the same
 // badge on the real printout), rather than the app's dark-mode-aware --ipd/--green tokens.
-function printWardBadge(ward?: Ward) {
+// `onYellow` — the shelf-strip preview's bin tag sits on a solid yellow background (matches
+// print.ts's .strip .bin); the default pastel fill would wash out there, so that variant gets
+// an opaque white pill for real contrast, same fix as print.ts's stripWardBadge().
+function printWardBadge(ward?: Ward, onYellow?: boolean) {
   if (!ward) return null;
   const ipd = ward === 'ipd';
   return (
-    <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: '.03em', padding: '1px 5px', borderRadius: 10, background: ipd ? '#e9e6fb' : '#e1efe5', color: ipd ? '#4a3fb5' : '#0e3a20' }}>
+    <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: '.03em', padding: '1px 5px', borderRadius: 10, background: onYellow ? '#fff' : ipd ? '#e9e6fb' : '#e1efe5', color: ipd ? '#4a3fb5' : '#0e3a20' }}>
       {ipd ? 'IPD' : 'OPD'}
     </span>
   );
@@ -193,10 +199,21 @@ export default function LabelsScreen() {
       )}
       {isStrip ? (
         <div className="stagger" style={{ marginBottom: 14 }}>
+          {/* Bug fix (readability): mirrors print.ts's strip layout exactly (see its markup
+              comment) — the med code moved from beside the title down under the QR (small,
+              it's a scan-in-by-hand fallback, not a primary read), and the OPD/IPD badge moved
+              off the title row onto the bin tag itself, freeing that whole row for the name +
+              HIGH ALERT tag to render bigger. */}
           {rows.map((r, i) => (
             <div key={i} style={{ background: '#fff', border: '1px solid #999', borderRadius: 8, marginBottom: 7, display: 'flex', alignItems: 'stretch', height: 64, overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,.04)' }}>
-              <div style={{ flex: 'none', width: 34, background: '#f5c518', color: '#1a1a1a', fontWeight: 800, fontSize: 12.5, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', lineHeight: 1.1, borderRight: '1px solid #d9ac00' }}>{r.bin}</div>
-              <div style={{ flex: 'none', padding: '0 9px', display: 'flex', alignItems: 'center' }}><QrCode value={r.payload} size={46} /></div>
+              <div style={{ flex: 'none', width: 34, background: '#f5c518', color: '#1a1a1a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, textAlign: 'center', padding: '3px 2px', borderRight: '1px solid #d9ac00' }}>
+                <span style={{ fontWeight: 800, fontSize: 12.5, lineHeight: 1.1 }}>{r.bin}</span>
+                {printWardBadge(r.ward, true)}
+              </div>
+              <div style={{ flex: 'none', padding: '0 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                <QrCode value={r.payload} size={41} />
+                <span style={{ fontSize: 8, color: '#777', fontWeight: 600, letterSpacing: '.02em', marginTop: 2 }}>{r.code}</span>
+              </div>
               <div style={{ minWidth: 0, padding: '4px 10px', display: 'flex', flexDirection: 'column', justifyContent: 'center', borderLeft: '1px solid #e5e5e0' }}>
                 <div
                   style={{
@@ -211,11 +228,7 @@ export default function LabelsScreen() {
                 >
                   {r.title}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
-                  <span style={{ fontSize: 9, color: '#777', fontWeight: 600, letterSpacing: '.03em' }}>{r.code}</span>
-                  {printWardBadge(r.ward)}
-                </div>
-                {r.tag && <div style={{ fontSize: 10.5, color: r.tagColor, fontWeight: 700, marginTop: 2 }}>{r.tag}</div>}
+                {r.tag && <div style={{ fontSize: 13, color: r.tagColor, fontWeight: 800, marginTop: 2 }}>{r.tag}</div>}
               </div>
             </div>
           ))}

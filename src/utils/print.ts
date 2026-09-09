@@ -37,7 +37,16 @@ function escapeHtml(s: string): string {
 // strip title's 2-line wrap (see .strip .title below), this now has real headroom for a long
 // HIGH ALERT drug name (brand name in parentheses + strength) instead of hitting a 9pt floor
 // and still truncating on one forced line.
-const TITLE_PT_BY_STEP = [17, 15, 13, 11.5, 10, 9, 8, 7];
+// Bug fix (readability): bumped up a step from the previous [17,15,13,11.5,10,9,8,7] — moving
+// the med code (MED-xxxx) out from beside the title down under the QR, and the OPD/IPD badge
+// off the title row down onto the bin tag (see the strip markup/CSS below), frees the vertical
+// room in .strip .meta that row used to take. Name+strength is the one thing staff actually
+// need to read at a glance while shelving — everything else on the label exists to support
+// that, not compete with it for space — so that freed room goes straight into bigger text
+// here, not into whitespace. The horizontal column width is unchanged (only vertical space
+// freed up), so this stays within what already fit on one/two lines before; verified against
+// real short and long (HIGH ALERT, brand-name-in-parens) formulary names with a real render.
+const TITLE_PT_BY_STEP = [19, 16.5, 14.5, 13, 11, 10, 9, 7.5];
 function titleFontSizePt(title: string): number {
   return TITLE_PT_BY_STEP[titleSizeStep(title)];
 }
@@ -66,16 +75,34 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
   const wardBadge = (w: PrintLabel['ward']) => w
     ? `<span class="wardtag" style="background:${w === 'ipd' ? '#e9e6fb' : '#e1efe5'};color:${w === 'ipd' ? '#4a3fb5' : '#0e3a20'}">${w === 'ipd' ? 'IPD' : 'OPD'}</span>`
     : '';
+  // The shelf-strip's bin tag sits on a solid yellow background (see .strip .bin) — the
+  // regular wardtag's pastel fill (built for a plain white card background) would wash out
+  // against that yellow, so this variant gets an opaque white pill instead for real contrast.
+  const stripWardBadge = (w: PrintLabel['ward']) => w
+    ? `<span class="wardtag" style="background:#fff;color:${w === 'ipd' ? '#4a3fb5' : '#0e3a20'}">${w === 'ipd' ? 'IPD' : 'OPD'}</span>`
+    : '';
 
   const items = labels
     .map((l) => {
       if (isStrip) {
+        // Bug fix (readability): the med code (MED-xxxx) and OPD/IPD badge used to sit on
+        // their own row next to the title — real info, but not what anyone actually reads at
+        // a glance while shelving (the code exists for scanning a damaged label back in by
+        // hand; the ward just needs to be visible, not prominent). Moved the code under the
+        // QR (small — it's a fallback, not a primary read) and the ward badge onto the bin
+        // tag itself (right next to the shelf code it's clarifying), freeing that whole row
+        // for the title to use instead — see TITLE_PT_BY_STEP's doc comment above.
         return `<div class="strip">
-          <div class="bin">${escapeHtml(l.bin || '')}</div>
-          <div class="qr">${qrSvgMarkup(l.payload, qrPx)}</div>
+          <div class="bin">
+            <div class="bincode">${escapeHtml(l.bin || '')}</div>
+            ${stripWardBadge(l.ward)}
+          </div>
+          <div class="qrwrap">
+            <div class="qr">${qrSvgMarkup(l.payload, qrPx)}</div>
+            <div class="medcode">${escapeHtml(l.id)}</div>
+          </div>
           <div class="meta">
             <div class="title" style="font-size:${titleFontSizePt(l.title)}pt">${escapeHtml(l.title)}</div>
-            <div class="idline">${escapeHtml(l.id)}${wardBadge(l.ward)}</div>
             ${l.tag ? `<div class="tag">${escapeHtml(l.tag)}</div>` : ''}
           </div>
         </div>`;
@@ -111,17 +138,24 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
   .code { font-size: 6.5pt; letter-spacing: .05em; color: #666; font-weight: 600; display: flex; align-items: center; gap: 1.2mm; }
   .sub { font-size: 6.5pt; color: #666; margin-top: .5mm; }
   .wardtag { font-size: 5.5pt; font-weight: 800; padding: .3mm 1.4mm; border-radius: 3mm; letter-spacing: .03em; }
-  .idline { font-size: 6.5pt; color: #555; font-weight: 700; letter-spacing: .04em; margin-top: .6mm; display: flex; align-items: center; gap: 1.4mm; }
 
   /* Real physical size: 100mm × 20mm, exactly — 2 cols × 14 rows fills an A4 page (28
      labels), so every sheet prints the same known size regardless of how many meds are
-     in the run (the last page just has empty grid cells). QR is sized to fill the strip's
-     full height (minus a hair of margin) — a QR shrunk to make room for bigger name text
-     stops scanning reliably once it's out of a lab's ideal lighting/printer, so the QR's
-     physical size wins that trade-off, not the name text. */
+     in the run (the last page just has empty grid cells). */
   .strip { width: 100mm; height: 20mm; display: flex; align-items: stretch; border: 0.3mm solid #999; border-radius: 1mm; overflow: hidden; break-inside: avoid; }
-  .strip .bin { flex: none; width: 11.5mm; background: #f5c518; color: #1a1a1a; font-weight: 800; font-size: 12.5pt; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.05; padding: 1mm; border-right: 0.3mm solid #d9ac00; }
-  .strip .qr { flex: none; width: 16.6mm; height: 16.6mm; margin: 1.4mm 1.4mm 1.4mm 1.7mm; }
+  /* Bug fix (readability): bin now stacks the shelf code over its OPD/IPD badge (was a single
+     centered line; the badge used to live on the title row instead — see the strip markup
+     comment above) so it reads as "shelf J9, IPD side" in one glance without stealing room
+     from the name. */
+  .strip .bin { flex: none; width: 11.5mm; background: #f5c518; color: #1a1a1a; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .8mm; text-align: center; padding: 1mm; border-right: 0.3mm solid #d9ac00; }
+  .strip .bin .bincode { font-weight: 800; font-size: 12.5pt; line-height: 1.05; }
+  .strip .bin .wardtag { font-size: 5pt; padding: .25mm 1.1mm; }
+  /* QR trimmed from the old 16.6mm down to 15mm — still comfortably scannable at arm's length
+     (well above what a modern phone camera needs even in ordinary shelf lighting) — to make
+     real room for the med code line underneath it, which used to sit on the title row instead. */
+  .strip .qrwrap { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 1mm 1.4mm 1mm 1.7mm; }
+  .strip .qrwrap .qr { width: 15mm; height: 15mm; }
+  .strip .medcode { font-size: 5.5pt; color: #666; font-weight: 600; letter-spacing: .03em; margin-top: .6mm; }
   .strip .meta { flex: 1; min-width: 0; padding: 0 2.8mm; display: flex; flex-direction: column; justify-content: center; overflow: hidden; border-left: 0.25mm solid #e5e5e0; }
 
   .qr svg { width: 100%; height: 100%; }
@@ -142,7 +176,10 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
     white-space: normal; overflow: hidden; text-overflow: ellipsis;
   }
   .tag { font-size: 6pt; font-weight: 700; color: #b3261e; margin-top: .5mm; }
-  .strip .tag { font-size: 8.5pt; margin-top: .8mm; letter-spacing: .02em; }
+  /* Bumped from 8.5pt now that the row it used to share the strip with (med code + ward badge)
+     is gone — a HIGH ALERT drug is exactly the case where this line needs to read as loudly
+     as the name itself, not smaller than it. */
+  .strip .tag { font-size: 11pt; margin-top: .8mm; letter-spacing: .02em; }
 
   @media screen {
     body { background: #eee; padding: 10mm; }
