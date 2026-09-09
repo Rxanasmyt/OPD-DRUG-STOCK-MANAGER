@@ -5,7 +5,12 @@ import QRCode from 'qrcode';
  * by the camera scanner in <QrModal>/<QrScanner>. Kept intentionally tiny/stable so a
  * label printed today still scans correctly after a future data re-seed.
  */
-export type QrType = 'med' | 'lot' | 'loc';
+// 'locsub' is substock's own shelf-location type — deliberately separate from 'loc' (the
+// floor's shelf-location type) rather than reusing it with a flag, so every switch/if over
+// QrType stays exhaustive and can't silently treat a substock rack scan as a floor one (or
+// vice versa) by falling through a shared branch. See Med.binSub / SUB_LOCS in
+// data/locations.ts for the field and code list this resolves against.
+export type QrType = 'med' | 'lot' | 'loc' | 'locsub';
 export interface QrPayload { t: QrType; id: string }
 
 export function encodeQr(t: QrType, id: string): string {
@@ -20,12 +25,16 @@ export function parseQr(raw: string): QrPayload | null {
   if (!s) return null;
   try {
     const obj = JSON.parse(s);
-    if (obj && typeof obj === 'object' && typeof obj.id === 'string' && (obj.t === 'med' || obj.t === 'lot' || obj.t === 'loc')) {
+    if (obj && typeof obj === 'object' && typeof obj.id === 'string' && (obj.t === 'med' || obj.t === 'lot' || obj.t === 'loc' || obj.t === 'locsub')) {
       return { t: obj.t, id: obj.id };
     }
   } catch { /* not JSON — fall through to bare-code guess */ }
   const up = s.toUpperCase();
   if (up.startsWith('LOT-')) return { t: 'lot', id: up };
+  // Checked before the plain "LOC-" prefix below on principle (a more specific prefix should
+  // never lose to a shorter one) — in practice "SLOC-…" never actually starts with "LOC-" (its
+  // 4th character is 'S', not '-'), so the two can't collide either way.
+  if (up.startsWith('SLOC-')) return { t: 'locsub', id: up };
   if (up.startsWith('LOC-')) return { t: 'loc', id: up };
   if (up.startsWith('MED-')) return { t: 'med', id: up };
   return null;

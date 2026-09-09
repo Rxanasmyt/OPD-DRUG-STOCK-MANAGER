@@ -19,7 +19,7 @@ import { encodeQr, parseQr } from '../utils/qr';
 import { shortLabelName } from '../utils/labelName';
 import { printLabelSheet, printPickListSheet, type PrintLabel } from '../utils/print';
 import { parseHosxpUsageWorkbook, parseUsageCsvText, type RawUsageRow } from '../utils/usageImport';
-import { LOCS } from '../data/locations';
+import { LOCS, SUB_LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
 import { withTimeout, TimeoutError } from '../utils/timeout';
 import { readNotifyEnabled, writeNotifyEnabled, requestPermission, currentPermission, maybeNotifyExpiring } from '../utils/notify';
@@ -95,7 +95,7 @@ function freshState(): AppState {
 
     adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '',
 
-    reportTab: 'aging', labelType: 'med', labelSelected: {},
+    reportTab: 'aging', labelType: 'med', labelSelected: {}, locScope: 'floor',
 
     qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: null, hadOk: {},
 
@@ -226,6 +226,9 @@ export interface AppCtx {
 
   // labels
   setLabelType: (t: AppState['labelType']) => void;
+  /** Switches the "ฉลากชั้นวาง" tab between the floor's shelf codes (LOCS) and substock's own
+   * (SUB_LOCS) — see AppState.locScope. */
+  setLocScope: (s: AppState['locScope']) => void;
   /** Toggle one med in the label picker (see LabelsScreen.tsx). */
   toggleLabelSelected: (medId: string) => void;
   /** Check every one of the given med ids at once — used for the picker's "เลือกทั้งหมด" over
@@ -244,8 +247,8 @@ export interface AppCtx {
   updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => void;
 
   // meds (formulary) management
-  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string }) => void;
-  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string }) => void;
+  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string }) => void;
+  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string }) => void;
   /** Merges an existing OPD/IPD ward-pair (same name, one 'opd' one 'ipd' record) into a
    * single pooled record — see Med.binIpd. Survives as the OPD-ward record with the IPD
    * record's bin code carried over as `binIpd`; floor/used30/usedPrev30 are summed (not
@@ -1532,6 +1535,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ---------- labels ----------
   const setLabelType = useCallback((t: AppState['labelType']) => patch({ labelType: t }), [patch]);
+  const setLocScope = useCallback((s: AppState['locScope']) => patch({ locScope: s }), [patch]);
   const toggleLabelSelected = useCallback((medId: string) => patch((st) => ({ labelSelected: { ...st.labelSelected, [medId]: !st.labelSelected[medId] } })), [patch]);
   const selectAllLabels = useCallback((medIds: string[]) => patch((st) => {
     const next = { ...st.labelSelected };
@@ -1580,6 +1584,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const m = meds.find((x) => x.id === l.medId)!;
         return { payload: encodeQr('lot', l.code), id: l.code, title: m.name, sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: daysUntil(l.exp) < state.expiryWarnDays ? 'ใกล้หมดอายุ' : undefined, ward: wardOf(m) };
       });
+    } else if (state.locScope === 'sub') {
+      // Substock's own shelf-location labels — a separate code namespace/room from the floor's
+      // (see SUB_LOCS/Med.binSub), so this gets its own QR type ('locsub') rather than reusing
+      // 'loc' with the same code text meaning two different physical racks depending on context.
+      heading = 'ฉลากชั้นวาง substock';
+      labels = SUB_LOCS.map((b) => ({ payload: encodeQr('locsub', 'SLOC-' + b), id: 'SLOC-' + b, title: 'ชั้นวาง substock ' + b, sub: 'คลังย่อย substock · สแกนตอนรับเข้าเพื่อเปิดรายการของชั้นนี้' }));
     } else {
       heading = 'ฉลากชั้นวาง';
       labels = LOCS.map((b) => ({ payload: encodeQr('loc', 'LOC-' + b), id: 'LOC-' + b, title: 'ชั้นจ่ายยา ' + b, sub: 'หน้างาน OPD · สแกนเพื่อเปิดรายการในชั้นนี้' }));
@@ -1587,7 +1597,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!labels.length) { toast('ไม่มีรายการให้พิมพ์ฉลาก'); return; }
     const ok = printLabelSheet(labels, heading);
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว — เลือกกระดาษสติกเกอร์ A4 แล้วสั่งพิมพ์' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
-  }, [state.meds, state.lots, state.labelType, state.wardFilter, state.expiryWarnDays, state.labelSelected, toast]);
+  }, [state.meds, state.lots, state.labelType, state.wardFilter, state.expiryWarnDays, state.labelSelected, state.locScope, toast]);
 
   // ---------- settings / par ----------
   const applyOnePar = useCallback(async (medId: string, which: 'sub' | 'floor') => {
@@ -1735,7 +1745,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [canEditPar, logAudit, toast]);
 
   // ---------- meds (formulary) management ----------
-  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string }) => {
+  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string }) => {
     if (!canEditPar) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
@@ -1770,6 +1780,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         trx.set(seqRef, { next: next + 1 }, { merge: true });
         const c = 'MED-' + String(next).padStart(4, '0');
         const binIpd = input.binIpd ? normBin(input.binIpd) : '';
+        const binSub = input.binSub ? normBin(input.binSub) : '';
         trx.set(doc(collection(db, 'meds')), {
           code: c, name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
           price: input.price || 0, had: input.had, active: true,
@@ -1780,6 +1791,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ward: input.ward, noSubstock: input.noSubstock,
           ...(input.shared ? { shared: true } : {}),
           ...(binIpd ? { binIpd } : {}),
+          ...(binSub ? { binSub } : {}),
           ...(input.category ? { category: input.category } : {}),
         });
         return c;
@@ -1794,11 +1806,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // price, high-alert flag, shelf/bin, and both par levels — instead of hunting across
   // separate screens. `code` (the QR/label identifier) is deliberately never touched here —
   // labels already printed with it must keep resolving to this med.
-  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string }) => {
+  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string }) => {
     if (!canEditPar) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
     const binIpd = input.binIpd ? normBin(input.binIpd) : '';
+    const binSub = input.binSub ? normBin(input.binSub) : '';
     const patch = {
       name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
       price: input.price || 0, had: input.had,
@@ -1812,6 +1825,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // false cleanly and no dangling IPD bin code survives the un-share.
       shared: input.shared ? true : deleteField(),
       binIpd: binIpd ? binIpd : deleteField(),
+      binSub: binSub ? binSub : deleteField(),
       category: input.category ? input.category : deleteField(),
     };
     try {
@@ -2496,9 +2510,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   /** Resolves a scanned/typed code against a specific med/lot label — the label a real
    * printed QR encodes must exist in the current data, or this reports "not found" instead
-   * of pretending. Location labels (loc) don't map to one med, so they're resolved by the
-   * caller (picks the neediest med in that bin). */
-  const resolveMed = useCallback((p: { t: 'med' | 'lot' | 'loc'; id: string }): Med | null => {
+   * of pretending. Location labels (loc/locsub) don't map to one med, so they're resolved by
+   * the caller (picks the neediest med in that bin). */
+  const resolveMed = useCallback((p: { t: 'med' | 'lot' | 'loc' | 'locsub'; id: string }): Med | null => {
     if (p.t === 'med') return state.meds.find((m) => m.code === p.id) || null;
     if (p.t === 'lot') {
       const l = state.lots.find((x) => x.code === p.id);
@@ -2514,14 +2528,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     if (purpose === 'receive' || purpose === 'transfer') {
       let med: Med | null = null;
-      if (payload.t === 'loc') {
-        const bin = payload.id.replace(/^LOC-/, '');
-        // A shared med (see isSharedMed) has TWO shelf codes — bin (OPD) and binIpd (IPD) —
-        // so scanning the physical shelf label on the IPD side must still resolve it, not
-        // just the OPD one it happens to be stored under.
-        const pool = state.meds.filter((m) => m.active && (m.bin === bin || m.binIpd === bin));
+      if (payload.t === 'loc' || payload.t === 'locsub') {
+        // locsub is substock's own shelf-location type — resolved against Med.binSub instead
+        // of bin/binIpd (the floor fields 'loc' resolves against). Same "pick whichever med on
+        // this shelf actually needs it" ranking either way, just against a different pool.
+        const isSub = payload.t === 'locsub';
+        const bin = payload.id.replace(isSub ? /^SLOC-/ : /^LOC-/, '');
+        // A shared med (see isSharedMed) has TWO FLOOR shelf codes — bin (OPD) and binIpd
+        // (IPD) — so scanning the physical shelf label on the IPD side must still resolve it,
+        // not just the OPD one it happens to be stored under. Substock has no such OPD/IPD
+        // split (binSub is one code per med), so locsub only ever matches on binSub.
+        const pool = state.meds.filter((m) => m.active && (isSub ? m.binSub === bin : (m.bin === bin || m.binIpd === bin)));
         med = pool.find((m) => (purpose === 'receive' ? subQty(state, m.id) < m.parSub : m.floor < floorMinOf(m))) || pool[0] || null;
-        if (!med) { toast('ไม่พบยาที่ผูกกับชั้น ' + bin + ' ในระบบ'); return; }
+        if (!med) { toast('ไม่พบยาที่ผูกกับชั้น' + (isSub ? ' substock ' : ' ') + bin + ' ในระบบ'); return; }
       } else {
         med = resolveMed(payload);
         if (!med) { toast('ไม่พบรายการนี้ในระบบ — QR อาจมาจากฉลากรุ่นเก่า ลองพิมพ์ฉลากใหม่'); return; }
@@ -2557,7 +2576,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (purpose === 'viewMed') {
-      if (payload.t === 'loc') { toast('QR นี้เป็นตำแหน่งชั้นวาง ไม่ใช่ตัวยา — สแกนที่ฉลากตัวยาแทน'); return; }
+      if (payload.t === 'loc' || payload.t === 'locsub') { toast('QR นี้เป็นตำแหน่งชั้นวาง ไม่ใช่ตัวยา — สแกนที่ฉลากตัวยาแทน'); return; }
       const med = resolveMed(payload);
       if (!med) { toast('ไม่พบรายการนี้ในระบบ — QR อาจมาจากฉลากรุ่นเก่า ลองพิมพ์ฉลากใหม่'); return; }
       patch({ qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', screen: 'meds', medsFocusId: med.id });
@@ -2703,7 +2722,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
     setReportTab, exportReportCsv, exportAllReports,
-    setLabelType, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
+    setLabelType, setLocScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,

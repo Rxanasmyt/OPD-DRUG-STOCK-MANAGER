@@ -55,6 +55,13 @@ export interface Med {
   // selectors.ts rather than reading `shared`/`binIpd` directly.
   shared?: boolean;
   binIpd?: string;
+  // Substock's own shelf/rack code — the back-room counterpart to bin/binIpd (which are both
+  // FLOOR codes). Its own field rather than reusing bin: floor and substock are two separate
+  // physical rooms with their own independent code grid (see SUB_LOCS in data/locations.ts),
+  // and a med's substock rack position has no reason to match, or even exist alongside, its
+  // floor shelf spot. Optional — unset for every med until someone assigns a real substock
+  // location via MedsScreen, and meaningless for a noSubstock med (no back-room stock at all).
+  binSub?: string;
   // Therapeutic group id — see src/data/categories.ts for the fixed list this must be one of
   // (or absent). Optional because every med added before this feature existed has none; always
   // read via categoryOf() in selectors.ts so those fall back to the same "ยังไม่ระบุหมวด" bucket
@@ -247,6 +254,11 @@ export interface AppState {
 
   reportTab: ReportTab;
   labelType: LabelType;
+  // Which shelf-code namespace the "ฉลากชั้นวาง" tab is printing/previewing — floor (LOCS,
+  // the original) or substock (SUB_LOCS, its own separate room/grid — see Med.binSub). Kept
+  // as state (not a local component var) because printLabels() in AppContext.tsx needs it
+  // too, same reason labelType itself is state and not local to LabelsScreen.
+  locScope: 'floor' | 'sub';
   // Which meds are checked in the label picker (see LabelsScreen.tsx) — a Record, not a Set,
   // to match every other multi-select flag map in this state (hadOk, countInputs, ...), all
   // chosen for the same reason: it patches/spreads cleanly through the plain-object state

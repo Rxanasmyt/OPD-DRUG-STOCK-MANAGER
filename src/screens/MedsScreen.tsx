@@ -45,6 +45,11 @@ interface MedFormValues {
   // รายการเดียวกัน — คนละกลไกกับ "รวมสต็อก" (mergeWardMeds) ที่ใช้ตอนมีสต็อกแยกสองรายการอยู่แล้ว
   shared: boolean;
   binIpd: string;
+  // Substock's own shelf/rack code — see Med.binSub. Kept as its own field, never disabled/
+  // cleared just because `noSubstock` happens to be ticked (someone may untick it again;
+  // there's no reason to make them retype a code the form just erased) — the input itself is
+  // only visually disabled while noSubstock is on, same treatment as par substock below it.
+  binSub: string;
   category: string;
 }
 
@@ -53,7 +58,7 @@ function blankForm(): MedFormValues {
   // one-day-dose pulls straight off the OPD shelf), so a brand-new med should start there and
   // let someone opt OUT (untick "เลิกใช้ร่วมกัน") for the minority that genuinely need separate
   // stock, rather than opting in every single time.
-  return { name: '', dosageForm: '', unit: '', price: '', had: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: true, binIpd: '', category: '' };
+  return { name: '', dosageForm: '', unit: '', price: '', had: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: true, binIpd: '', binSub: '', category: '' };
 }
 
 function formFromMed(m: Med): MedFormValues {
@@ -61,7 +66,7 @@ function formFromMed(m: Med): MedFormValues {
     name: m.name, dosageForm: m.dosageForm, unit: m.unit, price: m.price ? String(m.price) : '',
     had: m.had, bin: m.bin, parSub: String(m.parSub), parFloor: String(m.parFloor), floorMin: String(floorMinOf(m)),
     ward: wardOf(m), noSubstock: !!m.noSubstock, volatility: m.volatility.toFixed(2),
-    shared: isSharedMed(m), binIpd: m.binIpd || '', category: m.category || '',
+    shared: isSharedMed(m), binIpd: m.binIpd || '', binSub: m.binSub || '', category: m.category || '',
   };
 }
 
@@ -192,7 +197,7 @@ export default function MedsScreen() {
           submitLabel="บันทึก"
           onCancel={() => setAddOpen(false)}
           onSubmit={(v) => {
-            addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined });
+            addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined });
             setAddOpen(false);
           }}
         />
@@ -284,7 +289,7 @@ export default function MedsScreen() {
                       {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
                     </div>
                     <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                      {m.code} · ชั้น {isSharedMed(m) ? ('OPD ' + (m.bin || '—') + ' / IPD ' + (m.binIpd || '—')) : (m.bin || '—')} · {m.unit} · {nf(m.price)} บาท
+                      {m.code} · ชั้น {isSharedMed(m) ? ('OPD ' + (m.bin || '—') + ' / IPD ' + (m.binIpd || '—')) : (m.bin || '—')}{!m.noSubstock && m.binSub ? ' · substock ' + m.binSub : ''} · {m.unit} · {nf(m.price)} บาท
                     </div>
                     {m.active && (
                       <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
@@ -327,7 +332,7 @@ export default function MedsScreen() {
                     submitLabel="บันทึกการแก้ไข"
                     onCancel={() => setEditingId(null)}
                     onSubmit={(v) => {
-                      updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined });
+                      updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined });
                       setEditingId(null);
                     }}
                     // ยาชื่อเดียวกันที่แยกรายการไว้คนละ ward (คนละ Firestore doc ตามหลักการออกแบบ
@@ -481,6 +486,17 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
           )}
         </div>
       )}
+      <label style={{ display: 'block', marginBottom: 9 }}>
+        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>ชั้นวาง substock (คลังย่อย)</span>
+        <input
+          value={v.binSub}
+          onChange={(e) => set('binSub', sanitizeBin(e.target.value))}
+          placeholder="เช่น A1 — ว่างไว้ถ้ายังไม่ได้กำหนด"
+          disabled={v.noSubstock}
+          style={{ ...inputStyle, textTransform: 'uppercase' as const, ...(v.noSubstock ? { background: 'var(--bg-subtle)', color: 'var(--muted)' } : {}) }}
+        />
+        <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>รหัสชั้น/ตู้ในคลังย่อย substock — คนละรหัสกับชั้นวางหน้างานด้านบน (คนละห้อง คนละ QR) ใช้พิมพ์ฉลากชั้นวาง substock ในหน้าฉลาก QR ได้</div>
+      </label>
       <div className="grid-2" style={{ marginBottom: 9 }}>
         <label>
           <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>par substock</span>

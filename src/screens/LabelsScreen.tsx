@@ -14,7 +14,7 @@ import { MedDot } from '../components/MedDot';
 // print.ts's TITLE_PT_BY_STEP (8 steps) — titleSizeStep() can return up to 7, and a shorter
 // array here would silently read undefined (NaN font-size) for the longest names.
 const TITLE_PX_BY_STEP = [17, 16, 14.5, 13, 11.5, 10.5, 9.5, 8.5];
-import { LOCS } from '../data/locations';
+import { LOCS, SUB_LOCS } from '../data/locations';
 import type { LabelType, Ward } from '../types';
 
 const TABS: [LabelType, string][] = [['med', 'ฉลากตัวยา'], ['lot', 'ฉลาก lot'], ['loc', 'ฉลากชั้นวาง']];
@@ -34,7 +34,7 @@ function printWardBadge(ward?: Ward) {
 }
 
 export default function LabelsScreen() {
-  const { state, setLabelType, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels, warn } = useApp();
+  const { state, setLabelType, setLocScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels, warn } = useApp();
   const [pickerQuery, setPickerQuery] = useState('');
   // OPD/IPD ward tabs removed — one combined list; a shared med's label shows its default
   // (OPD-side) shelf code via binFor()'s own fallback.
@@ -63,6 +63,8 @@ export default function LabelsScreen() {
         const m = meds.find((x) => x.id === l.medId);
         return { code: l.code, bin: undefined as string | undefined, payload: encodeQr('lot', l.code), title: m ? m.name : '—', sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: daysUntil(l.exp) < warn() ? 'ใกล้หมดอายุ' : '', tagColor: 'var(--amber)', ward: m && !isSharedMed(m) ? wardOf(m) : undefined };
       })
+    : state.locScope === 'sub'
+    ? SUB_LOCS.map((b) => ({ code: 'SLOC-' + b, bin: undefined as string | undefined, payload: encodeQr('locsub', 'SLOC-' + b), title: 'ชั้นวาง substock ' + b, sub: 'คลังย่อย substock · สแกนตอนรับเข้าเพื่อเปิดรายการของชั้นนี้', tag: '', tagColor: 'var(--muted)', ward: undefined as Ward | undefined }))
     : LOCS.map((b) => ({ code: 'LOC-' + b, bin: undefined as string | undefined, payload: encodeQr('loc', 'LOC-' + b), title: 'ชั้นจ่ายยา ' + b, sub: 'หน้างาน OPD · สแกนเพื่อเปิดรายการในชั้นนี้', tag: '', tagColor: 'var(--muted)', ward: undefined as Ward | undefined }));
 
   // Bug fix: printLabels() (AppContext.tsx) emits TWO label rows for a shared med that has a
@@ -71,7 +73,7 @@ export default function LabelsScreen() {
   // formulary has any such shared meds. That number is what someone actually buying/counting
   // out A4 sticker sheets relies on before printing, so it has to match what really prints.
   const medLabelCount = meds.reduce((n, m) => n + (isSharedMed(m) && m.binIpd ? 2 : 1), 0);
-  const labelCount = state.labelType === 'loc' ? LOCS.length : state.labelType === 'lot' ? wardLots.length : medLabelCount;
+  const labelCount = state.labelType !== 'loc' ? (state.labelType === 'lot' ? wardLots.length : medLabelCount) : state.locScope === 'sub' ? SUB_LOCS.length : LOCS.length;
 
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
@@ -81,6 +83,15 @@ export default function LabelsScreen() {
           <button key={t} className="chip" style={{ ...chip(state.labelType === t), flex: 1, textAlign: 'center', minHeight: 42 }} onClick={() => setLabelType(t)}>{label}</button>
         ))}
       </div>
+
+      {/* Locations have their own separate floor/substock code namespaces (see SUB_LOCS/
+          Med.binSub in data/locations.ts, types.ts) — this only shows on the ฉลากชั้นวาง tab. */}
+      {state.labelType === 'loc' && (
+        <div style={{ display: 'flex', gap: 7, marginBottom: 12 }}>
+          <button className="chip" style={{ ...chip(state.locScope === 'floor'), flex: 1, minHeight: 40 }} onClick={() => setLocScope('floor')}>ชั้นวางหน้างาน (floor)</button>
+          <button className="chip" style={{ ...chip(state.locScope === 'sub'), flex: 1, minHeight: 40 }} onClick={() => setLocScope('sub')}>ชั้นวาง substock</button>
+        </div>
+      )}
 
       {/* Locations aren't per-med — the picker below only makes sense for ฉลากตัวยา/ฉลาก lot,
           both of which come from the same active-med list this filters. */}
