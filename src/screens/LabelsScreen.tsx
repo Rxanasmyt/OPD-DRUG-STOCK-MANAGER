@@ -14,7 +14,7 @@ import { MedDot } from '../components/MedDot';
 // print.ts's TITLE_PT_BY_STEP (8 steps) — titleSizeStep() can return up to 7, and a shorter
 // array here would silently read undefined (NaN font-size) for the longest names.
 const TITLE_PX_BY_STEP = [17, 16, 14.5, 13, 11.5, 10.5, 9.5, 8.5];
-import { LOCS, SUB_LOCS } from '../data/locations';
+import { LOCS } from '../data/locations';
 import type { LabelType, Ward } from '../types';
 
 const TABS: [LabelType, string][] = [['med', 'ฉลากตัวยา'], ['lot', 'ฉลาก lot'], ['loc', 'ฉลากชั้นวาง']];
@@ -51,6 +51,16 @@ export default function LabelsScreen() {
     ? activeMeds.filter((m) => m.name.toLowerCase().indexOf(pickerQuery.trim().toLowerCase()) >= 0).slice(0, 20)
     : [];
 
+  // The substock shelf-strip labels (labelType 'loc' + locScope 'sub') are per-med shelf-strip
+  // labels too — same style/shape as ฉลากตัวยา, just keyed off Med.binSub instead of bin/binIpd
+  // — so both render with the "strip" layout below, and this flag decides that in one place.
+  const isStrip = state.labelType === 'med' || (state.labelType === 'loc' && state.locScope === 'sub');
+  // Only meds that actually have a substock rack assigned print anything here — there's no
+  // generic "empty substock slot" label the way floor's ฉลากชั้นวาง has (see the bug-fix note
+  // in printLabels' locScope==='sub' branch, AppContext.tsx, for why: a shelf-strip label needs
+  // a real drug name on it, and a med with no binSub set has no code to put there yet).
+  const subMeds = meds.filter((m) => !m.noSubstock && m.binSub);
+
   const medIds = new Set(meds.map((m) => m.id));
   const wardLots = state.lots.filter((l) => medIds.has(l.medId));
   // A shared med has no single real ward (see isSharedMed/WardBadge.tsx) — showing the OPD/IPD
@@ -64,7 +74,7 @@ export default function LabelsScreen() {
         return { code: l.code, bin: undefined as string | undefined, payload: encodeQr('lot', l.code), title: m ? m.name : '—', sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: daysUntil(l.exp) < warn() ? 'ใกล้หมดอายุ' : '', tagColor: 'var(--amber)', ward: m && !isSharedMed(m) ? wardOf(m) : undefined };
       })
     : state.locScope === 'sub'
-    ? SUB_LOCS.map((b) => ({ code: 'SLOC-' + b, bin: undefined as string | undefined, payload: encodeQr('locsub', 'SLOC-' + b), title: 'ชั้นวาง substock ' + b, sub: 'คลังย่อย substock · สแกนตอนรับเข้าเพื่อเปิดรายการของชั้นนี้', tag: '', tagColor: 'var(--muted)', ward: undefined as Ward | undefined }))
+    ? subMeds.slice(0, 8).map((m) => ({ code: m.code, bin: m.binSub, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · substock ' + m.binSub, tag: m.had ? 'HIGH ALERT' : '', tagColor: 'var(--had)', ward: undefined as Ward | undefined }))
     : LOCS.map((b) => ({ code: 'LOC-' + b, bin: undefined as string | undefined, payload: encodeQr('loc', 'LOC-' + b), title: 'ชั้นจ่ายยา ' + b, sub: 'หน้างาน OPD · สแกนเพื่อเปิดรายการในชั้นนี้', tag: '', tagColor: 'var(--muted)', ward: undefined as Ward | undefined }));
 
   // Bug fix: printLabels() (AppContext.tsx) emits TWO label rows for a shared med that has a
@@ -73,7 +83,7 @@ export default function LabelsScreen() {
   // formulary has any such shared meds. That number is what someone actually buying/counting
   // out A4 sticker sheets relies on before printing, so it has to match what really prints.
   const medLabelCount = meds.reduce((n, m) => n + (isSharedMed(m) && m.binIpd ? 2 : 1), 0);
-  const labelCount = state.labelType !== 'loc' ? (state.labelType === 'lot' ? wardLots.length : medLabelCount) : state.locScope === 'sub' ? SUB_LOCS.length : LOCS.length;
+  const labelCount = state.labelType === 'lot' ? wardLots.length : state.labelType === 'med' ? medLabelCount : state.locScope === 'sub' ? subMeds.length : LOCS.length;
 
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
@@ -84,18 +94,26 @@ export default function LabelsScreen() {
         ))}
       </div>
 
-      {/* Locations have their own separate floor/substock code namespaces (see SUB_LOCS/
-          Med.binSub in data/locations.ts, types.ts) — this only shows on the ฉลากชั้นวาง tab. */}
+      {/* Only shows on the ฉลากชั้นวาง tab — floor keeps the original generic (drug-less) shelf-
+          frame labels, substock switches to real per-med shelf-strip labels (see isStrip). */}
       {state.labelType === 'loc' && (
-        <div style={{ display: 'flex', gap: 7, marginBottom: 12 }}>
-          <button className="chip" style={{ ...chip(state.locScope === 'floor'), flex: 1, minHeight: 40 }} onClick={() => setLocScope('floor')}>ชั้นวางหน้างาน (floor)</button>
-          <button className="chip" style={{ ...chip(state.locScope === 'sub'), flex: 1, minHeight: 40 }} onClick={() => setLocScope('sub')}>ชั้นวาง substock</button>
-        </div>
+        <>
+          <div style={{ display: 'flex', gap: 7, marginBottom: 8 }}>
+            <button className="chip" style={{ ...chip(state.locScope === 'floor'), flex: 1, minHeight: 40 }} onClick={() => setLocScope('floor')}>ชั้นวางหน้างาน (floor)</button>
+            <button className="chip" style={{ ...chip(state.locScope === 'sub'), flex: 1, minHeight: 40 }} onClick={() => setLocScope('sub')}>ชั้นวาง substock</button>
+          </div>
+          {state.locScope === 'sub' && (
+            <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.5, marginBottom: 12 }}>
+              แสดงเฉพาะยาที่กำหนด "ชั้นวาง substock" ไว้แล้ว (ตั้งได้ที่หน้าจัดการยา) — แต่ละดวงมี
+              QR + ชื่อยา + ขนาดยา เหมือนฉลากตัวยาหน้างาน แค่โชว์รหัสชั้น substock แทน
+            </div>
+          )}
+        </>
       )}
 
-      {/* Locations aren't per-med — the picker below only makes sense for ฉลากตัวยา/ฉลาก lot,
-          both of which come from the same active-med list this filters. */}
-      {state.labelType !== 'loc' && (
+      {/* The picker below is per-med, so it applies to ฉลากตัวยา/ฉลาก lot and to ฉลากชั้นวาง's
+          substock mode (also per-med now) — only floor's ฉลากชั้นวาง stays location-only. */}
+      {(state.labelType !== 'loc' || state.locScope === 'sub') && (
         <div className="card" style={{ padding: 12, marginBottom: 12 }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>เลือกยาเฉพาะบางตัว (ไม่บังคับ)</div>
           <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.5, marginBottom: 8 }}>
@@ -144,7 +162,7 @@ export default function LabelsScreen() {
       {labelCount > rows.length && (
         <div className="muted" style={{ fontSize: 11, marginBottom: 9 }}>แสดงตัวอย่าง {rows.length} จาก {labelCount} รายการ — ปุ่มพิมพ์ด้านล่างพิมพ์ครบทุกรายการ</div>
       )}
-      {state.labelType === 'med' ? (
+      {isStrip ? (
         <div className="stagger" style={{ marginBottom: 14 }}>
           {rows.map((r, i) => (
             <div key={i} style={{ background: '#fff', border: '1px solid #999', borderRadius: 8, marginBottom: 7, display: 'flex', alignItems: 'stretch', height: 64, overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,.04)' }}>
@@ -192,11 +210,11 @@ export default function LabelsScreen() {
         </div>
       )}
       <button onClick={printLabels} className="btn-primary" style={{ width: '100%', padding: 15, borderRadius: 11, fontSize: 15, minHeight: 52 }}>
-        {state.labelType !== 'loc' && selectedSet.size > 0 ? 'พิมพ์ยาที่เลือก' : 'พิมพ์ฉลากทั้งชุด'} ({labelCount} ดวง · A4 กระดาษสติกเกอร์)
+        {(state.labelType !== 'loc' || state.locScope === 'sub') && selectedSet.size > 0 ? 'พิมพ์ยาที่เลือก' : 'พิมพ์ฉลากทั้งชุด'} ({labelCount} ดวง · A4 กระดาษสติกเกอร์)
       </button>
       <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginTop: 11 }}>
         พิมพ์ลงกระดาษ A4 แล้วตัดติดหน้ายา/lot/ชั้นวางได้เลย — QR แต่ละดวงสแกนด้วยกล้องมือถือหรือแท็บเล็ตผ่านปุ่ม ▣ ในหน้ารับเข้า/เติมหน้างานได้ทันที
-        {state.labelType === 'med' && <> ฉลากตัวยาพิมพ์ที่ขนาดจริง 2×10 ซม. ต่อดวง — 1 แผ่น A4 จุ 28 ดวงพอดี (2 คอลัมน์ × 14 แถว)</>}
+        {isStrip && <> ฉลากตัวยาพิมพ์ที่ขนาดจริง 2×10 ซม. ต่อดวง — 1 แผ่น A4 จุ 28 ดวงพอดี (2 คอลัมน์ × 14 แถว)</>}
       </div>
     </div>
   );

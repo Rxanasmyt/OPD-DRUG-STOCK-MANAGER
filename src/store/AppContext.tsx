@@ -19,7 +19,7 @@ import { encodeQr, parseQr } from '../utils/qr';
 import { shortLabelName } from '../utils/labelName';
 import { printLabelSheet, printPickListSheet, type PrintLabel } from '../utils/print';
 import { parseHosxpUsageWorkbook, parseUsageCsvText, type RawUsageRow } from '../utils/usageImport';
-import { LOCS, SUB_LOCS } from '../data/locations';
+import { LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
 import { withTimeout, TimeoutError } from '../utils/timeout';
 import { readNotifyEnabled, writeNotifyEnabled, requestPermission, currentPermission, maybeNotifyExpiring } from '../utils/notify';
@@ -226,8 +226,8 @@ export interface AppCtx {
 
   // labels
   setLabelType: (t: AppState['labelType']) => void;
-  /** Switches the "ฉลากชั้นวาง" tab between the floor's shelf codes (LOCS) and substock's own
-   * (SUB_LOCS) — see AppState.locScope. */
+  /** Switches the "ฉลากตัวยา"-style shelf-strip labels the "ฉลากชั้นวาง" tab's substock mode
+   * builds between the floor's own bin/binIpd and substock's binSub — see AppState.locScope. */
   setLocScope: (s: AppState['locScope']) => void;
   /** Toggle one med in the label picker (see LabelsScreen.tsx). */
   toggleLabelSelected: (medId: string) => void;
@@ -1585,11 +1585,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return { payload: encodeQr('lot', l.code), id: l.code, title: m.name, sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: daysUntil(l.exp) < state.expiryWarnDays ? 'ใกล้หมดอายุ' : undefined, ward: wardOf(m) };
       });
     } else if (state.locScope === 'sub') {
-      // Substock's own shelf-location labels — a separate code namespace/room from the floor's
-      // (see SUB_LOCS/Med.binSub), so this gets its own QR type ('locsub') rather than reusing
-      // 'loc' with the same code text meaning two different physical racks depending on context.
+      // Bug fix: the first cut of this (v3.12.0) printed a generic, drug-less location sheet
+      // here (one label per SUB_LOCS code, no med name on it at all) — but a real substock
+      // shelf-edge label needs to say WHICH drug goes there at a glance, exactly like the
+      // "ฉลากตัวยา" floor labels already do (QR + shelf code + name + strength), not just an
+      // anonymous code. Substock has no OPD/IPD split on binSub (one code per med, unlike
+      // bin/binIpd) so this is the med branch above minus the two-sides fan-out — one shelf
+      // strip per med that actually has a substock rack assigned, using its real 'med' QR
+      // (scanning it resolves the drug directly, same as the floor labels) with binSub as the
+      // shown/printed shelf code instead of bin.
       heading = 'ฉลากชั้นวาง substock';
-      labels = SUB_LOCS.map((b) => ({ payload: encodeQr('locsub', 'SLOC-' + b), id: 'SLOC-' + b, title: 'ชั้นวาง substock ' + b, sub: 'คลังย่อย substock · สแกนตอนรับเข้าเพื่อเปิดรายการของชั้นนี้' }));
+      labels = meds.filter((m) => !m.noSubstock && m.binSub).map((m) => ({
+        payload: encodeQr('med', m.code), id: m.code, title: shortLabelName(m.name),
+        sub: 'หน่วย ' + m.unit + ' · substock ' + m.binSub, tag: m.had ? 'HIGH ALERT' : undefined, bin: m.binSub,
+      }));
     } else {
       heading = 'ฉลากชั้นวาง';
       labels = LOCS.map((b) => ({ payload: encodeQr('loc', 'LOC-' + b), id: 'LOC-' + b, title: 'ชั้นจ่ายยา ' + b, sub: 'หน้างาน OPD · สแกนเพื่อเปิดรายการในชั้นนี้' }));
@@ -2510,9 +2519,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   /** Resolves a scanned/typed code against a specific med/lot label — the label a real
    * printed QR encodes must exist in the current data, or this reports "not found" instead
-   * of pretending. Location labels (loc/locsub) don't map to one med, so they're resolved by
-   * the caller (picks the neediest med in that bin). */
-  const resolveMed = useCallback((p: { t: 'med' | 'lot' | 'loc' | 'locsub'; id: string }): Med | null => {
+   * of pretending. Location labels (loc) don't map to one med, so they're resolved by the
+   * caller (picks the neediest med in that bin). */
+  const resolveMed = useCallback((p: { t: 'med' | 'lot' | 'loc'; id: string }): Med | null => {
     if (p.t === 'med') return state.meds.find((m) => m.code === p.id) || null;
     if (p.t === 'lot') {
       const l = state.lots.find((x) => x.code === p.id);
@@ -2528,20 +2537,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     if (purpose === 'receive' || purpose === 'transfer') {
       let med: Med | null = null;
-      if (payload.t === 'loc' || payload.t === 'locsub') {
-        // locsub is substock's own shelf-location type — resolved against Med.binSub instead
-        // of bin/binIpd (the floor fields 'loc' resolves against). Same "pick whichever med on
-        // this shelf actually needs it" ranking either way, just against a different pool.
-        const isSub = payload.t === 'locsub';
-        const bin = payload.id.replace(isSub ? /^SLOC-/ : /^LOC-/, '');
-        // A shared med (see isSharedMed) has TWO FLOOR shelf codes — bin (OPD) and binIpd
-        // (IPD) — so scanning the physical shelf label on the IPD side must still resolve it,
-        // not just the OPD one it happens to be stored under. Substock has no such OPD/IPD
-        // split (binSub is one code per med), so locsub only ever matches on binSub.
-        const pool = state.meds.filter((m) => m.active && (isSub ? m.binSub === bin : (m.bin === bin || m.binIpd === bin)));
+      if (payload.t === 'loc') {
+        const bin = payload.id.replace(/^LOC-/, '');
+        // A shared med (see isSharedMed) has TWO shelf codes — bin (OPD) and binIpd (IPD) —
+        // so scanning the physical shelf label on the IPD side must still resolve it, not
+        // just the OPD one it happens to be stored under.
+        const pool = state.meds.filter((m) => m.active && (m.bin === bin || m.binIpd === bin));
         med = pool.find((m) => (purpose === 'receive' ? subQty(state, m.id) < m.parSub : m.floor < floorMinOf(m))) || pool[0] || null;
-        if (!med) { toast('ไม่พบยาที่ผูกกับชั้น' + (isSub ? ' substock ' : ' ') + bin + ' ในระบบ'); return; }
+        if (!med) { toast('ไม่พบยาที่ผูกกับชั้น ' + bin + ' ในระบบ'); return; }
       } else {
+        // A substock shelf-strip label (bin set to binSub — see printLabels' locScope 'sub'
+        // branch) encodes a real 'med' QR just like a floor label does, so it resolves here
+        // too without any special-casing: no separate location-scan path is needed since each
+        // substock rack position already belongs to exactly one known drug.
         med = resolveMed(payload);
         if (!med) { toast('ไม่พบรายการนี้ในระบบ — QR อาจมาจากฉลากรุ่นเก่า ลองพิมพ์ฉลากใหม่'); return; }
       }
@@ -2576,7 +2584,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (purpose === 'viewMed') {
-      if (payload.t === 'loc' || payload.t === 'locsub') { toast('QR นี้เป็นตำแหน่งชั้นวาง ไม่ใช่ตัวยา — สแกนที่ฉลากตัวยาแทน'); return; }
+      if (payload.t === 'loc') { toast('QR นี้เป็นตำแหน่งชั้นวาง ไม่ใช่ตัวยา — สแกนที่ฉลากตัวยาแทน'); return; }
       const med = resolveMed(payload);
       if (!med) { toast('ไม่พบรายการนี้ในระบบ — QR อาจมาจากฉลากรุ่นเก่า ลองพิมพ์ฉลากใหม่'); return; }
       patch({ qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', screen: 'meds', medsFocusId: med.id });
