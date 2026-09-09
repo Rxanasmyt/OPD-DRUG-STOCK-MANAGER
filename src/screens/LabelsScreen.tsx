@@ -34,7 +34,7 @@ function printWardBadge(ward?: Ward) {
 }
 
 export default function LabelsScreen() {
-  const { state, setLabelType, setLocScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels, warn } = useApp();
+  const { state, setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels, warn } = useApp();
   const [pickerQuery, setPickerQuery] = useState('');
   // OPD/IPD ward tabs removed — one combined list; a shared med's label shows its default
   // (OPD-side) shelf code via binFor()'s own fallback.
@@ -63,11 +63,27 @@ export default function LabelsScreen() {
 
   const medIds = new Set(meds.map((m) => m.id));
   const wardLots = state.lots.filter((l) => medIds.has(l.medId));
-  // A shared med has no single real ward (see isSharedMed/WardBadge.tsx) — showing the OPD/IPD
-  // pill on it anyway would misrepresent it as OPD-only, and now that most drugs are shared by
-  // default it'd be on nearly every row. Only the genuinely still-separate minority get one.
+  // The real physical shelf sides this med prints a label for — mirrors printLabels()'s own
+  // sides/scoping logic in AppContext.tsx exactly (see labelWardScope's doc comment there) so
+  // this preview can never show/count something different from what the print button below
+  // actually produces. A shared med with a distinct binIpd has TWO real sides (OPD + IPD); a
+  // non-shared med has exactly one. 'all' scope keeps both; scoped to one ward keeps only the
+  // side(s) that match — a med whose only side doesn't match contributes nothing at all.
+  const medSides = (m: (typeof meds)[number]) => {
+    const sides: { ward: Ward; bin: string }[] = isSharedMed(m) && m.binIpd
+      ? [{ ward: 'opd', bin: m.bin }, { ward: 'ipd', bin: m.binIpd }]
+      : [{ ward: wardOf(m), bin: binFor(m, wardOf(m)) }];
+    return state.labelWardScope === 'all' ? sides : sides.filter((s) => s.ward === state.labelWardScope);
+  };
+  // Bug fix: this used to hide the OPD/IPD badge specifically for a shared med ("no single real
+  // ward, showing one would misrepresent it") — true when this rendered ONE row per med, but
+  // print.ts's real output already puts a distinct row per SIDE with a real, unambiguous ward
+  // each (see printLabels()), so the preview was quietly showing less than what actually
+  // prints. Now that this renders one row per real side too, every row has a genuine ward —
+  // always show it, which also happens to be exactly what tells two sides of the same drug
+  // apart when labelWardScope is 'all' and both are mixed into the same preview.
   const rows = state.labelType === 'med'
-    ? meds.slice(0, 8).map((m) => ({ code: m.code, bin: binFor(m, 'opd'), payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + binFor(m, 'opd'), tag: m.had ? 'HIGH ALERT' : '', tagColor: 'var(--had)', ward: isSharedMed(m) ? undefined : (wardOf(m) as Ward | undefined) }))
+    ? meds.flatMap((m) => medSides(m).map((s) => ({ code: m.code, bin: s.bin, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + s.bin, tag: m.had ? 'HIGH ALERT' : '', tagColor: 'var(--had)', ward: s.ward as Ward | undefined }))).slice(0, 8)
     : state.labelType === 'lot'
     ? wardLots.slice(0, 8).map((l) => {
         const m = meds.find((x) => x.id === l.medId);
@@ -82,7 +98,9 @@ export default function LabelsScreen() {
   // meds.length, silently undercounting the "พิมพ์ฉลากทั้งชุด (N ดวง)" button whenever the
   // formulary has any such shared meds. That number is what someone actually buying/counting
   // out A4 sticker sheets relies on before printing, so it has to match what really prints.
-  const medLabelCount = meds.reduce((n, m) => n + (isSharedMed(m) && m.binIpd ? 2 : 1), 0);
+  // Now routed through medSides() so a ward-scoped print (labelWardScope !== 'all') counts
+  // correctly too — a shared med scoped to one ward contributes exactly 1, not 2.
+  const medLabelCount = meds.reduce((n, m) => n + medSides(m).length, 0);
   const labelCount = state.labelType === 'lot' ? wardLots.length : state.labelType === 'med' ? medLabelCount : state.locScope === 'sub' ? subMeds.length : LOCS.length;
 
   return (
@@ -93,6 +111,17 @@ export default function LabelsScreen() {
           <button key={t} className="chip" style={{ ...chip(state.labelType === t), flex: 1, textAlign: 'center', minHeight: 42 }} onClick={() => setLabelType(t)}>{label}</button>
         ))}
       </div>
+
+      {/* Only shows on the ฉลากตัวยา tab — lets someone print just one ward's shelf-strip
+          labels instead of always getting a shared med's OPD+IPD pair mixed into one sheet.
+          See AppState.labelWardScope's doc comment for why this exists. */}
+      {state.labelType === 'med' && (
+        <div style={{ display: 'flex', gap: 7, marginBottom: 12 }}>
+          <button className="chip" style={{ ...chip(state.labelWardScope === 'all'), flex: 1, minHeight: 40 }} onClick={() => setLabelWardScope('all')}>ทั้งหมด (OPD+IPD)</button>
+          <button className="chip" style={{ ...chip(state.labelWardScope === 'opd'), flex: 1, minHeight: 40 }} onClick={() => setLabelWardScope('opd')}>เฉพาะ OPD</button>
+          <button className="chip" style={{ ...chip(state.labelWardScope === 'ipd'), flex: 1, minHeight: 40 }} onClick={() => setLabelWardScope('ipd')}>เฉพาะ IPD</button>
+        </div>
+      )}
 
       {/* Only shows on the ฉลากชั้นวาง tab — floor keeps the original generic (drug-less) shelf-
           frame labels, substock switches to real per-med shelf-strip labels (see isStrip). */}

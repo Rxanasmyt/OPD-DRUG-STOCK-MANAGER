@@ -259,6 +259,12 @@ export interface AppState {
   // as state (not a local component var) because printLabels() in AppContext.tsx needs it
   // too, same reason labelType itself is state and not local to LabelsScreen.
   locScope: 'floor' | 'sub';
+  // Which physical shelf side the "ฉลากตัวยา" tab prints — 'all' (the original: a shared med
+  // prints BOTH its OPD and IPD shelf-strip labels in the same batch) or scoped to just one
+  // ward's labels. Real need: someone restocking only the OPD shelf run shouldn't have to sort
+  // a mixed OPD+IPD sticker sheet by hand first. Kept as state for the same reason locScope is
+  // — printLabels() in AppContext.tsx needs it too.
+  labelWardScope: 'all' | Ward;
   // Which meds are checked in the label picker (see LabelsScreen.tsx) — a Record, not a Set,
   // to match every other multi-select flag map in this state (hadOk, countInputs, ...), all
   // chosen for the same reason: it patches/spreads cleanly through the plain-object state

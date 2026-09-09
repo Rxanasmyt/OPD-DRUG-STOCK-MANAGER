@@ -102,7 +102,7 @@ function freshState(): AppState {
 
     adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '',
 
-    reportTab: 'aging', labelType: 'med', labelSelected: {}, locScope: 'floor',
+    reportTab: 'aging', labelType: 'med', labelSelected: {}, locScope: 'floor', labelWardScope: 'all',
 
     qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: null, hadOk: {},
 
@@ -236,6 +236,9 @@ export interface AppCtx {
   /** Switches the "ฉลากตัวยา"-style shelf-strip labels the "ฉลากชั้นวาง" tab's substock mode
    * builds between the floor's own bin/binIpd and substock's binSub — see AppState.locScope. */
   setLocScope: (s: AppState['locScope']) => void;
+  /** Scopes the "ฉลากตัวยา" tab to one ward's shelf-strip labels only — see
+   * AppState.labelWardScope. */
+  setLabelWardScope: (s: AppState['labelWardScope']) => void;
   /** Toggle one med in the label picker (see LabelsScreen.tsx). */
   toggleLabelSelected: (medId: string) => void;
   /** Check every one of the given med ids at once — used for the picker's "เลือกทั้งหมด" over
@@ -1563,6 +1566,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---------- labels ----------
   const setLabelType = useCallback((t: AppState['labelType']) => patch({ labelType: t }), [patch]);
   const setLocScope = useCallback((s: AppState['locScope']) => patch({ locScope: s }), [patch]);
+  const setLabelWardScope = useCallback((s: AppState['labelWardScope']) => patch({ labelWardScope: s }), [patch]);
   const toggleLabelSelected = useCallback((medId: string) => patch((st) => ({ labelSelected: { ...st.labelSelected, [medId]: !st.labelSelected[medId] } })), [patch]);
   const selectAllLabels = useCallback((medIds: string[]) => patch((st) => {
     const next = { ...st.labelSelected };
@@ -1591,11 +1595,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let labels: PrintLabel[] = [];
     let heading = 'ฉลากตัวยา';
     if (state.labelType === 'med') {
+      if (state.labelWardScope !== 'all') heading = 'ฉลากตัวยา (' + (state.labelWardScope === 'ipd' ? 'IPD' : 'OPD') + ')';
       labels = meds.flatMap((m): PrintLabel[] => {
         const sides: Array<{ ward: Ward; bin: string }> = isSharedMed(m) && m.binIpd
           ? [{ ward: 'opd', bin: m.bin }, { ward: 'ipd', bin: m.binIpd }]
           : [{ ward: wardOf(m), bin: binFor(m, wardOf(m)) }];
-        return sides.map((s) => ({
+        // Real need this scope exists for: someone restocking only the OPD shelf run shouldn't
+        // have to sort a mixed OPD+IPD sticker sheet by hand first — see AppState.labelWardScope.
+        // A shared med prints only its matching side; a med whose single ward doesn't match the
+        // chosen scope contributes nothing at all (not an empty/blank label).
+        const scoped = state.labelWardScope === 'all' ? sides : sides.filter((s) => s.ward === state.labelWardScope);
+        return scoped.map((s) => ({
           payload: encodeQr('med', m.code), id: m.code, title: shortLabelName(m.name),
           sub: 'หน่วย ' + m.unit + ' · ชั้น ' + s.bin, tag: m.had ? 'HIGH ALERT' : undefined, bin: s.bin, ward: s.ward,
         }));
@@ -1633,7 +1643,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!labels.length) { toast('ไม่มีรายการให้พิมพ์ฉลาก'); return; }
     const ok = printLabelSheet(labels, heading);
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว — เลือกกระดาษสติกเกอร์ A4 แล้วสั่งพิมพ์' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
-  }, [state.meds, state.lots, state.labelType, state.wardFilter, state.expiryWarnDays, state.labelSelected, state.locScope, toast]);
+  }, [state.meds, state.lots, state.labelType, state.wardFilter, state.expiryWarnDays, state.labelSelected, state.locScope, state.labelWardScope, toast]);
 
   // ---------- settings / par ----------
   const applyOnePar = useCallback(async (medId: string, which: 'sub' | 'floor') => {
@@ -2758,7 +2768,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
     setReportTab, exportReportCsv, exportAllReports,
-    setLabelType, setLocScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
+    setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
