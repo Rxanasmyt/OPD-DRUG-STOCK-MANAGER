@@ -444,36 +444,43 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
           <input value={v.price} onChange={(e) => set('price', e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" style={inputStyle} />
         </label>
         <label>
-          <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{v.shared ? 'ชั้นวาง (OPD)' : 'ชั้นวาง'}</span>
-          <input value={v.bin} onChange={(e) => set('bin', sanitizeBin(e.target.value))} placeholder="เช่น J4 หรือ ตู้ยา-1" style={{ ...inputStyle, textTransform: 'uppercase' as const }} />
+          <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{v.shared ? 'ชั้นวาง (OPD)' : v.ward === 'ipd' ? 'ชั้นวาง (IPD)' : 'ชั้นวาง (OPD)'}</span>
+          <input value={v.bin} onChange={(e) => set('bin', sanitizeBin(e.target.value))} placeholder="เช่น J4 หรือ ตู้ยา-1" style={{ ...inputStyle, textTransform: 'uppercase' as const, ...(!v.shared && v.ward === 'ipd' ? { borderColor: WARD_COLOR.ipd } : {}) }} />
         </label>
       </div>
-      {v.shared ? (
-        <div style={{ marginBottom: 9 }}>
-          <label style={{ display: 'block', marginBottom: 7 }}>
-            <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>ชั้นวาง (IPD)</span>
-            <input value={v.binIpd} onChange={(e) => set('binIpd', sanitizeBin(e.target.value))} placeholder="เช่น J4 หรือ ตู้ยา-1" style={{ ...inputStyle, textTransform: 'uppercase' as const, borderColor: WARD_COLOR.ipd }} />
-          </label>
-          <div style={{ fontSize: 10.5, lineHeight: 1.5, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 9, padding: '8px 10px' }}>
-            ใช้สต็อกร่วมกันทั้ง OPD และ IPD — หน้างาน/par/substock เป็นยอดเดียวกันหมด ต่างกันแค่รหัสชั้นวางที่แสดงตามฝั่งที่ดู (IPD หยิบยาจากชั้น OPD ตรง ๆ)
-            {!sibling && <button type="button" onClick={() => setShared(false)} style={{ display: 'block', marginTop: 6, border: 0, background: 'transparent', color: 'var(--green)', fontWeight: 600, fontSize: 11, textDecoration: 'underline', padding: 0 }}>เลิกใช้ร่วมกัน (แยกเป็นคนละ ward)</button>}
-          </div>
-        </div>
-      ) : (
-        <div style={{ marginBottom: 9 }}>
-          <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>หอผู้ป่วยที่ใช้ชั้นวางนี้</span>
-          <div style={{ display: 'flex', gap: 7 }}>
-            <button onClick={() => set('ward', 'opd')} style={{ flex: 1, border: v.ward === 'opd' ? '1px solid ' + WARD_COLOR.opd : '1px solid var(--border)', background: v.ward === 'opd' ? WARD_BG.opd : 'var(--bg-card)', color: v.ward === 'opd' ? WARD_COLOR.opd : 'var(--ink)', padding: '10px 4px', borderRadius: 9, fontSize: 13, fontWeight: 600, minHeight: 42 }}>ผู้ป่วยนอก (OPD)</button>
-            <button onClick={() => set('ward', 'ipd')} style={{ flex: 1, border: v.ward === 'ipd' ? '1px solid ' + WARD_COLOR.ipd : '1px solid var(--border)', background: v.ward === 'ipd' ? WARD_BG.ipd : 'var(--bg-card)', color: v.ward === 'ipd' ? WARD_COLOR.ipd : 'var(--ink)', padding: '10px 4px', borderRadius: 9, fontSize: 13, fontWeight: 600, minHeight: 42 }}>ผู้ป่วยใน (IPD)</button>
-          </div>
-          <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 5 }}>ยาที่ IPD จัด one-day dose โดยหยิบจากชั้น OPD ตรง ๆ (สต็อกก้อนเดียวกัน ต่างแค่ชั้นวาง) ให้ใช้ "ใช้ยอดร่วมกัน" ด้านล่างแทนการแยกเป็นคนละรายการ — แยกเป็นคนละ ward จริง ๆ ไว้สำหรับยาที่มีสต็อกแยกต่างหาก เช่น ยาฉีดในลิ้นชักล็อก IPD ที่แบ่งมาวาง stat ที่ OPD (ใช้ "ย้ายยาระหว่างชั้นวาง" ตอนโยกของจริง)</div>
+      {/* Bug fix (usability): "เฉพาะ IPD" used to only be reachable by first unticking "ใช้ยอด
+          ร่วมกัน" (on by default) and THEN picking a ward — two steps to get to a mode that's
+          actually the common case for a lot of injectables (kept in a locked IPD cabinet, never
+          on the OPD shelf at all). One direct 3-way choice up front instead — เฉพาะ IPD is now
+          a single tap, same as เฉพาะ OPD and ใช้ร่วมกัน. */}
+      <div style={{ marginBottom: 9 }}>
+        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>การใช้ชั้นวาง</span>
+        <div style={{ display: 'flex', gap: 7 }}>
           {!sibling && (
-            <button type="button" onClick={() => setShared(true)} style={{ width: '100%', marginTop: 8, border: '1px dashed var(--green)', background: 'transparent', color: 'var(--green)', padding: '8px 10px', borderRadius: 9, fontSize: 12, fontWeight: 600 }}>
-              + ใช้ยอดร่วมกันทั้ง OPD และ IPD (คนละชั้นวาง ยอดเดียวกัน)
-            </button>
+            <button type="button" onClick={() => setShared(true)} style={{ flex: 1, border: v.shared ? '1px solid ' + WARD_COLOR.opd : '1px solid var(--border)', background: v.shared ? WARD_BG.opd : 'var(--bg-card)', color: v.shared ? WARD_COLOR.opd : 'var(--ink)', padding: '9px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 42 }}>ใช้ร่วมกัน<br />OPD+IPD</button>
           )}
+          <button type="button" onClick={() => setV((s) => ({ ...s, shared: false, binIpd: '', ward: 'opd' }))} style={{ flex: 1, border: !v.shared && v.ward === 'opd' ? '1px solid ' + WARD_COLOR.opd : '1px solid var(--border)', background: !v.shared && v.ward === 'opd' ? WARD_BG.opd : 'var(--bg-card)', color: !v.shared && v.ward === 'opd' ? WARD_COLOR.opd : 'var(--ink)', padding: '9px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 42 }}>เฉพาะ<br />OPD</button>
+          <button type="button" onClick={() => setV((s) => ({ ...s, shared: false, binIpd: '', ward: 'ipd' }))} style={{ flex: 1, border: !v.shared && v.ward === 'ipd' ? '1px solid ' + WARD_COLOR.ipd : '1px solid var(--border)', background: !v.shared && v.ward === 'ipd' ? WARD_BG.ipd : 'var(--bg-card)', color: !v.shared && v.ward === 'ipd' ? WARD_COLOR.ipd : 'var(--ink)', padding: '9px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 42 }}>เฉพาะ<br />IPD</button>
         </div>
-      )}
+        {v.shared ? (
+          <div style={{ marginTop: 7 }}>
+            <label style={{ display: 'block', marginBottom: 7 }}>
+              <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>ชั้นวาง (IPD)</span>
+              <input value={v.binIpd} onChange={(e) => set('binIpd', sanitizeBin(e.target.value))} placeholder="เช่น J4 หรือ ตู้ยา-1" style={{ ...inputStyle, textTransform: 'uppercase' as const, borderColor: WARD_COLOR.ipd }} />
+            </label>
+            <div style={{ fontSize: 10.5, lineHeight: 1.5, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 9, padding: '8px 10px' }}>
+              ใช้สต็อกร่วมกันทั้ง OPD และ IPD — หน้างาน/par/substock เป็นยอดเดียวกันหมด ต่างกันแค่รหัสชั้นวางที่แสดงตามฝั่งที่ดู (IPD หยิบยาจากชั้น OPD ตรง ๆ)
+            </div>
+          </div>
+        ) : (
+          <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 7 }}>
+            {v.ward === 'ipd'
+              ? 'สต็อกแยกต่างหาก เฉพาะฝั่ง IPD เท่านั้น (ไม่ขึ้นชั้น OPD เลย) — เหมาะกับยาฉีดส่วนใหญ่ที่เก็บในลิ้นชักล็อก IPD โดยเฉพาะ'
+              : 'สต็อกแยกต่างหาก เฉพาะฝั่ง OPD เท่านั้น (ไม่ขึ้นชั้น IPD เลย)'}
+            {' '}ถ้ายาตัวนี้ IPD จัด one-day dose โดยหยิบจากชั้น OPD ตรง ๆ (สต็อกก้อนเดียวกัน ต่างแค่ชั้นวาง) ให้เลือก "ใช้ร่วมกัน OPD+IPD" แทน
+          </div>
+        )}
+      </div>
       {sibling && onSiblingBinChange && (
         <div className="card" style={{ padding: 11, marginBottom: 9, background: 'var(--bg-subtle)' }}>
           <label style={{ display: 'block', marginBottom: onMerge ? 9 : 0 }}>
