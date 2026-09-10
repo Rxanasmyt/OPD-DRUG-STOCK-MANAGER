@@ -233,7 +233,7 @@ export default function MedsScreen() {
   if (!canEdit) {
     return (
       <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
-        <div style={{ fontSize: 12.5, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 10, padding: '10px 12px' }}>บทบาทผู้ช่วยเภสัชกรเข้าหน้านี้ไม่ได้ — การเพิ่ม/แก้ไข/ปิดใช้งาน/ลบยาสงวนไว้สำหรับเภสัชกรและ Admin</div>
+        <div style={{ fontSize: 12.5, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 10, padding: '10px 12px' }}>บทบาทจพ.เภสัชกรรมเข้าหน้านี้ไม่ได้ — การเพิ่ม/แก้ไข/ปิดใช้งาน/ลบยาสงวนไว้สำหรับเภสัชกรและ Admin</div>
       </div>
     );
   }

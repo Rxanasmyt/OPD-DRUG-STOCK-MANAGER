@@ -74,7 +74,7 @@ export default function SettingsScreen() {
       </div>
 
       {!canEdit && (
-        <div style={{ fontSize: 12, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>บทบาทผู้ช่วยเภสัชกรดูค่าได้แต่แก้ไม่ได้ — การแก้ par level และชั้นวางสงวนไว้สำหรับเภสัชกรและ Admin</div>
+        <div style={{ fontSize: 12, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>บทบาทจพ.เภสัชกรรมดูค่าได้แต่แก้ไม่ได้ — การแก้ par level และชั้นวางสงวนไว้สำหรับเภสัชกรและ Admin</div>
       )}
 
       {/* Per-device opt-in, not a par setting — visible/settable to every role since it's just

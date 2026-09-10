@@ -228,7 +228,7 @@ export function userNameFor(role: Role | null): string {
 }
 
 export function roleLabelFor(role: Role | null): string {
-  return role === 'pharm' ? 'เภสัชกร' : role === 'tech' ? 'ผู้ช่วยเภสัชกร' : role === 'admin' ? 'Admin' : '';
+  return role === 'pharm' ? 'เภสัชกร' : role === 'tech' ? 'จพ.เภสัชกรรม' : role === 'admin' ? 'Admin' : '';
 }
 
 // CSS custom properties, not literal hex — these feed straight into inline `background`/

@@ -1,7 +1,10 @@
+import { useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { thDate, thTime } from '../utils/format';
 import type { AdminTab, AuditFilter, Role, User } from '../types';
 import { EmptyState } from '../components/EmptyState';
+import { SearchInput } from '../components/SearchInput';
+import { QrCode } from '../components/QrCode';
 
 const ADMIN_TABS: [AdminTab, string][] = [['users', 'ผู้ใช้งาน'], ['audit', 'Audit log']];
 const ROLES: Role[] = ['pharm', 'tech', 'admin'];
@@ -28,16 +31,42 @@ function typeLabelOf(e: { type: string; loc?: string }): string {
   return TYPE_LABEL[e.type] || e.type;
 }
 
+// The app has no URL-based routing (see App.tsx — `screen`/`authMode` are plain in-memory
+// state, not route params), so this can only ever land someone on the login screen, not
+// directly on its "สมัครสมาชิก" tab. Still saves a new hire from having to be told/type the
+// URL by hand, which — going by real deployments starting with exactly one lone admin account
+// (see this screen's own empty เภสัชกร/จพ.เภสัชกรรม counts) — is the actual first hurdle to
+// the rest of the team ever showing up here at all. Derived at runtime (origin + Vite's own
+// BASE_URL, the same base vite.config.ts computes for GitHub Pages) rather than hardcoded, so
+// it stays correct if this is ever hosted somewhere else.
+const APP_URL = window.location.origin + import.meta.env.BASE_URL;
+
 export default function AdminScreen() {
   const {
-    state, setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit, roleLabelOf,
+    state, setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit, roleLabelOf, toast,
     setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch,
   } = useApp();
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [userQuery, setUserQuery] = useState('');
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
 
+  const copyInviteLink = async () => {
+    try {
+      await navigator.clipboard.writeText(APP_URL);
+      toast('คัดลอกลิงก์แล้ว — ส่งให้เจ้าหน้าที่ใหม่ได้เลย');
+    } catch {
+      toast('คัดลอกไม่สำเร็จ — คัดลอกลิงก์ด้านบนด้วยตัวเองแทน');
+    }
+  };
+
   const pending = state.users.filter((u) => !u.active).sort((a, b) => b.createdAt - a.createdAt);
-  const approved = state.users.filter((u) => u.active).sort((a, b) => a.name.localeCompare(b.name, 'th'));
-  const countByRole = (r: Role) => approved.filter((u) => u.role === r).length;
+  const approvedAll = state.users.filter((u) => u.active).sort((a, b) => a.name.localeCompare(b.name, 'th'));
+  const countByRole = (r: Role) => approvedAll.filter((u) => u.role === r).length;
+  // Search only narrows the "ทั้งหมด" list below — the pending queue and the 4 role-count
+  // tiles above always reflect everyone, so approving/reviewing someone waiting never
+  // depends on first clearing whatever was typed into this box.
+  const uq = userQuery.trim().toLowerCase();
+  const approved = uq ? approvedAll.filter((u) => u.name.toLowerCase().includes(uq) || u.username.toLowerCase().includes(uq)) : approvedAll;
 
   // The live subscriptions only carry the most recent 300 (kept small on purpose, for a
   // real-time "recent activity" feed) — a date-range search below queries Firestore directly
@@ -79,9 +108,43 @@ export default function AdminScreen() {
               ))}
               <div className="card stat-tile" style={{ padding: '12px 13px' }}>
                 <div className="muted" style={{ fontSize: 12, marginBottom: 3 }}>ทั้งหมด</div>
-                <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1 }}>{approved.length}</div>
+                <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1 }}>{approvedAll.length}</div>
                 <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>บัญชีที่ใช้งานอยู่</div>
               </div>
+            </div>
+
+            {/* ชวนทีมเข้าระบบ — ก่อนหน้านี้ไม่มีทางไหนในแอพช่วยชวนคนอื่นเข้าระบบเลยนอกจากบอก URL
+                ปากเปล่า ปุ่มนี้ให้ลิงก์คัดลอกได้ + QR ให้สแกนตรงจากมือถือ ไปจบที่หน้า login เดิม
+                (ยังต้องกดแท็บ "สมัครสมาชิก" เอง — แอพนี้ไม่มี URL routing ให้ลิงก์ไปหน้าย่อยตรงๆ)
+                แต่ตัดขั้นตอน "ต้องรู้/พิมพ์ URL เอง" ออกไปได้ */}
+            <div className="card" style={{ padding: 13, marginBottom: 16 }}>
+              <button
+                onClick={() => setInviteOpen((o) => !o)}
+                style={{ width: '100%', border: 0, background: 'transparent', display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', padding: 0 }}
+              >
+                <span aria-hidden="true" style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--green-tint)', color: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flex: 'none' }}>👥</span>
+                <span style={{ minWidth: 0, flex: 1 }}>
+                  <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>เชิญผู้ใช้ใหม่</span>
+                  <span className="muted" style={{ display: 'block', fontSize: 11.5, marginTop: 1 }}>คัดลอกลิงก์หรือให้สแกน QR ไปหน้าสมัครสมาชิก</span>
+                </span>
+                <span aria-hidden="true" style={{ color: 'var(--muted)', fontSize: 13, flex: 'none' }}>{inviteOpen ? '▲' : '▾'}</span>
+              </button>
+              {inviteOpen && (
+                <div style={{ marginTop: 13, paddingTop: 13, borderTop: '1px solid var(--border-soft)', display: 'flex', gap: 13, alignItems: 'center', animation: 'fade .18s var(--ease-out)' }}>
+                  <div style={{ flex: 'none', padding: 6, background: '#fff', borderRadius: 8, border: '1px solid var(--border-soft)' }}>
+                    <QrCode value={APP_URL} size={84} />
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginBottom: 8 }}>
+                      ให้เจ้าหน้าที่ใหม่สแกน QR นี้ หรือเปิดลิงก์ด้านล่าง แล้วกดแท็บ "สมัครสมาชิก" — สมัครแล้วต้องรอเภสัชกร/Admin อนุมัติและกำหนดบทบาทก่อนจึงเข้าใช้งานได้
+                    </div>
+                    <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <code style={{ flex: '1 1 auto', minWidth: 0, fontSize: 11, background: 'var(--bg-subtle)', border: '1px solid var(--border-soft)', borderRadius: 8, padding: '7px 9px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{APP_URL}</code>
+                      <button onClick={copyInviteLink} style={{ flex: 'none', border: 0, background: 'var(--green)', color: '#fff', padding: '8px 13px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 34 }}>คัดลอกลิงก์</button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {pending.length > 0 && (
@@ -93,7 +156,15 @@ export default function AdminScreen() {
               </>
             )}
 
-            <div style={{ fontSize: 13.5, fontWeight: 600, margin: '0 2px 8px' }}>บัญชีผู้ใช้งานทั้งหมด ({approved.length})</div>
+            <div style={{ fontSize: 13.5, fontWeight: 600, margin: '0 2px 8px' }}>
+              บัญชีผู้ใช้งานทั้งหมด ({approvedAll.length}{uq ? ` · พบ ${approved.length}` : ''})
+            </div>
+            {/* Only worth showing once the list is actually long enough to need it — a single
+                admin account (or a small handful) has nothing to search for, and an empty
+                search box above one row would just be visual noise on day one. */}
+            {approvedAll.length > 5 && (
+              <SearchInput value={userQuery} onChange={setUserQuery} placeholder="ค้นหาชื่อหรือ username" style={{ marginBottom: 9 }} />
+            )}
             <div className="card stagger" style={{ overflow: 'hidden' }}>
               {approved.map((u) => {
                 const isMe = u.id === state.myUid;
@@ -114,17 +185,26 @@ export default function AdminScreen() {
                         {u.lastLogin ? thDate(u.lastLogin) : 'ยังไม่เคยเข้าระบบ'}
                       </span>
                     </div>
-                    <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
                       {ROLES.map((r) => {
                         const active = u.role === r;
-                        return <button key={r} onClick={() => setUserRole(u.id, r)} style={{ flex: 1, border: active ? '1px solid ' + ROLE_COLOR[r] : '1px solid var(--border)', background: active ? ROLE_BG[r] : 'var(--bg-card)', color: active ? ROLE_COLOR[r] : 'var(--ink)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 38 }}>{roleLabelOf(r)}</button>;
+                        return <button key={r} onClick={() => setUserRole(u.id, r)} style={{ flex: '1 1 76px', border: active ? '1px solid ' + ROLE_COLOR[r] : '1px solid var(--border)', background: active ? ROLE_BG[r] : 'var(--bg-card)', color: active ? ROLE_COLOR[r] : 'var(--ink)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 38 }}>{roleLabelOf(r)}</button>;
                       })}
-                      <button onClick={() => toggleUserActive(u.id)} title="ปิดใช้งานบัญชี" aria-label={'ปิดใช้งานบัญชี ' + u.name} style={{ flex: 'none', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--red)', width: 38, height: 38, borderRadius: 9, fontSize: 15 }}>⏻</button>
+                      {/* Bug fix (real-world confusion): a bare "⏻" icon has no visible label on
+                          mobile — title/tooltip only shows on hover, which a touchscreen never
+                          triggers — so this destructive-ish action (deactivates someone else's
+                          account) used to be unreadable at a glance. Text label now, not just
+                          an icon; aria-label kept for screen readers. */}
+                      <button onClick={() => toggleUserActive(u.id)} title="ปิดใช้งานบัญชี" aria-label={'ปิดใช้งานบัญชี ' + u.name} style={{ flex: '1 1 100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--red)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 38 }}>
+                        <span aria-hidden="true">⏻</span> ปิดใช้งานบัญชี
+                      </button>
                     </div>
                   </div>
                 );
               })}
-              {approved.length === 0 && <EmptyState icon="👤" title="ยังไม่มีผู้ใช้งานที่อนุมัติแล้ว" />}
+              {approved.length === 0 && (
+                <EmptyState icon="👤" title={uq ? 'ไม่พบผู้ใช้ที่ค้นหา' : 'ยังไม่มีผู้ใช้งานที่อนุมัติแล้ว'} sub={uq ? 'ลองพิมพ์ชื่อหรือ username แบบสั้นลง' : undefined} />
+              )}
             </div>
           </>
         )}

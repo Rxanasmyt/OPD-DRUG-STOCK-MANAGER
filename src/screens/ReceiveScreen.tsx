@@ -315,7 +315,7 @@ export default function ReceiveScreen() {
               <button onClick={commitReceive} disabled={!!state.busy['receive']} style={{ width: '100%', border: '1px solid var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', padding: 16, borderRadius: 12, fontSize: 15.5, fontWeight: 600, minHeight: 54, opacity: state.busy['receive'] ? 0.7 : 1 }}>
                 {state.busy['receive'] ? 'กำลังบันทึก…' : 'ส่งให้เภสัชกรอนุมัติ'}
               </button>
-              <div className="muted" style={{ fontSize: 11.5, textAlign: 'center', marginTop: 7 }}>สิทธิ์ผู้ช่วยเภสัชกรบันทึกใบรับได้ แต่ยอดจะเข้าสต็อกเมื่อเภสัชกรอนุมัติ</div>
+              <div className="muted" style={{ fontSize: 11.5, textAlign: 'center', marginTop: 7 }}>สิทธิ์จพ.เภสัชกรรมบันทึกใบรับได้ แต่ยอดจะเข้าสต็อกเมื่อเภสัชกรอนุมัติ</div>
             </>
           )}
         </>
