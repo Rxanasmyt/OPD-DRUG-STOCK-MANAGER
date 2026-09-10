@@ -129,7 +129,16 @@ function freshState(): AppState {
     // the default for a project with no meta/settings doc yet; an existing hospital deployment
     // keeps whatever it already has saved until someone updates "par substock สำรอง (วัน)" in
     // หน้าตั้งค่า themselves (see updateGlobalSettings below).
-    expiryWarnDays: 90, parFloorCoverDays: 3, parSubCoverDays: 28,
+    //
+    // parFloorCoverDays similarly bumped 3 → 4: the shelf (หน้างาน) is topped up from substock
+    // every weekday but never on เสาร์-อาทิตย์ — a Friday top-up has to last through Friday AND
+    // the whole weekend until Monday's top-up, a real 3-calendar-day gap even when everything
+    // goes perfectly. 3 days of cover was exactly that gap with zero slack; 4 leaves a day of
+    // real margin for the weekend gap plus the ordinary variance of a short-staffed team not
+    // always managing every single weekday top-up (see the "เร่งด่วนวันนี้" fill mode above —
+    // deferring a merely-below-Min item a day or two is the whole point of that feature, so Max
+    // needs enough room to absorb that without the shelf actually running dry).
+    expiryWarnDays: 90, parFloorCoverDays: 4, parSubCoverDays: 28,
 
     confirmDialog: null,
     promptDialog: null,

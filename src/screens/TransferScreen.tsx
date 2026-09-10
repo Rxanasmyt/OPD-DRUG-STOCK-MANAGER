@@ -50,6 +50,14 @@ export default function TransferScreen() {
   // stale and stop being useful within a week.
   const [showClinicInfo, setShowClinicInfo] = useState(true);
   const todayClinics = WEEKDAY_CLINICS[new Date().getDay()];
+  // Friday-only nudge, separate from the clinic-info banner above (this one is actionable, not
+  // just FYI) — the shelf isn't topped up again until Monday, so whatever's left after Friday's
+  // fill has to survive a real 3-day gap (Fri+Sat+Sun). Filling only up to Min on Friday (the
+  // everyday habit the rest of the week) leaves a shelf just barely above its weekday reorder
+  // point to somehow last three days with nobody there to top it up if it runs low — filling all
+  // the way to Max specifically on Friday is what actually closes that gap.
+  const [showFridayNudge, setShowFridayNudge] = useState(true);
+  const isFriday = new Date().getDay() === 5;
   // noSubstock meds (liquids/sprays — received straight to the shelf, see ReceiveScreen)
   // have nothing to transfer from; showing them here with permanently-stuck-at-0 +/- buttons
   // would just be confusing clutter, not a real "เติมหน้างาน" candidate.
@@ -131,6 +139,15 @@ export default function TransferScreen() {
           <span style={{ flex: 'none', fontSize: 14 }}>📅</span>
           <span className="muted" style={{ flex: 1, lineHeight: 1.4 }}>คลินิกวันนี้ — {todayClinics} · ยากลุ่มนี้อาจใช้เร็วกว่าปกติ</span>
           <button onClick={() => setShowClinicInfo(false)} aria-label="ปิดข้อความนี้" style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 15, padding: '2px 4px', lineHeight: 1 }}>✕</button>
+        </div>
+      )}
+      {/* Actionable (not just FYI) — เฉพาะวันศุกร์: เสาร์-อาทิตย์ไม่มีเติมหน้างาน ของที่เติมวันนี้
+          ต้องอยู่ได้ถึงเช้าวันจันทร์ เติมแค่ถึง Min แบบวันธรรมดาทั่วไปไม่พอ */}
+      {isFriday && showFridayNudge && (
+        <div style={{ margin: '10px 14px 0', padding: '9px 12px', background: 'var(--amber-bg)', border: '1px solid var(--amber)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5 }}>
+          <span style={{ flex: 'none', fontSize: 14 }}>⚠️</span>
+          <span style={{ flex: 1, lineHeight: 1.4, color: 'var(--amber-ink)' }}>วันนี้ศุกร์ — เสาร์-อาทิตย์ไม่มีเติมหน้างาน แนะนำเติมให้เต็ม Max แทนแค่ถึง Min เผื่อของอยู่ได้ถึงวันจันทร์</span>
+          <button onClick={() => setShowFridayNudge(false)} aria-label="ปิดข้อความนี้" style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--amber-ink)', fontSize: 15, padding: '2px 4px', lineHeight: 1 }}>✕</button>
         </div>
       )}
       <div style={{ padding: '12px 14px 10px' }} className="sticky-bar">
