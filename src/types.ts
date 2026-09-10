@@ -127,6 +127,11 @@ export type AuditType =
   // logAudit() as everything else above, but were missing from this union even though
   // AdminScreen's TYPE_LABEL already had display labels for all of them.
   | 'med_added' | 'med_edited' | 'med_status_changed' | 'med_deleted' | 'qr_manual'
+  // Logged once per commitReconcile() run that skipped ambiguous/unmatched HOSxP rows — see
+  // its doc comment in AppContext.tsx and ReconcileScreen's "ยาที่หลุดบ่อย" panel, which
+  // aggregates these across recent runs so a name that keeps failing to match stays visible
+  // instead of being a fresh, easy-to-miss surprise every single day.
+  | 'hosxp_unmatched'
   | TxType;
 
 export interface AuditEntry {
@@ -295,6 +300,12 @@ export interface AppState {
   hosxpText: string;
   hosxpRows: { name: string; qty: number; match: HosxpMatch }[] | null;
   hosxpConfirmFuzzy: boolean;
+  // Required confirmation gate before committing a daily reconcile — same shape as
+  // hosxpConfirmFuzzy above, for a different risk: this screen assumes the file/pasted text
+  // covers exactly one day (see its own on-screen warning), but nothing actually stops someone
+  // from feeding it a multi-day export by mistake, which would silently over-deduct the floor.
+  // See commitReconcile()/ReconcileScreen.tsx.
+  hosxpConfirmSingleDay: boolean;
 
   // Import usage totals from a file (a real HOSxP "รายงานการใช้ยา" export, .xls/.xlsx, or a
   // plain "ชื่อยา,จำนวน" CSV) to seed used30 — see suggestPar()/importUsageFile() in

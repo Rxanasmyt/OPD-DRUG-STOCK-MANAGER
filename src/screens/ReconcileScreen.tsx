@@ -1,11 +1,11 @@
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { useApp } from '../store/AppContext';
 import { wardOf } from '../store/selectors';
-import { nf } from '../utils/format';
+import { nf, thDate } from '../utils/format';
 import type { HosxpMatch, Med } from '../types';
 
 export default function ReconcileScreen() {
-  const { state, setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, commitReconcile } = useApp();
+  const { state, setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile } = useApp();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const medById = (id: string) => state.meds.find((x) => x.id === id);
@@ -19,7 +19,26 @@ export default function ReconcileScreen() {
 
   const fuzzyCount = reconcileRows.filter((r) => r.match.kind === 'fuzzy').length;
   const skippedCount = reconcileRows.filter((r) => r.match.kind === 'ambiguous' || r.match.kind === 'none').length;
-  const canCommit = reconcileRows.length > 0 && (fuzzyCount === 0 || state.hosxpConfirmFuzzy);
+  const canCommit = reconcileRows.length > 0 && (fuzzyCount === 0 || state.hosxpConfirmFuzzy) && state.hosxpConfirmSingleDay;
+
+  // "ยาที่หลุดบ่อย" — aggregates commitReconcile()'s own 'hosxp_unmatched' audit entries (see
+  // its doc comment, AppContext.tsx) across whatever's in the currently-loaded audit log
+  // (capped 300, newest first — same window every other audit-derived view in this app already
+  // works from). A name that fails to match every single day is easy to miss as "just another
+  // skip" in the moment; tallied up over time it's obviously worth fixing (renaming the med, or
+  // adding the HOSxP spelling as the med's own name) instead of re-discovering it each morning.
+  const unmatchedFreq = useMemo(() => {
+    const counts = new Map<string, { count: number; lastTs: number }>();
+    for (const e of state.authLog) {
+      if (e.type !== 'hosxp_unmatched') continue;
+      const names = (e.note.split('\n')[1] || '').split(' | ').map((s) => s.trim()).filter(Boolean);
+      for (const name of names) {
+        const cur = counts.get(name);
+        if (cur) { cur.count++; if (e.ts > cur.lastTs) cur.lastTs = e.ts; } else counts.set(name, { count: 1, lastTs: e.ts });
+      }
+    }
+    return Array.from(counts.entries()).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.count - a.count || b.lastTs - a.lastTs).slice(0, 10);
+  }, [state.authLog]);
 
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
@@ -83,10 +102,35 @@ export default function ReconcileScreen() {
             </label>
           )}
 
+          {/* Bug fix (real risk): always required, not just for a fuzzy match — this screen
+              assumes exactly 1 day of data every time, and nothing else catches a multi-day
+              file fed in by mistake (e.g. catching up after a missed day) before it silently
+              over-deducts the floor. See commitReconcile()'s doc comment. */}
+          <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', background: 'var(--amber-bg)', border: '1px solid var(--amber)', borderRadius: 10, padding: '11px 12px', marginBottom: 12, cursor: 'pointer' }}>
+            <input type="checkbox" checked={state.hosxpConfirmSingleDay} onChange={(e) => setHosxpConfirmSingleDay(e.target.checked)} style={{ marginTop: 2, flex: 'none', width: 17, height: 17 }} />
+            <span style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--amber-ink)' }}>ยืนยันว่าไฟล์/ข้อมูลนี้ครอบคลุม<b>แค่ 1 วัน</b> (เมื่อวาน) — ถ้าครอบคลุมมากกว่านั้นจะตัดยอดหน้างานเกินจริง</span>
+          </label>
+
           <button onClick={commitReconcile} disabled={!canCommit || !!state.busy['reconcile']} className="btn-primary" style={{ width: '100%', padding: 15, borderRadius: 12, fontSize: 15, minHeight: 52, opacity: canCommit && !state.busy['reconcile'] ? 1 : 0.5 }}>
             {state.busy['reconcile'] ? 'กำลังตัดยอด…' : `ตัดยอดหน้างานตามไฟล์นี้ และบันทึก discrepancy log${skippedCount > 0 ? ' (ข้าม ' + skippedCount + ' รายการที่จับคู่ไม่ได้)' : ''}`}
           </button>
         </>
+      )}
+
+      {unmatchedFreq.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div className="muted" style={{ fontSize: 12, fontWeight: 600, margin: '0 2px 8px' }}>ยาที่หลุดบ่อย (จับคู่ไม่ได้จากไฟล์ HOSxP)</div>
+          <div className="card stagger" style={{ overflow: 'hidden' }}>
+            {unmatchedFreq.map((u, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 13px', borderBottom: i < unmatchedFreq.length - 1 ? '1px solid var(--border-soft)' : 0 }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.3 }}>{u.name}</span>
+                <span style={{ flex: 'none', fontSize: 11, fontWeight: 700, color: 'var(--red)', background: 'var(--red-bg)', padding: '2px 8px', borderRadius: 20 }}>{u.count} ครั้ง</span>
+                <span className="muted" style={{ flex: 'none', fontSize: 11 }}>ล่าสุด {thDate(u.lastTs)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 6 }}>ชื่อพวกนี้ไม่ตรงกับชื่อยาในระบบ — ถ้าเจอซ้ำบ่อย ลองแก้ชื่อยาในระบบ (หน้าจัดการรายการยา) ให้ตรงกับที่ไฟล์ HOSxP ใช้</div>
+        </div>
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { useApp } from '../store/AppContext';
-import { toneFor, daysUntil, usesSubstock, floorMinOf } from '../store/selectors';
+import { toneFor, daysUntil, usesSubstock, floorMinOf, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso } from '../store/selectors';
 import { nf, thDate, isoDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge } from '../components/Qty';
@@ -65,6 +65,13 @@ export default function HomeScreen() {
   // Meaningless for noSubstock meds (liquids/sprays) — they have no substock stage to be
   // low in; excluded here rather than always showing a permanent, unactionable "0/par" row.
   const lowSub = meds.filter((m) => usesSubstock(m) && sub(m.id) < m.parSub);
+  // "สรุปงานวันนี้" checklist — combines the handful of things someone covering this app alone
+  // has to currently piece together from several separate screens every morning (เร่งด่วนวันนี้
+  // on TransferScreen, pending approvals on ReceiveScreen, ตัดยอด HOSxP status on
+  // ReconcileScreen, the warehouse-request count) into one glance here instead.
+  const urgent = meds.filter((m) => usesSubstock(m) && isUrgentLow(m));
+  const needsWarehouse = meds.filter((m) => needsWarehouseRequest(m, sub(m.id)));
+  const pendingApprovals = myProfile?.role !== 'tech' ? state.pending : 0;
   const W = warn();
   const medIds = new Set(meds.map((m) => m.id));
   const wardLots = state.lots.filter((l) => medIds.has(l.medId));
@@ -77,6 +84,12 @@ export default function HomeScreen() {
   // this tile silently showed 0 for every transaction ever logged. Compare calendar dates.
   const todayIso = isoDate(Date.now());
   const txToday = state.txs.filter((x) => isoDate(x.ts) === todayIso).length;
+  // Whether today's HOSxP reconcile (the main way this app's floor numbers stay honest — see
+  // the tip banner below) has actually run yet. A real, recurring risk for a short-staffed
+  // team: skip a day and the app quietly drifts from what's actually on the shelf, with
+  // nothing else here to catch it. lastReconcileDateIso() reads state.txs (already loaded,
+  // newest-first), so this needs no extra query.
+  const reconciledToday = lastReconcileDateIso(state.txs) === todayIso;
 
   // Overview ring — same red/amber/green severity toneFor() already uses for a single med's
   // floor-vs-par row (TransferScreen etc.), rolled up across the whole active formulary into
@@ -116,6 +129,33 @@ export default function HomeScreen() {
             <HealthLegendRow color="var(--amber)" label="เริ่มต่ำ" count={warnCount} />
             <HealthLegendRow color="var(--red)" label="ต่ำกว่า 34% ของ par" count={criticalCount} onClick={criticalCount ? () => go('transfer') : undefined} />
           </div>
+        </div>
+      </div>
+
+      {/* "สรุปงานวันนี้" — รวมสิ่งที่ต้องเช็คทุกเช้าจากหลายหน้าแยกกัน (เร่งด่วนวันนี้ที่หน้าเติม
+          หน้างาน, ตัดยอด HOSxP แล้วหรือยัง, คำขอรับเข้าที่รออนุมัติ, ควรเบิกจากคลังใหญ่) ไว้ที่
+          เดียว ให้คนเดียวที่คุมทั้งระบบเห็นภาพงานวันนี้ได้ในแวบเดียวไม่ต้องไล่แตะทีละแท็บ */}
+      <div style={{ ...surface, padding: '14px 15px', marginBottom: 16 }}>
+        <div className="muted" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', marginBottom: 10, textTransform: 'uppercase' }}>สรุปงานวันนี้</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <ChecklistRow
+            icon="🔴" label="ยาเร่งด่วนวันนี้" value={urgent.length ? urgent.length + ' รายการ' : 'ไม่มี'}
+            tone={urgent.length ? 'var(--red)' : 'var(--green)'} onClick={() => go('transfer')}
+          />
+          <ChecklistRow
+            icon="🧾" label="ตัดยอด HOSxP วันนี้" value={reconciledToday ? 'ทำแล้ว ✓' : 'ยังไม่ได้ทำ'}
+            tone={reconciledToday ? 'var(--green)' : 'var(--amber)'} onClick={() => go('reconcile')}
+          />
+          {myProfile?.role !== 'tech' && (
+            <ChecklistRow
+              icon="📥" label="คำขอรับเข้าที่รออนุมัติ" value={pendingApprovals ? pendingApprovals + ' รายการ' : 'ไม่มี'}
+              tone={pendingApprovals ? 'var(--amber)' : 'var(--green)'} onClick={() => go('receive')}
+            />
+          )}
+          <ChecklistRow
+            icon="📦" label="ควรเบิกจากคลังใหญ่" value={needsWarehouse.length ? needsWarehouse.length + ' รายการ' : 'ไม่มี'}
+            tone={needsWarehouse.length ? 'var(--amber)' : 'var(--green)'} onClick={() => go('receive')}
+          />
         </div>
       </div>
 
@@ -375,5 +415,24 @@ function HealthLegendRow({ color, label, count, onClick }: { color: string; labe
       <span style={{ fontSize: 13, fontWeight: 800, color, flex: 'none' }}>{nf(count)}</span>
       {onClick && <span aria-hidden="true" style={{ color: 'var(--muted)', fontSize: 11, flex: 'none' }}>→</span>}
     </Tag>
+  );
+}
+
+/** One row of the "สรุปงานวันนี้" checklist card — an icon, a label, and a tone-colored value
+ * (a count, or a plain "ทำแล้ว ✓"/"ยังไม่ได้ทำ" status), tappable straight to the screen that
+ * handles it. Deliberately plainer than StatTile (no big number, no separate note line) — this
+ * card is meant to be scanned as a short list, not a grid of tiles competing for attention. */
+function ChecklistRow({ icon, label, value, tone, onClick }: { icon: string; label: string; value: string; tone: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="press-spring"
+      style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', border: 0, background: 'transparent', padding: '7px 2px', textAlign: 'left', cursor: 'pointer', borderRadius: 9 }}
+    >
+      <span aria-hidden="true" style={{ fontSize: 14, flex: 'none' }}>{icon}</span>
+      <span style={{ fontSize: 12.5, flex: 1, minWidth: 0 }}>{label}</span>
+      <span style={{ fontSize: 12, fontWeight: 700, color: tone, flex: 'none' }}>{value}</span>
+      <span aria-hidden="true" style={{ color: 'var(--muted)', fontSize: 11, flex: 'none' }}>→</span>
+    </button>
   );
 }

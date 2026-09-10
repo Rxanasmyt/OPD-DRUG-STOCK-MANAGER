@@ -12,7 +12,7 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isUrgentLow, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -81,6 +81,7 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
   med_added: 'เพิ่มยาใหม่', med_edited: 'แก้ไขข้อมูลยา', med_status_changed: 'เปิด/ปิดใช้งานยา', med_deleted: 'ลบยาถาวร',
   receive_from_central: 'รับเข้า substock', receive_pending: 'รับเข้า (รออนุมัติ)', receive_rejected: 'ปฏิเสธคำขอรับเข้า', transfer_to_floor: 'เติมหน้างาน',
   adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP',
+  hosxp_unmatched: 'ยาที่จับคู่ไม่ได้จาก HOSxP',
   ward_move_out: 'ย้ายชั้นวาง (ต้นทาง)', ward_move_in: 'ย้ายชั้นวาง (ปลายทาง)',
 };
 
@@ -108,7 +109,7 @@ function freshState(): AppState {
 
     doneKind: null, doneRows: [], toast: null,
 
-    countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false,
+    countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpConfirmSingleDay: false,
 
     usageDateFrom: '', usageDateTo: '', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
 
@@ -211,6 +212,7 @@ export interface AppCtx {
   fillUrgent: () => void;
   printPickList: () => void;
   printTodayReplenishList: () => void;
+  printUrgentReplenishList: () => void;
   printWarehouseRequestList: () => void;
   removeFromCart: (id: string) => void;
   /** Empties the whole fill cart in one action — the only way out of a mis-built cart used
@@ -336,6 +338,7 @@ export interface AppCtx {
   processHosxp: () => void;
   processHosxpFile: (file: File) => void;
   setHosxpConfirmFuzzy: (v: boolean) => void;
+  setHosxpConfirmSingleDay: (v: boolean) => void;
   commitReconcile: () => void;
 
   // usage-rate import (par)
@@ -1072,6 +1075,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state, toast, userName]);
 
+  // Same sheet as printTodayReplenishList above, scoped to just isUrgentLow() items — the
+  // paper counterpart of TransferScreen's "🔴 เร่งด่วนวันนี้" filter/fillUrgent(), for handing
+  // to someone else to walk the shelf with when there's no time (or no second phone) for the
+  // full below-Min list today. A short, separate function rather than a parameter on
+  // printTodayReplenishList — that one's wired straight to a plain onClick, and a boolean
+  // parameter there would collide with the MouseEvent React passes as the first argument.
+  const printUrgentReplenishList = useCallback(() => {
+    const items = state.meds.filter((m) => m.active && usesSubstock(m) && isUrgentLow(m));
+    if (!items.length) { toast('วันนี้ไม่มีรายการเร่งด่วน (ต่ำกว่าครึ่งหนึ่งของ Min)'); return; }
+    const rows = items
+      .map((m) => {
+        const need = Math.max(0, m.parFloor - m.floor);
+        const qty = suggestTransferQty(state, m);
+        const note = qty < need ? 'substock เหลือไม่พอเติมเต็ม par (ขาดอีก ' + nf(need - qty) + ' ' + m.unit + ')' : undefined;
+        return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note };
+      })
+      .filter((r) => r.qty > 0);
+    if (!rows.length) { toast('รายการเร่งด่วนไม่มีของเหลือใน substock ให้เติมเลยสักรายการ — ต้องเบิกจากคลังใหญ่ก่อน'); return; }
+    const ok = printPickListSheet(rows, 'ใบเติมหน้างานเร่งด่วนวันนี้', 'รายการต่ำกว่าครึ่งหนึ่งของ Min — เร่งด่วนที่สุดของวันนี้', undefined, { printedBy: userName() });
+    toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
+  }, [state, toast, userName]);
+
   // "ระบบเตือนเบิก Substock (2 Weeks Cycle)" — since central-warehouse pickup only happens
   // once every two weeks (not daily like the shelf fill), what's actually needed is a
   // standing requisition list of everything under its substock par right now, ready to bring
@@ -1096,7 +1121,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // a substock stage is judged against substock/parSub as before; one without is judged
     // against floor/parFloor instead — every active med lands in exactly one of those checks,
     // never both, so nothing doubles up and nothing that actually needs requesting is missing.
-    const items = state.meds.filter((m) => m.active && (usesSubstock(m) ? subQty(state, m.id) < m.parSub : m.floor < m.parFloor));
+    const items = state.meds.filter((m) => m.active && needsWarehouseRequest(m, subQty(state, m.id)));
     if (!items.length) { toast('ทุกรายการยังสูงกว่า par — ยังไม่ต้องเบิกเพิ่ม'); return; }
     const rows = items.map((m) => {
       const short = usesSubstock(m);
@@ -2508,7 +2533,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return { name, qty, match: matchHosxpMed(state.meds, name) };
     }).filter((x): x is { name: string; qty: number; match: ReturnType<typeof matchHosxpMed> } => !!x);
     if (!rows.length) { toast('วางข้อมูล CSV รูปแบบ "ชื่อยา,จำนวน" ก่อนประมวลผล'); return; }
-    patch({ hosxpRows: rows, hosxpConfirmFuzzy: false });
+    patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpConfirmSingleDay: false });
   }, [state.hosxpText, state.meds, patch, toast]);
 
   // Lets the daily floor-deduction workflow attach the actual HOSxP "รายงานการใช้ยา" export
@@ -2535,7 +2560,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       if (!raw.length) { toast('ไม่พบข้อมูลที่อ่านได้ในไฟล์นี้'); return; }
       const rows = raw.map((r) => ({ name: r.name, qty: Math.round(r.qty), match: matchHosxpMed(state.meds, r.name) }));
-      patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpText: '' });
+      patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpConfirmSingleDay: false, hosxpText: '' });
       toast('อ่านไฟล์ ' + file.name + ' แล้ว ' + rows.length + ' รายการ — ตรวจสอบรายการด้านล่างก่อนตัดยอด');
     };
     if (isSpreadsheet) reader.readAsArrayBuffer(file);
@@ -2543,13 +2568,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.meds, patch, toast]);
 
   const setHosxpConfirmFuzzy = useCallback((v: boolean) => patch({ hosxpConfirmFuzzy: v }), [patch]);
+  const setHosxpConfirmSingleDay = useCallback((v: boolean) => patch({ hosxpConfirmSingleDay: v }), [patch]);
 
   const commitReconcile = useCallback(guardOnce('reconcile', async () => {
     const rows = state.hosxpRows || [];
     const meds = state.meds;
     const hasFuzzy = rows.some((r) => r.match.kind === 'fuzzy');
     if (hasFuzzy && !state.hosxpConfirmFuzzy) { toast('กรุณายืนยันว่าตรวจสอบรายการที่จับคู่แบบไม่ตรงชื่อเป๊ะแล้ว ก่อนตัดยอด'); return; }
+    // Bug fix (real risk): this screen exists specifically for a file covering ONE day — the
+    // on-screen instructions already say so, but nothing actually stopped someone from feeding
+    // it a multi-day export (e.g. catching up after a missed day) and silently over-deducting
+    // the floor by however many extra days it covered. A required, explicit confirmation
+    // (same shape as the fuzzy-match one above) is the only real backstop possible here —
+    // there's no date column in the parsed data to check automatically.
+    if (!state.hosxpConfirmSingleDay) { toast('กรุณายืนยันว่าไฟล์/ข้อมูลนี้ครอบคลุมแค่ 1 วันก่อนตัดยอด'); return; }
     let applied = 0, skipped = 0, zeroQty = 0;
+    const skippedNames: string[] = [];
     try {
       for (const r of rows) {
         if (r.qty <= 0) { zeroQty++; continue; }
@@ -2558,7 +2592,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // deduct from the wrong drug or get dropped without anyone noticing.
         const medId = r.match.kind === 'exact' || r.match.kind === 'fuzzy' ? r.match.medId : null;
         const m = medId ? meds.find((x) => x.id === medId) : null;
-        if (!m) { skipped++; continue; }
+        if (!m) { skipped++; skippedNames.push(r.name); continue; }
         let after = 0, before = 0;
         await runTx(async (trx) => {
           const ref = doc(db, 'meds', m.id);
@@ -2570,7 +2604,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await logTx({ type: 'reconcile_hosxp', name: m.name, medId: m.id, qty: -(before - after), unit: m.unit, reason: 'นำเข้าจากไฟล์ HOSxP', note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP' + (r.match.kind === 'fuzzy' ? ' (จับคู่ชื่อแบบไม่ตรงเป๊ะ — ยืนยันโดยผู้ใช้แล้ว)' : ''), loc: 'floor' });
         applied++;
       }
-      patch({ hosxpRows: null, hosxpText: '', hosxpConfirmFuzzy: false });
+      // Bug fix (efficiency): a name that fails to match keeps failing every single day until
+      // someone notices and fixes it — but the only trace before this was a one-line toast that
+      // vanished in a few seconds, with no record to come back to later. One audit entry per
+      // run, listing every skipped raw name, lets ReconcileScreen's "ยาที่หลุดบ่อย" panel
+      // aggregate across recent runs and surface the ones worth actually fixing, instead of the
+      // same skip being a fresh surprise every morning. Format: a human-readable count line,
+      // then the raw names on their own line joined by " | " (not ",", since a real drug name
+      // can itself contain a comma — see labelName.ts's own notes on this exact formulary) so
+      // the aggregator can split it back out reliably.
+      if (skippedNames.length) {
+        await logAudit({ type: 'hosxp_unmatched', note: 'จับคู่ไม่ได้ ' + skippedNames.length + ' รายการจากไฟล์ HOSxP\n' + skippedNames.join(' | ') });
+      }
+      patch({ hosxpRows: null, hosxpText: '', hosxpConfirmFuzzy: false, hosxpConfirmSingleDay: false });
       // Rows with qty <= 0 were previously silently dropped from this summary entirely —
       // applied + skipped could undercount rows.length with no explanation, which reads as
       // a miscount when a pharmacist checks the math. Named separately from "จับคู่ไม่ได้"
@@ -2588,7 +2634,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // rows actually landed, worth telling the person rather than implying nothing happened.
       toastErr(e, 'ประมวลผลไม่สำเร็จ' + (applied > 0 ? ' — ตัดยอดไปแล้ว ' + applied + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง'));
     }
-  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.meds, logTx, toast, toastErr, patch, guardOnce]);
+  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpConfirmSingleDay, state.meds, logTx, logAudit, toast, toastErr, patch, guardOnce]);
 
   // ---------- usage-rate import (par) ----------
   // Lets a site whose formulary is too new to have 60 days of in-app HOSxP reconcile history
@@ -2881,7 +2927,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify,
     lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify, go, back,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
-    setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, fillUrgent, printPickList, printTodayReplenishList, removeFromCart, clearCart, commitTransfer,
+    setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, fillUrgent, printPickList, printTodayReplenishList, printUrgentReplenishList, removeFromCart, clearCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, printWarehouseRequestList,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
@@ -2892,7 +2938,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
-    setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, commitReconcile,
+    setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     doneAgain,

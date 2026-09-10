@@ -25,7 +25,7 @@ const WEEKDAY_CLINICS: Record<number, string> = {
 };
 
 export default function TransferScreen() {
-  const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, fillUrgent, clearCart, printPickList, printTodayReplenishList, go, openScanSearch } = useApp();
+  const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, fillUrgent, clearCart, printPickList, printTodayReplenishList, printUrgentReplenishList, go, openScanSearch } = useApp();
   // Only one row's "เคลื่อนไหวล่าสุด" panel expanded at a time (opt-in, not automatic) — the
   // list can render up to 60 rows, and MedMiniCard fetches a real Firestore query per drug, so
   // expanding all of them at once would fire dozens of queries for a screen someone's trying
@@ -171,6 +171,18 @@ export default function TransferScreen() {
             <button className="chip" style={{ border: '1px dashed var(--red)', background: 'transparent', color: 'var(--red)' }} onClick={fillUrgent} title="เติมเฉพาะรายการที่ต่ำกว่าครึ่งหนึ่งของ Min — ที่เหลือรอได้ ไม่ต้องเติมทีละเยอะๆ">เติมเฉพาะเร่งด่วนวันนี้</button>
           )}
           <button className="chip" style={{ border: '1px dashed var(--green)', background: 'transparent', color: 'var(--green)' }} onClick={fillAll}>เติมตาม par ทั้งหมด</button>
+          {/* พิมพ์เฉพาะเร่งด่วนวันนี้ — สำหรับส่งให้คนอื่นช่วยเดินเติมแค่ส่วนวิกฤต โดยไม่ต้อง
+              เปิดแอพ/ถือโทรศัพท์เอง เห็นแค่กระดาษก็เดินเติมได้เลย */}
+          {urgent.length > 0 && (
+            <button
+              className="chip"
+              style={{ border: '1px solid var(--red)', background: 'var(--red-bg)', color: 'var(--red)', display: 'flex', alignItems: 'center', gap: 5 }}
+              onClick={printUrgentReplenishList}
+              title="พิมพ์เฉพาะรายการเร่งด่วน (ต่ำกว่าครึ่งหนึ่งของ Min) — ไม่กระทบตะกร้า"
+            >
+              🖨 พิมพ์เฉพาะเร่งด่วนวันนี้ ({urgent.length})
+            </button>
+          )}
           <button
             className="chip"
             style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 5 }}

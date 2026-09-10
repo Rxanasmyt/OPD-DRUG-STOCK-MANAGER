@@ -1,5 +1,5 @@
-import type { AppState, HosxpMatch, Med, Role, Ward } from '../types';
-import { DAY, daysUntil } from '../utils/format';
+import type { AppState, HosxpMatch, Med, Role, Ward, Tx } from '../types';
+import { DAY, daysUntil, isoDate } from '../utils/format';
 import { UNCATEGORIZED, DRUG_CATEGORIES, categoryLabel } from '../data/categories';
 
 /** Pure, stateless helpers derived from AppState — no mutation, safe to call during render. */
@@ -83,6 +83,31 @@ export function floorMinOf(m: Med): number {
  * chip filter, the fillUrgent() bulk action, and the badge all agree on one definition. */
 export function isUrgentLow(m: Med): boolean {
   return m.floor < floorMinOf(m) * 0.5;
+}
+
+/** Whether `m` belongs on the "ควรเบิกจากคลังใหญ่" central-warehouse request — same rule
+ * printWarehouseRequestList() (AppContext.tsx) and ReceiveScreen's needsReceive list use, and
+ * why: a med with a real substock stage is judged against substock/parSub; one without
+ * (noSubstock — see usesSubstock()) has no substock number to be low in, so its shelf
+ * (floor/parFloor) stands in for it instead — its shelf effectively IS its substock for
+ * requisitioning purposes (see suggestPar()'s doc comment). Pulled out as one function so the
+ * print sheet, the on-screen list, and any summary count (HomeScreen) can't drift apart on the
+ * definition of "needs requesting". `curSub` is the caller's already-computed subQty(state, m.id)
+ * — passed in rather than recomputed here so this stays a pure, state-independent function. */
+export function needsWarehouseRequest(m: Med, curSub: number): boolean {
+  return usesSubstock(m) ? curSub < m.parSub : m.floor < m.parFloor;
+}
+
+/** ISO date (YYYY-MM-DD) of the most recent 'reconcile_hosxp' transaction, or null if there
+ * isn't one in `txs` at all (a brand-new deployment, or one that's never used "นำเข้า HOSxP" —
+ * see ReconcileScreen). `txs` is expected already sorted newest-first (the same order the
+ * live onSnapshot query — AppContext.tsx — already delivers it in), so this is just the first
+ * match, not a full scan-and-compare. Used to show "ยังไม่ได้ตัดยอด HOSxP วันนี้" on HomeScreen —
+ * a real, recurring risk for a short-staffed team: skip a day's reconcile and the app's floor
+ * numbers silently drift from what's actually on the shelf, with nothing else to catch it. */
+export function lastReconcileDateIso(txs: Tx[]): string | null {
+  const last = txs.find((t) => t.type === 'reconcile_hosxp');
+  return last ? isoDate(last.ts) : null;
 }
 
 export function subQty(state: AppState, medId: string): number {

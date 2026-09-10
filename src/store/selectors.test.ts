@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type { AppState, Med } from '../types';
 import {
-  wardOf, matchesWard, binFor, binDisplayAll, floorMinOf, isUrgentLow, subQty, usageAnomalies,
+  wardOf, matchesWard, binFor, binDisplayAll, floorMinOf, isUrgentLow, needsWarehouseRequest,
+  lastReconcileDateIso, subQty, usageAnomalies,
   daysOfStockLeft, fefoLot, toneFor, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
   categoryOf, categoryStats,
 } from './selectors';
@@ -228,6 +229,36 @@ describe('isUrgentLow', () => {
     expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 14 }))).toBe(true); // 14 < 15 (half of 30)
     expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 15 }))).toBe(false); // exactly half — not urgent yet
     expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 29 }))).toBe(false); // below Min but not urgent
+  });
+});
+
+describe('needsWarehouseRequest', () => {
+  it('judges a substock-backed med by substock/parSub', () => {
+    const m = med({ noSubstock: false, parSub: 100 });
+    expect(needsWarehouseRequest(m, 99)).toBe(true);
+    expect(needsWarehouseRequest(m, 100)).toBe(false);
+  });
+
+  it('judges a noSubstock med by floor/parFloor instead — it has no real substock number', () => {
+    const m = med({ noSubstock: true, parFloor: 50, floor: 49 });
+    expect(needsWarehouseRequest(m, 0)).toBe(true); // curSub irrelevant here — always 0 for these
+    expect(needsWarehouseRequest(med({ noSubstock: true, parFloor: 50, floor: 50 }), 0)).toBe(false);
+  });
+});
+
+describe('lastReconcileDateIso', () => {
+  it('returns the ISO date of the most recent reconcile_hosxp tx, assuming txs are newest-first', () => {
+    const txs = [
+      { type: 'adjust', ts: new Date('2026-09-10T08:00:00').getTime() },
+      { type: 'reconcile_hosxp', ts: new Date('2026-09-09T07:30:00').getTime() },
+      { type: 'reconcile_hosxp', ts: new Date('2026-09-08T07:00:00').getTime() },
+    ] as unknown as Parameters<typeof lastReconcileDateIso>[0];
+    expect(lastReconcileDateIso(txs)).toBe('2026-09-09');
+  });
+
+  it('returns null when there is no reconcile_hosxp tx at all', () => {
+    const txs = [{ type: 'adjust', ts: Date.now() }] as unknown as Parameters<typeof lastReconcileDateIso>[0];
+    expect(lastReconcileDateIso(txs)).toBeNull();
   });
 });
 

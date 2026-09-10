@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { usesSubstock } from '../store/selectors';
+import { usesSubstock, needsWarehouseRequest } from '../store/selectors';
 import { nf, thDate, thTime } from '../utils/format';
 import { recognizeLotLabel } from '../utils/ocr';
 import { MedDot } from '../components/MedDot';
@@ -75,10 +75,29 @@ export default function ReceiveScreen() {
   // against substock/parSub as before — every active med falls into exactly one check.
   const needsReceive = !state.recvMed && !state.recvSearch.trim()
     ? state.meds
-        .filter((m) => m.active && (usesSubstock(m) ? sub(m.id) < m.parSub : m.floor < m.parFloor))
+        .filter((m) => m.active && needsWarehouseRequest(m, sub(m.id)))
         .sort((a, b) => needsReceiveRatio(a, sub(a.id)) - needsReceiveRatio(b, sub(b.id)))
         .slice(0, 20)
     : [];
+  // "ล่าสุด" quick-pick chips — same idea as TransferScreen's (see its own doc comment): the
+  // handful of drugs actually received most delivery days shouldn't need typing their name
+  // every time. Still can't skip the lot/exp/qty entry itself (nothing on a shelf label can
+  // supply those for a NEW lot — this only saves the search-and-tap step), but for a big
+  // delivery with the same recurring items, cutting that step for each one adds up.
+  const recentMeds = useMemo(() => {
+    if (state.recvSearch.trim() || state.recvMed) return [];
+    const seen = new Set<string>();
+    const out: Med[] = [];
+    for (const t of state.txs) {
+      if (t.type !== 'receive_from_central' || !t.medId || seen.has(t.medId)) continue;
+      seen.add(t.medId);
+      const m = state.meds.find((x) => x.id === t.medId && x.active);
+      if (m) out.push(m);
+      if (out.length >= 8) break;
+    }
+    return out;
+  }, [state.txs, state.meds, state.recvSearch, state.recvMed]);
+
   const canApprove = state.role !== 'tech';
   const pending = state.pendingReceives.filter((r) => r.status === 'pending');
   const myPending = pending.filter((r) => r.requestedByUid === state.myUid);
@@ -162,6 +181,23 @@ export default function ReceiveScreen() {
           />
           <button onClick={() => openScanSearch('receive')} title="สแกน QR รับเข้า substock" aria-label="สแกน QR รับเข้า substock" style={{ border: '1px solid var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', borderRadius: 10, width: 46, minHeight: 44, fontSize: 17, flex: 'none' }}>▣</button>
         </div>
+
+        {recentMeds.length > 0 && (
+          <div style={{ display: 'flex', gap: 7, marginBottom: 9, overflowX: 'auto', paddingBottom: 2 }}>
+            <span className="muted" style={{ fontSize: 11, flex: 'none', alignSelf: 'center', paddingRight: 2 }}>ล่าสุด:</span>
+            {recentMeds.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => pickRecvMed(m.id)}
+                className="chip press-spring"
+                style={{ border: '1px solid var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', flex: 'none' }}
+                title={'เลือก ' + m.name}
+              >
+                {m.name}
+              </button>
+            ))}
+          </div>
+        )}
 
         {options.length > 0 && (
           <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 172, overflowY: 'auto', marginBottom: 9 }}>
