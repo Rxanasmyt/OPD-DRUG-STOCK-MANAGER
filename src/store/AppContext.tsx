@@ -22,7 +22,7 @@ import { parseHosxpUsageWorkbook, parseUsageCsvText, type RawUsageRow } from '..
 import { LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
 import { withTimeout, TimeoutError } from '../utils/timeout';
-import { readNotifyEnabled, writeNotifyEnabled, requestPermission, currentPermission, maybeNotifyExpiring } from '../utils/notify';
+import { readNotifyEnabled, writeNotifyEnabled, readLowStockNotifyEnabled, writeLowStockNotifyEnabled, requestPermission, currentPermission, maybeNotifyExpiring, maybeNotifyLowStock } from '../utils/notify';
 import { hapticSuccess, hapticError } from '../utils/haptic';
 
 // Caps navStack length so a session left open for days (this is a PWA people keep pinned,
@@ -181,6 +181,10 @@ export interface AppCtx {
   notifyPermission: NotificationPermission;
   enableExpiryNotify: () => void;
   disableExpiryNotify: () => void;
+  // ยาต่ำกว่า Min notification — same per-device opt-in shape, independent toggle.
+  lowStockNotifyEnabled: boolean;
+  enableLowStockNotify: () => void;
+  disableLowStockNotify: () => void;
   go: (s: Screen) => void;
   back: () => void;
 
@@ -439,6 +443,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---------- ยาใกล้หมดอายุ notification (per-device opt-in, see utils/notify.ts) ----------
   const [notifyEnabled, setNotifyEnabledState] = useState<boolean>(readNotifyEnabled);
   const [notifyPermission, setNotifyPermission] = useState<NotificationPermission>(currentPermission);
+  // Same OS permission as above (one browser permission, not per-topic) — independent opt-in.
+  const [lowStockNotifyEnabled, setLowStockNotifyEnabledState] = useState<boolean>(readLowStockNotifyEnabled);
 
   const patch = useCallback((p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => {
     setState((s) => ({ ...s, ...(typeof p === 'function' ? p(s) : p) }));
@@ -628,6 +634,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setNotifyEnabledState(false);
   }, []);
 
+  const enableLowStockNotify = useCallback(async () => {
+    const perm = await requestPermission();
+    setNotifyPermission(perm);
+    if (perm === 'granted') {
+      writeLowStockNotifyEnabled(true);
+      setLowStockNotifyEnabledState(true);
+      toast('เปิดแจ้งเตือนยาต่ำกว่า Min แล้ว — จะแจ้งตอนเปิดแอพถ้ามีรายการที่ควรเติมหน้างานวันนั้น');
+    } else {
+      writeLowStockNotifyEnabled(false);
+      setLowStockNotifyEnabledState(false);
+      toast(perm === 'denied' ? 'เบราว์เซอร์บล็อกการแจ้งเตือน — ไปเปิดสิทธิ์แจ้งเตือนให้เว็บนี้ในตั้งค่าเบราว์เซอร์ก่อน' : 'ยังไม่ได้อนุญาตการแจ้งเตือน');
+    }
+  }, [toast]);
+  const disableLowStockNotify = useCallback(() => {
+    writeLowStockNotifyEnabled(false);
+    setLowStockNotifyEnabledState(false);
+  }, []);
+
   // In-app replacement for window.confirm() — see confirmDialog's doc comment in types.ts for
   // why: the native dialog can silently no-op inside some embedded WebView/PWA contexts,
   // which reads to the person tapping the button as "nothing happened", not as an error (there
@@ -794,6 +818,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const nearCount = activeLots.filter((l) => { const d = daysUntil(l.exp); return d >= 0 && d < state.expiryWarnDays; }).length;
     void maybeNotifyExpiring(nearCount, expiredCount);
   }, [state.authStatus, state.dbReady, state.meds, state.lots, state.expiryWarnDays, notifyEnabled]);
+
+  // Same shape as the expiry check above, independent topic/opt-in (see utils/notify.ts) —
+  // counts active substock-backed meds (see usesSubstock()) at/below their own Min. noSubstock
+  // meds are excluded here the same way TransferScreen's own "ต่ำกว่า Min"/"เร่งด่วนวันนี้" lists
+  // are — this notification is specifically about "ควรเติมหน้างานวันนี้", which for a noSubstock
+  // med isn't a เติมหน้างาน action at all (see ReceiveScreen's warehouse-request list instead).
+  useEffect(() => {
+    if (state.authStatus !== 'signedIn' || !state.dbReady || !lowStockNotifyEnabled) return;
+    const floorMeds = state.meds.filter((m) => m.active && usesSubstock(m));
+    const belowMinCount = floorMeds.filter((m) => m.floor < floorMinOf(m)).length;
+    const urgentCount = floorMeds.filter(isUrgentLow).length;
+    void maybeNotifyLowStock(belowMinCount, urgentCount);
+  }, [state.authStatus, state.dbReady, state.meds, lowStockNotifyEnabled]);
 
   const go = useCallback((s: Screen) => setState((st) => ({ ...st, screen: s, navStack: pushNav(st.navStack, st.screen) })), []);
   // Pops the real history stack instead of a single fixed "came from" pointer — see navStack
@@ -2841,7 +2878,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<AppCtx>(() => ({
     state, myProfile, theme, toggleTheme, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, respondConfirm, promptAsync, respondPrompt, applyUpdate, dismissUpdate,
-    notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify, go, back,
+    notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify,
+    lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify, go, back,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
     setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, fillUrgent, printPickList, printTodayReplenishList, removeFromCart, clearCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, printWarehouseRequestList,

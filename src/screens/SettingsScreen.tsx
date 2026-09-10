@@ -9,6 +9,7 @@ export default function SettingsScreen() {
     state, warn, applyAllSuggested, recomputeUsageStats, go, updateGlobalSettings,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify,
+    lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify,
   } = useApp();
   const canEdit = state.role !== 'tech';
   const meds = state.meds.filter((m) => m.active);
@@ -98,6 +99,32 @@ export default function SettingsScreen() {
           <div style={{ fontSize: 12, color: 'var(--red)' }}>เบราว์เซอร์บล็อกการแจ้งเตือนไว้ — ไปเปิดสิทธิ์แจ้งเตือนให้เว็บนี้ในตั้งค่าเบราว์เซอร์/ระบบก่อน แล้วลองใหม่</div>
         ) : (
           <button onClick={enableExpiryNotify} style={{ border: 0, background: 'var(--green)', color: '#fff', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>เปิดแจ้งเตือน</button>
+        )}
+      </div>
+
+      {/* Same shape/reasoning as ยาใกล้หมดอายุ above — independent topic/opt-in so someone can
+          turn this on without the expiry one or vice versa (see utils/notify.ts). Uses "Min"
+          per drug (floorMinOf — see หน้าจัดการรายการยา to set it per item) and the same
+          isUrgentLow() split TransferScreen's "เร่งด่วนวันนี้" filter uses, so the notification
+          body always agrees with what that screen would actually show if opened right now. */}
+      <div className="card" style={{ padding: 13, marginBottom: 13 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}>แจ้งเตือนยาต่ำกว่า Min (ควรเติมหน้างาน)</div>
+        <div className="muted" style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 10 }}>
+          แจ้งเตือนระดับเครื่อง (OS notification) ตอนเปิดแอพ ถ้ามียาถึงจุดต้องเติม (Min) แล้ว — สูงสุดวันละ 1 ครั้ง เกณฑ์ "Min" ตั้งได้แยกทีละยาที่หน้าจัดการรายการยา (ยาที่ใช้บ่อยตั้ง Min สูงขึ้นจะเติมบ่อย/ครั้งละน้อย ยาที่ใช้นาน ๆ ครั้งตั้ง Min ต่ำจะเติมนาน ๆ ครั้ง) ต้องเปิดแอพจริงถึงจะแจ้งได้เหมือนแจ้งเตือนวันหมดอายุด้านบน
+        </div>
+        {!notificationsSupported() ? (
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>เบราว์เซอร์/อุปกรณ์นี้ไม่รองรับการแจ้งเตือนแบบนี้</div>
+        ) : lowStockNotifyEnabled ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--green)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--green)' }} /> เปิดอยู่
+            </span>
+            <button onClick={disableLowStockNotify} style={{ marginLeft: 'auto', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}>ปิด</button>
+          </div>
+        ) : notifyPermission === 'denied' ? (
+          <div style={{ fontSize: 12, color: 'var(--red)' }}>เบราว์เซอร์บล็อกการแจ้งเตือนไว้ — ไปเปิดสิทธิ์แจ้งเตือนให้เว็บนี้ในตั้งค่าเบราว์เซอร์/ระบบก่อน แล้วลองใหม่</div>
+        ) : (
+          <button onClick={enableLowStockNotify} style={{ border: 0, background: 'var(--green)', color: '#fff', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>เปิดแจ้งเตือน</button>
         )}
       </div>
 
