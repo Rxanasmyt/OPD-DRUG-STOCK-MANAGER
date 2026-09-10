@@ -22,9 +22,25 @@ const REASONS: Record<AdjType, string[]> = {
   expired: [],
 };
 
+// commitAdjust (AppContext.tsx) always treats this field as a DELTA to apply on top of the
+// current floor — never the new total. That's unambiguous for "คืนยา"/"ยาเสีย" (you naturally
+// think "how many came back / broke"), but "ปรับยอด" is genuinely risky: its own reason chip
+// says "นับได้ต่างจากระบบ", which invites typing the number you just counted — an ABSOLUTE
+// value — into a field that actually subtracts whatever you type. Real failure mode: system
+// says 8, you count 5, you type "5" expecting the result to become 5; the field instead
+// computes 8-5=3, a silent 2-unit stock error nobody would notice at the time. Label + a
+// visible warning (adjust only, since that's the only type this specific mix-up applies to)
+// close that gap without touching commitAdjust's actual math.
+const QTY_LABEL: Record<AdjType, string> = {
+  adjust: 'ส่วนต่างที่จะลบออกจากยอดระบบ',
+  return: 'จำนวนที่คืน (จะเพิ่มเข้ายอด)',
+  damaged: 'จำนวนที่เสีย/ชำรุด (จะลบออกจากยอด)',
+  expired: '',
+};
+
 export default function AdjustScreen() {
   const {
-    state, pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
+    state, pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot, go,
   } = useApp();
   const meds = state.meds.filter((m) => m.active);
   const adjMed = state.adjMed ? meds.find((m) => m.id === state.adjMed) : null;
@@ -108,8 +124,18 @@ export default function AdjustScreen() {
                 <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={adjMed.code} /> {adjMed.name} <WardBadge med={adjMed} size="md" /></span>
                 <span className="muted" style={{ display: 'block', fontSize: 11.5, fontWeight: 400 }}>หน้างาน <Qty value={adjMed.floor} tone={toneFor(adjMed)} size={11.5} /> · substock {nf(subQty(state, adjMed.id))} {adjMed.unit}</span>
               </div>
+              {state.adjType === 'adjust' && (
+                <div style={{ background: 'var(--amber-bg)', border: '1px solid var(--amber)', borderRadius: 10, padding: '10px 12px', fontSize: 12, lineHeight: 1.55, color: 'var(--amber-ink)', marginBottom: 9 }}>
+                  ⚠️ ช่องนี้คือ<b>ส่วนต่าง</b>ที่จะถูกลบออก ไม่ใช่ยอดที่นับได้ทั้งหมด — เช่น ระบบบอก 8 นับได้จริง 5
+                  ต้องกรอก <b>3</b> (ส่วนต่าง) ไม่ใช่ 5 ถ้าต้องการกรอก<b>ยอดที่นับได้จริง</b>โดยตรงและให้ระบบคำนวณส่วนต่างให้เอง
+                  แนะนำใช้{' '}
+                  <button type="button" onClick={() => go('count')} style={{ border: 0, background: 'transparent', color: 'var(--amber-ink)', textDecoration: 'underline', fontWeight: 700, padding: 0, fontSize: 12 }}>
+                    หน้า "นับสต๊อก" แทน →
+                  </button>
+                </div>
+              )}
               <label style={{ display: 'block', marginBottom: 9 }}>
-                <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>จำนวน ({adjMed.unit})</span>
+                <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{QTY_LABEL[state.adjType]} ({adjMed.unit})</span>
                 <input value={state.adjQty} onChange={(e) => setAdjQty(e.target.value)} inputMode="numeric" style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 10, padding: 12, fontSize: 17, fontWeight: 600, minHeight: 48 }} />
               </label>
               <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>เหตุผล (บังคับ)</div>

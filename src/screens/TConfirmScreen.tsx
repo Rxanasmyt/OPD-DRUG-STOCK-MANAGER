@@ -4,9 +4,10 @@ import { wardOf, isSharedMed } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
 import { medColor } from '../utils/color';
 import { StepIndicator, TRANSFER_STEPS } from '../components/StepIndicator';
+import { EmptyState } from '../components/EmptyState';
 
 export default function TConfirmScreen() {
-  const { state, removeFromCart, startHadScan, commitTransfer, userName, roleLabel } = useApp();
+  const { state, removeFromCart, startHadScan, commitTransfer, userName, roleLabel, go } = useApp();
   const cartIds = Object.keys(state.cart);
   const meds = state.meds;
   const hadPending = cartIds.filter((id) => meds.find((m) => m.id === id)?.had && !state.hadOk[id]);
@@ -54,6 +55,17 @@ export default function TConfirmScreen() {
     <div style={{ animation: 'fade .18s' }}>
       <StepIndicator steps={TRANSFER_STEPS} current={1} />
       <div style={{ padding: '10px 14px 24px' }}>
+      {/* Bug fix: removing the last row here used to leave a blank screen — no button, no
+          message, nothing — since both action buttons below are gated on cartIds.length > 0.
+          Looked exactly like the app had frozen. An explicit empty state with a way back is
+          the fix, same pattern EmptyState already provides everywhere else in the app. */}
+      {cartIds.length === 0 ? (
+        <>
+          <EmptyState icon="🛒" title="ตะกร้าว่างแล้ว" sub="ลบรายการสุดท้ายออกไปแล้ว — กลับไปเลือกยาที่จะเติมหน้างานอีกครั้ง" />
+          <button onClick={() => go('transfer')} className="btn-primary" style={{ width: '100%', padding: '12px 22px', borderRadius: 11, fontSize: 14, fontWeight: 600, minHeight: 46 }}>← กลับไปเลือกยา</button>
+        </>
+      ) : (
+      <>
       <div className="muted" style={{ fontSize: 12.5, marginBottom: 10 }}>ตัดจาก substock ตามหลัก FEFO (lot ที่หมดอายุก่อนถูกเลือกให้อัตโนมัติ) และเพิ่มเข้าหน้างาน</div>
 
       <div className="card" style={{ overflow: 'hidden', marginBottom: 14 }}>
@@ -89,10 +101,12 @@ export default function TConfirmScreen() {
           สแกน QR ยา high alert ({hadPending.length} รายการ)
         </button>
       )}
-      {cartIds.length > 0 && hadPending.length === 0 && (
+      {hadPending.length === 0 && (
         <button onClick={commitTransfer} disabled={!!state.busy['transfer']} className="btn-primary" style={{ width: '100%', padding: 16, borderRadius: 12, fontSize: 16, minHeight: 54, opacity: state.busy['transfer'] ? 0.7 : 1 }}>
           {state.busy['transfer'] ? 'กำลังบันทึก…' : 'ยืนยันการเติมหน้างาน'}
         </button>
+      )}
+      </>
       )}
       </div>
     </div>
