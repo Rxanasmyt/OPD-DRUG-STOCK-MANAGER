@@ -196,9 +196,7 @@ export default function LoginScreen() {
               สมัครแล้วบัญชีจะอยู่ในสถานะรออนุมัติ — เภสัชกรหรือ Admin ต้องกดอนุมัติและกำหนดบทบาทให้ก่อนจึงเข้าใช้งานได้
             </div>
           ) : (
-            <div style={{ marginTop: 14, fontSize: 11.5, opacity: 0.6, lineHeight: 1.6, textAlign: 'center' }}>
-              ลืมรหัสผ่าน? แจ้งเภสัชกร/Admin ห้องยาโดยตรง — ระบบนี้ไม่มีอีเมลกู้คืนรหัสผ่านอัตโนมัติ
-            </div>
+            <ForgotPasswordHint />
           )}
         </div>
 
@@ -233,6 +231,33 @@ export default function LoginScreen() {
 // true/false = render a ✓/✗ once there's something to judge. Only register-mode fields pass
 // a real value for this — it's a "will this even pass validation before you hit submit" nudge,
 // not a password-strength meter.
+// Was static text before ("ลืมรหัสผ่าน? แจ้งเภสัชกร/Admin ห้องยาโดยตรง…") — now a real
+// disclosure button. We deliberately do NOT put a phone number or email here: none exists
+// anywhere in this codebase/config, and inventing one would be worse than the plain text it
+// replaces. What genuinely helps instead is telling staff exactly what to hand the
+// pharmacist/Admin so the reset goes faster, expanded only when they ask for it.
+function ForgotPasswordHint() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: 14, textAlign: 'center' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="press-spring"
+        style={{ border: 0, background: 'transparent', color: 'var(--ink-soft)', opacity: 0.75, fontSize: 11.5, textDecoration: 'underline', textUnderlineOffset: 3, cursor: 'pointer', padding: 4 }}
+      >
+        ลืมรหัสผ่าน?
+      </button>
+      {open && (
+        <div style={{ marginTop: 6, fontSize: 11.5, opacity: 0.65, lineHeight: 1.6, animation: 'fade .2s var(--ease-out)' }}>
+          แจ้งเภสัชกร/Admin ห้องยาโดยตรง พร้อมบอก<b> ชื่อผู้ใช้ (username)</b> ของคุณ —
+          ระบบนี้ไม่มีอีเมลกู้คืนรหัสผ่านอัตโนมัติ ต้องให้ผู้ดูแลระบบตั้งรหัสผ่านใหม่ให้เท่านั้น
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Field({ icon, label, value, onChange, type = 'text', placeholder, autoComplete, valid }: { icon: string; label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string; autoComplete?: string; valid?: boolean | null }) {
   return (
     <label style={{ display: 'block' }}>
@@ -275,10 +300,12 @@ function PasswordField({ value, onChange, placeholder, autoComplete, valid }: { 
           autoComplete={autoComplete}
           required
           className="login-field"
-          style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: `13px ${valid == null ? 40 : 60}px 13px 36px`, fontSize: 16, minHeight: 46 }}
+          style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: `13px ${valid == null ? 40 : 64}px 13px 36px`, fontSize: 16, minHeight: 46 }}
         />
+        {/* Sits clear of the show/hide button (right: 6, 32px wide) with a visible gap between
+            the two — cramped together they used to read as one smudged icon on a phone screen. */}
         {valid != null && (
-          <span aria-hidden="true" style={{ position: 'absolute', right: 40, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: valid ? 'var(--green-bright)' : 'var(--red)', animation: 'checkPop .25s var(--ease-spring)' }}>{valid ? '✓' : '✗'}</span>
+          <span aria-hidden="true" style={{ position: 'absolute', right: 44, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: valid ? 'var(--green-bright)' : 'var(--red)', animation: 'checkPop .25s var(--ease-spring)' }}>{valid ? '✓' : '✗'}</span>
         )}
         <button
           type="button"

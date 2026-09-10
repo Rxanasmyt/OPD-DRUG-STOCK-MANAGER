@@ -147,7 +147,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
    near-white ring reads clearly against that green backdrop instead (and still against the
    dark-mode variant of --login-bg, which is a deep green-black, not just the light one). Class
    selector's specificity beats the tag-selector rule above even with both !important. */
-.login-field:focus { border-color: rgba(255, 255, 255, .55) !important; box-shadow: 0 0 0 3px rgba(255, 255, 255, .16) !important; }
+.login-field:focus { border-color: rgba(255, 255, 255, .65) !important; background: rgba(255, 255, 255, .12) !important; box-shadow: 0 0 0 4px rgba(255, 255, 255, .18) !important; }
 
 button {
   cursor: pointer;
