@@ -74,6 +74,17 @@ export function floorMinOf(m: Med): number {
   return Math.round(raw / step) * step;
 }
 
+/** A shelf already at/below half of its own reorder point (Min) — not just "below Min" in
+ * general, but genuinely close to running out. Used to split "ต่ำกว่า Min" (needs refilling
+ * at some point today/this week) from "เร่งด่วนวันนี้" (needs refilling before anything else) on
+ * TransferScreen, so a short-staffed team can knock out just the truly urgent subset on a busy
+ * day instead of either doing everything below Min at once or guessing which ones matter most.
+ * Same threshold DeficitBadge's `urgent` prop already used inline — pulled out here so the
+ * chip filter, the fillUrgent() bulk action, and the badge all agree on one definition. */
+export function isUrgentLow(m: Med): boolean {
+  return m.floor < floorMinOf(m) * 0.5;
+}
+
 export function subQty(state: AppState, medId: string): number {
   let sum = 0;
   for (const l of state.lots) if (l.medId === medId) sum += l.qty;

@@ -188,7 +188,7 @@ export type HosxpMatch =
 
 export type AdminTab = 'users' | 'audit';
 export type AuditFilter = 'all' | 'users' | 'stock';
-export type TransferFilter = 'low' | 'all' | 'had';
+export type TransferFilter = 'low' | 'all' | 'had' | 'urgent';
 
 export interface AppState {
   meds: Med[];

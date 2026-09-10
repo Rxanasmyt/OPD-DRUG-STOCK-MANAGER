@@ -104,6 +104,11 @@ export default function SettingsScreen() {
       <div style={{ background: 'var(--green-tint)', borderRadius: 12, padding: '12px 13px', marginBottom: 13 }}>
         <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}>par อัตโนมัติจากสถิติการใช้</div>
         <div style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 9 }}>คำนวณจากอัตราจ่ายเฉลี่ย/วัน (30 วันล่าสุด) × จำนวนวันที่ต้องสำรอง แล้วปรับเพิ่มตามความผันผวนของแต่ละรายการ</div>
+        {/* "par substock สำรอง" ควรครอบคลุมรอบเบิกจากคลังใหญ่จริง (สัปดาห์ที่ 1/3 ของเดือน — ห่างกัน
+            สูงสุด ~2-3 สัปดาห์แล้วแต่ปฏิทิน) บวกเผื่อดีเลย์จากบริษัทยาไม่มาส่ง (พบได้จริงถึง ~1
+            สัปดาห์) — ไม่งั้นวันที่ของมาช้า substock อาจหมดพอดีโดยไม่มีกันชนเหลือเลย ปกติแนะนำ ~28
+            วัน (รอบเบิกที่ยาวสุด + เผื่อดีเลย์ 1 สัปดาห์) */}
+        <div style={{ fontSize: 11.5, lineHeight: 1.6, marginBottom: 9, color: 'var(--muted)' }}>💡 par substock สำรอง ควรตั้งให้ครอบคลุมรอบเบิกจากคลังใหญ่จริง (สูงสุด ~2-3 สัปดาห์) บวกเผื่อดีเลย์กรณีบริษัทยาไม่มาส่ง (~1 สัปดาห์) — แนะนำ ~28 วัน</div>
         {canEdit && (
           <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', marginBottom: 10, flexWrap: 'wrap' }}>
             <label>

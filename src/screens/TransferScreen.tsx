@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { toneFor, usesSubstock, floorMinOf, categoryOf, binDisplayAll } from '../store/selectors';
+import { toneFor, usesSubstock, floorMinOf, isUrgentLow, categoryOf, binDisplayAll } from '../store/selectors';
 import { nf, thDate, digitsOnly } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
@@ -11,8 +11,21 @@ import { StepIndicator, TRANSFER_STEPS } from '../components/StepIndicator';
 import { SearchInput } from '../components/SearchInput';
 import { DRUG_CATEGORIES } from '../data/categories';
 
+// Informational only — never filters or hides anything, just a heads-up. Which OPD clinics run
+// which weekday (จันทร์–ศุกร์ only — the hospital's real weekly schedule) drives which drug
+// groups tend to move faster than usual that specific day, on top of "ตรวจทั่วไป"/symptomatic
+// use that happens every day regardless. Keyed by Date.getDay() (0=อาทิตย์…6=เสาร์); no entry
+// for 0/6 since there's no special weekday clinic to call out then.
+const WEEKDAY_CLINICS: Record<number, string> = {
+  1: 'จันทร์: COPD / หอบหืด, TB, ANC',
+  2: 'อังคาร: เบาหวาน',
+  3: 'พุธ: ไตเรื้อรัง (CKD), ANC',
+  4: 'พฤหัสบดี: ความดันโลหิตสูง',
+  5: 'ศุกร์: Warfarin, หัวใจ/หลอดเลือด, จิตเวช',
+};
+
 export default function TransferScreen() {
-  const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, clearCart, printPickList, printTodayReplenishList, go, openScanSearch } = useApp();
+  const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, fillUrgent, clearCart, printPickList, printTodayReplenishList, go, openScanSearch } = useApp();
   // Only one row's "เคลื่อนไหวล่าสุด" panel expanded at a time (opt-in, not automatic) — the
   // list can render up to 60 rows, and MedMiniCard fetches a real Firestore query per drug, so
   // expanding all of them at once would fire dozens of queries for a screen someone's trying
@@ -31,12 +44,22 @@ export default function TransferScreen() {
   // the aisle wants: one pass past each shelf rather than criss-crossing the room in urgency
   // order. 'name' is for when someone is looking up a specific drug in a familiar list.
   const [sort, setSort] = useState<'need' | 'bin' | 'name'>('need');
+  // Collapsible, not persisted — a fresh "should I check today's clinics" nudge each time this
+  // screen is opened (resets when the app is reopened/refreshed, which happens naturally at
+  // least once a day on a shared phone) rather than a one-time-ever dismissal that would go
+  // stale and stop being useful within a week.
+  const [showClinicInfo, setShowClinicInfo] = useState(true);
+  const todayClinics = WEEKDAY_CLINICS[new Date().getDay()];
   // noSubstock meds (liquids/sprays — received straight to the shelf, see ReceiveScreen)
   // have nothing to transfer from; showing them here with permanently-stuck-at-0 +/- buttons
   // would just be confusing clutter, not a real "เติมหน้างาน" candidate.
   // OPD/IPD ward tabs removed — one combined list (wardFilter stays 'all').
   const meds = state.meds.filter((m) => m.active && usesSubstock(m));
   const low = meds.filter((m) => m.floor < floorMinOf(m));
+  // Subset of `low` already at/below half of Min — see isUrgentLow()'s doc comment
+  // (selectors.ts) for why this exists: a short-staffed day needs a way to do just the
+  // can't-wait items without either doing everything below Min or guessing which ones matter.
+  const urgent = meds.filter(isUrgentLow);
   const q = state.search.trim().toLowerCase();
   // "ล่าสุด" quick-add chips — the handful of drugs actually transferred most days (IV fluids,
   // paracetamol, ORS...) shouldn't need typing their name every single morning. Derived
@@ -60,6 +83,7 @@ export default function TransferScreen() {
   const filteredByStatus = meds.filter((m) => {
     if (q && m.name.toLowerCase().indexOf(q) < 0) return false;
     if (state.filter === 'low') return m.floor < floorMinOf(m);
+    if (state.filter === 'urgent') return isUrgentLow(m);
     if (state.filter === 'had') return m.had;
     return true;
   });
@@ -100,6 +124,15 @@ export default function TransferScreen() {
   return (
     <div style={{ animation: 'fade .18s' }}>
       <StepIndicator steps={TRANSFER_STEPS} current={0} />
+      {/* เตือนเฉยๆ ไม่กรอง/ไม่ซ่อนอะไร — คลินิกวันนี้อาจทำให้ยากลุ่มนี้ใช้เร็วกว่าปกติ เผื่อดูก่อน
+          รายการอื่นที่เหลือ ("ตรวจทั่วไป" ใช้ยาแทบทุกหมวดอยู่แล้วทุกวัน ไม่ต้องระบุแยก) */}
+      {todayClinics && showClinicInfo && (
+        <div style={{ margin: '10px 14px 0', padding: '9px 12px', background: 'var(--bg-subtle)', border: '1px solid var(--border-soft)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5 }}>
+          <span style={{ flex: 'none', fontSize: 14 }}>📅</span>
+          <span className="muted" style={{ flex: 1, lineHeight: 1.4 }}>คลินิกวันนี้ — {todayClinics} · ยากลุ่มนี้อาจใช้เร็วกว่าปกติ</span>
+          <button onClick={() => setShowClinicInfo(false)} aria-label="ปิดข้อความนี้" style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 15, padding: '2px 4px', lineHeight: 1 }}>✕</button>
+        </div>
+      )}
       <div style={{ padding: '12px 14px 10px' }} className="sticky-bar">
         <div style={{ display: 'flex', gap: 8 }}>
           <SearchInput
@@ -111,9 +144,15 @@ export default function TransferScreen() {
           <button onClick={() => openScanSearch('transfer')} title="สแกน QR เติมหน้างาน" aria-label="สแกน QR เติมหน้างาน" style={{ border: '1px solid var(--green)', background: 'var(--green-tint)', color: 'var(--green)', borderRadius: 10, width: 46, minHeight: 44, fontSize: 17, flex: 'none' }}>▣</button>
         </div>
         <div style={{ display: 'flex', gap: 7, marginTop: 9, overflowX: 'auto', paddingBottom: 2 }}>
+          {/* "เร่งด่วนวันนี้" — ต่ำกว่าครึ่งหนึ่งของ Min เท่านั้น (isUrgentLow) — วันที่กำลังคนน้อย
+              กดดูแค่กลุ่มนี้ก่อนได้ ไม่ต้องเติมทุกอย่างที่ต่ำกว่า Min ในครั้งเดียว */}
+          <button className="chip" style={{ ...chip(state.filter === 'urgent'), ...(state.filter === 'urgent' ? { background: 'var(--red)', borderColor: 'var(--red)' } : { color: urgent.length ? 'var(--red)' : undefined, borderColor: urgent.length ? 'var(--red)' : undefined }) }} onClick={() => setFilter('urgent')}>🔴 เร่งด่วนวันนี้ ({urgent.length})</button>
           <button className="chip" style={chip(state.filter === 'low')} onClick={() => setFilter('low')}>ต่ำกว่า Min ({low.length})</button>
           <button className="chip" style={chip(state.filter === 'all')} onClick={() => setFilter('all')}>ทั้งหมด</button>
           <button className="chip" style={chip(state.filter === 'had')} onClick={() => setFilter('had')}>High alert</button>
+          {urgent.length > 0 && (
+            <button className="chip" style={{ border: '1px dashed var(--red)', background: 'transparent', color: 'var(--red)' }} onClick={fillUrgent} title="เติมเฉพาะรายการที่ต่ำกว่าครึ่งหนึ่งของ Min — ที่เหลือรอได้ ไม่ต้องเติมทีละเยอะๆ">เติมเฉพาะเร่งด่วนวันนี้</button>
+          )}
           <button className="chip" style={{ border: '1px dashed var(--green)', background: 'transparent', color: 'var(--green)' }} onClick={fillAll}>เติมตาม par ทั้งหมด</button>
           <button
             className="chip"
@@ -191,7 +230,7 @@ export default function TransferScreen() {
                     {f && <span className="muted"> (เหลือ {nf(f.qty)})</span>}
                   </div>
                   <div style={{ marginTop: 5, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={m.floor < floorMinOf(m) * 0.5} />
+                    <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={isUrgentLow(m)} />
                     <button
                       onClick={() => setExpandedId(expandedId === m.id ? null : m.id)}
                       style={{ border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 11, fontWeight: 600, padding: '2px 0' }}

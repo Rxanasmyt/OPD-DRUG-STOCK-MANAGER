@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { AppState, Med } from '../types';
 import {
-  wardOf, matchesWard, binFor, binDisplayAll, floorMinOf, subQty, usageAnomalies,
+  wardOf, matchesWard, binFor, binDisplayAll, floorMinOf, isUrgentLow, subQty, usageAnomalies,
   daysOfStockLeft, fefoLot, toneFor, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
   categoryOf, categoryStats,
 } from './selectors';
@@ -219,6 +219,15 @@ describe('toneFor', () => {
     expect(toneFor(med({ parFloor: 100, floor: 33 }))).toBe('var(--red)');
     expect(toneFor(med({ parFloor: 100, floor: 74 }))).toBe('var(--amber)');
     expect(toneFor(med({ parFloor: 100, floor: 75 }))).toBe('var(--green)');
+  });
+});
+
+describe('isUrgentLow', () => {
+  it('flags a shelf at/below half its own Min, not just below Min', () => {
+    // Min defaults to 30% of Max when floorMin is unset (floorMinOf()) — parFloor 100 -> Min 30.
+    expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 14 }))).toBe(true); // 14 < 15 (half of 30)
+    expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 15 }))).toBe(false); // exactly half — not urgent yet
+    expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 29 }))).toBe(false); // below Min but not urgent
   });
 });
 

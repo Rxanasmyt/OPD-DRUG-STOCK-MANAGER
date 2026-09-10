@@ -12,7 +12,7 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isUrgentLow, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -118,7 +118,18 @@ function freshState(): AppState {
     adminTab: 'users', auditFilter: 'all',
     historyFrom: '', historyTo: '', historyResults: null, historyLoading: false,
 
-    expiryWarnDays: 90, parFloorCoverDays: 3, parSubCoverDays: 21,
+    // Bug fix (real-world safety margin): parSubCoverDays was a flat 21 days — exactly the
+    // worst-case gap between two central-warehouse deliveries (this hospital's real cycle is
+    // weeks 1 and 3 of the month, up to ~2-3 weeks apart depending on the calendar) with ZERO
+    // room left for the supplier delay this hospital actually experiences (up to ~1 more week
+    // when a manufacturer doesn't ship on time). 21 days meant substock could hit zero exactly
+    // when everything was going right, with no buffer for when it doesn't. Bumped to 28 days
+    // (~4 weeks: the ~3-week worst-case cycle + about a week of delay buffer, rounded to a
+    // clean number) — a fresh/reset deployment starts with real headroom baked in. This is only
+    // the default for a project with no meta/settings doc yet; an existing hospital deployment
+    // keeps whatever it already has saved until someone updates "par substock สำรอง (วัน)" in
+    // หน้าตั้งค่า themselves (see updateGlobalSettings below).
+    expiryWarnDays: 90, parFloorCoverDays: 3, parSubCoverDays: 28,
 
     confirmDialog: null,
     promptDialog: null,
@@ -184,6 +195,7 @@ export interface AppCtx {
   bump: (id: string, d: number) => void;
   setCartQty: (id: string, raw: string) => void;
   fillAll: () => void;
+  fillUrgent: () => void;
   printPickList: () => void;
   printTodayReplenishList: () => void;
   printWarehouseRequestList: () => void;
@@ -945,6 +957,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return { ...st, cart, filter: 'low' };
     });
     toast('ใส่จำนวนตาม par ให้ทุกรายการที่ต่ำกว่าเกณฑ์แล้ว — ปรับได้ก่อนยืนยัน');
+  }, [toast]);
+  // "เติมเฉพาะเร่งด่วนวันนี้" — a deliberately SMALLER bulk-fill than fillAll(): only queues
+  // items already at/below half their Min (isUrgentLow(), selectors.ts), not everything under
+  // Min. The real problem this solves: with one person covering เติมหน้างาน on top of everything
+  // else some days, "เติมตาม par ทั้งหมด" can dump dozens of items into one cart at once — the
+  // exact "เติมทีละเยอะๆ" pileup that's hard to actually get through in a short shift. Doing
+  // just the genuinely urgent subset today, and letting the merely-below-Min rest ride until
+  // there's more time (still visible, still trackable, just not forced into today's cart), is
+  // what keeps daily replenishment sized to whoever's actually covering it that day.
+  const fillUrgent = useCallback(() => {
+    setState((st) => {
+      const cart = { ...st.cart };
+      st.meds.forEach((m) => {
+        if (!matchesWard(m, st.wardFilter)) return;
+        if (isUrgentLow(m)) { const q = suggestTransferQty(st, m); if (q > 0) cart[m.id] = q; }
+      });
+      return { ...st, cart, filter: 'urgent' };
+    });
+    toast('ใส่จำนวนตาม par ให้เฉพาะรายการเร่งด่วน (ต่ำกว่าครึ่งหนึ่งของ Min) แล้ว — ที่เหลือยังรอได้');
   }, [toast]);
 
   // "Auto Pick-List" — a printable, sorted-by-bin checklist of exactly what's in the current
@@ -2803,7 +2834,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     state, myProfile, theme, toggleTheme, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, respondConfirm, promptAsync, respondPrompt, applyUpdate, dismissUpdate,
     notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify, go, back,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
-    setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, printPickList, printTodayReplenishList, removeFromCart, clearCart, commitTransfer,
+    setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, fillUrgent, printPickList, printTodayReplenishList, removeFromCart, clearCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, printWarehouseRequestList,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
