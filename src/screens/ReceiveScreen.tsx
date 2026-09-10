@@ -9,12 +9,19 @@ import { WardBadge } from '../components/WardBadge';
 import { MedMiniCard } from '../components/MedMiniCard';
 import { StepIndicator, RECEIVE_STEPS } from '../components/StepIndicator';
 import { SearchInput } from '../components/SearchInput';
+import type { Med } from '../types';
 
 // Same severity bands as toneFor(), applied to substock/par instead of floor/parFloor —
 // this screen is about substock, so that's the ratio a pharmacist actually cares about here.
 function subTone(cur: number, par: number): string {
   const r = cur / Math.max(1, par);
   return r < 0.34 ? 'var(--red)' : r < 0.75 ? 'var(--amber)' : 'var(--green)';
+}
+
+// The "ควรเบิกจากคลังใหญ่" sort order — a noSubstock med has no substock stage to rank by (see
+// needsReceive's doc comment below), so its floor/parFloor ratio stands in for it there.
+function needsReceiveRatio(m: Med, curSub: number): number {
+  return usesSubstock(m) ? curSub / Math.max(1, m.parSub) : m.floor / Math.max(1, m.parFloor);
 }
 
 export default function ReceiveScreen() {
@@ -57,10 +64,19 @@ export default function ReceiveScreen() {
   // ใหญ่" list HomeScreen already computes (substock below its par), shown here by default —
   // most urgent (lowest substock/par ratio) first — and it steps aside the moment a search is
   // typed or a med is picked, so it never competes with the actual search results above.
+  //
+  // Bug fix (follow-up): only ever checked usesSubstock(m) meds against substock/parSub — a
+  // noSubstock med (liquids/inhalers/sprays, see usesSubstock()) has no substock stage, but it
+  // IS refilled straight from this exact central-warehouse request on the exact same 2-week
+  // cycle (see the "รอบ 2 สัปดาห์" print button above), and its floor par is already sized off
+  // that same 2-week basis (suggestPar(), selectors.ts) — so it was silently never showing up
+  // here even when its shelf genuinely needed requesting. Judge it against floor/parFloor
+  // instead (its shelf IS its substock for this purpose); a substock-backed med is judged
+  // against substock/parSub as before — every active med falls into exactly one check.
   const needsReceive = !state.recvMed && !state.recvSearch.trim()
     ? state.meds
-        .filter((m) => m.active && usesSubstock(m) && sub(m.id) < m.parSub)
-        .sort((a, b) => sub(a.id) / Math.max(1, a.parSub) - sub(b.id) / Math.max(1, b.parSub))
+        .filter((m) => m.active && (usesSubstock(m) ? sub(m.id) < m.parSub : m.floor < m.parFloor))
+        .sort((a, b) => needsReceiveRatio(a, sub(a.id)) - needsReceiveRatio(b, sub(b.id)))
         .slice(0, 20)
     : [];
   const canApprove = state.role !== 'tech';
@@ -165,7 +181,15 @@ export default function ReceiveScreen() {
               {needsReceive.map((m) => (
                 <button key={m.id} onClick={() => pickRecvMed(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
                   <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name} <WardBadge med={m} /></span>
-                  <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={11.5} /> · par {nf(m.parSub)}</span>
+                  {/* A noSubstock med has no real substock number to show (always 0) — its
+                      shelf (floor/parFloor) IS the number that matters for "should this be on
+                      the warehouse request" here, so show that instead — see needsReceive's
+                      doc comment above for why it's judged the same way. */}
+                  {usesSubstock(m) ? (
+                    <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={11.5} /> · par {nf(m.parSub)}</span>
+                  ) : (
+                    <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>ไม่มี substock · หน้างาน <Qty value={m.floor} tone={subTone(m.floor, m.parFloor)} size={11.5} /> · par {nf(m.parFloor)}</span>
+                  )}
                 </button>
               ))}
             </div>

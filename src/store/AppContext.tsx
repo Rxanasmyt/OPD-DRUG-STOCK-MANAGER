@@ -1009,10 +1009,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // form, kept in case someone unchecks it later) — any such med with a leftover nonzero
     // parSub from before it was marked noSubstock showed up on this print sheet forever,
     // telling staff to request substock replenishment for a stage that doesn't exist for it.
-    const items = state.meds.filter((m) => m.active && usesSubstock(m) && subQty(state, m.id) < m.parSub);
-    if (!items.length) { toast('ทุกรายการยังสูงกว่า par substock — ยังไม่ต้องเบิกเพิ่ม'); return; }
-    const rows = items.map((m) => ({ bin: m.code, name: m.name, qty: Math.max(0, m.parSub - subQty(state, m.id)), unit: m.unit }));
-    const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการที่ต่ำกว่า par substock ทั้งระบบ', { bin: 'รหัสยา', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() });
+    //
+    // Bug fix (follow-up): that guard ended up silently DROPPING noSubstock meds from this
+    // list entirely — wrong the other way. A noSubstock med has no substock stage, but it's
+    // refilled from the exact same central-warehouse request, on the exact same 2-week cycle
+    // (see this screen's own "รอบ 2 สัปดาห์" label) — its shelf (floor) IS its substock for
+    // requisitioning purposes, and suggestPar() already sizes its floor par (parFloor) off the
+    // same longer cover-days basis a real substock par gets (see selectors.ts). So: a med with
+    // a substock stage is judged against substock/parSub as before; one without is judged
+    // against floor/parFloor instead — every active med lands in exactly one of those checks,
+    // never both, so nothing doubles up and nothing that actually needs requesting is missing.
+    const items = state.meds.filter((m) => m.active && (usesSubstock(m) ? subQty(state, m.id) < m.parSub : m.floor < m.parFloor));
+    if (!items.length) { toast('ทุกรายการยังสูงกว่า par — ยังไม่ต้องเบิกเพิ่ม'); return; }
+    const rows = items.map((m) => {
+      const short = usesSubstock(m);
+      const qty = Math.max(0, (short ? m.parSub - subQty(state, m.id) : m.parFloor - m.floor));
+      return { bin: m.code, name: m.name + (short ? '' : ' (ไม่มี substock)'), qty, unit: m.unit };
+    });
+    const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการที่ต่ำกว่า par ทั้งระบบ (รวมยาที่ไม่มี substock)', { bin: 'รหัสยา', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() });
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state, toast, userName]);
 
