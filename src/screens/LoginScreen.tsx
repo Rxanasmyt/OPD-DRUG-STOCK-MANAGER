@@ -63,18 +63,24 @@ export default function LoginScreen() {
           on every screen size (a single column on phones, where this app is actually used;
           the extra width on a tablet just gives the card more breathing room, not a second
           column, since a split layout only makes sense wider than this app is ever opened). */}
-      <div style={{ position: 'relative', padding: 'calc(env(safe-area-inset-top, 0px) + 22px) 26px 4px', maxWidth: 440, margin: '0 auto', width: '100%' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 22, animation: 'fade .4s var(--ease-out) both' }}>
-          <div style={{ width: 46, height: 46, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, #ffffff, #f4f2ec)', border: '1px solid rgba(255,255,255,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 8, flex: 'none', animation: 'glowPulse 3.2s infinite', boxShadow: '0 6px 18px -6px rgba(0,0,0,.35), 0 0 0 5px rgba(var(--brand-coral-rgb),.16)' }}><HospitalCrest size={28} /></div>
+      <div style={{ position: 'relative', padding: 'calc(env(safe-area-inset-top, 0px) + 26px) 26px 6px', maxWidth: 440, margin: '0 auto', width: '100%' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 14, animation: 'fade .4s var(--ease-out) both' }}>
+          <div style={{ width: 68, height: 68, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, #ffffff, #f4f2ec)', border: '1px solid rgba(255,255,255,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 11, flex: 'none', animation: 'glowPulse 3.2s infinite', boxShadow: '0 10px 26px -8px rgba(0,0,0,.4), 0 0 0 6px rgba(var(--brand-coral-rgb),.14)' }}><HospitalCrest size={42} /></div>
+          {/* Formal wordmark lockup: hospital abbreviation as the primary mark (large, tight
+              tracking, the weight a logotype carries), the module name as a letter-spaced
+              uppercase eyebrow underneath, then the full Thai name/ward line last — same info
+              as before ("KPNHOS-DRUG SUBSTOCK-OPD-IPD-MANAGEMENT" run together on one line) but
+              now laid out in a clear, deliberate hierarchy instead of one dense string. */}
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-soft)', lineHeight: 1.3 }}>KPNHOS-DRUG SUBSTOCK-OPD-IPD-MANAGEMENT</div>
-            <div style={{ fontSize: 11.5, color: 'rgba(242,245,239,.65)', marginTop: 2 }}>รพ.กรงปินัง · ห้องยา OPD-IPD</div>
+            <div style={{ fontSize: 25, fontWeight: 800, letterSpacing: '.02em', color: 'var(--ink-soft)', lineHeight: 1.15 }}>KPNHOS</div>
+            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.16em', textTransform: 'uppercase', color: 'rgba(var(--brand-coral-rgb),.95)', marginTop: 5 }}>Drug Substock · OPD–IPD Management</div>
+            <div style={{ fontSize: 12, color: 'rgba(242,245,239,.62)', marginTop: 7, letterSpacing: '.01em' }}>โรงพยาบาลกรงปินัง · งานเภสัชกรรม จ.ยะลา</div>
           </div>
         </div>
       </div>
 
       <div style={{ position: 'relative', maxWidth: 440, margin: '0 auto', width: '100%', padding: '0 20px calc(env(safe-area-inset-bottom, 0px) + 28px)' }}>
-        <div style={{ position: 'relative', overflow: 'hidden', background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.14)', borderRadius: 22, padding: 24, animation: 'fade .4s var(--ease-out) both', animationDelay: '60ms', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ position: 'relative', overflow: 'hidden', background: 'rgba(255,255,255,.075)', backdropFilter: 'blur(18px)', border: '1px solid rgba(255,255,255,.16)', borderRadius: 24, padding: '26px 24px 24px', marginTop: 22, animation: 'fade .4s var(--ease-out) both', animationDelay: '60ms', boxShadow: '0 24px 60px -18px rgba(0,0,0,.5), var(--shadow-lg)' }}>
           {/* A thin, slowly-shifting two-tone highlight along the top edge — the same "this
               surface is genuinely alive, not a static screenshot" cue the rest of the app's
               premium chrome (mesh-bg, glowPulse) already uses, scaled down to a hairline so it
@@ -82,18 +88,21 @@ export default function LoginScreen() {
               teal→coral→teal so this hairline echoes the crest's own two-tone palette instead
               of a generic white shimmer. */}
           <div aria-hidden="true" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg, transparent, var(--green-bright), rgba(var(--brand-coral-rgb),.9), var(--green-bright), transparent)', backgroundSize: '200% 100%', animation: 'aiGradientShift 4.5s ease-in-out infinite' }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-            <div style={{ width: 38, height: 38, borderRadius: 11, background: 'linear-gradient(140deg, var(--ink-soft), #d8e6dc)', color: 'var(--green-dark)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, boxShadow: '0 4px 12px -4px rgba(0,0,0,.3)' }}>🔒</div>
-            <div style={{ fontSize: 19, fontWeight: 700, color: 'var(--ink-soft)' }}>{isRegister ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 5 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: 'linear-gradient(140deg, var(--ink-soft), #d8e6dc)', color: 'var(--green-dark)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, flex: 'none', boxShadow: '0 4px 14px -4px rgba(0,0,0,.35)' }}>🔒</div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 19.5, fontWeight: 700, color: 'var(--ink-soft)', lineHeight: 1.25 }}>{isRegister ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}</div>
+              <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'rgba(242,245,239,.5)', marginTop: 1 }}>บัญชีเจ้าหน้าที่ห้องยา</div>
+            </div>
           </div>
-          <div style={{ fontSize: 12.5, color: 'rgba(242,245,239,.65)', marginBottom: 20 }}>
+          <div style={{ fontSize: 12.5, color: 'rgba(242,245,239,.65)', marginTop: 10, marginBottom: 20, lineHeight: 1.55 }}>
             {isRegister ? 'สมัครด้วยบัญชีเจ้าหน้าที่ห้องยา — รออนุมัติก่อนเข้าใช้งาน' : 'ลงชื่อเข้าใช้ด้วยบัญชีเจ้าหน้าที่ห้องยา'}
           </div>
 
-          <div style={{ position: 'relative', display: 'flex', gap: 2, background: 'rgba(255,255,255,.09)', padding: 3, borderRadius: 11, marginBottom: 18 }}>
-            <span style={{ position: 'absolute', top: 3, bottom: 3, left: isRegister ? '50%' : 3, width: 'calc(50% - 3px)', background: 'var(--ink-soft)', borderRadius: 8, transition: 'left var(--dur-slow) var(--ease-spring)' }} />
-            <button onClick={() => setAuthMode('login')} className="press-spring" style={{ position: 'relative', flex: 1, border: 0, background: 'transparent', color: !isRegister ? 'var(--ink)' : 'rgba(242,245,239,.75)', padding: '10px 0', borderRadius: 8, fontSize: 13.5, fontWeight: 600 }}>เข้าสู่ระบบ</button>
-            <button onClick={() => setAuthMode('register')} className="press-spring" style={{ position: 'relative', flex: 1, border: 0, background: 'transparent', color: isRegister ? 'var(--ink)' : 'rgba(242,245,239,.75)', padding: '10px 0', borderRadius: 8, fontSize: 13.5, fontWeight: 600 }}>สมัครสมาชิก</button>
+          <div style={{ position: 'relative', display: 'flex', gap: 2, background: 'rgba(255,255,255,.09)', border: '1px solid rgba(255,255,255,.08)', padding: 3, borderRadius: 12, marginBottom: 18 }}>
+            <span style={{ position: 'absolute', top: 3, bottom: 3, left: isRegister ? '50%' : 3, width: 'calc(50% - 3px)', background: 'var(--ink-soft)', borderRadius: 9, boxShadow: '0 3px 10px -3px rgba(0,0,0,.4)', transition: 'left var(--dur-slow) var(--ease-spring)' }} />
+            <button onClick={() => setAuthMode('login')} className="press-spring" style={{ position: 'relative', flex: 1, border: 0, background: 'transparent', color: !isRegister ? 'var(--ink)' : 'rgba(242,245,239,.75)', padding: '10px 0', borderRadius: 9, fontSize: 13.5, fontWeight: 600 }}>เข้าสู่ระบบ</button>
+            <button onClick={() => setAuthMode('register')} className="press-spring" style={{ position: 'relative', flex: 1, border: 0, background: 'transparent', color: isRegister ? 'var(--ink)' : 'rgba(242,245,239,.75)', padding: '10px 0', borderRadius: 9, fontSize: 13.5, fontWeight: 600 }}>สมัครสมาชิก</button>
           </div>
 
           <form
@@ -127,7 +136,7 @@ export default function LoginScreen() {
               type="submit"
               disabled={state.authBusy}
               className="login-btn press-spring"
-              style={{ border: 0, background: 'var(--ink-soft)', color: 'var(--ink)', padding: '15px 18px', borderRadius: 13, fontSize: 15, fontWeight: 700, marginTop: 4, minHeight: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 10px 26px -10px rgba(0,0,0,.4)' }}
+              style={{ border: 0, background: 'linear-gradient(135deg, var(--ink-soft), #dfe9e1)', color: 'var(--ink)', padding: '15px 18px', borderRadius: 14, fontSize: 15, fontWeight: 700, letterSpacing: '.01em', marginTop: 4, minHeight: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 14px 30px -12px rgba(0,0,0,.5)' }}
             >
               {state.authBusy ? (
                 'กำลังดำเนินการ…'
@@ -151,9 +160,16 @@ export default function LoginScreen() {
           )}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
+        <div style={{ background: 'rgba(255,255,255,.045)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 18, padding: '4px 16px', marginTop: 18 }}>
           {FEATURES.map(([icon, title, sub], i) => (
-            <div key={title} style={{ display: 'flex', gap: 11, alignItems: 'flex-start', animation: 'fade .4s var(--ease-out) both', animationDelay: `${120 + i * 70}ms` }}>
+            <div
+              key={title}
+              style={{
+                display: 'flex', gap: 12, alignItems: 'flex-start', padding: '13px 0',
+                borderTop: i === 0 ? undefined : '1px solid rgba(255,255,255,.08)',
+                animation: 'fade .4s var(--ease-out) both', animationDelay: `${120 + i * 70}ms`,
+              }}
+            >
               <div style={{ width: 30, height: 30, borderRadius: 9, background: 'rgba(255,255,255,.1)', color: 'var(--ink-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flex: 'none' }}>{icon}</div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink-soft)' }}>{title}</div>
@@ -161,6 +177,9 @@ export default function LoginScreen() {
               </div>
             </div>
           ))}
+        </div>
+        <div style={{ textAlign: 'center', fontSize: 10.5, color: 'rgba(242,245,239,.4)', letterSpacing: '.04em', marginTop: 18 }}>
+          © งานเภสัชกรรม โรงพยาบาลกรงปินัง
         </div>
       </div>
     </div>
