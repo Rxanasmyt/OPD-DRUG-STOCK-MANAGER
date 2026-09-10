@@ -390,6 +390,20 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 .mesh-bg::before { top: -60%; left: -30%; background: radial-gradient(circle, rgba(45,196,180,.5), transparent 60%); }
 .mesh-bg::after { bottom: -70%; right: -30%; background: radial-gradient(circle, rgba(var(--brand-coral-rgb),.4), transparent 60%); animation-delay: -7s; }
 
+/* Faint dot-grid texture behind the login mesh blobs — pure CSS (no image asset), fades out
+   toward the bottom via a mask so it reads as depth near the header and never competes with
+   the form card lower on the page. */
+.login-pattern {
+  position: absolute; inset: 0; pointer-events: none;
+  background-image: radial-gradient(rgba(255,255,255,.14) 1px, transparent 1px);
+  background-size: 20px 20px;
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,.9), transparent 62%);
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,.9), transparent 62%);
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { display: inline-block; animation: spin .8s linear infinite; }
+
 .theme-toggle {
   position: relative; flex: none; width: 40px; height: 40px; border-radius: 12px; border: 0;
   background: rgba(255,255,255,.14); color: var(--ink-soft); display: flex; align-items: center;

@@ -1,6 +1,14 @@
 import { useState } from 'react';
 import { useApp } from '../store/AppContext';
 import HospitalCrest from '../components/HospitalCrest';
+import versionRaw from '../../VERSION?raw';
+
+// Same "?raw" VERSION import MoreScreen already uses — one source of truth for the version
+// string, now also surfaced on Login so staff can read it off before they're even signed in
+// (useful when reporting a bug over the phone, or confirming a device auto-updated).
+const APP_VERSION = versionRaw.trim();
+
+const USERNAME_RE = /^[a-z0-9._]{3,20}$/;
 
 const FEATURES: [string, string, string][] = [
   ['🛡️', 'ควบคุมสิทธิ์ตามบทบาท', 'Admin · เภสัชกร · ผู้ช่วยเภสัชกร — แต่ละบทบาทเห็น/แก้ได้ต่างกันจริง'],
@@ -26,10 +34,25 @@ export default function LoginScreen() {
     </button>
   );
 
+  // Network status, readable before signing in — this is the same state.online flag the
+  // header shows once inside the app (tracked globally in AppContext via window
+  // online/offline listeners), surfaced here too because rural/hospital-wifi drops are
+  // exactly when a stuck-looking login screen is most confusing.
+  const OnlineBadge = (
+    <div
+      title={state.online ? 'เชื่อมต่ออินเทอร์เน็ตอยู่' : 'ออฟไลน์ — เข้าสู่ระบบไม่ได้จนกว่าจะกลับมาออนไลน์'}
+      style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', left: 20, zIndex: 2, border: 0, background: state.online ? 'rgba(255,255,255,.14)' : 'var(--amber-bg)', color: state.online ? 'var(--ink-soft)' : 'var(--amber-ink)', padding: '7px 10px', borderRadius: 9, fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: state.online ? '#5adc8c' : 'var(--amber)', display: 'inline-block', animation: state.online ? 'glowPulse 2.4s infinite' : 'none', flex: 'none' }} />
+      {state.online ? 'ออนไลน์' : 'ออฟไลน์'}
+    </div>
+  );
+
   if (state.authStatus === 'loading') {
     return (
       <div className="app-shell" style={{ justifyContent: 'center', alignItems: 'center', background: 'var(--login-bg)', overflowY: 'auto' }}>
         <div className="mesh-bg" aria-hidden="true" />
+        <div className="login-pattern" aria-hidden="true" />
         <div style={{ position: 'relative', color: 'var(--ink-soft)', opacity: 0.8, fontSize: 13 }}>กำลังเชื่อมต่อ…</div>
       </div>
     );
@@ -39,6 +62,8 @@ export default function LoginScreen() {
     return (
       <div className="app-shell" style={{ justifyContent: 'center', padding: 'calc(env(safe-area-inset-top, 0px) + 32px) 26px calc(env(safe-area-inset-bottom, 0px) + 32px)', background: 'var(--login-bg)', color: 'var(--ink-soft)', textAlign: 'center', overflowY: 'auto' }}>
         <div className="mesh-bg" aria-hidden="true" />
+        <div className="login-pattern" aria-hidden="true" />
+        {OnlineBadge}
         {ThemeToggleBtn}
         <div style={{ position: 'relative', width: 62, height: 62, borderRadius: '50%', background: 'rgba(242,245,239,.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, margin: '0 auto 18px' }}>⏳</div>
         <div style={{ position: 'relative', fontSize: 19, fontWeight: 700, marginBottom: 6 }}>รอ Admin อนุมัติบัญชี</div>
@@ -58,6 +83,8 @@ export default function LoginScreen() {
   return (
     <div className="app-shell" style={{ background: 'var(--login-bg)', overflowY: 'auto' }}>
       <div className="mesh-bg" aria-hidden="true" />
+      <div className="login-pattern" aria-hidden="true" />
+      {OnlineBadge}
       {ThemeToggleBtn}
       {/* Trust strip — real, already-shipped features, not decoration. Shown above the form
           on every screen size (a single column on phones, where this app is actually used;
@@ -65,7 +92,11 @@ export default function LoginScreen() {
           column, since a split layout only makes sense wider than this app is ever opened). */}
       <div style={{ position: 'relative', padding: 'calc(env(safe-area-inset-top, 0px) + 26px) 26px 6px', maxWidth: 440, margin: '0 auto', width: '100%' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 14, animation: 'fade .4s var(--ease-out) both' }}>
-          <div style={{ width: 68, height: 68, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, #ffffff, #f4f2ec)', border: '1px solid rgba(255,255,255,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 11, flex: 'none', animation: 'glowPulse 3.2s infinite', boxShadow: '0 10px 26px -8px rgba(0,0,0,.4), 0 0 0 6px rgba(var(--brand-coral-rgb),.14)' }}><HospitalCrest size={42} /></div>
+          {/* Entrance: a quick spring "pop" (reusing the same .pop keyframe the rest of the app
+              uses for cards/sheets appearing) plays once on load, then the badge settles into
+              its usual ambient glowPulse loop — so the crest feels like it arrives rather than
+              just being statically present. */}
+          <div style={{ width: 68, height: 68, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, #ffffff, #f4f2ec)', border: '1px solid rgba(255,255,255,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 11, flex: 'none', animation: 'pop .5s var(--ease-spring) both, glowPulse 3.2s infinite .5s', boxShadow: '0 10px 26px -8px rgba(0,0,0,.4), 0 0 0 6px rgba(var(--brand-coral-rgb),.14)' }}><HospitalCrest size={42} /></div>
           {/* Formal wordmark lockup: hospital abbreviation as the primary mark (large, tight
               tracking, the weight a logotype carries), the module name as a letter-spaced
               uppercase eyebrow underneath, then the full Thai name/ward line last — same info
@@ -115,9 +146,17 @@ export default function LoginScreen() {
                 <Field icon="🏥" label="แผนก" value={state.authDept} onChange={setAuthDept} placeholder="เภสัชกรรม" />
               </>
             )}
-            <Field icon="🪪" label="ชื่อผู้ใช้ / Username" value={state.authUsername} onChange={(v) => setAuthUsername(v.toLowerCase())} autoComplete="username" />
+            <Field
+              icon="🪪" label="ชื่อผู้ใช้ / Username" value={state.authUsername} onChange={(v) => setAuthUsername(v.toLowerCase())} autoComplete="username"
+              // Live ✓/✗ only makes sense in register mode — on login the username is
+              // whatever it already is, this pattern can't say if it's actually registered.
+              valid={isRegister && state.authUsername ? USERNAME_RE.test(state.authUsername) : null}
+            />
             {isRegister && <div style={{ fontSize: 11, opacity: 0.55, margin: '-4px 0 0' }}>ตัวอักษรอังกฤษเล็ก ตัวเลข . หรือ _ เท่านั้น (3-20 ตัว)</div>}
-            <PasswordField value={state.authPassword} onChange={setAuthPassword} placeholder={isRegister ? 'อย่างน้อย 6 ตัวอักษร' : '••••••••'} autoComplete={isRegister ? 'new-password' : 'current-password'} />
+            <PasswordField
+              value={state.authPassword} onChange={setAuthPassword} placeholder={isRegister ? 'อย่างน้อย 6 ตัวอักษร' : '••••••••'} autoComplete={isRegister ? 'new-password' : 'current-password'}
+              valid={isRegister && state.authPassword ? state.authPassword.length >= 6 : null}
+            />
 
             {!isRegister && (
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'rgba(242,245,239,.8)', cursor: 'pointer', userSelect: 'none', margin: '-2px 0 2px' }}>
@@ -139,7 +178,10 @@ export default function LoginScreen() {
               style={{ border: 0, background: 'linear-gradient(135deg, var(--ink-soft), #dfe9e1)', color: 'var(--ink)', padding: '15px 18px', borderRadius: 14, fontSize: 15, fontWeight: 700, letterSpacing: '.01em', marginTop: 4, minHeight: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 14px 30px -12px rgba(0,0,0,.5)' }}
             >
               {state.authBusy ? (
-                'กำลังดำเนินการ…'
+                <>
+                  <span className="spin" aria-hidden="true" style={{ width: 15, height: 15, border: '2px solid rgba(18,33,26,.25)', borderTopColor: 'var(--ink)', borderRadius: '50%' }} />
+                  กำลังดำเนินการ…
+                </>
               ) : (
                 <>
                   {isRegister ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}
@@ -178,15 +220,20 @@ export default function LoginScreen() {
             </div>
           ))}
         </div>
-        <div style={{ textAlign: 'center', fontSize: 10.5, color: 'rgba(242,245,239,.4)', letterSpacing: '.04em', marginTop: 18 }}>
-          © งานเภสัชกรรม โรงพยาบาลกรงปินัง
+        <div style={{ textAlign: 'center', fontSize: 10.5, color: 'rgba(242,245,239,.4)', letterSpacing: '.04em', marginTop: 18, lineHeight: 1.8 }}>
+          <div>© งานเภสัชกรรม โรงพยาบาลกรงปินัง · เวอร์ชัน {APP_VERSION}</div>
+          <div>พัฒนาแอพโดย ภก.อนัส มะยีแต</div>
         </div>
       </div>
     </div>
   );
 }
 
-function Field({ icon, label, value, onChange, type = 'text', placeholder, autoComplete }: { icon: string; label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string; autoComplete?: string }) {
+// `valid`: null/undefined = no live check shown (e.g. on login, or an empty field);
+// true/false = render a ✓/✗ once there's something to judge. Only register-mode fields pass
+// a real value for this — it's a "will this even pass validation before you hit submit" nudge,
+// not a password-strength meter.
+function Field({ icon, label, value, onChange, type = 'text', placeholder, autoComplete, valid }: { icon: string; label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string; autoComplete?: string; valid?: boolean | null }) {
   return (
     <label style={{ display: 'block' }}>
       <span style={{ display: 'block', fontSize: 11.5, opacity: 0.7, marginBottom: 4, fontWeight: 600 }}>{label}</span>
@@ -203,14 +250,17 @@ function Field({ icon, label, value, onChange, type = 'text', placeholder, autoC
           // Bug fix (mobile fit): a text input under 16px makes iOS Safari auto-zoom the
           // whole page in on focus — the very first thing anyone does on this app on their
           // phone is tap this field, so the zoom hit every single login on an iPhone/iPad.
-          style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: '13px 14px 13px 36px', fontSize: 16, minHeight: 46 }}
+          style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: `13px ${valid == null ? 14 : 34}px 13px 36px`, fontSize: 16, minHeight: 46 }}
         />
+        {valid != null && (
+          <span aria-hidden="true" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: valid ? 'var(--green-bright)' : 'var(--red)', animation: 'checkPop .25s var(--ease-spring)' }}>{valid ? '✓' : '✗'}</span>
+        )}
       </div>
     </label>
   );
 }
 
-function PasswordField({ value, onChange, placeholder, autoComplete }: { value: string; onChange: (v: string) => void; placeholder?: string; autoComplete?: string }) {
+function PasswordField({ value, onChange, placeholder, autoComplete, valid }: { value: string; onChange: (v: string) => void; placeholder?: string; autoComplete?: string; valid?: boolean | null }) {
   const [show, setShow] = useState(false);
   return (
     <label style={{ display: 'block' }}>
@@ -225,8 +275,11 @@ function PasswordField({ value, onChange, placeholder, autoComplete }: { value: 
           autoComplete={autoComplete}
           required
           className="login-field"
-          style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: '13px 40px 13px 36px', fontSize: 16, minHeight: 46 }}
+          style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: `13px ${valid == null ? 40 : 60}px 13px 36px`, fontSize: 16, minHeight: 46 }}
         />
+        {valid != null && (
+          <span aria-hidden="true" style={{ position: 'absolute', right: 40, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: valid ? 'var(--green-bright)' : 'var(--red)', animation: 'checkPop .25s var(--ease-spring)' }}>{valid ? '✓' : '✗'}</span>
+        )}
         <button
           type="button"
           onClick={() => setShow((s) => !s)}
