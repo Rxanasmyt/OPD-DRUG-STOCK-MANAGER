@@ -13,6 +13,7 @@ import PromptDialog from './components/PromptDialog';
 import UpdateBanner from './components/UpdateBanner';
 import { SkeletonHome, SkeletonScreen } from './components/Skeleton';
 import { ContextBar } from './components/ContextBar';
+import HospitalCrest from './components/HospitalCrest';
 import type { Screen } from './types';
 
 // Code-split the screens that aren't part of the hot day-to-day path (settings, admin,
@@ -102,8 +103,16 @@ export default function App() {
     <div className="app-shell">
       <header style={{ background: 'linear-gradient(155deg, #149c8f 0%, var(--green) 55%, var(--green-dark) 100%)', color: 'var(--ink-soft)', padding: 'calc(env(safe-area-inset-top, 0px) + 12px) 16px 13px', display: 'flex', alignItems: 'center', gap: 10, flex: 'none', boxShadow: '0 4px 14px -6px rgba(10,96,89,.5)', position: 'relative', overflow: 'hidden', zIndex: 3 }}>
         <div className="mesh-bg" aria-hidden="true" />
-        {canBack && (
+        {canBack ? (
           <button onClick={back} style={{ position: 'relative', border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 32, height: 32, borderRadius: 9, fontSize: 16, flex: 'none' }}>←</button>
+        ) : (
+          // Real hospital crest, not just a screen title — every screen carries one now
+          // (Login/SubstockCard/print sheets already did), but only shown here on the 5
+          // bottom-nav root screens: a sub-screen already saw it on the way in, and this slot
+          // is the back button's the moment there's somewhere to go back to.
+          <div aria-hidden="true" style={{ position: 'relative', width: 32, height: 32, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, #ffffff, #f4f2ec)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 5, flex: 'none', boxShadow: '0 2px 8px -3px rgba(0,0,0,.35)' }}>
+            <HospitalCrest size={20} />
+          </div>
         )}
         <div key={state.screen + '|' + title} style={{ position: 'relative', minWidth: 0, flex: 1, animation: 'fade .22s var(--ease-out)' }}>
           <div style={{ fontSize: 16.5, fontWeight: 600, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
