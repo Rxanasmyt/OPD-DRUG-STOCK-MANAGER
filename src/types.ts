@@ -139,6 +139,12 @@ export type AuditType =
   // logged to the separate auditLog collection, not txs) — the one durable record that this
   // ever happened, and by whom.
   | 'stock_ledger_reset'
+  // Logged once by resetAllQuantities() (AppContext.tsx) — same go-live-reset shape as
+  // stock_ledger_reset above, but the opposite half of the data: zeroes every med's `floor`
+  // and deletes every `lots` document (so substock, which is only ever the sum of lot.qty,
+  // goes to 0 too), without touching a med's name/code/par/bin/price/etc. Used when the
+  // deployed quantities are still sample data and the drug list itself is already real.
+  | 'quantity_reset'
   | TxType;
 
 export interface AuditEntry {

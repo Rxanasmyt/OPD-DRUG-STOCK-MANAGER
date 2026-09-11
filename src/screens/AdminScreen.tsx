@@ -23,6 +23,7 @@ const TYPE_LABEL: Record<string, string> = {
   adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP',
   ward_move_out: 'ย้ายชั้นวาง (ต้นทาง)', ward_move_in: 'ย้ายชั้นวาง (ปลายทาง)',
   stock_ledger_reset: 'รีเซ็ตบัตรสต็อกยาทุกตัว',
+  quantity_reset: 'รีเซ็ตจำนวนยาทุกตัวเป็น 0',
 };
 // commitCount (floor) and commitSubCount (substock) both log type:'count' — TYPE_LABEL alone
 // can't tell them apart (one key, one label), so this reads the row's loc too, the same
@@ -45,7 +46,7 @@ const APP_URL = window.location.origin + import.meta.env.BASE_URL;
 export default function AdminScreen() {
   const {
     state, setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit, roleLabelOf, toast,
-    setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, resetAllStockLedgers,
+    setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, resetAllStockLedgers, resetAllQuantities,
   } = useApp();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [userQuery, setUserQuery] = useState('');
@@ -209,12 +210,27 @@ export default function AdminScreen() {
             </div>
 
             {/* Admin-only, sits apart from the routine account-management UI above (own red
-                card, own heading) so it reads as a distinct, dangerous category rather than
-                just another row in the list — the actual double-confirmation (confirmAsync +
-                a typed "RESET") lives in resetAllStockLedgers() itself, AppContext.tsx. */}
+                heading, own red-bordered cards) so it reads as a distinct, dangerous category
+                rather than just another row in the list — the actual double-confirmation
+                (confirmAsync + a typed "RESET") lives in each action itself, AppContext.tsx. */}
             {state.role === 'admin' && (
               <>
                 <div style={{ fontSize: 13.5, fontWeight: 600, margin: '20px 2px 8px', color: 'var(--red)' }}>เครื่องมือระบบ — ใช้ด้วยความระมัดระวัง</div>
+                <div className="card" style={{ padding: 13, borderColor: 'var(--red)', marginBottom: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>รีเซ็ตจำนวนยาทุกตัวเป็น 0</div>
+                  <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginBottom: 10 }}>
+                    ตั้งยอดหน้างานของยา<b>ทุกตัวเป็น 0</b> และลบ lot ทั้งหมดใน substock (ทำให้ยอด substock เป็น 0 ไปด้วย) —
+                    <b>ชื่อยา รหัส หน่วย ราคา par และชั้นวางไม่เปลี่ยนแปลง</b> เหมาะสำหรับตอนที่ยอดจำนวนในระบบยังเป็นแค่ข้อมูลตัวอย่าง
+                    ยังไม่ใช่ของจริง ต้องนับสต็อกจริงแล้วกรอกใหม่ทั้งหมดหลังรีเซ็ต — ย้อนกลับไม่ได้
+                  </div>
+                  <button
+                    onClick={resetAllQuantities}
+                    disabled={!!state.busy['resetAllQuantities']}
+                    style={{ width: '100%', border: '1px solid var(--red)', background: 'var(--red-bg)', color: 'var(--red)', padding: '11px 14px', borderRadius: 10, fontSize: 13, fontWeight: 700, minHeight: 44, opacity: state.busy['resetAllQuantities'] ? 0.7 : 1 }}
+                  >
+                    {state.busy['resetAllQuantities'] ? 'กำลังรีเซ็ต…' : 'รีเซ็ตจำนวนยาทุกตัวเป็น 0'}
+                  </button>
+                </div>
                 <div className="card" style={{ padding: 13, borderColor: 'var(--red)' }}>
                   <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>รีเซ็ตบัตรสต็อกยาทุกตัว</div>
                   <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginBottom: 10 }}>

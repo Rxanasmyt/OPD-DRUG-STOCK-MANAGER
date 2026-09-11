@@ -311,6 +311,11 @@ export interface AppCtx {
    * in AppContext.tsx for the full "why" and scope. Double-confirmed (confirmAsync + a typed
    * "RESET" via promptAsync) since it's the widest-blast-radius destructive action in the app. */
   resetAllStockLedgers: () => void;
+  /** Admin-only, permanently zeroes every med's floor and deletes every lots document (so
+   * substock, floor's exact counterpart, goes to 0 too) — never touches name/code/par/bin/
+   * price/etc. See its doc comment in AppContext.tsx. Same double-confirmation as
+   * resetAllStockLedgers(). */
+  resetAllQuantities: () => void;
   setMedsFocusId: (id: string | null) => void;
   goSubstockCardFor: (medId: string) => void;
   setSubstockFocusId: (id: string | null) => void;
@@ -2332,6 +2337,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }), [myProfile, confirmAsync, promptAsync, toast, toastErr, logAudit, userName, guardOnce]);
 
+  // Real-world request: the current deployment's floor/substock numbers are sample data (the
+  // drug NAMES/codes/pars/bins are real — only the quantities aren't) left over from setting
+  // the formulary up, and the hospital wants a clean zero before staff start counting for
+  // real. Same shape and same reasoning as resetAllStockLedgers() just above (go-live reset,
+  // scoped narrowly, double-confirmed) but touches the opposite half of the data: this zeroes
+  // every med's `floor` and deletes every `lots` document (substock = sum of lot.qty — see
+  // subQty() in selectors.ts, so deleting every lot IS zeroing every substock), while never
+  // touching a single med's name/code/unit/par/bin/category/price/active flag or any other
+  // setting. lastCountTs/lastSubCountTs are cleared too — leaving them would make CountScreen
+  // claim these zeroed, never-actually-counted numbers were "recently verified".
+  const resetAllQuantities = useCallback(guardOnce('resetAllQuantities', async () => {
+    if (myProfile?.role !== 'admin') { toast('เฉพาะ Admin เท่านั้นที่รีเซ็ตจำนวนยาได้'); return; }
+    if (!(await confirmAsync(
+      'รีเซ็ตจำนวนยาทุกตัวเป็น 0?\n\n'
+      + 'จะตั้งยอดหน้างานของยาทุกตัวเป็น 0 และลบ lot ทั้งหมดใน substock (ทำให้ยอด substock ของทุกตัวเป็น 0 ไปด้วย) '
+      + 'ชื่อยา รหัส หน่วย ราคา par และชั้นวางของทุกตัวจะไม่เปลี่ยนแปลง — เหมาะสำหรับตอนที่ยอดจำนวนยังเป็นแค่ข้อมูลตัวอย่าง ยังไม่ใช่ของจริง\n\n'
+      + 'หลังรีเซ็ตต้องนับสต็อกจริงแล้วกรอกเข้าระบบใหม่ทั้งหมดก่อนเริ่มใช้งานจริง — ย้อนกลับไม่ได้ ยืนยันหรือไม่?',
+    ))) return;
+    const typed = await promptAsync('พิมพ์ RESET (ตัวพิมพ์ใหญ่) เพื่อยืนยันการล้างจำนวนยาทุกตัวเป็น 0 ถาวร — พิมพ์อย่างอื่นหรือกดยกเลิกเพื่อไม่ทำอะไรเลย');
+    if (typed !== 'RESET') { toast('ยกเลิก — ไม่ได้พิมพ์ยืนยันตรงตามที่กำหนด ไม่มีอะไรถูกเปลี่ยน'); return; }
+    try {
+      const lotSnap = await withTimeout(getDocs(collection(db, 'lots')));
+      const medCount = state.meds.length;
+      const lotCount = lotSnap.docs.length;
+      const ops: { ref: ReturnType<typeof doc>; kind: 'update' | 'delete' }[] = [
+        ...state.meds.map((m) => ({ ref: doc(db, 'meds', m.id), kind: 'update' as const })),
+        ...lotSnap.docs.map((d) => ({ ref: d.ref, kind: 'delete' as const })),
+      ];
+      for (let i = 0; i < ops.length; i += 450) {
+        const batch = writeBatch(db);
+        ops.slice(i, i + 450).forEach((op) => {
+          if (op.kind === 'update') batch.update(op.ref, { floor: 0, lastCountTs: deleteField(), lastSubCountTs: deleteField() });
+          else batch.delete(op.ref);
+        });
+        await withTimeout(batch.commit());
+      }
+      await logAudit({ type: 'quantity_reset', note: 'รีเซ็ตจำนวนยาทุกตัวเป็น 0 — ยอดหน้างาน ' + nf(medCount) + ' รายการ, ลบ lot substock ' + nf(lotCount) + ' รายการ เพื่อเริ่มต้นใช้งานระบบจริง โดย ' + userName() });
+      hapticSuccess();
+      toast('รีเซ็ตจำนวนยาแล้ว — ยอดหน้างานและ substock ของยาทุกตัวเป็น 0 แล้ว ชื่อยา/par/ชั้นวางยังอยู่ครบ');
+    } catch (e) {
+      toastErr(e, 'รีเซ็ตไม่สำเร็จ ลองใหม่อีกครั้ง');
+    }
+  }), [myProfile, state.meds, confirmAsync, promptAsync, toast, toastErr, logAudit, userName, guardOnce]);
+
   // Jump straight into บัตรสต็อก substock for one med, already open — used from เสร็จสิ้น
   // (DoneScreen) so "รับเข้า/เติมหน้างานสำเร็จ แล้วอยากดูบัตรตอนนี้เลย" is one tap instead of
   // navigating to the screen and searching for the drug by name again.
@@ -2986,7 +3035,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setReportTab, exportReportCsv, exportAllReports,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
-    addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, setMedsFocusId,
+    addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
     setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile,
