@@ -69,25 +69,6 @@ export default function TransferScreen() {
   // can't-wait items without either doing everything below Min or guessing which ones matter.
   const urgent = meds.filter(isUrgentLow);
   const q = state.search.trim().toLowerCase();
-  // "ล่าสุด" quick-add chips — the handful of drugs actually transferred most days (IV fluids,
-  // paracetamol, ORS...) shouldn't need typing their name every single morning. Derived
-  // straight from the realtime tx feed already synced (state.txs, newest first, capped 300),
-  // no new data to track. Tapping one bumps it into the cart at the same one-tap suggested
-  // amount the row's own + button already gives (see bump() in AppContext.tsx) — skips
-  // scrolling/searching entirely for the routine case.
-  const recentMeds = useMemo(() => {
-    if (q) return [];
-    const seen = new Set<string>();
-    const out: typeof meds = [];
-    for (const t of state.txs) {
-      if (t.type !== 'transfer_to_floor' || !t.medId || seen.has(t.medId) || state.cart[t.medId]) continue;
-      seen.add(t.medId);
-      const m = meds.find((x) => x.id === t.medId);
-      if (m) out.push(m);
-      if (out.length >= 8) break;
-    }
-    return out;
-  }, [state.txs, state.cart, meds, q]);
   const filteredByStatus = meds.filter((m) => {
     if (q && m.name.toLowerCase().indexOf(q) < 0) return false;
     if (state.filter === 'low') return m.floor < floorMinOf(m);
@@ -207,22 +188,6 @@ export default function TransferScreen() {
           <button className="chip" style={chip(sort === 'bin')} onClick={() => setSort('bin')}>ตามชั้นวาง</button>
           <button className="chip" style={chip(sort === 'name')} onClick={() => setSort('name')}>ตามชื่อยา</button>
         </div>
-        {recentMeds.length > 0 && (
-          <div style={{ display: 'flex', gap: 7, marginTop: 8, overflowX: 'auto', paddingBottom: 2 }}>
-            <span className="muted" style={{ fontSize: 11, flex: 'none', alignSelf: 'center', paddingRight: 2 }}>ล่าสุด:</span>
-            {recentMeds.map((m) => (
-              <button
-                key={m.id}
-                onClick={() => bump(m.id, 1)}
-                className="chip press-spring"
-                style={{ border: '1px solid var(--green)', background: 'var(--green-tint)', color: 'var(--green)', flex: 'none', display: 'flex', alignItems: 'center', gap: 4 }}
-                title={'เพิ่ม ' + m.name + ' ลงตะกร้าตามจำนวนแนะนำทันที'}
-              >
-                + {m.name}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       <div style={{ padding: '10px 14px 96px' }}>
