@@ -22,6 +22,7 @@ const TYPE_LABEL: Record<string, string> = {
   receive_from_central: 'รับเข้า substock', receive_pending: 'รับเข้า (รออนุมัติ)', receive_rejected: 'ปฏิเสธคำขอรับเข้า', transfer_to_floor: 'เติมหน้างาน',
   adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP',
   ward_move_out: 'ย้ายชั้นวาง (ต้นทาง)', ward_move_in: 'ย้ายชั้นวาง (ปลายทาง)',
+  stock_ledger_reset: 'รีเซ็ตบัตรสต็อกยาทุกตัว',
 };
 // commitCount (floor) and commitSubCount (substock) both log type:'count' — TYPE_LABEL alone
 // can't tell them apart (one key, one label), so this reads the row's loc too, the same
@@ -44,7 +45,7 @@ const APP_URL = window.location.origin + import.meta.env.BASE_URL;
 export default function AdminScreen() {
   const {
     state, setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit, roleLabelOf, toast,
-    setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch,
+    setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, resetAllStockLedgers,
   } = useApp();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [userQuery, setUserQuery] = useState('');
@@ -206,6 +207,31 @@ export default function AdminScreen() {
                 <EmptyState icon="👤" title={uq ? 'ไม่พบผู้ใช้ที่ค้นหา' : 'ยังไม่มีผู้ใช้งานที่อนุมัติแล้ว'} sub={uq ? 'ลองพิมพ์ชื่อหรือ username แบบสั้นลง' : undefined} />
               )}
             </div>
+
+            {/* Admin-only, sits apart from the routine account-management UI above (own red
+                card, own heading) so it reads as a distinct, dangerous category rather than
+                just another row in the list — the actual double-confirmation (confirmAsync +
+                a typed "RESET") lives in resetAllStockLedgers() itself, AppContext.tsx. */}
+            {state.role === 'admin' && (
+              <>
+                <div style={{ fontSize: 13.5, fontWeight: 600, margin: '20px 2px 8px', color: 'var(--red)' }}>เครื่องมือระบบ — ใช้ด้วยความระมัดระวัง</div>
+                <div className="card" style={{ padding: 13, borderColor: 'var(--red)' }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>รีเซ็ตบัตรสต็อกยาทุกตัว</div>
+                  <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginBottom: 10 }}>
+                    ลบประวัติธุรกรรม (รับเข้า/เติมหน้างาน/ปรับยอด/ตัดหมดอายุ/นำเข้า HOSxP ฯลฯ) ของยา<b>ทุกตัวถาวร</b> เพื่อเริ่มต้นระบบใหม่
+                    — ยอดคงเหลือปัจจุบัน (หน้างาน/substock) จะ<b>ไม่เปลี่ยนแปลง</b> แต่บัตรสต็อก รายงาน และสถิติที่คำนวณจากประวัติจะว่างเปล่าทั้งหมด
+                    ใช้เฉพาะตอนเริ่มต้นใช้งานระบบจริงครั้งแรกเท่านั้น — ย้อนกลับไม่ได้
+                  </div>
+                  <button
+                    onClick={resetAllStockLedgers}
+                    disabled={!!state.busy['resetAllStockLedgers']}
+                    style={{ width: '100%', border: '1px solid var(--red)', background: 'var(--red-bg)', color: 'var(--red)', padding: '11px 14px', borderRadius: 10, fontSize: 13, fontWeight: 700, minHeight: 44, opacity: state.busy['resetAllStockLedgers'] ? 0.7 : 1 }}
+                  >
+                    {state.busy['resetAllStockLedgers'] ? 'กำลังรีเซ็ต…' : 'รีเซ็ตบัตรสต็อกยาทุกตัว'}
+                  </button>
+                </div>
+              </>
+            )}
           </>
         )}
 

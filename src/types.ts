@@ -132,6 +132,13 @@ export type AuditType =
   // aggregates these across recent runs so a name that keeps failing to match stays visible
   // instead of being a fresh, easy-to-miss surprise every single day.
   | 'hosxp_unmatched'
+  // Logged once by resetAllStockLedgers() (AppContext.tsx) — the admin-only, typed-confirmation
+  // "start the system over" action that permanently deletes every tx document (the substock
+  // card ledger, report/turnover stats, usage-rate history for par suggestions) without
+  // touching current floor/lot quantities. Its own audit entry survives that deletion (it's
+  // logged to the separate auditLog collection, not txs) — the one durable record that this
+  // ever happened, and by whom.
+  | 'stock_ledger_reset'
   | TxType;
 
 export interface AuditEntry {

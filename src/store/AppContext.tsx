@@ -306,6 +306,11 @@ export interface AppCtx {
   toggleMedActive: (medId: string) => void;
   deleteMed: (medId: string) => void;
   deleteAllInactiveMeds: (medIds?: string[]) => void;
+  /** Admin-only, permanently deletes every tx document (substock card ledger, report stats,
+   * usage-rate history) without touching current floor/lot quantities — see its doc comment
+   * in AppContext.tsx for the full "why" and scope. Double-confirmed (confirmAsync + a typed
+   * "RESET" via promptAsync) since it's the widest-blast-radius destructive action in the app. */
+  resetAllStockLedgers: () => void;
   setMedsFocusId: (id: string | null) => void;
   goSubstockCardFor: (medId: string) => void;
   setSubstockFocusId: (id: string | null) => void;
@@ -2281,6 +2286,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setMedsFocusId = useCallback((id: string | null) => patch({ medsFocusId: id }), [patch]);
 
+  // ---------- reset all stock ledgers (go-live) ----------
+  // Real-world request: a hospital going live for real (after a testing/pilot period) wants a
+  // clean starting point — every drug's substock card currently shows a noisy, incomplete
+  // history full of test data and negative "computed from incomplete history" balances (see
+  // printSubstockCardSheet's own footnote for that exact problem). This wipes every tx
+  // document — the sole source SubstockCardScreen, ReportScreen's turnover/aging/discrepancy
+  // views, and recomputeUsageStats() all read — so every one of those goes back to empty and
+  // starts counting fresh from today.
+  //
+  // Deliberately narrow in scope: only `txs` is touched. `meds`/`lots` (today's real floor and
+  // substock quantities) are NEVER written here, so nothing on the shelf changes — this resets
+  // the paper trail, not the stock itself. `auditLog` (logins, approvals, this very action) is
+  // a different collection and is untouched too; the one entry this logs there is the only
+  // durable record the reset ever happened.
+  //
+  // Two-step confirmation given the blast radius (every drug, no partial/per-med undo): the
+  // usual confirmAsync, then a typed "RESET" via promptAsync — a single tap-through dialog
+  // felt too easy to hit by accident for something this size, unlike every other confirmAsync
+  // call in this file which undoes at most one med/user/pair.
+  const resetAllStockLedgers = useCallback(guardOnce('resetAllStockLedgers', async () => {
+    if (myProfile?.role !== 'admin') { toast('เฉพาะ Admin เท่านั้นที่รีเซ็ตบัตรสต็อกได้'); return; }
+    if (!(await confirmAsync(
+      'รีเซ็ตบัตรสต็อกยาทุกตัว?\n\n'
+      + 'จะลบ "ประวัติธุรกรรมทั้งหมด" ของยาทุกตัวถาวร (รับเข้า เติมหน้างาน ปรับยอด คืนยา ยาเสีย ตัดหมดอายุ นำเข้า HOSxP นับสต็อก ย้ายชั้นวาง) '
+      + 'ยอดคงเหลือปัจจุบัน (หน้างาน/substock) จะไม่เปลี่ยนแปลง แต่บัตรสต็อก, รายงาน turnover/aging/discrepancy, '
+      + 'และสถิติการใช้ยาสำหรับแนะนำ par จะกลับไปว่างเปล่าทั้งหมด เริ่มนับใหม่จากวันนี้\n\n'
+      + 'ย้อนกลับไม่ได้ กู้คืนไม่ได้ — ใช้เฉพาะตอนเริ่มต้นใช้งานระบบจริงครั้งแรกเท่านั้น ยืนยันหรือไม่?',
+    ))) return;
+    const typed = await promptAsync('พิมพ์ RESET (ตัวพิมพ์ใหญ่) เพื่อยืนยันการลบประวัติธุรกรรมทั้งหมดถาวร — พิมพ์อย่างอื่นหรือกดยกเลิกเพื่อไม่ทำอะไรเลย');
+    if (typed !== 'RESET') { toast('ยกเลิก — ไม่ได้พิมพ์ยืนยันตรงตามที่กำหนด ไม่มีอะไรถูกลบ'); return; }
+    try {
+      const snap = await withTimeout(getDocs(collection(db, 'txs')));
+      const refs = snap.docs.map((d) => d.ref);
+      for (let i = 0; i < refs.length; i += 450) {
+        const batch = writeBatch(db);
+        refs.slice(i, i + 450).forEach((ref) => batch.delete(ref));
+        await withTimeout(batch.commit());
+      }
+      await logAudit({ type: 'stock_ledger_reset', note: 'รีเซ็ตบัตรสต็อกยาทุกตัว — ลบประวัติธุรกรรมทั้งหมด ' + nf(refs.length) + ' รายการ เพื่อเริ่มต้นใช้งานระบบจริง โดย ' + userName() });
+      hapticSuccess();
+      toast('รีเซ็ตบัตรสต็อกแล้ว — ลบประวัติธุรกรรม ' + nf(refs.length) + ' รายการ ยอดคงเหลือปัจจุบันไม่เปลี่ยนแปลง');
+    } catch (e) {
+      toastErr(e, 'รีเซ็ตไม่สำเร็จ ลองใหม่อีกครั้ง');
+    }
+  }), [myProfile, confirmAsync, promptAsync, toast, toastErr, logAudit, userName, guardOnce]);
+
   // Jump straight into บัตรสต็อก substock for one med, already open — used from เสร็จสิ้น
   // (DoneScreen) so "รับเข้า/เติมหน้างานสำเร็จ แล้วอยากดูบัตรตอนนี้เลย" is one tap instead of
   // navigating to the screen and searching for the drug by name again.
@@ -2935,7 +2986,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setReportTab, exportReportCsv, exportAllReports,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
-    addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId,
+    addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
     setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile,
