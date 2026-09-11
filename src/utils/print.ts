@@ -397,7 +397,19 @@ export interface SubstockCardRow {
  * transaction history instead of copied by hand onto a card that can go missing, get a
  * pen-run smudge, or just fall behind because nobody got around to writing today's line yet.
  */
-export function printSubstockCardSheet(med: { code: string; name: string; parSub: number; unit: string; ward?: 'opd' | 'ipd' }, rows: SubstockCardRow[], fyLabel?: number | 'all'): boolean {
+export function printSubstockCardSheet(
+  med: { code: string; name: string; parSub: number; unit: string; ward?: 'opd' | 'ipd' },
+  rows: SubstockCardRow[],
+  fyLabel?: number | 'all',
+  // Real-world request: this used to be a flat row-by-row table with nothing to tie the
+  // numbers together — no running total, no starting point, and no way to check the printed
+  // history against the actual shelf without opening the app. `totals` mirrors the on-screen
+  // summary tiles, `openingBalance` (received − dispensed subtracted back out of the first
+  // row) gives the ledger a starting point the way a real ยอดยกมา line does, and `liveBalance`
+  // — when it disagrees with the ledger's own last balance — lets the sheet say so itself
+  // instead of only the on-screen mismatch banner knowing.
+  meta: { totals?: { received: number; dispensed: number }; openingBalance?: number; liveBalance?: number } = {},
+): boolean {
   const now = new Date();
   // Defaults to today's fiscal year (the original single-year behavior), but the substock
   // card screen now lets someone view/print a past year or "ทุกปี" pooled together — the
@@ -414,7 +426,19 @@ export function printSubstockCardSheet(med: { code: string; name: string; parSub
   // it wasn't an app bug. Flag each negative row in red-on-tint and add a footnote once, rather
   // than repeating the explanation on every row.
   const hasNegative = rows.some((r) => r.balance < 0);
-  const body = rows
+  // ยอดยกมา — a real paper stock card always opens with a starting balance before its first
+  // ruled entry; this table used to jump straight into "balance AFTER the first transaction"
+  // with no way to tell where it started from. Rendered as its own muted, non-numbered row
+  // (not row #1) so it reads as context, not as an actual transaction that happened.
+  const openingRow = meta.openingBalance !== undefined ? `<tr style="background:#f3f6f4">
+      <td class="no">—</td>
+      <td class="date" style="font-style:italic;color:#245a52">ยอดยกมา</td>
+      <td class="num"></td>
+      <td class="num"></td>
+      <td class="num bal">${meta.openingBalance.toLocaleString('en-US')}</td>
+      <td class="by"></td>
+    </tr>` : '';
+  const body = openingRow + rows
     .map((r, i) => `<tr${r.balance < 0 ? ' style="background:#fbeceb"' : ''}>
       <td class="no">${i + 1}</td>
       <td class="date">${escapeHtml(new Date(r.ts).toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: '2-digit' }))}</td>
@@ -472,6 +496,26 @@ export function printSubstockCardSheet(med: { code: string; name: string; parSub
   .disp { color: #a32b22; font-weight: 700; }
   .bal { font-weight: 700; }
   .by { font-size: 9pt; color: #667; }
+  /* Period summary — mirrors the on-screen SummaryTile cards (รับเข้ารวม/เติมหน้างานรวม) that
+     used to only exist on screen; without them the printed sheet made someone re-derive the
+     same totals by hand-adding every row in the table. */
+  .totals { display: flex; border-top: 0.6pt solid #cfe3df; }
+  .totals .t { flex: 1; padding: 2.4mm 5mm; border-right: 0.6pt solid #cfe3df; }
+  .totals .t:last-child { border-right: 0; }
+  .totals .k { display: block; font-size: 8pt; color: #245a52; font-weight: 700; }
+  .totals .v { display: block; font-size: 12pt; font-weight: 800; margin-top: 0.5mm; }
+  .totals .v.recv { color: #17552f; }
+  .totals .v.disp { color: #a32b22; }
+  /* Ledger-vs-shelf tie-out — puts "what the paper trail says" next to "what's really on the
+     shelf right now" side by side, so a mismatch (see the ยอดจากประวัติ... banner on screen) is
+     visible on the printed page itself, not only discoverable by opening the app. .off tints
+     it amber the same way the on-screen mismatch banner does. */
+  .tieout { display: flex; border-top: 0.6pt solid #cfe3df; background: #fbf6ea; }
+  .tieout.off { background: #fdf3e2; }
+  .tieout .t { flex: 1; padding: 2.4mm 5mm; border-right: 0.6pt solid #f0dfbc; }
+  .tieout .t:last-child { border-right: 0; }
+  .tieout .k { display: block; font-size: 8pt; color: #8a5407; font-weight: 700; }
+  .tieout .v { display: block; font-size: 12pt; font-weight: 800; margin-top: 0.5mm; }
   .note { font-size: 8pt; color: #a32b22; line-height: 1.5; padding: 2mm 5mm; background: #fbeceb; border-top: 0.6pt solid #cfe3df; }
   .foot { display: flex; justify-content: space-between; font-size: 8.5pt; color: #245a52; padding: 2.5mm 5mm; border-top: 0.6pt solid #cfe3df; background: #eef6f4; }
   @media screen {
@@ -501,6 +545,18 @@ export function printSubstockCardSheet(med: { code: string; name: string; parSub
         <tbody>${body}</tbody>
       </table>
       ${rows.length === 0 ? '<div style="text-align:center;color:#245a52;padding:12mm 0;">ยานี้ยังไม่มีประวัติ substock</div>' : ''}
+      ${meta.totals ? `<div class="totals">
+        <div class="t"><span class="k">รับเข้ารวม</span><span class="v recv">${meta.totals.received.toLocaleString('en-US')} ${escapeHtml(med.unit)}</span></div>
+        <div class="t"><span class="k">เติมหน้างานรวม</span><span class="v disp">${meta.totals.dispensed.toLocaleString('en-US')} ${escapeHtml(med.unit)}</span></div>
+      </div>` : ''}
+      ${meta.liveBalance !== undefined ? (() => {
+        const lastBal = rows.length ? rows[rows.length - 1].balance : (meta.openingBalance ?? 0);
+        const tie = lastBal === meta.liveBalance;
+        return `<div class="tieout${tie ? '' : ' off'}">
+          <div class="t"><span class="k">ยอดตามประวัติ (แถวสุดท้าย)</span><span class="v">${lastBal.toLocaleString('en-US')} ${escapeHtml(med.unit)}</span></div>
+          <div class="t"><span class="k">ยอดจริงตอนนี้ (real-time)</span><span class="v">${meta.liveBalance.toLocaleString('en-US')} ${escapeHtml(med.unit)}</span></div>
+        </div>${!tie ? '<div class="note">⚠ ยอดสองบรรทัดข้างบนไม่ตรงกัน — ดูหมายเหตุด้านบน/ตรวจสอบใน Audit log</div>' : ''}`;
+      })() : ''}
       ${hasNegative ? '<div class="note">* ยอดคงเหลือในแถวนี้คำนวณจากประวัติธุรกรรมในระบบเท่านั้น ติดลบเพราะมีสต็อกตั้งต้นหรือรายการก่อนเริ่มบันทึกในระบบที่ไม่ปรากฏในประวัตินี้ — ไม่ใช่ยอดจริงบนชั้น ดูยอดจริงปัจจุบันได้จากหน้าจอ "บัตรสต็อก substock" เท่านั้น</div>' : ''}
       <div class="foot"><span>ห้องยา ${med.ward === 'ipd' ? 'IPD' : 'OPD'} · รพ.กรงปินัง</span><span>พิมพ์จากระบบ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
     </div>

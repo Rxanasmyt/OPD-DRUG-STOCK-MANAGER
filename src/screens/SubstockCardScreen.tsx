@@ -139,7 +139,15 @@ export default function SubstockCardScreen() {
     const cardRows = viewRows.map((r) => ({
       ts: r.ts, received: r.qty > 0 ? r.qty : 0, dispensed: r.qty < 0 ? -r.qty : 0, balance: r.balance, by: r.by,
     }));
-    const ok = printSubstockCardSheet({ code: med.code, name: med.name, parSub: med.parSub, unit: med.unit, ward: wardOf(med) }, cardRows, year);
+    // ยอดยกมา — the balance right before this printed period's first row, backed out of that
+    // row's own signed qty (same math the running balance itself uses).
+    const openingBalance = viewRows.length ? viewRows[0].balance - viewRows[0].qty : undefined;
+    const ok = printSubstockCardSheet(
+      { code: med.code, name: med.name, parSub: med.parSub, unit: med.unit, ward: wardOf(med) },
+      cardRows,
+      year,
+      { totals: yearTotals ? { received: yearTotals.received, dispensed: yearTotals.dispensed } : undefined, openingBalance, liveBalance },
+    );
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   };
 
@@ -157,9 +165,15 @@ export default function SubstockCardScreen() {
 
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
-      <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 12 }}>
-        เลือกยาเพื่อดูบัตรสต็อก substock แบบ real-time — รับจากคลังใหญ่ / เติมหน้างาน / ตัดหมดอายุ พร้อมยอดคงเหลือสะสม แทนบัตรกระดาษที่ต้องจดมือ
-      </div>
+      {/* Bug fix (real-world request): this onboarding line used to stay on screen even after
+          a drug was already picked — pure clutter at that point, pushing the actual card
+          (what someone opened this screen to see) further down. Gated the same way the search
+          box already is: relevant only before a med is chosen. */}
+      {!medId && (
+        <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 12 }}>
+          เลือกยาเพื่อดูบัตรสต็อก substock แบบ real-time — รับจากคลังใหญ่ / เติมหน้างาน / ตัดหมดอายุ พร้อมยอดคงเหลือสะสม แทนบัตรกระดาษที่ต้องจดมือ
+        </div>
+      )}
 
       {!medId && (
         <>
@@ -317,6 +331,14 @@ export default function SubstockCardScreen() {
           </div>
 
           {loading && <SkeletonList rows={5} />}
+
+          {/* Bug fix (real-world request): on a phone screen the table's header row is often
+              the last thing visible before the bottom nav bar covers the rest — with no count
+              anywhere, there's no way to tell "is that the whole history or is there more
+              below?" without scrolling to find out. One line settles it up front. */}
+          {viewRows && !loading && viewRows.length > 0 && (
+            <div className="muted" style={{ fontSize: 11.5, marginBottom: 7 }}>ประวัติทั้งหมด {nf(viewRows.length)} รายการ</div>
+          )}
 
           {viewRows && !loading && (
             <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }} className="stagger">
