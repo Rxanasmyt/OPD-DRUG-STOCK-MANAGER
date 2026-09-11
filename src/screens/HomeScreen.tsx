@@ -4,14 +4,21 @@ import { toneFor, daysUntil, usesSubstock, floorMinOf, isUrgentLow, needsWarehou
 import { nf, thDate, isoDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge } from '../components/Qty';
+import HospitalCrest from '../components/HospitalCrest';
 
 const GREETING_DATE_FMT: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
 
-function greetingFor(hour: number): { text: string; icon: string } {
-  if (hour < 11) return { text: 'อรุณสวัสดิ์', icon: '🌤️' };
-  if (hour < 16) return { text: 'สวัสดีตอนบ่าย', icon: '☀️' };
-  if (hour < 19) return { text: 'สวัสดีตอนเย็น', icon: '🌇' };
-  return { text: 'สวัสดีตอนค่ำ', icon: '🌙' };
+// Bug fix (real-world request): "อรุณสวัสดิ์" + a mood weather icon (🌤️☀️🌇🌙) read as a
+// consumer lifestyle-app greeting, not a hospital pharmacy system — and this is the very
+// first thing anyone sees on every single login. Kept the time-of-day awareness (still useful
+// context) but swapped the wording for the plain, neutral "สวัสดีตอนเช้า/บ่าย/เย็น/ค่ำ" register
+// used in official correspondence, and dropped the weather icon badge entirely — see its
+// replacement with the hospital crest itself below.
+function greetingFor(hour: number): string {
+  if (hour < 11) return 'สวัสดีตอนเช้า';
+  if (hour < 16) return 'สวัสดีตอนบ่าย';
+  if (hour < 19) return 'สวัสดีตอนเย็น';
+  return 'สวัสดีตอนค่ำ';
 }
 
 // Maps a severity tone token to its matching pale-tint token — every card/badge on this screen
@@ -101,12 +108,12 @@ export default function HomeScreen() {
   return (
     <div style={{ padding: '16px 14px 24px', animation: 'fade .18s' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '2px 2px 16px' }}>
-        <div style={{ width: 44, height: 44, borderRadius: 14, background: 'var(--green-tint)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flex: 'none' }}>
-          {greeting.icon}
+        <div style={{ width: 44, height: 44, borderRadius: 14, background: 'radial-gradient(circle at 35% 30%, #ffffff, #f4f2ec)', border: '1px solid var(--border-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 7, flex: 'none' }}>
+          <HospitalCrest size={28} />
         </div>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 17.5, fontWeight: 800, lineHeight: 1.25, letterSpacing: '-.01em' }}>
-            {greeting.text}{myProfile?.name ? ', ' + myProfile.name.replace(/^(ภญ\.|ภก\.|จพ\.|กภ\.)\s*/, '') : ''}
+            {greeting}{myProfile?.name ? ', ' + myProfile.name.replace(/^(ภญ\.|ภก\.|จพ\.|กภ\.)\s*/, '') : ''}
           </div>
           <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
             {now.toLocaleDateString('th-TH', GREETING_DATE_FMT)} · {roleLabel()}

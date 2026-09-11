@@ -422,39 +422,63 @@ export function printSubstockCardSheet(med: { code: string; name: string; parSub
   // in their own ruled cell), then a fully grid-ruled table (vertical AND horizontal rules,
   // not just underlines) with a running-number column, same as the paper. A flat modern list
   // read fine on screen but didn't read as "the same card" once printed — this does.
+  //
+  // Bug fix (real-world request): this used to be its own generic gold/amber "old paper card"
+  // palette with no letterhead at all — every OTHER printed sheet in the app (printPickListSheet
+  // below) already carries the real hospital crest + official TH Sarabun New font + the
+  // hospital's own teal brand color, and this one didn't match any of that. A pharmacist
+  // printing this to file or hand to someone outside the department had no way to tell at a
+  // glance which hospital it came from. Brought in line: same letterhead block, same font, and
+  // the band recolored from generic gold to the hospital's own teal (--green/--green-dark),
+  // with the coral brand accent as a thin rule under it instead of introducing a third color.
   const html = `<!doctype html>
 <html lang="th"><head><meta charset="utf-8"><title>บัตรสต็อก ${escapeHtml(med.name)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   @page { size: A4; margin: 14mm; }
   * { box-sizing: border-box; }
-  body { font-family: 'Noto Sans Thai', system-ui, -apple-system, sans-serif; margin: 0; color: #2a1f0a; }
-  .card { border: 1.2pt solid #8a6d1a; border-radius: 2mm; overflow: hidden; }
-  .band { background: #f5c518; padding: 3mm 5mm; display: flex; justify-content: space-between; align-items: center; border-bottom: 1.2pt solid #8a6d1a; }
+  body { font-family: 'Sarabun', 'Noto Sans Thai', system-ui, -apple-system, sans-serif; margin: 0; color: #14211a; }
+
+  .letterhead { display: flex; align-items: center; gap: 4mm; padding-bottom: 3mm; margin-bottom: 5mm; border-bottom: 1pt solid #14211a; }
+  .letterhead .org .h1 { font-size: 14.5pt; font-weight: 700; line-height: 1.3; }
+  .letterhead .org .h2 { font-size: 10.5pt; color: #444; line-height: 1.3; }
+
+  .card { border: 1.2pt solid #0a6059; border-radius: 2mm; overflow: hidden; }
+  .band { background: linear-gradient(135deg, #0e8c82, #0a6059); color: #fff; padding: 3mm 5mm; display: flex; justify-content: space-between; align-items: center; border-bottom: 1.4pt solid #ef8f68; }
   .band .title { font-size: 13pt; font-weight: 800; letter-spacing: .02em; }
-  .band .fy { font-size: 9.5pt; font-weight: 700; }
+  .band .fy { font-size: 9.5pt; font-weight: 700; background: rgba(255,255,255,.18); padding: 1mm 2.6mm; border-radius: 8pt; }
   .fields { display: grid; grid-template-columns: 1fr 1fr; }
-  .field { border-bottom: 0.6pt solid #d9c27a; border-right: 0.6pt solid #d9c27a; padding: 2.4mm 5mm; display: flex; gap: 2mm; }
+  .field { border-bottom: 0.6pt solid #cfe3df; border-right: 0.6pt solid #cfe3df; padding: 2.4mm 5mm; display: flex; gap: 2mm; background: #eef6f4; }
   .field:nth-child(2n) { border-right: 0; }
-  .field .lbl { flex: none; font-size: 8.5pt; color: #7a6a30; font-weight: 700; width: 24mm; }
+  .field .lbl { flex: none; font-size: 8.5pt; color: #245a52; font-weight: 700; width: 24mm; }
   .field .val { font-size: 10.5pt; font-weight: 600; }
   table { width: 100%; border-collapse: collapse; font-size: 10.5pt; }
-  th { text-align: center; font-size: 8.5pt; color: #5a4a12; background: #fbf0cc; border: 0.6pt solid #d9c27a; padding: 2mm 2mm; font-weight: 700; }
+  th { text-align: center; font-size: 8.5pt; color: #14211a; background: #eef6f4; border: 0.6pt solid #9fb8b1; padding: 2mm 2mm; font-weight: 700; }
   th.num, td.num { text-align: right; }
-  td { padding: 1.8mm 2.6mm; border: 0.4pt solid #e3d7ab; text-align: left; }
-  td.no { text-align: center; color: #9a8b55; width: 9mm; font-size: 9pt; }
+  td { padding: 1.8mm 2.6mm; border: 0.4pt solid #cdd6d1; text-align: left; }
+  td.no { text-align: center; color: #667; width: 9mm; font-size: 9pt; }
   td.date { width: 22mm; }
   .recv { color: #17552f; font-weight: 700; }
   .disp { color: #a32b22; font-weight: 700; }
   .bal { font-weight: 700; }
-  .by { font-size: 9pt; color: #7a6a30; }
-  .foot { display: flex; justify-content: space-between; font-size: 8.5pt; color: #8a7a45; padding: 2.5mm 5mm; border-top: 0.6pt solid #d9c27a; background: #fbf0cc; }
+  .by { font-size: 9pt; color: #667; }
+  .foot { display: flex; justify-content: space-between; font-size: 8.5pt; color: #245a52; padding: 2.5mm 5mm; border-top: 0.6pt solid #cfe3df; background: #eef6f4; }
   @media screen {
     body { background: #eee; padding: 14mm; }
-    .sheet { background: #fffdf5; padding: 10mm; margin: 0 auto; max-width: 210mm; box-shadow: 0 2px 14px rgba(0,0,0,.15); }
+    .sheet { background: #fff; padding: 10mm; margin: 0 auto; max-width: 210mm; box-shadow: 0 2px 14px rgba(0,0,0,.15); }
   }
 </style></head>
 <body>
   <div class="sheet">
+    <div class="letterhead">
+      <div class="crest">${crestImgMarkup(52)}</div>
+      <div class="org">
+        <div class="h1">โรงพยาบาลกรงปินัง</div>
+        <div class="h2">ห้องยา ฝ่ายเภสัชกรรม</div>
+      </div>
+    </div>
     <div class="card">
       <div class="band"><span class="title">บัตรคุมสต็อกยา (Substock)</span><span class="fy">ปีงบประมาณ ${fy}</span></div>
       <div class="fields">
@@ -467,7 +491,7 @@ export function printSubstockCardSheet(med: { code: string; name: string; parSub
         <thead><tr><th style="width:9mm">ลำดับ</th><th style="width:22mm">วันที่</th><th class="num">รับ</th><th class="num">จ่าย</th><th class="num">คงเหลือ</th><th>โดย</th></tr></thead>
         <tbody>${body}</tbody>
       </table>
-      ${rows.length === 0 ? '<div style="text-align:center;color:#8a7a45;padding:12mm 0;">ยานี้ยังไม่มีประวัติ substock</div>' : ''}
+      ${rows.length === 0 ? '<div style="text-align:center;color:#245a52;padding:12mm 0;">ยานี้ยังไม่มีประวัติ substock</div>' : ''}
       <div class="foot"><span>ห้องยา ${med.ward === 'ipd' ? 'IPD' : 'OPD'} · รพ.กรงปินัง</span><span>พิมพ์จากระบบ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
     </div>
   </div>
