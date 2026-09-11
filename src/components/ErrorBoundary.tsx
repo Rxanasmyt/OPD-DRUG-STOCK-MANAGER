@@ -50,7 +50,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
           <div style={{ fontSize: 13, opacity: 0.7, marginBottom: 18, maxWidth: 320, lineHeight: 1.6 }}>ข้อมูลสต็อกยังปลอดภัย ไม่ถูกกระทบ — ลองโหลดหน้าใหม่อีกครั้ง ถ้ายังเกิดซ้ำให้แจ้งผู้ดูแลระบบ</div>
           <button
             onClick={() => window.location.reload()}
-            style={{ border: 0, background: 'var(--green, #17552f)', color: '#fff', padding: '13px 22px', borderRadius: 11, fontSize: 14.5, fontWeight: 600, minHeight: 48 }}
+            style={{ border: 0, background: 'var(--green, #007371)', color: '#fff', padding: '13px 22px', borderRadius: 11, fontSize: 14.5, fontWeight: 600, minHeight: 48 }}
           >
             โหลดหน้าใหม่
           </button>

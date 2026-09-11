@@ -323,11 +323,11 @@ export function printPickListSheet(
 
   .metabox { width: 100%; border-collapse: collapse; font-size: 10.5pt; margin-bottom: 5mm; }
   .metabox td { border: 0.6pt solid #b8c4bd; padding: 1.8mm 3mm; }
-  .metabox .k { background: #eef6f4; font-weight: 700; color: #245a52; width: 24mm; white-space: nowrap; }
+  .metabox .k { background: #eef6f6; font-weight: 700; color: #245a59; width: 24mm; white-space: nowrap; }
   .metabox .v { width: 63mm; }
 
   table.rows { width: 100%; border-collapse: collapse; font-size: 11pt; }
-  table.rows th { text-align: left; font-size: 9.5pt; font-weight: 700; color: #14211a; background: #eef6f4; border: 0.6pt solid #9fb8b1; padding: 2.2mm 3mm; }
+  table.rows th { text-align: left; font-size: 9.5pt; font-weight: 700; color: #14211a; background: #eef6f6; border: 0.6pt solid #9fb8b8; padding: 2.2mm 3mm; }
   table.rows td { padding: 2.4mm 3mm; border: 0.5pt solid #cdd6d1; }
   table.rows tbody tr:nth-child(even) { background: #f8faf9; }
   .n { width: 8mm; color: #667; text-align: center; }
@@ -432,7 +432,7 @@ export function printSubstockCardSheet(
   // (not row #1) so it reads as context, not as an actual transaction that happened.
   const openingRow = meta.openingBalance !== undefined ? `<tr style="background:#f3f6f4">
       <td class="no">—</td>
-      <td class="date" style="font-style:italic;color:#245a52">ยอดยกมา</td>
+      <td class="date" style="font-style:italic;color:#245a59">ยอดยกมา</td>
       <td class="num"></td>
       <td class="num"></td>
       <td class="num bal">${meta.openingBalance.toLocaleString('en-US')}</td>
@@ -477,47 +477,47 @@ export function printSubstockCardSheet(
   .letterhead .org .h1 { font-size: 14.5pt; font-weight: 700; line-height: 1.3; }
   .letterhead .org .h2 { font-size: 10.5pt; color: #444; line-height: 1.3; }
 
-  .card { border: 1.2pt solid #0a6059; border-radius: 2mm; overflow: hidden; }
-  .band { background: linear-gradient(135deg, #0e8c82, #0a6059); color: #fff; padding: 3mm 5mm; display: flex; justify-content: space-between; align-items: center; border-bottom: 1.4pt solid #ef8f68; }
+  .card { border: 1.2pt solid #004c4b; border-radius: 2mm; overflow: hidden; }
+  .band { background: linear-gradient(135deg, #007371, #004c4b); color: #fff; padding: 3mm 5mm; display: flex; justify-content: space-between; align-items: center; border-bottom: 1.4pt solid #f7a68b; }
   .band .title { font-size: 13pt; font-weight: 800; letter-spacing: .02em; }
   .band .fy { font-size: 9.5pt; font-weight: 700; background: rgba(255,255,255,.18); padding: 1mm 2.6mm; border-radius: 8pt; }
   .fields { display: grid; grid-template-columns: 1fr 1fr; }
-  .field { border-bottom: 0.6pt solid #cfe3df; border-right: 0.6pt solid #cfe3df; padding: 2.4mm 5mm; display: flex; gap: 2mm; background: #eef6f4; }
+  .field { border-bottom: 0.6pt solid #cfe3e3; border-right: 0.6pt solid #cfe3e3; padding: 2.4mm 5mm; display: flex; gap: 2mm; background: #eef6f6; }
   .field:nth-child(2n) { border-right: 0; }
-  .field .lbl { flex: none; font-size: 8.5pt; color: #245a52; font-weight: 700; width: 24mm; }
+  .field .lbl { flex: none; font-size: 8.5pt; color: #245a59; font-weight: 700; width: 24mm; }
   .field .val { font-size: 10.5pt; font-weight: 600; }
   table { width: 100%; border-collapse: collapse; font-size: 10.5pt; }
-  th { text-align: center; font-size: 8.5pt; color: #14211a; background: #eef6f4; border: 0.6pt solid #9fb8b1; padding: 2mm 2mm; font-weight: 700; }
+  th { text-align: center; font-size: 8.5pt; color: #14211a; background: #eef6f6; border: 0.6pt solid #9fb8b8; padding: 2mm 2mm; font-weight: 700; }
   th.num, td.num { text-align: right; }
   td { padding: 1.8mm 2.6mm; border: 0.4pt solid #cdd6d1; text-align: left; }
   td.no { text-align: center; color: #667; width: 9mm; font-size: 9pt; }
   td.date { width: 22mm; }
-  .recv { color: #17552f; font-weight: 700; }
+  .recv { color: #175554; font-weight: 700; }
   .disp { color: #a32b22; font-weight: 700; }
   .bal { font-weight: 700; }
   .by { font-size: 9pt; color: #667; }
   /* Period summary — mirrors the on-screen SummaryTile cards (รับเข้ารวม/เติมหน้างานรวม) that
      used to only exist on screen; without them the printed sheet made someone re-derive the
      same totals by hand-adding every row in the table. */
-  .totals { display: flex; border-top: 0.6pt solid #cfe3df; }
-  .totals .t { flex: 1; padding: 2.4mm 5mm; border-right: 0.6pt solid #cfe3df; }
+  .totals { display: flex; border-top: 0.6pt solid #cfe3e3; }
+  .totals .t { flex: 1; padding: 2.4mm 5mm; border-right: 0.6pt solid #cfe3e3; }
   .totals .t:last-child { border-right: 0; }
-  .totals .k { display: block; font-size: 8pt; color: #245a52; font-weight: 700; }
+  .totals .k { display: block; font-size: 8pt; color: #245a59; font-weight: 700; }
   .totals .v { display: block; font-size: 12pt; font-weight: 800; margin-top: 0.5mm; }
-  .totals .v.recv { color: #17552f; }
+  .totals .v.recv { color: #175554; }
   .totals .v.disp { color: #a32b22; }
   /* Ledger-vs-shelf tie-out — puts "what the paper trail says" next to "what's really on the
      shelf right now" side by side, so a mismatch (see the ยอดจากประวัติ... banner on screen) is
      visible on the printed page itself, not only discoverable by opening the app. .off tints
      it amber the same way the on-screen mismatch banner does. */
-  .tieout { display: flex; border-top: 0.6pt solid #cfe3df; background: #fbf6ea; }
+  .tieout { display: flex; border-top: 0.6pt solid #cfe3e3; background: #fbf6ea; }
   .tieout.off { background: #fdf3e2; }
   .tieout .t { flex: 1; padding: 2.4mm 5mm; border-right: 0.6pt solid #f0dfbc; }
   .tieout .t:last-child { border-right: 0; }
   .tieout .k { display: block; font-size: 8pt; color: #8a5407; font-weight: 700; }
   .tieout .v { display: block; font-size: 12pt; font-weight: 800; margin-top: 0.5mm; }
-  .note { font-size: 8pt; color: #a32b22; line-height: 1.5; padding: 2mm 5mm; background: #fbeceb; border-top: 0.6pt solid #cfe3df; }
-  .foot { display: flex; justify-content: space-between; font-size: 8.5pt; color: #245a52; padding: 2.5mm 5mm; border-top: 0.6pt solid #cfe3df; background: #eef6f4; }
+  .note { font-size: 8pt; color: #a32b22; line-height: 1.5; padding: 2mm 5mm; background: #fbeceb; border-top: 0.6pt solid #cfe3e3; }
+  .foot { display: flex; justify-content: space-between; font-size: 8.5pt; color: #245a59; padding: 2.5mm 5mm; border-top: 0.6pt solid #cfe3e3; background: #eef6f6; }
   @media screen {
     body { background: #eee; padding: 14mm; }
     .sheet { background: #fff; padding: 10mm; margin: 0 auto; max-width: 210mm; box-shadow: 0 2px 14px rgba(0,0,0,.15); }
@@ -544,7 +544,7 @@ export function printSubstockCardSheet(
         <thead><tr><th style="width:9mm">ลำดับ</th><th style="width:22mm">วันที่</th><th class="num">รับ</th><th class="num">จ่าย</th><th class="num">คงเหลือ</th><th>โดย</th></tr></thead>
         <tbody>${body}</tbody>
       </table>
-      ${rows.length === 0 ? '<div style="text-align:center;color:#245a52;padding:12mm 0;">ยานี้ยังไม่มีประวัติ substock</div>' : ''}
+      ${rows.length === 0 ? '<div style="text-align:center;color:#245a59;padding:12mm 0;">ยานี้ยังไม่มีประวัติ substock</div>' : ''}
       ${meta.totals ? `<div class="totals">
         <div class="t"><span class="k">รับเข้ารวม</span><span class="v recv">${meta.totals.received.toLocaleString('en-US')} ${escapeHtml(med.unit)}</span></div>
         <div class="t"><span class="k">เติมหน้างานรวม</span><span class="v disp">${meta.totals.dispensed.toLocaleString('en-US')} ${escapeHtml(med.unit)}</span></div>

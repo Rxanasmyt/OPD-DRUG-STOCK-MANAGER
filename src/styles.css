@@ -11,14 +11,22 @@
      VALUES here re-themes the entire app in one place with zero risk of missing a spot a
      rename sweep could have missed. --brand-coral is new — the logo's one non-teal color,
      used sparingly as a genuine accent (mesh backdrop, login highlight) rather than a second
-     primary, matching how the logo itself uses it (one accent stroke, not half the mark). */
-  --green: #0e8c82;
-  --green-dark: #0a6059;
-  --green-bright: #2fc4b4;
-  --green-tint: #e7f5f3;
-  --green-rgb: 14, 140, 130;
-  --brand-coral: #ef8f68;
-  --brand-coral-rgb: 239, 143, 104;
+     primary, matching how the logo itself uses it (one accent stroke, not half the mark).
+     Bug fix (real-world request): this first pass was only "inspired by" the crest — sampled
+     pixels from the actual crest artwork (src/assets/hospital-crest-original.jpg) put its true
+     hue at ~179° (a cyan-leaning teal) and its coral accent at ~15°, while the values below had
+     drifted to ~175° and ~17° respectively — close, but a request to "use the hospital's own
+     colors" deserves the actual sampled hue, not an approximation of it. --green/--green-dark
+     are the sampled hue at a lightness that still clears WCAG AA contrast against white
+     (the raw sampled teal only hits ~3.5:1); --green-bright and --brand-coral use the sampled
+     values directly since neither is ever used as small text on a light background. */
+  --green: #007371;
+  --green-dark: #004c4b;
+  --green-bright: #02b0ae;
+  --green-tint: #e1f7f6;
+  --green-rgb: 0, 115, 113;
+  --brand-coral: #f7a68b;
+  --brand-coral-rgb: 247, 166, 139;
   --ink: #12211a;
   --ink-soft: #f2f5ef;
   --muted: #6b7269;
@@ -56,7 +64,7 @@
   --shadow-lg: 0 20px 48px -16px rgba(18, 33, 26, .32);
   --shadow-glow: 0 0 0 1px rgba(var(--green-rgb), .12), 0 8px 24px -8px rgba(var(--green-rgb), .35);
 
-  --login-bg: radial-gradient(120% 100% at 14% -10%, #1aa89c 0%, var(--green) 46%, var(--green-dark) 100%);
+  --login-bg: radial-gradient(120% 100% at 14% -10%, #1aa8a6 0%, var(--green) 46%, var(--green-dark) 100%);
   --glass-bg: rgba(255, 255, 255, .88);
   --sticky-glass: rgba(247, 246, 242, .82);
 }
@@ -71,13 +79,16 @@
   --bg-card: #17231c;
   --bg-subtle: #1e2b23;
   --border-strong: #35473c;
-  --green: #3edbc9;
-  --green-dark: #2fae9c;
-  --green-bright: #64ebd9;
-  --green-tint: rgba(62, 219, 201, .14);
-  --green-rgb: 62, 219, 201;
-  --brand-coral: #f4a181;
-  --brand-coral-rgb: 244, 161, 129;
+  /* Same true-crest-hue correction as the light theme above — nudged from ~172-173° to the
+     sampled ~179°, keeping the same saturation/lightness (already tuned for dark-bg legibility)
+     so the shift reads as "more accurate," not as a different color scheme in dark mode. */
+  --green: #3ddbd9;
+  --green-dark: #2fadac;
+  --green-bright: #65ebe9;
+  --green-tint: rgba(61, 219, 217, .14);
+  --green-rgb: 61, 219, 217;
+  --brand-coral: #f59f82;
+  --brand-coral-rgb: 245, 159, 130;
   --ink: #eef3ee;
   --ink-soft: #0e1a13;
   --muted: #8fa197;
@@ -387,7 +398,7 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 }
 /* Same two-tone language the real hospital crest uses — teal dominant, one coral accent, not
    two competing greens. */
-.mesh-bg::before { top: -60%; left: -30%; background: radial-gradient(circle, rgba(45,196,180,.5), transparent 60%); }
+.mesh-bg::before { top: -60%; left: -30%; background: radial-gradient(circle, rgba(2,176,174,.5), transparent 60%); }
 .mesh-bg::after { bottom: -70%; right: -30%; background: radial-gradient(circle, rgba(var(--brand-coral-rgb),.4), transparent 60%); animation-delay: -7s; }
 
 /* Faint dot-grid texture behind the login mesh blobs — pure CSS (no image asset), fades out
