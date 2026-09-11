@@ -406,13 +406,21 @@ export function printSubstockCardSheet(med: { code: string; name: string; parSub
   const fy = fyLabel === undefined ? String(fiscalYear(now.getTime()) % 100)
     : fyLabel === 'all' ? 'ทั้งหมด'
     : String(fyLabel % 100);
+  // Bug fix (real-world request): a running balance can go negative when the ledger's history
+  // doesn't cover every unit ever on the shelf (e.g. opening stock from before this app tracked
+  // substock) — SubstockCardScreen already flags that on screen (the "ยอดจากประวัติธุรกรรม...
+  // ไม่ตรงกับยอดจริง" banner), but the printed sheet used to show the same negative number with
+  // nothing explaining it. Someone reading only the paper (not the screen) had no way to know
+  // it wasn't an app bug. Flag each negative row in red-on-tint and add a footnote once, rather
+  // than repeating the explanation on every row.
+  const hasNegative = rows.some((r) => r.balance < 0);
   const body = rows
-    .map((r, i) => `<tr>
+    .map((r, i) => `<tr${r.balance < 0 ? ' style="background:#fbeceb"' : ''}>
       <td class="no">${i + 1}</td>
       <td class="date">${escapeHtml(new Date(r.ts).toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: '2-digit' }))}</td>
       <td class="num recv">${r.received ? r.received.toLocaleString('en-US') : ''}</td>
       <td class="num disp">${r.dispensed ? r.dispensed.toLocaleString('en-US') : ''}</td>
-      <td class="num bal">${r.balance.toLocaleString('en-US')}</td>
+      <td class="num bal" style="${r.balance < 0 ? 'color:#a32b22' : ''}">${r.balance.toLocaleString('en-US')}${r.balance < 0 ? ' *' : ''}</td>
       <td class="by">${escapeHtml(r.by)}</td>
     </tr>`)
     .join('');
@@ -464,6 +472,7 @@ export function printSubstockCardSheet(med: { code: string; name: string; parSub
   .disp { color: #a32b22; font-weight: 700; }
   .bal { font-weight: 700; }
   .by { font-size: 9pt; color: #667; }
+  .note { font-size: 8pt; color: #a32b22; line-height: 1.5; padding: 2mm 5mm; background: #fbeceb; border-top: 0.6pt solid #cfe3df; }
   .foot { display: flex; justify-content: space-between; font-size: 8.5pt; color: #245a52; padding: 2.5mm 5mm; border-top: 0.6pt solid #cfe3df; background: #eef6f4; }
   @media screen {
     body { background: #eee; padding: 14mm; }
@@ -492,6 +501,7 @@ export function printSubstockCardSheet(med: { code: string; name: string; parSub
         <tbody>${body}</tbody>
       </table>
       ${rows.length === 0 ? '<div style="text-align:center;color:#245a52;padding:12mm 0;">ยานี้ยังไม่มีประวัติ substock</div>' : ''}
+      ${hasNegative ? '<div class="note">* ยอดคงเหลือในแถวนี้คำนวณจากประวัติธุรกรรมในระบบเท่านั้น ติดลบเพราะมีสต็อกตั้งต้นหรือรายการก่อนเริ่มบันทึกในระบบที่ไม่ปรากฏในประวัตินี้ — ไม่ใช่ยอดจริงบนชั้น ดูยอดจริงปัจจุบันได้จากหน้าจอ "บัตรสต็อก substock" เท่านั้น</div>' : ''}
       <div class="foot"><span>ห้องยา ${med.ward === 'ipd' ? 'IPD' : 'OPD'} · รพ.กรงปินัง</span><span>พิมพ์จากระบบ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
     </div>
   </div>
