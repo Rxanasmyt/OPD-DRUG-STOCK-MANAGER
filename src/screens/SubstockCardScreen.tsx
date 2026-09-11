@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, type ReactNode, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
-import { subQty, wardOf } from '../store/selectors';
+import { subQty, wardOf, subTone } from '../store/selectors';
 import { nf, thDate, fiscalYear } from '../utils/format';
 import { printSubstockCardSheet } from '../utils/print';
 import { downloadCsv } from '../utils/csv';
@@ -32,7 +32,7 @@ const TYPE_META: Record<string, { icon: string; label: string }> = {
  * live, or print an A4 sheet in the same shape as the card for anyone who still wants a
  * physical printout on file. */
 export default function SubstockCardScreen() {
-  const { state, fetchSubstockLedger, toast, setSubstockFocusId } = useApp();
+  const { state, fetchSubstockLedger, toast, setSubstockFocusId, go, setAdminTab, setAuditFilter } = useApp();
   const [search, setSearch] = useState('');
   const [medId, setMedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -115,6 +115,8 @@ export default function SubstockCardScreen() {
   }, [state.substockFocusId]);
 
   const liveBalance = med ? subQty(state, med.id) : 0;
+  const balanceTone = med ? subTone(liveBalance, med.parSub) : 'var(--green)';
+  const balancePct = med ? Math.round((liveBalance / Math.max(1, med.parSub)) * 100) : 0;
   const lastLedgerBalance = rows && rows.length ? rows[rows.length - 1].balance : 0;
   // The live balance (from current lots) and the ledger's computed running total should
   // always agree — if they don't, something in the tx history is incomplete or a lot was
@@ -177,13 +179,20 @@ export default function SubstockCardScreen() {
 
       {med && (
         <>
-          {/* Styled after the real hand-written yellow "บัตรคุมสต็อกยา" ledger card — a boxed
-              amber header band + a labeled field grid (same as the card's ruled ชื่อยา/รหัส/
-              หน่วยนับ boxes), instead of a plain flat list. Data underneath is still live —
-              this is a skin over the same real-time subQty()/fetchSubstockLedger() plumbing. */}
-          <div style={{ border: '1.5px solid var(--amber)', borderRadius: 14, overflow: 'hidden', marginBottom: 14, boxShadow: 'var(--shadow-sm)' }}>
-            <div style={{ background: 'var(--amber)', color: '#2a1f0a', padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 13.5, fontWeight: 800, letterSpacing: '.01em' }}>บัตรคุมสต็อกยา</span>
+          {/* Styled after the real hand-written yellow "บัตรคุมสต็อกยา" ledger card — kept the
+              amber identity (staff already recognize that color as "this is the stock card"),
+              but with a more deliberate, formal chrome: a gradient header with a thin animated
+              highlight (same premium-chrome language LoginScreen's card uses), deeper shadow,
+              more generous radius — a real elevated instrument panel rather than a flat colored
+              box. Data underneath is still live — this is a skin over the same real-time
+              subQty()/fetchSubstockLedger() plumbing. */}
+          <div style={{ position: 'relative', border: '1px solid var(--amber)', borderRadius: 18, overflow: 'hidden', marginBottom: 14, boxShadow: '0 14px 34px -16px rgba(120,80,10,.35), var(--shadow-sm)' }}>
+            <div aria-hidden="true" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg, transparent, #fff, rgba(255,255,255,.4), #fff, transparent)', backgroundSize: '200% 100%', animation: 'aiGradientShift 4.5s ease-in-out infinite', zIndex: 1 }} />
+            <div style={{ background: 'linear-gradient(135deg, #f0b429 0%, var(--amber) 100%)', color: '#2a1f0a', padding: '12px 15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 14, fontWeight: 800, letterSpacing: '.02em', display: 'flex', alignItems: 'center', gap: 7 }}>
+                <span aria-hidden="true" style={{ width: 26, height: 26, borderRadius: 8, background: 'rgba(255,255,255,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>🗂️</span>
+                บัตรคุมสต็อกยา
+              </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 {/* Multi-year history browser — the paper card needed a new sheet every fiscal
                     year; this keeps every year in one record and lets you flip between them,
@@ -195,13 +204,13 @@ export default function SubstockCardScreen() {
                   // auto-zoom-on-focus as a text input — tapping this year picker zoomed the
                   // whole page in. Padding trimmed slightly to keep the pill's proportions
                   // close to before now that the text itself is bigger.
-                  style={{ border: '1px solid rgba(42,31,10,.35)', background: 'rgba(255,255,255,.55)', color: '#2a1f0a', padding: '4px 6px', borderRadius: 8, fontSize: 16, fontWeight: 700 }}
+                  style={{ border: '1px solid rgba(42,31,10,.35)', background: 'rgba(255,255,255,.6)', color: '#2a1f0a', padding: '4px 6px', borderRadius: 8, fontSize: 16, fontWeight: 700 }}
                 >
                   {years.length === 0 && <option value={fiscalYear()}>ปีงบประมาณ {fiscalYear()}</option>}
                   {years.map((y) => <option key={y} value={y}>ปีงบ {y}</option>)}
                   <option value="all">ทุกปี</option>
                 </select>
-                <button onClick={() => { setMedId(null); setSearch(''); setRows(null); }} style={{ border: '1px solid rgba(42,31,10,.35)', background: 'rgba(255,255,255,.35)', color: '#2a1f0a', padding: '5px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 600 }}>เปลี่ยนยา</button>
+                <button onClick={() => { setMedId(null); setSearch(''); setRows(null); }} style={{ border: '1px solid rgba(42,31,10,.35)', background: 'rgba(255,255,255,.4)', color: '#2a1f0a', padding: '5px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 600 }}>เปลี่ยนยา</button>
               </div>
             </div>
             <div style={{ background: 'var(--amber-bg)', display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
@@ -212,10 +221,20 @@ export default function SubstockCardScreen() {
             </div>
             <div style={{ padding: '12px 14px', background: 'var(--bg-card)', display: 'flex', gap: 10 }}>
               {/* The one number everyone actually walks up to this screen for — sized to read
-                  from arm's length, not squeezed next to the print button as small text. */}
-              <div style={{ flex: 1, background: 'var(--green-tint)', borderRadius: 10, padding: '10px 12px' }}>
-                <div className="muted" style={{ fontSize: 11 }}>substock คงเหลือตอนนี้ (real-time)</div>
-                <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--green)', lineHeight: 1.15 }}>{nf(liveBalance)} <span style={{ fontSize: 13, fontWeight: 600 }}>{med.unit}</span></div>
+                  from arm's length, not squeezed next to the print button as small text. Now
+                  colored/bar'd against par substock (same red/amber/green bands as the rest of
+                  the app's toneFor()-driven screens) instead of a flat green box regardless of
+                  whether 6,150 of 15,700 is actually fine or a problem — the raw number alone
+                  never said which, and reading that off by mental math isn't "เห็นภาพชัดเจน". */}
+              <div style={{ flex: 1, background: 'var(--bg-subtle)', border: '1px solid var(--border-soft)', borderRadius: 12, padding: '11px 13px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                  <span className="muted" style={{ fontSize: 11 }}>substock คงเหลือตอนนี้ (real-time)</span>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: balanceTone }}>{balancePct}% ของ par</span>
+                </div>
+                <div style={{ fontSize: 30, fontWeight: 800, color: balanceTone, lineHeight: 1.15, marginTop: 2 }}>{nf(liveBalance)} <span style={{ fontSize: 13, fontWeight: 600 }}>{med.unit}</span></div>
+                <div className="bar-track" style={{ height: 5, background: 'var(--border-soft)', borderRadius: 3, marginTop: 8 }}>
+                  <div className="bar-fill" style={{ height: '100%', width: Math.max(3, Math.min(100, balancePct)) + '%', background: balanceTone, borderRadius: 3 }} />
+                </div>
               </div>
               <div style={{ flex: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <button
@@ -261,12 +280,40 @@ export default function SubstockCardScreen() {
               </div>
             )}
             {mismatch && (
-              <div style={{ fontSize: 11, color: 'var(--amber-ink)', background: 'var(--amber-bg)', padding: '9px 14px', lineHeight: 1.5, borderTop: '1px solid var(--amber-border)' }}>
-                {hasNameTwin
-                  ? `ยานี้มีทั้งชั้น OPD และ IPD ชื่อเดียวกัน — ยอดจากประวัติ (${nf(lastLedgerBalance)} ${med.unit}) อาจไม่ครบตั้งแต่ก่อนระบบแยกประวัติตาม ward ได้ ยอดคงเหลือจริงด้านบนยังถูกต้องเสมอ`
-                  : `ยอดจากประวัติธุรกรรม (${nf(lastLedgerBalance)} ${med.unit}) ไม่ตรงกับยอดจริงตอนนี้ — อาจมีการปรับยอดนอกช่องทางปกติ ลองตรวจสอบใน Audit log`}
+              <div style={{ fontSize: 11, color: 'var(--amber-ink)', background: 'var(--amber-bg)', padding: '9px 14px', lineHeight: 1.5, borderTop: '1px solid var(--amber-border)', display: 'flex', alignItems: 'flex-end', gap: 10 }}>
+                <span style={{ flex: 1 }}>
+                  {hasNameTwin
+                    ? `ยานี้มีทั้งชั้น OPD และ IPD ชื่อเดียวกัน — ยอดจากประวัติ (${nf(lastLedgerBalance)} ${med.unit}) อาจไม่ครบตั้งแต่ก่อนระบบแยกประวัติตาม ward ได้ ยอดคงเหลือจริงด้านบนยังถูกต้องเสมอ`
+                    : `ยอดจากประวัติธุรกรรม (${nf(lastLedgerBalance)} ${med.unit}) ไม่ตรงกับยอดจริงตอนนี้ — อาจมีการปรับยอดนอกช่องทางปกติ ลองตรวจสอบใน Audit log`}
+                </span>
+                {/* Was just an instruction to "go check the Audit log" with no way to actually
+                    get there — only wired up for role==='admin' since AdminScreen's user/audit
+                    data (state.users, etc.) is only ever subscribed for that role; sending a
+                    pharm/tech there would land on a broken/empty screen instead of helping. */}
+                {!hasNameTwin && state.role === 'admin' && (
+                  <button
+                    onClick={() => { setAuditFilter('stock'); setAdminTab('audit'); go('admin'); }}
+                    className="press-spring"
+                    style={{ flex: 'none', border: '1px solid var(--amber)', background: 'rgba(255,255,255,.5)', color: 'var(--amber-ink)', padding: '5px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700 }}
+                  >
+                    ไปดู Audit log →
+                  </button>
+                )}
               </div>
             )}
+          </div>
+
+          {/* Type-icon legend — the ledger table below packs each row's type into a single
+              icon (📥🚚🗑️🔢) to keep the grid narrow enough for a phone screen; the only place
+              their meaning used to live was each row's `title` attribute, which needs a mouse
+              hover that a touchscreen never provides. Spelled out once, plainly, here. */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px', padding: '9px 13px', background: 'var(--bg-subtle)', border: '1px solid var(--border-soft)', borderRadius: 12, marginBottom: 12 }}>
+            {Object.values(TYPE_META).map((t) => (
+              <span key={t.label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11 }}>
+                <span aria-hidden="true">{t.icon}</span>
+                <span className="muted">{t.label}</span>
+              </span>
+            ))}
           </div>
 
           {loading && <SkeletonList rows={5} />}

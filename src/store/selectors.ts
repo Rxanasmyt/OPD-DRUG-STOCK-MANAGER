@@ -239,6 +239,15 @@ export function toneFor(m: Med): string {
   return r < 0.34 ? 'var(--red)' : r < 0.75 ? 'var(--amber)' : 'var(--green)';
 }
 
+// Same severity bands as toneFor(), applied to substock/par instead of floor/parFloor — the
+// ratio that actually matters on screens about the substock stage (ReceiveScreen's request
+// list, SubstockCardScreen's live-balance tile) rather than the shelf. Pulled out as a shared
+// export instead of staying duplicated per-screen, same reasoning as needsWarehouseRequest().
+export function subTone(cur: number, par: number): string {
+  const r = cur / Math.max(1, par);
+  return r < 0.34 ? 'var(--red)' : r < 0.75 ? 'var(--amber)' : 'var(--green)';
+}
+
 export function expTone(d: number, warnDays: number): string {
   return d < 0 ? 'var(--red)' : d < 30 ? 'var(--red)' : d < warnDays ? 'var(--amber)' : 'var(--green)';
 }

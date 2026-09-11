@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { usesSubstock, needsWarehouseRequest } from '../store/selectors';
+import { usesSubstock, needsWarehouseRequest, subTone } from '../store/selectors';
 import { nf, thDate, thTime } from '../utils/format';
 import { recognizeLotLabel } from '../utils/ocr';
 import { MedDot } from '../components/MedDot';
@@ -10,13 +10,6 @@ import { MedMiniCard } from '../components/MedMiniCard';
 import { StepIndicator, RECEIVE_STEPS } from '../components/StepIndicator';
 import { SearchInput } from '../components/SearchInput';
 import type { Med } from '../types';
-
-// Same severity bands as toneFor(), applied to substock/par instead of floor/parFloor —
-// this screen is about substock, so that's the ratio a pharmacist actually cares about here.
-function subTone(cur: number, par: number): string {
-  const r = cur / Math.max(1, par);
-  return r < 0.34 ? 'var(--red)' : r < 0.75 ? 'var(--amber)' : 'var(--green)';
-}
 
 // The "ควรเบิกจากคลังใหญ่" sort order — a noSubstock med has no substock stage to rank by (see
 // needsReceive's doc comment below), so its floor/parFloor ratio stands in for it there.
