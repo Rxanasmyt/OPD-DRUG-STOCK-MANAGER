@@ -48,7 +48,7 @@ export default defineConfig({
         short_name: 'KPNHOS Substock',
         description: 'KPNHOS-DRUG SUBSTOCK-OPD-IPD-MANAGEMENT — ระบบจัดการสต็อกยา OPD/IPD รพ.กรงปินัง — เติมหน้างานแบบ FEFO, รับเข้า substock, ปรับยอด, นำเข้า HOSxP, รายงาน และฉลาก QR',
         lang: 'th',
-        theme_color: '#0e8c82',
+        theme_color: '#007371',
         background_color: '#f7f6f2',
         display: 'standalone',
         orientation: 'portrait',
@@ -81,5 +81,10 @@ export default defineConfig({
   // and the HOSxP import parsers. None of these were ever covered by anything but manual
   // testing + tsc — a real gap for logic this safety-critical (miscounting a controlled drug's
   // stock is not a cosmetic bug) on an app that redeploys as often as this one does.
-  test: { environment: 'node' },
+  // 'jsdom' (not 'node') so component tests can actually render — the pre-existing 102 pure
+  // logic tests (selectors/utils) run identically under jsdom, just with a DOM available for
+  // the new screen-level integration tests alongside them. setupFiles wires in jest-dom's
+  // matchers (toBeInTheDocument() etc.) globally so individual test files don't each need to
+  // import it themselves.
+  test: { environment: 'jsdom', setupFiles: ['./src/test-setup.ts'] },
 });
