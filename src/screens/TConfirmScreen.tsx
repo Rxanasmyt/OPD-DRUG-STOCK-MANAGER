@@ -1,0 +1,114 @@
+import { useApp } from '../store/AppContext';
+import { nf, thTime } from '../utils/format';
+import { wardOf, isSharedMed } from '../store/selectors';
+import { MedDot } from '../components/MedDot';
+import { medColor } from '../utils/color';
+import { StepIndicator, TRANSFER_STEPS } from '../components/StepIndicator';
+import { EmptyState } from '../components/EmptyState';
+
+export default function TConfirmScreen() {
+  const { state, removeFromCart, startHadScan, commitTransfer, userName, roleLabel, go } = useApp();
+  const cartIds = Object.keys(state.cart);
+  const meds = state.meds;
+  const hadPending = cartIds.filter((id) => meds.find((m) => m.id === id)?.had && !state.hadOk[id]);
+
+  // A med in the cart can, in principle, have been deleted from the formulary by someone else
+  // (a different device/session) between adding it to the cart and reaching this confirm
+  // screen — carts are purely local state, never reflected in Firestore until commit, so
+  // there's nothing stopping that. `!` here used to crash the whole screen (caught by the
+  // ErrorBoundary, but still a jarring "reload the app" for what should just be one stale
+  // cart row) — skip rows whose med no longer resolves instead.
+  const rows = cartIds
+    .map((id) => {
+      const m = meds.find((x) => x.id === id);
+      if (!m) return null;
+      let need = state.cart[id];
+      const used = state.lots
+        .filter((l) => l.medId === id && l.qty > 0)
+        .sort((a, b) => a.exp - b.exp)
+        .map((l) => {
+          const take = Math.min(need, l.qty);
+          need -= take;
+          return take > 0 ? `lot ${l.lotNo} exp ${new Date(l.exp).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit' })} × ${nf(take)}` : null;
+        })
+        .filter(Boolean);
+      return { id, m, used, qty: state.cart[id] };
+    })
+    .filter((r): r is NonNullable<typeof r> => !!r);
+
+  // Bug fix: this used to say "ชั้นจ่ายยา OPD" unconditionally — wrong (and actively
+  // misleading, on a confirm screen) any time the cart holds IPD items, which is entirely
+  // possible: TransferScreen's ward tab only scopes which meds are *offered*, not what's
+  // already sitting in the cart from before a tab switch. Named after whichever ward(s) the
+  // cart's items actually belong to.
+  // Bug fix: a shared med (isSharedMed — see selectors.ts) always reports wardOf()==='opd'
+  // regardless of which tab it was actually added from, which used to make this label say
+  // "OPD" even when someone filled their cart entirely from the IPD tab. A shared med's real
+  // destination is whichever tab is currently open (it's the same shelf, just a different
+  // room/bin depending which one you're standing in), not its stored `ward`.
+  const cartWards = new Set(rows.map((r) => (isSharedMed(r.m) ? (state.wardFilter === 'ipd' ? 'ipd' : 'opd') : wardOf(r.m))));
+  const destLabel = cartWards.size === 0 ? 'ชั้นจ่ายยา'
+    : cartWards.size > 1 ? 'ชั้นจ่ายยา (OPD + IPD)'
+    : cartWards.has('ipd') ? 'ชั้นจ่ายยา IPD' : 'ชั้นจ่ายยา OPD';
+
+  return (
+    <div style={{ animation: 'fade .18s' }}>
+      <StepIndicator steps={TRANSFER_STEPS} current={1} />
+      <div style={{ padding: '10px 14px 24px' }}>
+      {/* Bug fix: removing the last row here used to leave a blank screen — no button, no
+          message, nothing — since both action buttons below are gated on cartIds.length > 0.
+          Looked exactly like the app had frozen. An explicit empty state with a way back is
+          the fix, same pattern EmptyState already provides everywhere else in the app. */}
+      {cartIds.length === 0 ? (
+        <>
+          <EmptyState icon="🛒" title="ตะกร้าว่างแล้ว" sub="ลบรายการสุดท้ายออกไปแล้ว — กลับไปเลือกยาที่จะเติมหน้างานอีกครั้ง" />
+          <button onClick={() => go('transfer')} className="btn-primary" style={{ width: '100%', padding: '12px 22px', borderRadius: 11, fontSize: 14, fontWeight: 600, minHeight: 46 }}>← กลับไปเลือกยา</button>
+        </>
+      ) : (
+      <>
+      <div className="muted" style={{ fontSize: 12.5, marginBottom: 10 }}>ตัดจาก substock ตามหลัก FEFO (lot ที่หมดอายุก่อนถูกเลือกให้อัตโนมัติ) และเพิ่มเข้าหน้างาน</div>
+
+      <div className="card" style={{ overflow: 'hidden', marginBottom: 14 }}>
+        {rows.map(({ id, m, used, qty }, i) => (
+          <div key={id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', borderLeft: '4px solid ' + medColor(m.code), display: 'flex', gap: 10, alignItems: 'flex-start', animation: 'fade .22s var(--ease-out) both', animationDelay: Math.min(i, 10) * 18 + 'ms' }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
+                <MedDot code={m.code} />
+                <span>{m.name}</span>
+                {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
+              </div>
+              <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>{used.join('  ·  ')}</div>
+              {m.had && (
+                <div style={{ fontSize: 11.5, marginTop: 2, fontWeight: 600, color: state.hadOk[id] ? 'var(--green)' : 'var(--had)' }}>
+                  {state.hadOk[id] ? '✓ ยืนยัน QR แล้ว' : 'ต้องสแกน QR ก่อนยืนยัน'}
+                </div>
+              )}
+            </div>
+            <div style={{ flex: 'none', textAlign: 'right' }}>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>{nf(qty)} {m.unit}</div>
+              <button onClick={() => removeFromCart(id)} style={{ border: 0, background: 'transparent', color: 'var(--red)', fontSize: 12, padding: '2px 0' }}>ลบ</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ background: 'var(--green-tint)', borderRadius: 12, padding: '12px 13px', fontSize: 12.5, lineHeight: 1.6, marginBottom: 14 }}>
+        ผู้ทำรายการ <b>{userName()}</b> ({roleLabel()})<br />ปลายทาง {destLabel} · เวลา {thTime(Date.now())} น.
+      </div>
+
+      {hadPending.length > 0 && (
+        <button onClick={() => startHadScan(hadPending[0])} style={{ width: '100%', border: 0, background: 'var(--had)', color: '#fff', padding: 16, borderRadius: 12, fontSize: 16, fontWeight: 600, minHeight: 54, marginBottom: 9 }}>
+          สแกน QR ยา high alert ({hadPending.length} รายการ)
+        </button>
+      )}
+      {hadPending.length === 0 && (
+        <button onClick={commitTransfer} disabled={!!state.busy['transfer']} className="btn-primary" style={{ width: '100%', padding: 16, borderRadius: 12, fontSize: 16, minHeight: 54, opacity: state.busy['transfer'] ? 0.7 : 1 }}>
+          {state.busy['transfer'] ? 'กำลังบันทึก…' : 'ยืนยันการเติมหน้างาน'}
+        </button>
+      )}
+      </>
+      )}
+      </div>
+    </div>
+  );
+}

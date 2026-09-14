@@ -1,0 +1,585 @@
+No.,รายการยา,Dosage Form,Drug Unit,Unit Price
+1,(HAD) Adenosine 3 mg/ml Vial,SOLUTIONS,Vial,454.00
+2,(HAD) ADREnaline - PL 1 mg./ml. Amphule (1 ml.),SOLUTIONS,Amphule (1 ml.),7.75
+3,(HAD) Amiodarone injection 150 mg/3ml Amphule,INJECTIONS,Amphule,107.00
+4,(HAD) Dopamine - PL 25 mg./ml. Amphule (10 ml.),Injection,Amphule (10 ml.),19.00
+5,(HAD) Heparin 5000 units/ml. Vial,INJECTIONS,Vial,167.00
+6,(HAD) KCl injection 20 mEq. Amphule (10 ml.),INJECTIONS,Amphule (10 ml.),10.25
+7,(HAD) MAGNESIUM SULFATE 10 % Amphule (10 ml.),INJECTIONS,Amphule (10 ml.),13.00
+8,(HAD) MAGNESIUM SULFATE 50 % Amphule (2 ml.),INJECTIONS,Amphule (2 ml.),11.50
+9,(HAD) MORPHINE - PL 10 mg./ml. Amphule (1 ml.),Injection,Amphule (1 ml.),8.50
+10,(HAD) Nicardipine inj. 1 mg/ml; 10 ml amp,INJECTIONS,amp,149.00
+11,(HAD) Norepinephrine (Levophed) 1 mg./ml. Amphule,INJECTIONS,Amphule,55.00
+12,(HAD) PETHIDINE 50 mg./ml. Amphule,Injection,Amphule,8.50
+13,(HAD) Streptokinase inj 1.5 mu. Vial,INJECTIONS,Vial,"9,595.00"
+14,(HAD) WARFARIN (สีชมพู) 5 mg. เม็ด,TABLETS,เม็ด,5.00
+15,(HAD) WARFARIN (สีฟ้า) 3 mg. เม็ด,TABLETS,เม็ด,5.00
+16,(HAD) Warfarin (สีส้ม) 2 mg. เม็ด,TABLETS,เม็ด,2.25
+17,10 mg. AMLODIPINE 10 mg. เม็ด,TABLETS,เม็ด,1.50
+18,20 mg.ENALAPRIL 20 MG เม็ด,TABLETS,เม็ด,1.00
+19,25 mg CARVEDILOL - PL 25 mg. เม็ด,TABLETS,เม็ด,3.75
+20,3% NaCl 3 % ขวด (500 ml.),INJECTIONS,ขวด (500 ml.),37.50
+21,300 mg ALLOPURINOL - ไม่มียาในรพ.กรงปินัง 300 mg,TABLETS,mg,1.50
+22,40  mg PROPRANOLOL - PL 40 mg. เม็ด,TABLETS,เม็ด,1.00
+23,500 mg. FUROSEMIDE tab (Lasix) - PL 500 mg. เม็ด,TABLETS,เม็ด,0.50
+24,95% Alcohol 95 %,SOLUTIONS,%,"1,216.00"
+25,"ACETATE RINGER SOLUTION 20+30+380+600 mg/100ml ขวด (1,000 ml.)",INJECTIONS,"ขวด (1,000 ml.)",54.00
+26,ACETYLCYSTEINE (Fluimucil) 200 mg ซอง (3g.),POWDERS,ซอง (3g.),2.00
+27,Activated Charcoal 50 กรัม,POWDERS,กรัม,63.00
+28,Acyclovir 500 mg. Vial,INJECTIONS,Vial,400.00
+29,Acyclovir/Zocovin - PL 400 mg. เม็ด,TABLETS,เม็ด,3.50
+30,ALBENdazole 200 mg. เม็ด,TABLETS,เม็ด,2.50
+31,ALCOHOL 70 % ขวด (450 ml.),SOLUTIONS,ขวด (450 ml.),34.50
+32,ALCOHOL 70% 70 % ขวด (60 ml.),SOLUTIONS,ขวด (60 ml.),9.00
+33,Alfacalcidol - ไม่มีใช้ใน รพ. 0.25 mcg. เม็ด,TABLETS,เม็ด,5.00
+34,Alfuzosin - ไม่มียานี้ในบัญชี รพ.กรงปินัง 10 mg tablet,,tablet,1.50
+35,algycon - ไม่มียานี้ในบัญชียา รพ.กรงปินัง 200+300+40 mg tablets,TABLETS,tablets,27.50
+36,ALLOPURINOL - PL 100 mg. เม็ด,TABLETS,เม็ด,1.00
+37,Alprazolam - ไม่มีในบัญชียา รพ.กรงปินัง 0.25 mg เม็ด,,เม็ด,1.50
+38,ALUM milk 306+100+20 mg. ขวด (240 ml.),SUSPENSIONS,ขวด (240 ml.),16.50
+39,Amikacin - ไม่มียานี้ในบัญชี รพ. 500 mg/2ml Vial,INJECTIONS,Vial,29.00
+40,Amitriptyline 10 mg. เม็ด,TABLETS,เม็ด,1.00
+41,AMITRIPTYLINE 25 mg. เม็ด,TABLETS,เม็ด,1.00
+42,amlodipine 5 mg เม็ด,TABLETS,เม็ด,1.00
+43,Amoxi/clav inj  - PL 1+2 g. Vial,POWDERS,Vial,37.00
+44,AMOXicillin 250 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+45,AMOXICILlin 500 mg. แค็บซูล,CAPSULES,แค็บซูล,2.00
+46,Amoxicillin syrup 125 mg/5ml ขวด,SYRUPS,ขวด,12.00
+47,AMOXICILLIN syrup 250 mg/5ml ขวด,SYRUPS,ขวด,23.00
+48,Amphotericin B - ไม่มียานี้ใช้ใน รพ. 50 mg. Vial,INJECTIONS,Vial,215.00
+49,AMPIcillin 1 g. Vial,POWDERS,Vial,15.50
+50,analgesic balm 15% หลอด,EMULSIONS,หลอด,14.00
+51,Anoro ellipta inhaler 62.5+25 30 dose/กล่อง,POWDERS,30 dose/กล่อง,402.00
+52,Anti-D immunoglobulin 300 mcg./2ml Vial,INJECTIONS,Vial,"6,358.00"
+53,Antivenin  Malayan  Pit  Viper (งูกะปะ) . amp 1,INJECTIONS,1,775.00
+54,"ANTIVENUM SERA,COBRA(งูเห่า) neut 0.6 Vial (10 ml.)",DRY POWDER,Vial (10 ml.),775.00
+55,aP vaccine 0.5 ml prefill syringe,,prefill syringe,413.00
+56,AROMATIC AMMONIA SPIRIT - ขวด (30 ml.),SOLUTIONS,ขวด (30 ml.),12.00
+57,ARTESUNATE 50 mg. เม็ด,TABLETS,เม็ด,17.50
+58,ASAFOETIDA TR. มหาหิงค์ 15 ml. ขวด (15 ml.),TINCTURE,ขวด (15 ml.),9.00
+59,ASPIRIN  Baby Tab. 81 mg. เม็ด,TABLETS,เม็ด,0.50
+60,ASPIRIN Gr.V 300 mg. เม็ด,TABLETS,เม็ด,1.00
+61,AstraZeneca 0.5 ml. Vial,INJECTIONS,Vial,191.00
+62,ATArax-Hydroxyzine  SYR 10 mg. ขวด (60 ml.),SYRUPS,ขวด (60 ml.),17.00
+63,Atorvastatin 40 mg. เม็ด,TABLETS,เม็ด,2.50
+64,ATROPINE inj 0.6 mg./ml. Amphule (1 ml.),INJECTIONS,Amphule (1 ml.),7.00
+65,AUGMENTIN - PL 1 g. เม็ด,TABLETS,เม็ด,4.25
+66,Augmentin susp.- 400+57 mg. ขวด,POWDERS,ขวด,89.00
+67,Azathioprine - ไม่มียานี้ในบัญชีรพ.กรงปินัง 50 mg เม็ด,,เม็ด,1.50
+68,Azithromycin 500 mg/vial - ไม่มียานี้ใช้ในรพ.กรงปินัง 500 mg. Vial,INJECTIONS,Vial,650.00
+69,Azithromycin- DUE 250 mg เม็ด,TABLETS,เม็ด,8.50
+70,Azithromycin syrup 200 mg/5ml ขวด (15 ml.),SYRUPS,ขวด (15 ml.),91.00
+71,B-100 Complex inj 1 ml. Amphule (1 ml.),INJECTIONS,Amphule (1 ml.),6.00
+72,Baclofen - ไม่มียานี้ใน รพ.กรงปินัง 10 mg. เม็ด,TABLETS,เม็ด,3.00
+73,Bactrim - PL 80/400 mg. เม็ด,TABLETS,เม็ด,1.50
+74,BACTRIM inj. 80/400 mg/5ml Amphule (5 ml.),INJECTIONS,Amphule (5 ml.),35.00
+75,Bactrim syrup - PL 40/200 mg/5ml ขวด (60 ml.),SUSPENSIONS,ขวด (60 ml.),12.00
+76,BCG(BACILLUS CALMETTE-GUE RIN) - PL 0.1 ml. Vial,INJECTIONS,Vial,166.00
+77,Bemiparin inj. - ไม่มียาในบัญชี รพ. 5000 IU/0.2 ml Syring,INJECTIONS,Syring,304.00
+78,Bemiparin inj. - ไม่มียาในบัญชี รพ. 7500 IU/0.3 ml Syringe,INJECTIONS,Syringe,444.00
+79,Benzathine Penicillin G 1.2 mu Vial,INJECTIONS,Vial,73.00
+80,BENZHEXOL 2 mg. เม็ด,TABLETS,เม็ด,1.00
+81,Benzhexol 5 mg. เม็ด,TABLETS,เม็ด,1.00
+82,Benztropine inj - ไม่มีในบัญชียา รพ.กรงปินัง 2 mg/2 ml amp,INJECTIONS,amp,1.50
+83,BENZYL BENZOATE 12.5 % ขวด (60 ml.),SOLUTIONS,ขวด (60 ml.),3.00
+84,Benzyl benzoate 25 % ขวด (60 ml.),SOLUTIONS,ขวด (60 ml.),6.00
+85,Berodual  NB (4 ml/NB) . Inhaler,SOLUTIONS,Inhaler,6.00
+86,berODUAL MDI(Ipratropium+Fenoterol) 20+50 mcg. ขวด MDI (200 dose),MDI,ขวด MDI (200 dose),138.00
+87,bet N (1+5 mg/5g) หลอด (5 g.),Cream,หลอด (5 g.),19.00
+88,Betadine 15 ml - Povidone Iodine 10 % ขวด (15 ml.),SOLUTIONS,ขวด (15 ml.),18.00
+89,betahistine 6 mg. tablet,TABLETS,tablet,1.00
+90,BETAMETHASONE 0.1 % หลอด (5 g.),EMULSIONS,หลอด (5 g.),11.00
+91,Betamethasone+Salicylic 0.1+3.0 % หลอด (5 g.),EMULSIONS,หลอด (5 g.),25.00
+92,Bimatoprost (Lumigan) - ไม่มียาในบัญชี รพ.กรงปินัง 0.01 % ขวด ED (3 ml),SOLUTIONS,ขวด ED (3 ml),1.50
+93,BISACODYL Tab. 5 mg. เม็ด,TABLETS,เม็ด,0.50
+94,Bismuth subsalicylate -ไม่มียาในกรงปินัง 524 mg. เม็ด,TABLETS,เม็ด,4.75
+95,Bisoprolol 2.5 mg. เม็ด,TABLETS,เม็ด,2.75
+96,Bisoprolol 5 mg เม็ด,TABLETS,เม็ด,2.75
+97,Bisoprolol 5 mg. - ไม่มีในบัญชี รพ.กรงปินัง 5 mg เม็ด,TABLETS,เม็ด,2.75
+98,Brimonidine(Alphsgan) - ไม่มียาในบัญชี รพ.กรงปินัง 0.2 % ขวด ED (5 ml),SOLUTIONS,ขวด ED (5 ml),1.50
+99,Brinzolamide+Timolol (AZARGA) - ไม่มียาในบัญชี รพ.กรงปินัง 10+5 mg/ml ขวด ED,SOLUTIONS,ขวด ED,1.50
+100,BROMHEXINE - ไม่มียานี้ในบัญชียา รพ.กรงปินัง 8 mg. เม็ด,TABLETS,เม็ด,0.50
+101,Budesonide  Inhaler 200 mcg. หลอด(200 dose),MDI,หลอด(200 dose),74.00
+102,Budesonide NB (Pulmicort Respules) - ไม่มียาใน รพ.กรงปินัง 0.5 mg/2 ml NEBULE,SOLUTIONS,NEBULE,1.50
+103,Cafergot - PL 1/100 mg. เม็ด,TABLETS,เม็ด,3.00
+104,CALAMINE LOTION 15 % ขวด (60 ml.),SUSPENSIONS,ขวด (60 ml.),19.00
+105,Calcitriol - ไม่มีในบัญชียารพ.กรงปินัง 0.25 mcg เม็ด,,เม็ด,1.50
+106,calcium carbonate 1500 mg. เม็ด,TABLETS,เม็ด,1.00
+107,CALCIUM GLUCONATE 10 % Amphule (10 ml.),INJECTIONS,Amphule (10 ml.),19.00
+108,CAPTOPRIL 25 mg. เม็ด,TABLETS,เม็ด,2.25
+109,Carbamazepine CR - ไม่มียานี้ในรพ.กรงปินัง 200 mg. เม็ด,TABLETS,เม็ด,1.50
+110,Carbidopa+Levodopa - ไม่มียาในบัญชียา รพ.กรงปินัง 25+250 เม็ด,TABLETS,เม็ด,5.50
+111,Carbocysteine Syrup 250 mg/5ml ขวด,TABLETS,ขวด,18.00
+112,Carvedilol - PL 6.25 mg. เม็ด,TABLETS,เม็ด,3.00
+113,Cefalexin syrup 250 mg/5ml ขวด (60 ml),SYRUPS,ขวด (60 ml),37.00
+114,CEFAZOLIN 1 gm. Vial,INJECTIONS,Vial,21.50
+115,Cefixime 100 mg - ไม่มียาในบัญชี รพ.กรงปินัง 100 mg เม็ด,CAPSULES,เม็ด,1.50
+116,Cefotaxime sodium - PL 1 g. Vial,INJECTIONS,Vial,23.00
+117,Ceftazidime inj. 1 g. Vial,INJECTIONS,Vial,22.00
+118,CEFTRIAZONE(CEF-3) - PL 1 g. Vial,INJECTIONS,Vial,11.00
+119,Cephalexin 500 mg แคปซูล,CAPSULES,แคปซูล,4.00
+120,cetirizine 10 mg. tab,TABLETS,tab,1.00
+121,CHLORAMPHENICOL EAR DROP 1 % ขวด (10 ml.),SOLUTIONS,ขวด (10 ml.),27.50
+122,CHLORAMPHENICOL EYE DROP 0.5 % ขวด (5 ml.),OPHTHALAMIC SOLUTION,ขวด (5 ml.),24.00
+123,CHLORAMPHENICOL EYE OINTMENT 1 % หลอด (5 g.),ointment.,หลอด (5 g.),21.00
+124,Chlorhexidine mouth wash 180 ml ขวด,SOLUTIONS,ขวด,25.00
+125,CHLOROQUINE - PL 250 mg. เม็ด,TABLETS,เม็ด,1.00
+126,Cilostazol - ยา refer back 100 mg. เม็ด,TABLETS,เม็ด,26.50
+127,Cinacalcet - ไม่มียาในรพ. 25 mg เม็ด,TABLETS,เม็ด,183.00
+128,CINNARIZINE - NED 25 mg. เม็ด,TABLETS,เม็ด,0.50
+129,ciprofloxacin - ไม่มียาใน รพ.กรงปินัง 250 mg เม็ด,TABLETS,เม็ด,1.50
+130,Ciprofloxacin inj. - ไม่มียานี้ใน รพ.กรงปินัง 200 mg/100 ml ขวด,INJECTIONS,ขวด,59.00
+131,Ciprofloxacin/CIPROCEP 500 mg. เม็ด,TABLETS,เม็ด,2.50
+132,Clarithromycin -ไม่มียาในกรงปินัง 500 mg. เม็ด,TABLETS,เม็ด,17.00
+133,Clindamycin 300 mg. แค็บซูล,CAPSULES,แค็บซูล,3.50
+134,clindamycin injection 600 mg/4ml Vial,INJECTIONS,Vial,24.00
+135,Clonazepam 0.5 mg. เม็ด,TABLETS,เม็ด,1.00
+136,Clonazepam 1 mg - ไม่มียานี้ในบัญชี รพ.กรงปินัง 1 mg tablet,TABLETS,tablet,1.50
+137,Clonazepam 2 mg 2 mg. เม็ด,TABLETS,เม็ด,2.00
+138,clonidine tab - ไม่มียานี้ใน รพ.กรงปินัง 0.15 mg เม็ด,,เม็ด,1.50
+139,CLORAZEPATE - PL 5 mg. capsule,TABLETS,capsule,1.00
+140,Clotrimazole CREAM 1 % หลอด (5 g.),EMULSIONS,หลอด (5 g.),7.75
+141,Clotrimazole Troche-อม 10 mg. เม็ด,TABLETS,เม็ด,1.00
+142,CLOTRIMAZOLE VAGINA TAB. 100 mg. เม็ด (VG.),vaginal tablets,เม็ด (VG.),2.50
+143,Clotrimazole VAGINAL 500 mg 500 mg เม็ด (VG),TABLETS,เม็ด (VG),121.00
+144,CLOXACILLIN inj. 1 g. Vial,INJECTIONS,Vial,23.00
+145,Clozapine 100 MG - ไม่มียาในบัญชียารพ. 100 mg เม็ด,TABLETS,เม็ด,2.50
+146,clozapine 25 mg - ไม่มีในบัญชียา รพ. 25 mg เม็ด,TABLETS,เม็ด,1.75
+147,COLCHICINE - PL 0.6 mg. เม็ด,TABLETS,เม็ด,1.00
+148,colistin inj. - ไม่มียานี้ในบัญชียา รพ. 150 mg vial,,vial,154.00
+149,CONCON-SALICYLIC ACID+LACTIC ACID . ขวด (15 ml.),SOLUTIONS,ขวด (15 ml.),59.00
+150,Corona vaccine- Sinovac 0.5 ml. Vial,INJECTIONS,Vial,689.00
+151,CPM -(PL) 4 mg. เม็ด,TABLETS,เม็ด,0.50
+152,CPM inj. - PL 10 mg. Amp. (1 ml.),INJECTIONS,Amp. (1 ml.),7.00
+153,CPM Syrup 2 mg./5ml. ขวด (60 ml.),SYRUPS,ขวด (60 ml.),9.75
+154,CPZ-CHLORPROMAZINE 100 mg. เม็ด,TABLETS,เม็ด,1.50
+155,Cytisinicline 1.5 mg tablet,TABLETS,tablet,6.50
+156,Cytotec 200 mcg. เม็ด,TABLETS,เม็ด,13.50
+157,"D-5-N (5+0.9) % ถุง (1,000 ml.)",INJECTIONS,"ถุง (1,000 ml.)",40.00
+158,D-5-N/2 (5+0.45) % ถุง (1000 ml.),INJECTIONS,ถุง (1000 ml.),40.00
+159,D-5-N/2 (5+0.45) % ถุง (500 ml.),INJECTIONS,ถุง (500 ml.),33.50
+160,D-5-N/3 (5+0.33) % ถุง(500 ml),SOLUTIONS,ถุง(500 ml),33.50
+161,D-5-N/4 (5+0.225) % ถุง (500 ml.),INJECTIONS,ถุง (500 ml.),33.50
+162,D-5-N/5 (5+0.18) % ถุง (500 ml.),INJECTIONS,ถุง (500 ml.),33.50
+163,"D-5-W 5 % ถุง (1,000 ml.)",Injection,"ถุง (1,000 ml.)",40.00
+164,D-5-W 5 % ถุง (100 ml.),INTRAVENOUS SOLUTION,ถุง (100 ml.),19.50
+165,D-5-W 5 % ถุง (500 ml.),Injection,ถุง (500 ml.),33.50
+166,DAFLON ไม่มีในบัญชียารพ.กรงปินัง 1000 mg เม็ด,TABLETS,เม็ด,1.00
+167,Deanxit - ไม่มียานี้ในบัญชียา รพ กรงปินัง 0.5+10 mg. tablets,TABLETS,tablets,6.50
+168,Deferasirox 250 mg (ไม่มีในบัญชีรพ.) 250 mg เม็ด,,เม็ด,1.50
+169,Depakine 200 mg 200 mg. เม็ด,TABLETS,เม็ด,3.75
+170,Depakine chrono 500 mg. เม็ด,TABLETS,เม็ด,13.00
+171,Depakine inj. 400 mg/4 ml- ไม่มียานี้ใน รพ. 400 mg/4ml vial,,vial,1.50
+172,Depakine syrup 200 mg/ml - ไม่มียานี้ในบัญชียา รพ. 200 mg/ml ขวด,SYRUPS,ขวด,166.00
+173,Desloratadine - ไม่มียาใน รพ.กรงปินัง 5 mg เม็ด,TABLETS,เม็ด,1.50
+174,DEXAMETHASONE - PL 4 mg./ml. Amp. (1 ml.),INJECTIONS,Amp. (1 ml.),6.00
+175,Dexamethasone ไม่มีในบัญชียารพ. 0.5 mg เม็ด,TABLETS,เม็ด,1.00
+176,Dextran 40 % ขวด (500 ml.),SOLUTIONS,ขวด (500 ml.),500.00
+177,DEXTROMETHORPHAN - PL 15 mg. เม็ด,TABLETS,เม็ด,1.00
+178,Dextrose 50 % Vial (50 ml.),INJECTIONS,Vial (50 ml.),21.00
+179,DIAZEPAM - PL 2 mg. เม็ด,TABLETS,เม็ด,0.50
+180,DIAZEPAM - PL 5 mg. เม็ด,TABLETS,เม็ด,0.50
+181,DIAZEPAM Inj. - PL 10 mg./2ml Amp.(2ml),INJECTIONS,Amp.(2ml),7.00
+182,dIClOfenac 25 mg. เม็ด,TABLETS,เม็ด,0.50
+183,DICLOFENAC inj. 25 mg./ml. Amphule,INJECTIONS,Amphule,7.00
+184,DICLOXACILLIN 250 mg. แค็บซูล,CAPSULES,แค็บซูล,1.75
+185,DICLOXacillin 500 mg. แค็บซูล,CAPSULES,แค็บซูล,2.75
+186,DICLOXACILLIN SRY. 62.5 mg/5ml ขวด (60 ml.),SYRUPS,ขวด (60 ml.),24.00
+187,Dicloxacillin syrup 125 mg/5ml ขวด,SYRUPS,ขวด,37.00
+188,DIGOXIN - PL 0.25 mg./ml. Amphule,INJECTIONS,Amphule,41.00
+189,DIGOXIN 0.25 mg. เม็ด,TABLETS,เม็ด,0.50
+190,DIMENHYDRINATE 50 mg. เม็ด,TABLETS,เม็ด,0.50
+191,DIMENHYDRINATE(Dramamine) 50 mg./ml. Amp.,INJECTIONS,Amp.,4.00
+192,Dipotassium phosphate inj.(K2HPO4) 20+20 mEq/20ml amp,,amp,69.00
+193,Diprosone 0.05% 10 g - ไม่มียานี้ในบัญชียา รพ.กรงปินัง 0.05% หลอด,,หลอด,13.00
+194,Dipyridamole - ไม่มียานี้ในบัญชียา รพ. 25 mg เม็ด,TABLETS,เม็ด,1.50
+195,DMPA-MEDROXYPROGESTERONE ACETATE 150 mg. Vial,INJECTIONS,Vial,12.50
+196,dOMperidone - PL 10 mg เม็ด,TABLETS,เม็ด,1.00
+197,Domperidone susp.(Motilium) 5 mg/5ml ขวด (30 ml.),SUSPENSIONS,ขวด (30 ml.),7.50
+198,Doxazocin-XL 4 mg ไม่มีในบัญชียา รพ.กรงปินัง 4 mg tablet,TABLETS,tablet,24.00
+199,Doxazosin 2 mg. tab,TABLETS,tab,1.00
+200,DOXYCYCLINE - PL 100 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+201,Drotaverine 40 mg. เม็ด,TABLETS,เม็ด,1.50
+202,dT vaccine single dose 0.5 ml vial,,vial,29.00
+203,DTG/3TC/TDF (TLD) ยาโครงการ 50/300/300 mg เม็ด,TABLETS,เม็ด,29.00
+204,DTP VACCINE . dose,Injection,dose,82.00
+205,Duocetz(Tramadol+Paracetamol) - ไม่มียาในบัญชีรพ.กรงปินัง 37.5+325 เม็ด,TABLETS,เม็ด,1.50
+206,Dutasteride - ไม่มียาใน รพ.กรงปินัง 0.5 mg เม็ด,,เม็ด,1.50
+207,E.KCl ( ..60.....ซีซี) 20 mEq/15ml ขวด (60ซีซี),SOLUTIONS,ขวด (60ซีซี),23.00
+208,Edoxaban ไม่มีในบัญชียารพ.กรงปินัง 60 mg เม็ด,TABLETS,เม็ด,1.00
+209,Efavirenz (ยาโครงการ) 600 mg. เม็ด,TABLETS,เม็ด,7.50
+210,Efavirenz 200 mg tablet,TABLETS,tablet,1.50
+211,empagliflozin-ไม่มีในบัญชียากรงปินัง 10 mg. เม็ด,TABLETS,เม็ด,55.00
+212,Enalapril 5 mg เม็ด,TABLETS,เม็ด,0.50
+213,Enoxaparin - ยา refer back 60 mg. Amphule,INJECTIONS,Amphule,289.00
+214,ERIG-Rabies Immunoglobulin 400U/2ml 400 U/2ml vial (2 ml),INJECTIONS,vial (2 ml),327.00
+215,Ertapenem - refer back 1 g. Vial,INJECTIONS,Vial,"1,710.00"
+216,ERYTHROMYCIN - PL 125 mg/5ml ขวด (60 ml.),SYRUPS,ขวด (60 ml.),18.00
+217,ERYTHROMYCIN STEARATE - PL 250 mg. เม็ด,TABLETS,เม็ด,2.00
+218,Erythropoietin - EPO 4000 unit/1ml vial,INJECTIONS,vial,194.00
+219,Ethambutal - PL 500 mg. เม็ด,TABLETS,เม็ด,3.00
+220,Ethambutol - PL 400 mg. เม็ด,TABLETS,เม็ด,3.00
+221,Etonorgestrel (Implanon NXT) 68 mg. Vial,INJECTIONS,Vial,"2,074.00"
+222,Eurartesim(Piperaquine tetraphophate/artenimol) 320+40 mg เม็ด,TABLETS,เม็ด,1.50
+223,Exluton-Lynestrenol 0.5 mg. เม็ด,TABLETS,เม็ด,79.00
+224,Ezetimibe- ไม่มีในบัญชียากรงปินัง 10 mg. เม็ด,TABLETS,เม็ด,51.00
+225,Favipiravir 200 mg. เม็ด,TABLETS,เม็ด,14.00
+226,Favipiravir syr 13.33 mg./ml. ขวด (60 ml.),SYRUPS,ขวด (60 ml.),13.00
+227,Febuxostat - ไม่มียานี้ในบัญชียา รพ.กรงปินัง 80 mg เม็ด,SYRUPS,เม็ด,47.00
+228,Fenofibrate - ไม่มีในบัญชียารพ. 200 mg เม็ด,CAPSULES,เม็ด,1.50
+229,Fenofibrate 160 mg. เม็ด,CAPSULES,เม็ด,5.25
+230,FERROUS FUMARATE - PL 200 mg เม็ด,TABLETS,เม็ด,0.50
+231,FERROUS-CO(FER IN SOL) 15 mg./0.6 ขวด (15 ml.),SOLUTIONS,ขวด (15 ml.),33.00
+232,Fexofenadine - 180 mg ไม่มียานี้ใช้ในบัญชี รพ.กรงปินัง 180 mg เม็ด,TABLETS,เม็ด,1.50
+233,Filgrastim  300 mcg/ml - ไม่มียาในบัญชีกรงปินัง 300 mcg./ml. Amphule,INJECTIONS,Amphule,441.00
+234,Fimasartan - ไม่มียานี้ในรพ.กรงปินัง 60 mg. เม็ด,TABLETS,เม็ด,20.50
+235,Finasteride - ไม่มียานี้ในบัญชียา รพ.กรงปินัง 5 mg เม็ด,TABLETS,เม็ด,7.25
+236,Fluconazole 200 mg. แค็บซูล,CAPSULES,แค็บซูล,5.00
+237,Flunarizine - PL - ไม่มีในบัญชียา รพ.กรงปินัง 5 mg. เม็ด,TABLETS,เม็ด,1.00
+238,FLUOXetine - PL 20 mg. เม็ด,CAPSULES,เม็ด,1.00
+239,Fluphenazine decanoate 25 mg./ml. Amphule (1 ml.),INJECTIONS,Amphule (1 ml.),35.80
+240,Flutamide - ไม่มียานี้ใน รพ.กรงปินัง 250 mg. เม็ด,TABLETS,เม็ด,33.00
+241,Fluticasone Evohaler (Flixotide) ไม่มียาในบัญชี รพ. 125 mcg กล่อง,POWDERS,กล่อง,268.00
+242,FOLIC ACID - PL 5 mg. เม็ด,TABLETS,เม็ด,0.50
+243,Folic acid - ยาสนับสนุน 400 mcg เม็ด,,เม็ด,0.50
+244,FOSFOMYCIN - ไม่มียานี้ในบัญชียา รพ.กรงปินัง 2 gm vial,,vial,281.00
+245,Furosemide 250 mg/25ml Vial,INJECTIONS,Vial,50.00
+246,Furosemide tab (Lasix) - PL 40 mg. เม็ด,TABLETS,เม็ด,1.00
+247,FUROSEMIDE-Lasix inj. - PL. 10 mg./ml. Amp. (2 ml.),INJECTIONS,Amp. (2 ml.),7.00
+248,Gabapentin - DUE 300 mg แค็บซูล,CAPSULES,แค็บซูล,1.75
+249,Gabapentin 100 mg (ไม่มีในบัญชี รพ.) 100 mg แคปซูล,CAPSULES,แคปซูล,1.50
+250,GastroBismol - ไม่มียาในรพ.กรงปินัง 1048 mg,,mg,1.50
+251,Gemfibrozil-lopid 600 mg. เม็ด,TABLETS,เม็ด,1.50
+252,GENSULIN  N (NPH) - PL 100 units/ml. Vial (10 ml.),Injection,Vial (10 ml.),91.00
+253,GENTAMICIN 80 mg. Amphule (2 ml.),INJECTIONS,Amphule (2 ml.),6.00
+254,GENTIAN VIOLET 1 % ขวด (30 ml.),SOLUTIONS,ขวด (30 ml.),9.25
+255,GG  Guaifenesin 100 mg. 1 ขวด ( 60 ml. ),SYRUPS,1 ขวด ( 60 ml. ),11.50
+256,glipizide(Minidiab) - PL 5 mg เม็ด,TABLETS,เม็ด,0.50
+257,GLYCERINE BORAX 12 % ขวด,SUSPENSIONS,ขวด,24.00
+258,glycerine rectal supposition เด็ก 1.5 g. Suppositories,SUSPENSIONS,Suppositories,1.50
+259,GPO-L-ONE (ไม่มีใช้ในรพ.) 500 mg. เม็ด,TABLETS,เม็ด,5.00
+260,GPO-VIR (S30) ยาโครงการ 200+150+30 mg. เม็ด,TABLETS,เม็ด,15.00
+261,GPO-VIR T 200+300+600 mg. เม็ด,TABLETS,เม็ด,43.00
+262,GRISEOFULVIN-fulcin - PL 500 mg. เม็ด,TABLETS,เม็ด,2.50
+263,Guafenesin (GG)  เม็ด - PL 100 mg. เม็ด,TABLETS,เม็ด,0.50
+264,HALOPERIDOL - PL 5 mg./ml. Amphule (1 ml.),INJECTIONS,Amphule (1 ml.),12.50
+265,Haloperidol 0.5 mg - ไม่มียาใน รพ.กรงปินัง 0.5 mg เม็ด,TABLETS,เม็ด,0.50
+266,HALOPERIDOL(สีฟ้า) - PL 5 mg. เม็ด,TABLETS,เม็ด,1.50
+267,HALOPERIDOL(เหลือง)- PL 2 mg. เม็ด,TABLETS,เม็ด,1.00
+268,HBIG-Hepatitis B Immune Globulin 100 u./0.5ml Vial,INJECTIONS,Vial,"1,473.00"
+269,HCTZ-HYDROCHLOROTHIAZIDE - PL 25 mg. เม็ด,TABLETS,เม็ด,0.50
+270,HEPATITIS B VACCINE - PL 1 ml. Vial,Injection,Vial,48.50
+271,HIBISCRUB 4 % ขวด (30 ml.),Solution,ขวด (30 ml.),4.75
+272,HISTA-OPH (Antazolin+Tetryzolin) 50/100 + 40/100 ขวด,SOLUTIONS,ขวด,16.00
+273,"HPV - Cecolin type 16,18 2 สายพันธ์ vial",INJECTIONS,vial,434.00
+274,HPV - Gardasil 9 9 สายพันธ์ syringe,INJECTIONS,syringe,858.00
+275,HRIG-HUMAN RABIES IMMUNOGLOBULIN 150 iu./ml. Vial,Injection,Vial,"2,180.00"
+276,Human Albumin 20 bottle,INJECTIONS,bottle,"1,183.00"
+277,HYDRALAZINE - PL 20 mg. Amphule,INJECTIONS,Amphule,289.00
+278,Hydralazine 50 mg tab - ไม่มียานี้ในบัญชียา รพ. 50 mg เม็ด,TABLETS,เม็ด,1.50
+279,HYDRALAZINE-Apresoline - PL 25 mg เม็ด,TABLETS,เม็ด,1.00
+280,HYDROCORTISONE - PL 100 mg. Vial,INJECTIONS,Vial,43.00
+281,HYDROGEN PEROXIDE 6% ขวด,SOLUTIONS,ขวด,10.00
+282,Hydroxychloroquine - ไม่มียาในรพ.กรงปินัง 200 mg เม็ด,,เม็ด,1.50
+283,Hydroxyzine - ATARAX 10 mg. เม็ด,TABLETS,เม็ด,0.50
+284,Hyoscine inj.(Buscopan) 20 mg./ml. Amp. (1 ml.),INJECTIONS,Amp. (1 ml.),6.00
+285,Hyoscine syr (Buscopan) 5 mg./5ml. ขวด (30 ml.),SYRUPS,ขวด (30 ml.),16.50
+286,Hyoscine tab (Buscopan) 10 mg. เม็ด,TABLETS,เม็ด,1.50
+287,IBUPROFEN 100 mg/5ml ขวด (60 ml.),SYRUPS,ขวด (60 ml.),12.75
+288,Ibuprofen 400 mg. เม็ด,TABLETS,เม็ด,1.50
+289,Imipramine-ไม่มีในบัญชียา รพ. 25 mg. เม็ด,TABLETS,เม็ด,1.50
+290,Indapamide-ไม่มีในบัญชียา รพ. 2.5 mg. เม็ด,TABLETS,เม็ด,4.25
+291,Influenza vaccine - บุคลากร 15 mcg. ampule,,ampule,146.00
+292,Influenza vaccine - ประชาชนกลุ่มเสี่ยง 15mcg+15mcg+15mcg mcg./dose Amphule,INJECTIONS,Amphule,146.00
+293,IPV - Erapolio 15+45+45 DU vial,INJECTIONS,vial,298.00
+294,Irbesartan-ไม่มียานี้ในบัญชี 300 mg เม็ด,TABLETS,เม็ด,14.00
+295,ISONIAZID - PL 100 mg. เม็ด,TABLETS,เม็ด,0.50
+296,isoniazid/rifapentine - ยาสนับสนุน 300+300 เม็ด,,เม็ด,433.00
+297,ISOSORBIDE  dinitrate (SL) 5 mg. เม็ด,TABLETS,เม็ด,1.50
+298,ISOSORBIDE DINITRATE 10 mg. เม็ด,TABLETS,เม็ด,1.50
+299,Isosorbide mononitrate 20 mg. เม็ด,TABLETS,เม็ด,1.50
+300,Itraconazole 100 mg. แค็บซูล,CAPSULES,แค็บซูล,6.00
+301,JE VACCINE(0.5 ML) - PL 80 mcg./ml. Vial,Injection,Vial,691.00
+302,KALIMATE POWDER 5 g. ซอง,powder,ซอง,7.25
+303,KCl 500 mg. เม็ด,TABLETS,เม็ด,1.50
+304,KETOCONAZOLE 2 % หลอด (5 g.),Shampoo,หลอด (5 g.),14.00
+305,KETOCONAZOLE 200 mg. เม็ด,TABLETS,เม็ด,2.50
+306,Lac-Oph 0.5 % ขวด,Eye Drop Sol.,ขวด,26.00
+307,lactate ringers injection mg 1000 ml,INJECTIONS,1000 ml,13.00
+308,LACTULOSE - PL 0.667 g./ml. ขวด (100 ml.),SYRUPS,ขวด (100 ml.),61.00
+309,Lamivudine - 3TC (ยาโครงการ) 150 mg. เม็ด,TABLETS,เม็ด,4.25
+310,Lamivudine 300 เม็ด,TABLETS,เม็ด,6.50
+311,Lansoprazole - ไม่มียาใน รพ.กรงปินัง 30 mg เม็ด,TABLETS,เม็ด,1.50
+312,Lercanidipine 20 mg. เม็ด,TABLETS,เม็ด,4.00
+313,Levetiracetam (Keppra) 100 mg/ml ; 60 ml- ไม่มียานี้ในบัญชี รพ. 100 mg/ml ขวด,SOLUTIONS,ขวด,1.50
+314,Levetiracetam(Keppra) - ไม่มียานี้ใน รพ. 500 mg. เม็ด,TABLETS,เม็ด,33.50
+315,levodopa+benserazide - ไม่มียาใน รพ.กรงปินัง 100+25 เม็ด,,เม็ด,1.50
+316,LEVODOPA+BENSERAZIDE - ไม่มียาใน รพ.กรงปินัง 200+50 mg เม็ด,,เม็ด,1.50
+317,Levofloxacin 500 mg. เม็ด,TABLETS,เม็ด,31.00
+318,Levofloxacin inj.-ไม่มีในบัญชียา รพ. 750 mg/150 ml vial,INJECTIONS,vial,491.00
+319,levothyroxine-Elthroxin - PL 0.1 mg. เม็ด,TABLETS,เม็ด,1.00
+320,LIDOCAINE 2 % Vial (50 ml.),INJECTIONS,Vial (50 ml.),42.00
+321,LIDOCAINE+ADRENALINE 2 % Vial (50 ml.),Injection,Vial (50 ml.),90.00
+322,Lithium - ไม่มียานี้ใน รพ.กรงปินัง 300 mg. capsule,,capsule,1.50
+323,LOPERAMIDE (Imodium) 2 mg. แค็บซูล,CAPSULES,แค็บซูล,1.00
+324,Lopinavir/Ritonavir - Kaletra (ยาโครงการ) 200+50 mg. เม็ด,TABLETS,เม็ด,17.00
+325,loraTADINE - ไม่มียาใน รพ.กรงปินัง 10 mg. เม็ด,TABLETS,เม็ด,1.00
+326,loraZEPAM (ATIVAN) - PL 0.5 mg. เม็ด,TABLETS,เม็ด,1.00
+327,Lorazepam 2 mg - ไม่มียานี้ในบัญชียา รพ. 2 mg เม็ด,TABLETS,เม็ด,1.00
+328,Losartan 50 mg. เม็ด,TABLETS,เม็ด,1.50
+329,Losartan-tanzaril - PL 100 mg. เม็ด,TABLETS,เม็ด,1.50
+330,L-thyrosine  - เตรียมเฉพาะราย 20 mcg./ml. ซีซี,SYRUPS,ซีซี,1.00
+331,M. CARMINATIVE 180 ml. ขวด,SUSPENSIONS,ขวด,20.50
+332,M.TUSSIS 60 ml. ขวด,SUSPENSIONS,ขวด,16.50
+333,Magesto - F ไม่มียานี้ในบัญชี รพ.กรงปินัง 37.5+0.75+25+2.5+50+200+0.3+0.3+0.3+0.4+1+36.635 m เม็ด,TABLETS,เม็ด,1.50
+334,Manidipine 20 mg 20 mg. เม็ด,TABLETS,เม็ด,1.75
+335,Maxitrol eye ointment - ไม่มียาในบัญชี รพ.กรงปินัง 3.5 g หลอด,,หลอด,1.50
+336,meBENDAzole 100 mg./5ml. ขวด (30 ml.),SUSPENSIONS,ขวด (30 ml.),12.50
+337,MEDROXYPROGESTERONE(PROVERA) 5 mg. เม็ด,TABLETS,เม็ด,12.00
+338,MEFENAMIC ACID ไม่มีในบัญชียารพ. 500 mg เม็ด,TABLETS,เม็ด,1.50
+339,Menactra 4 mcg vial,INJECTIONS,vial,"1,205.00"
+340,Meropenem - ไม่มีในบัญชียา รพ. 1 g. Vial,INJECTIONS,Vial,119.00
+341,METFORMIN - PL 500 mg. เม็ด,TABLETS,เม็ด,0.50
+342,metformin - PL 850 mg. เม็ด,TABLETS,เม็ด,1.00
+343,methimazole - PL 5 mg. เม็ด,TABLETS,เม็ด,1.50
+344,Methotrexate 2.5 mg. เม็ด,TABLETS,เม็ด,7.75
+345,methyldopa - PL 250 mg. เม็ด,TABLETS,เม็ด,2.25
+346,MethylERGOMETRINE(Methergin) - PL 0.2 mg./ml. Amp.,Injection,Amp.,8.50
+347,methylphenidate - ไม่มียานี้ในบัญชี 10 mg. เม็ด,TABLETS,เม็ด,1.50
+348,METOCLOPRAMIDE - PL 10 mg./2ml Amphule (2 ml.),INJECTIONS,Amphule (2 ml.),4.50
+349,meTOPROLOL - PL 100 mg. tab,TABLETS,tab,1.00
+350,metoprolol succinate 95 mg prolong release - ไม่มียานี้ในบัญชี 95 mg เม็ด,,เม็ด,1.50
+351,meTRONIDAzole - PL 400 mg. เม็ด,TABLETS,เม็ด,1.00
+352,METRONIDAZOLE - PL 500 mg. Vial (100 ml.),INJECTIONS,Vial (100 ml.),15.00
+353,MIXED INSULIN 70/30 - PL 100 iu./ml. Vial (10 ml.),INJECTIONS,Vial (10 ml.),85.00
+354,Mixtard - ชนิดปากกา 100 units/ml.(3ML) ขวด,INJECTIONS,ขวด,85.00
+355,MMR - PL 0.5 ml. Vial,INJ,Vial,235.00
+356,Molnupiravir 200 mg เม็ด,TABLETS,เม็ด,11.50
+357,MOM- MILK OF MAGNESIA  240 ml . ml. ขวด,SUSPENSIONS,ขวด,28.00
+358,Mometasone furoate - ไม่มียานี้ในบัญชียา รพ.กรงปินัง 0.1 % หลอด,,หลอด,13.00
+359,Montelukast-ไม่มีในบัญชียากรงปินัง 10 mg. เม็ด,TABLETS,เม็ด,23.00
+360,Morphine 10 mg. เม็ด,TABLETS,เม็ด,2.00
+361,Morphine SR  50 mg - ไม่มียาในรพ.กรงปินัง 50 mg เม็ด,CAPSULES,เม็ด,46.00
+362,Morphine SR 10 mg. เม็ด,TABLETS,เม็ด,14.00
+363,Morphine SR 30 mg. เม็ด,TABLETS,เม็ด,27.00
+364,Morphine syrup (ไม่มีในบัญชียารพ.) 10mg/5ml ขวด (60ml),,ขวด (60ml),1.50
+365,Mosapride citrate - ไม่มียาในบัญชียา รพ.กรงปินัง 5 mg tablets,TABLETS,tablets,30.00
+366,Mucillin 5 g. ซอง,POWDERS,ซอง,5.25
+367,MULTIVITAMIN DROPS ไม่มีในบัญชีรพ. 15 ml ขวด,,ขวด,1.00
+368,Multivitamin syr . mg. ขวด (60 ml.),SYRUPS,ขวด (60 ml.),18.00
+369,MULTIVITAMINS(MTV) - ไม่มียาในบัญชียา รพ.กรงปินัง mg. เม็ด,TABLETS,เม็ด,0.50
+370,NaCl 3 % ถุง (500 ml.),INJECTIONS,ถุง (500 ml.),37.50
+371,NaCl tab 300 mg. เม็ด,TABLETS,เม็ด,1.00
+372,NALOXONE - PL 400 mcg./ml. Amphule (1 ml.),INJECTIONS,Amphule (1 ml.),245.00
+373,NAPROXEN 250 mg. เม็ด,TABLETS,เม็ด,1.50
+374,Nataral EZ - ไม่มียานี้ใน รพ.กรงปินัง 5 เม็ด,TABLETS,เม็ด,1.50
+375,Nifedipine SR - PL 20 mg. เม็ด,TABLETS,เม็ด,1.50
+376,NORETHISTERON(PRIMOLUT-N) 5 mg. เม็ด,TABLET,เม็ด,3.50
+377,NORFLOXACIN 400 mg. เม็ด,TABLETS,เม็ด,1.75
+378,Nortriptyline HCl - ไม่มียานี้ในบัญชี รพ.กรงปินัง 25 mg. เม็ด,TABLETS,เม็ด,1.50
+379,Novomix 30  - ไม่มียาในรพ.กรงปินัง 30/70 vial,,vial,214.00
+380,"NSS 0.45 % ถุง (1,000 ml.)",INJECTIONS,"ถุง (1,000 ml.)",39.00
+381,NSS 0.9 % Amphule (5 ml.),SOLUTIONS,Amphule (5 ml.),4.00
+382,"NSS 0.9 % ขวด (1,000 ml.)",INTRAVENOUS SOLUTION,"ขวด (1,000 ml.)",35.00
+383,NSS 100 ml/bag 0.9 % ถุง (100 ml.),INTRAVENOUS SOLOTION,ถุง (100 ml.),15.50
+384,"NSS irrigation 0.9 % ขวด (1,000 ml.)",SOLUTIONS,"ขวด (1,000 ml.)",32.00
+385,Nystatin BP - PL 1 ml. ขวด,SUSPENSIONS,ขวด,38.00
+386,Ofloxacin 200 mg. เม็ด,TABLETS,เม็ด,2.25
+387,OLIVE OIL 30 ml. ขวด,Solution,ขวด,27.00
+388,OMEPRAZOLE - PL 20 mg. capsule,CAPSULE,capsule,1.50
+389,OMEPRAZOLE - PL 40 mg. Vial,INJECTIONS,Vial,16.00
+390,Ondansetron - ไม่มีในบัญชียา รพ. 8 mg. เม็ด,TABLETS,เม็ด,11.00
+391,OPV vaccine 2 ml. dose,oral drop,dose,180.00
+392,orphenadrine+Paracetamol (Norgesic ) - ไม่มียานี้ในบัญชียา รพ. 35+450 เม็ด,,เม็ด,0.00
+393,ORS 5.5 g. ซอง,POWDERS,ซอง,2.50
+394,Oseltamivir - PL 30 mg. capsule,CAPSULES,capsule,15.50
+395,oseltamivir - PL 75 mg. เม็ด,TABLETS,เม็ด,31.00
+396,Oseltamivir - เฉพาะราย 10 mg./ml. ซีซี,SYRUPS,ซีซี,4.00
+397,OXYTOCIN-Syntocinon 10 iu. Amp. (1 ml.),Injection,Amp. (1 ml.),15.00
+398,Pan-Enteral Powder 400 gm 400 g. กระป๋อง,POWDERS,กระป๋อง,315.00
+399,PANTOPRAZOLE - refer back 40 mg vial,,vial,1.50
+400,PARACETAMOL  syrup 120 mg./5ml. ขวด (60 ml.),SYRUPS,ขวด (60 ml.),10.00
+401,paracetamol 325 mg. เม็ด,TABLETS,เม็ด,0.50
+402,PARACETAMOL 500 mg เม็ด,TABLETS,เม็ด,1.00
+403,Paracetamol drop - ไม่มีในบัญชียา รพ.กรงปินัง 100 mg/ml ขวด (15 ml),SYRUPS,ขวด (15 ml),1.50
+404,"Penicillin G sodium 1,000,000 iu. Vial",INJECTIONS,Vial,10.00
+405,Penicillin G sodium 5mU 5 mU vial,INJECTIONS,vial,19.00
+406,PENICILLIN V 125 mg/5ml ขวด (60 ml.),SYRUPS,ขวด (60 ml.),15.50
+407,PENICILLIN V 250 mg. เม็ด,TABLETS,เม็ด,1.50
+408,Peppermint oil 187 mg - ไม่มียาในบัญชียา รพ. กรงปินัง 187 mg 1,CAPSULES,1,8.75
+409,perphenazine - PL 16 mg. เม็ด,TABLETS,เม็ด,1.00
+410,Perphenazine 4 - ไม่มีในบัญชียากรงปินัง 4 mg. เม็ด,TABLETS,เม็ด,1.00
+411,Perphenazine- PL 8 mg. เม็ด,TABLETS,เม็ด,1.00
+412,Perphenazine- ไม่มีในบัญชียากรงปินัง 2 mg. เม็ด,TABLETS,เม็ด,1.50
+413,Pfizer 0.3 ml. dose,INJECTIONS,dose,0.00
+414,PHENOBARBITAL - PL 60 mg. เม็ด,TABLETS,เม็ด,0.50
+415,Phenytoin (Dilantin) 25 mg/ml - ไม่มีบัญชียา รพ. 25 mg/ml ขวด,SOLUTIONS,ขวด,1.50
+416,Phenytoin (XR) 100 mg. แค็บซูล,TABLETS,แค็บซูล,4.50
+417,Phenytoin 50 mg. เม็ด,TABLETS,เม็ด,3.50
+418,PHENYTOIN INJ. 250 mg. Vial (5 ml.),Injection,Vial (5 ml.),160.00
+419,Pioglitazone 30 mg. เม็ด,TABLETS,เม็ด,1.50
+420,Pitavastatin - ไม่มียาใน รพ.กรงปินัง 4 mg เม็ด,,เม็ด,1.50
+421,Plavix-Clopidogel 75 mg. เม็ด,TABLET,เม็ด,3.00
+422,POLY-OPH 5 ml. ขวด ED (5 ml.),Eye Drop Sol.,ขวด ED (5 ml.),22.00
+423,Povidone Iodine 10 % ขวด (450 ml.),SOLUTIONS,ขวด (450 ml.),99.50
+424,Pravastatin - ไม่มียาในบัญชี รพ. 40 mg tablet,TABLETS,tablet,41.00
+425,PREDNISOLONE - PL 5 mg. เม็ด,TABLETS,เม็ด,1.00
+426,pregabalin 25 mg - ไม่มียานี้ในบัญชี รพ. 25 mg เม็ด,TABLETS,เม็ด,0.00
+427,PRIMAQUINE 15 mg. เม็ด,TABLETS,เม็ด,1.50
+428,Primaquine 5 mg. เม็ด,TABLETS,เม็ด,1.50
+429,Primaquine 7.5 mg เม็ด,TABLETS,เม็ด,1.50
+430,Procaterol (MEPTIN) - ไม่มียาในรพ.กรงปินัง 5 mcg/ml ขวด(60 ml),SYRUPS,ขวด(60 ml),41.00
+431,PROCTOSEDYL (R) - เม็ด (SP.),SUPPO.,เม็ด (SP.),7.25
+432,Proluton-HYDROXYPROGESTERONE CAPROATE 250 mg. Amphule,INJECTIONS,Amphule,130.00
+433,PROPRANOLOL - PL 10 mg. เม็ด,TABLETS,เม็ด,1.00
+434,PTU-PROPYLTHIOURACIL - PL 50 mg. เม็ด,TABLETS,เม็ด,1.00
+435,PZA-PYRAZINAMIDE 500 mg. เม็ด,TABLETS,เม็ด,1.50
+436,Quetiapine 200 mg - ไม่มีในบัญชีรพ. 200 mg เม็ด,,เม็ด,1.50
+437,Quetiapine 25 mg - ไม่มีในบัญชียา รพ กรงปินัง 25 mg. เม็ด,TABLETS,เม็ด,1.50
+438,QUININE SULFATE 300 mg. เม็ด,TABLETS,เม็ด,2.25
+439,R den - ETHINYLESTRADIOL+LEVONORGESTREL 30+150 mcg. แผง,TABLETS,แผง,7.25
+440,Rabeprazole - ไม่มียานี้ในบัญชียา รพ.กรงปินัง 20 mg tablets,,tablets,25.00
+441,Rebamipide 100 mg - ไม่มียานี้ในบัญชียา กรงปินัง 100 mg เม็ด,,เม็ด,1.50
+442,Regular Insulin (RI) - PL (.......ยูนิต) 100 units/ml. unit,INJECTIONS,unit,0.50
+443,Regular insulin (RI) - PL 100 units/ml. Vial (10 ml.),Injection,Vial (10 ml.),84.50
+444,remdesivir 100 mg. Vial,POWDERS,Vial,749.00
+445,Rifafour e275 - PL (150+400+100+275) mg. เม็ด,TABLETS,เม็ด,24.23
+446,RIFAMPICIN - PL 300 mg. แค็บซูล,CAPSULES,แค็บซูล,3.25
+447,RIFAMPICIN - PL 450 mg. แค็บซูล,CAPSULES,แค็บซูล,4.00
+448,Risperidone 1 mg เม็ด,TABLETS,เม็ด,2.75
+449,Risperidone 2 mg. เม็ด,TABLETS,เม็ด,4.50
+450,risperidone solution 0.1% ขวด,,ขวด,0.00
+451,Ropinirole - ไม่มียานี้ในบัญชียา รพ.กรงปินัง 2 mg เม็ด,TABLETS,เม็ด,14.00
+452,ROXITHROMYCIN(Rulid) 150 mg. เม็ด,TABLETS,เม็ด,1.50
+453,SALBUTAMOL - PL 2 mg/5ml ขวด (60 ml.),SYRUPS,ขวด (60 ml.),10.00
+454,Salbutamol MDI  (ventolin MDI) - PL 100 mcg./dose ขวด MDI (200 dose),Solution,ขวด MDI (200 dose),52.50
+455,SALBUTAMOL SULFATE NB 2.5 mg./2.5 NEBULE,SOLUTIONS,NEBULE,5.50
+456,SALBUTAMOL-Ventolin - PL 2 mg. เม็ด,TABLETS,เม็ด,0.50
+457,Seretide accuhaler 60 dose - PL 50/250 mcg./dos หลอด(60 dose),POWDERS,หลอด(60 dose),543.00
+458,seretide evohaler 120 dose 25/250 mcg./dose หลอด(120 dose),POWDERS,หลอด(120 dose),681.00
+459,Sertraline 50 mg. เม็ด,TABLETS,เม็ด,3.00
+460,Sildenafil - ไม่มีในบัญชียากรงปินัง 20 mg. เม็ด,TABLETS,เม็ด,0.00
+461,SILVER SULFADIAZINE - PL 1 % หลอด,cream,หลอด,31.00
+462,Simethicone (Air-X) new 80 mg เม็ด,TABLETS,เม็ด,1.00
+463,simeTHICONE SUS. 40 mg/0.6 ml ขวด,SYRUPS,ขวด,18.00
+464,SIMVASTATIN - PL 40 mg. เม็ด,TABLETS,เม็ด,1.50
+465,simvastatin 20 mg. เม็ด,TABLETS,เม็ด,1.50
+466,Sinopharm 0.5 ml. Amphule,EMULSIONS,Amphule,0.00
+467,SODIUM  BICARBONATE 300 mg. เม็ด,TABLETS,เม็ด,0.50
+468,SODIUM BICARBONATE 7.5% 50 ml. Amphule,INTRAVENOUS SOLUTION,Amphule,41.00
+469,SOFRA-TULLE . ซอง,GOUZE,ซอง,20.00
+470,Spiolto Respimat(Tiotropium + Olodaterol) - ไม่มีใน รพ.กรงปินัง 2.5 mcg + 2.5 mcg หลอด,,หลอด,1.50
+471,spiriva handihaler 18 mcg. เม็ด,TABLETS,เม็ด,21.00
+472,SPIRONOLACTONE (Aldactone) - PL 25 mg. เม็ด,TABLETS,เม็ด,1.50
+473,Sterile water for Injection 100 ml . ถุง (100 ml.),Injection,ถุง (100 ml.),17.00
+474,"Sterile water for IRRIGATION 1000 ml. ถุง (1,000 ml.)",Injection,"ถุง (1,000 ml.)",36.00
+475,STREPTOMYCIN SULPHATE - PL 1 g. Vial,INJECTIONS,Vial,12.25
+476,Sucralfate gel - ไม่มียาในรพ.กรงปินัง 1 gm ซอง(5 ml),SUSPENSIONS,ซอง(5 ml),19.00
+477,sulbactam inj. - ยา refer back 2 gm vial,INJECTIONS,vial,239.00
+478,SULFINPYRAZONE 100 mg. เม็ด,TABLETS,เม็ด,27.00
+479,SULPROSTONE INJ.(Nalador) 0.5 mg. Amp.,INJECTIONS,Amp.,"1,171.50"
+480,Swiff - ยาสำหรับเตรียม colonoscopy 2.4 + 0.9 g ขวด,SYRUPS,ขวด,78.00
+481,Symbicort (Budesonide/formoterol) 160+4.5 mcg. หลอด(60 dose),POWDERS,หลอด(60 dose),503.00
+482,Tamoxifen  - ไม่มียานี้ในบัญชี รพ.กรงปินัง 20 mg เม็ด,TABLETS,เม็ด,31.00
+483,Tamsulosin(Uroflow) ไม่มีในบัญชียารพ. 0.4 mg เม็ด,,เม็ด,1.50
+484,Tazocin-ยาไม่มีใช้ในรพ. 4.5 g. Vial,INJECTIONS,Vial,84.50
+485,TdaP 0.5 ml prefill syringe,,prefill syringe,644.00
+486,Tenecteplase 1000 units/ml. Amphule,INJECTIONS,Amphule,"24,260.00"
+487,Tenofovir + Emtricitabine 300+200 mg tablet,TABLETS,tablet,1.50
+488,Tenofovir 300 mg (ยาโครงการ) 300 mg เม็ด,TABLETS,เม็ด,55.00
+489,Tenofovir Alanfenamide 25 mg - ไม่มียาในบัญชี รพ. 25 mg เม็ด,TABLETS,เม็ด,1.50
+490,tenoxicam 20 mg- ไม่มียานี้ในบัญชียา รพ.กรงปินัง 20 mg เม็ด,,เม็ด,0.00
+491,TERBUTALINE SULFATE - PL 0.5 mg./ml. Amphule,Injection,Amphule,11.00
+492,Terramycin-Oxytetracycline hydrochlorideOINT. 1 % หลอด (3 g.),Ointments,หลอด (3 g.),40.00
+493,"TETANUS ANTI TOXIN (TAT) 1,500 iu./ml. Vial",Injection,Vial,18.00
+494,tetanus Immunoglobulin(TIG)-tetagam P - PL 250 iu./ml. Amphule,INJECTIONS,Amphule,747.00
+495,TETANUS VACCINE 5 Lf./500 Amphule,INJECTIONS,Amphule,24.00
+496,tetracaine eye drop 0.5% ขวด,SOLUTIONS,ขวด,111.00
+497,THEOPHYLLINE - PL 200 mg. เม็ด,TABLETS,เม็ด,1.75
+498,Thioridazine 50 mg ไม่มีในบัญชียารพ. 50 mg เม็ด,,เม็ด,1.00
+499,Ticagrelor - ไม่มีในบัญชียา รพ.กรงปินัง 90 mg tablet,TABLETS,tablet,20.50
+500,Tigecycline inj. - ยา refer back 50 mg vial,INJECTIONS,vial,"1,925.00"
+501,TOLPERISONE - NED 50 mg. เม็ด,TABLETS,เม็ด,1.00
+502,Topiramate 100 mg - ไม่มียานี้ในบัญชียา รพ. 100 mg,TABLETS,mg,1.50
+503,topiramate 25 mg tab - ไม่มียานี้ในบัญชียา รพ.กรงปินัง 25 mg เม็ด,,เม็ด,1.50
+504,TRAMADOL  HCl 50 mg. แค็บซูล,CAPSULES,แค็บซูล,1.00
+505,TRAMADOL HCl  INJ. 50 mg./ml. Amphule (1 ml.),Injection,Amphule (1 ml.),6.50
+506,Tranexamic cid inj ไม่มีในบัญชียารพ. 250 mg/5 ml vial,INJECTIONS,vial,1.00
+507,transamin - ไม่มียานี้ใช้ใน รพ. 250 mg. แค็บซูล,CAPSULES,แค็บซูล,4.00
+508,Trazodone - ไม่มีในบัญชียากรงปินัง 50 mg. เม็ด,TABLETS,เม็ด,1.00
+509,TRIAMCINOLONE (5g) Cr. 0.1 % หลอด (5 g.),CAPSULES,หลอด (5 g.),7.75
+510,Triamcinolone inj. - ไม่มียาใน รพ.กรงปินัง 40 mg/ml vial,INJECTIONS,vial,1.50
+511,Triamcinolone LOTION 0.1 % ขวด (30 ml.),SOLUTIONS,ขวด (30 ml.),20.00
+512,TRIAMCINOLONE ORAL PASTE - KENALOG 0.1 % ซอง (1 g.),POWDERS,ซอง (1 g.),4.00
+513,TRIAMCINOLONE(5g) Cr. 0.02 % หลอด (5 g.),EMULSIONS,หลอด (5 g.),9.25
+514,Triferdine 0.15+60.81+0.4 เม็ด,TABLETS,เม็ด,1.50
+515,tuberculin PPD 0.4 mcg./ml. Vial,INJECTIONS,Vial,44.00
+516,UNISON ENEMA  20 ml . ขวด (20 ml.),SOLUTIONS,ขวด (20 ml.),9.00
+517,UNISON ENEMA 10 ml . ขวด (10 ml.),SUpp,ขวด (10 ml.),8.50
+518,UNISON ENEMA 100 ml. ขวด,Solution,ขวด,27.00
+519,urea 10 % หลอด (30 g.),SOLUTIONS,หลอด (30 g.),75.00
+520,Utrogestan 100 mg 100 mg เม็ด,CAPSULES,เม็ด,16.00
+521,Valprocid - sodium valproate syrup ***ไม่มียานี้ในบัญชี 200 mg/ml ขวด,,ขวด,0.00
+522,VALSARTAN 80 mg-ไม่มีในบัญชียากรงปินัง 80 mg. เม็ด,TABLETS,เม็ด,0.00
+523,Vancomycin 500 mg- ไม่มียานี้ในบัญชี รพ. 500 mg. Vial,INJECTIONS,Vial,135.00
+524,vastarel 20 mg - ไม่มียานี้ในบัญชียา รพ. 20 mg เม็ด,TABLETS,เม็ด,1.50
+525,Venlafaxine - ไม่มียาในรพ.กรงปินัง 75 mg เม็ด,TABLETS,เม็ด,24.00
+526,VERORAB -  RABIES VACCINES - PL 2.5 iu./dose Vial,INJECTIONS,Vial,281.00
+527,"vitamin A 25,000 u - vit A - PL 25,000 u. เม็ด",TABLETS,เม็ด,1.00
+528,VITAMIN B 1-6-12 - PL(ชมพู3เหลี่ยม) - เม็ด,TABLETS,เม็ด,1.00
+529,vitamin B complex - PL mg. เม็ด,TABLETS,เม็ด,0.50
+530,VITAMIN B6 - PL 50 mg. เม็ด,TABLETS,เม็ด,1.00
+531,Vitamin C - ไม่มียานี้ในรพ.กรงปินัง 100 mg. เม็ด,TABLETS,เม็ด,1.00
+532,vitamin D2 - ไม่มียานี้ในบัญชี รพ. 20000 u. แค็บซูล,CAPSULES,แค็บซูล,2.00
+533,VITAMIN K1 - PL 1 mg. Amphule,Injection,Amphule,14.00
+534,Vonoprazan - ไม่มียานี้ในบัญชีรพ.กรงปินัง 20 mg tablets,,tablets,93.50
+535,Whitfield s ointment 6.0+3.0 % หลอด (15 g.),SOLUTIONS,หลอด (15 g.),7.00
+536,Xylocaine viscous solution 20 mg./ml. ขวด,SOLUTIONS,ขวด,34.00
+537,Zidovudine - AZT (ยาโครงการ) 100 mg. เม็ด,CAPSULES,เม็ด,3.50
+538,ZINC  PASTE 5 g. หลอด (5 g.),PASTE,หลอด (5 g.),21.50
+539,zinc sulphate - ไม่มียานี้ในบัญชี รพ.กรงปินัง 5 mg/5ml ขวด 60 มล.,,ขวด 60 มล.,
+540,แก้ลมแก้เส้น ตราธนัทเฮิร์บ 500 mg. แคปซูล,CAPSULES,แคปซูล,1.50
+541,ขมิ้นชัน 500 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+542,ขิงแคปซูล 500 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+543,ครีมพญายอ 10 mg. หลอด,EMULSIONS,หลอด,53.50
+544,จันทน์ลีลา 330 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+545,จันทลีลา ตราธนัทเฮิร์บ 500mg. แคปซูล,CAPSULES,แคปซูล,
+546,ใช้เฉพาะ EPI - dT vaccine 0.5 ml. .,INJECTIONS,.,48.00
+547,ตรีผลา ตราธนัทเฮิร์บ 500 mg. แคปซูล,CAPSULES,แคปซูล,1.50
+548,เถาวัลย์เปรียง 500 mg. แค็บซูล,CAPSULES,แค็บซูล,3.50
+549,ทำลายพระสุเมรุ (รพร.เด่นชัย) 500มก. แคปซูล,,แคปซูล,2.00
+550,ธรณีสันธะฆาต 500 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+551,ธาตุบรรจบ ตราธนัทเฮิร์บ 500 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+552,น้ำมันกัญชา อ.เดชา (ดอนตูม) 2 mg. หยด,,หยด,100.00
+553,น้ำมันไพล % W/V ขวด,SOLUTIONS,ขวด,43.00
+554,น้ำยาลดบุหรี่ 300 ml. ขวด,SOLUTIONS,ขวด,55.00
+555,ใบมะขามแขก 400 แค็บซูล,CAPSULES,แค็บซูล,1.50
+556,ประสะจันทน์แดง ตราธนัทเฮิร์บ 500mg. แคปซูล,CAPSULES,แคปซูล,1.50
+557,เพชรสังฆาต 500 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+558,ฟ้าทะลายโจร 500 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+559,มันทธาตุ ตราธนัทเฮิร์บ 500mg. แคปซูล,CAPSULES,แคปซูล,1.50
+560,ยาแก้ไอมะขามป้อม 120 มล. 0.32 กรัม/ มล. ขวด,,ขวด,20.00
+561,ยาเขียวหอม ตราธงทอง 25 g. กระปุก,POWDERS,กระปุก,37.00
+562,ยาแคปซูลเบญจกูลตราธงทอง 400 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+563,ยาแคปซูลประสะไพล - แค็บซูล,CAPSULES,แค็บซูล,1.50
+564,ยาแคปซูลห้าราก 300 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+565,ยาชงชุมเห็ดเทศ ตราธงทอง 3 g./ซอง ซอง,POWDERS,ซอง,4.75
+566,ยาตรีผลา 500 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+567,ยาธาตุบรรจบ 500 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+568,ยาธาตุผสมอบเชย 40 % ขวด,SYRUPS,ขวด,31.00
+569,ยาบำรุงโลหิตตราธงทอง 500 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+570,ยาปราบชมพูทวีปตราธงทอง 500 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+571,ยาปลูกไฟธาตุตราธงทอง 500 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+572,ยาผสมรางจืด 380 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+573,ยาหอมเทพจิตร 200 mg. ซอง,TABLETS,ซอง,15.25
+574,ยาหอมนวโกฐ ตราธนัทเฮิร์บ 12 กรัม ยาผง,POWDERS,ยาผง,0.00
+575,ยาหอมนวโกฐตราธงทอง 200 ม.ก. เม็ด,TABLETS,เม็ด,2.75
+576,ยาอมมะแว้ง(Mawaeng) - ไม่มียาในบัญชี กรงปินัง 250 mg. ซอง,TABLETS,ซอง,6.25
+577,ลูกประคบสมุนไพร - ซอง,,ซอง,55.00
+578,ศุขไสยาศน์ (รพ.คูเมือง) 500mg. แคปซูล,CAPSULES,แคปซูล,4.00
+579,ศุขไสยาศน์ ตราธนัทเฮิร์บ 500 mg. แคปซูล,CAPSULES,แคปซูล,1.50
+580,สหัสธารา 500 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+581,สหัสธารา ตราธนัทเฮิร์บ 500mg. แคปซูล,CAPSULES,แคปซูล,1.50
+582,สารสกัดฟ้าทะลายโจร - CV 20 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+583,ห้าราก ตราธนัทเฮิร์บ 500 mg. แค็บซูล,CAPSULES,แค็บซูล,1.50
+ผู้พิมพ์ : นายอนัส มะยีแต,พิมพ์จากเครื่อง RX-FRONT3  วันที่พิมพ์ 24 สิงหาคม 2569 เวลา 09:21 น.,CUSTOM-FORM2020-บัญชีเวชภัณฑ์ยาเรียงลำดับตามชื่อ,Page 14 of 14,

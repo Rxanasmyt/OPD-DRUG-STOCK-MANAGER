@@ -1,0 +1,41 @@
+name: Firestore Backup
+
+# Daily export of every Firestore collection to a downloadable Actions artifact — the free-tier
+# (Spark plan) alternative to Firestore's built-in Scheduled Backups feature, which requires the
+# Blaze billing plan. See scripts/backup-firestore.mjs for what gets backed up and how, and
+# scripts/restore-firestore.mjs for how to restore one of these files back into Firestore.
+#
+# One-time setup (do this once, in this repo's GitHub settings):
+#   1. Firebase Console → project opd-drug-stock → ⚙️ Project settings → Service accounts
+#      → "Generate new private key" — downloads a serviceAccountKey.json file.
+#   2. This repo → Settings → Secrets and variables → Actions → New repository secret
+#      → name it FIREBASE_SERVICE_ACCOUNT_KEY → paste the ENTIRE contents of that JSON file.
+#   3. Delete the downloaded file from your computer once it's pasted in — treat it like a
+#      password (it grants full read/write access to the Firestore database).
+#
+# Until that secret exists, this workflow will fail every run with a clear "env var is not set"
+# error (see the script) rather than silently doing nothing.
+
+on:
+  schedule:
+    - cron: '0 19 * * *' # 19:00 UTC = 02:00 Asia/Bangkok — once a day, off-hours
+  workflow_dispatch: # lets you also trigger a backup on demand from the Actions tab
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: node scripts/backup-firestore.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firestore-backup-${{ github.run_id }}
+          path: backups/*.json
+          retention-days: 14 # GitHub auto-deletes the artifact after this — tune as needed

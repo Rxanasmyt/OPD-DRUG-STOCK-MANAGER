@@ -1,0 +1,382 @@
+export type Role = 'pharm' | 'tech' | 'admin';
+
+export type Ward = 'opd' | 'ipd';
+
+export interface Med {
+  id: string;
+  code: string;
+  name: string;
+  unit: string;
+  dosageForm: string;
+  price: number;
+  had: boolean;
+  active: boolean; // false = not carried by this hospital (from CSV "ไม่มียาในรพ.กรงปินัง" notes)
+  parSub: number;
+  parFloor: number; // shelf capacity target — "Max": เติมขึ้นไปถึงจุดนี้
+  floor: number;
+  // Optional — missing on every med added before Min-Max existed; falls back to a fraction
+  // of parFloor via floorMinOf() in selectors.ts. "Min": ต่ำกว่าจุดนี้ถือว่าต้องเติมด่วน
+  // (separate from parFloor/"Max" since ต่ำกว่า par หน้างาน ≠ ถึงเวลาต้องเติมจริง ๆ — real
+  // min-max par has the two as different numbers, not one target doing both jobs).
+  floorMin?: number;
+  bin: string;
+  used30: number;
+  usedPrev30: number;
+  volatility: number;
+  // Optional in truth even though every current write path (addMed, seed.ts) sets it — a
+  // hand-edited Firestore doc or a future import path could still omit it, and CountScreen
+  // used to divide against it unconditionally (Date.now() - undefined = NaN, rendered
+  // literally as "นับล่าสุด NaN วันก่อน"). Marked optional so that gap can't silently reopen.
+  lastCountTs?: number;
+  // Same idea as lastCountTs but for a substock cycle count (see commitSubCount in
+  // AppContext.tsx) — kept as its own field rather than reusing lastCountTs because floor and
+  // substock are counted independently (different screens, different staleness clocks); folding
+  // them into one timestamp would make a fresh floor count wrongly read as "substock just
+  // verified" too, or vice versa.
+  lastSubCountTs?: number;
+  // Optional — missing on every med seeded before wards existed. Never read `.ward`/
+  // `.noSubstock` directly; always go through `wardOf()`/`usesSubstock()` in selectors.ts so
+  // old docs default correctly (opd / has substock) without a one-time migration write.
+  ward?: Ward;
+  // ยาน้ำ/ยาพ่นบางตัวไม่มีขั้น substock เลย — เบิกจากคลังใหญ่มาลงชั้นวางหน้างานตรง ๆ. Toggled
+  // per med (see MedsScreen), not a whole drug-class rule, since it varies item by item.
+  noSubstock?: boolean;
+  // `shared: true` = OPD and IPD draw on the SAME physical pool for this drug (the real
+  // workflow for most one-day-dose meds: IPD pulls straight off the OPD shelf) — one
+  // floor/par/lots/used30 serves both, and it shows up under both ward tabs. Set either by
+  // mergeWardMeds()/mergeAllWardPairs() (folding a still-separate OPD+IPD pair into one
+  // record) or in bulk by shareAllMeds() — for a formulary that never had separate IPD
+  // records to begin with, there's nothing to fold in, just this flag to flip. `binIpd`, if
+  // set, is a distinct IPD-side shelf code; left unset, `binFor()` in selectors.ts shows the
+  // same one `bin` for both wards, which is exactly right when there's only ever been one
+  // shelf. A med WITHOUT `shared` (kept on genuinely separate locked/ward-specific stock,
+  // e.g. IPD's injectable cabinet — see WardMoveScreen) is unaffected: still one `ward`, one
+  // `bin`, business as usual. Always go through isSharedMed()/matchesWard()/binFor() in
+  // selectors.ts rather than reading `shared`/`binIpd` directly.
+  shared?: boolean;
+  binIpd?: string;
+  // Substock's own shelf/rack code — the back-room counterpart to bin/binIpd (which are both
+  // FLOOR codes). Its own field rather than reusing bin: floor and substock are two separate
+  // physical rooms with their own independent code grid (see SUB_LOCS in data/locations.ts),
+  // and a med's substock rack position has no reason to match, or even exist alongside, its
+  // floor shelf spot. Optional — unset for every med until someone assigns a real substock
+  // location via MedsScreen, and meaningless for a noSubstock med (no back-room stock at all).
+  binSub?: string;
+  // Therapeutic group id — see src/data/categories.ts for the fixed list this must be one of
+  // (or absent). Optional because every med added before this feature existed has none; always
+  // read via categoryOf() in selectors.ts so those fall back to the same "ยังไม่ระบุหมวด" bucket
+  // instead of being invisible in a category-grouped/filtered view.
+  category?: string;
+}
+
+export interface Lot {
+  id: string;
+  code: string;
+  medId: string;
+  lotNo: string;
+  exp: number;
+  qty: number;
+  loc: string;
+}
+
+export type TxType =
+  | 'adjust' | 'return' | 'damaged' | 'expired' | 'count' | 'reconcile_hosxp'
+  | 'transfer_to_floor' | 'receive_from_central' | 'receive_pending'
+  | 'ward_move_out' | 'ward_move_in';
+
+export interface Tx {
+  id: string;
+  type: TxType;
+  name: string;
+  // Optional because every tx logged before this field existed has none — always fall back
+  // to matching by `name` for those. Added because `name` alone stopped being a unique
+  // pointer back to one Med the moment the OPD/IPD ward split let two Med records share a
+  // name (see wardOf/Ward) — anything that needs "which exact drug record was this?" (the
+  // substock card ledger, a future audit drill-down) should prefer medId when present.
+  medId?: string;
+  qty: number;
+  unit: string;
+  by: string;
+  ts: number;
+  reason?: string;
+  note?: string;
+  loc?: 'floor' | 'substock';
+  from?: string;
+  to?: string;
+}
+
+export interface User {
+  id: string; // Firebase Auth uid
+  username: string; // lowercase, unique — login identifier (mapped to a synthetic email under the hood)
+  name: string;
+  role: Role;
+  dept: string;
+  active: boolean; // false = pending admin approval, or deactivated
+  createdAt: number;
+  lastLogin: number | null;
+}
+
+export type AuthStatus = 'loading' | 'signedOut' | 'pendingApproval' | 'signedIn';
+export type AuthMode = 'login' | 'register';
+
+export type AuditType =
+  | 'login' | 'user_registered' | 'user_approved' | 'user_role_changed' | 'user_status_changed' | 'par_updated'
+  | 'receive_rejected'
+  // Formulary management (see MedsScreen/AppContext.tsx addMed/updateMedFull/toggleMedActive/
+  // deleteMed) and the manual-QR-entry fallback (qrDecodedImpl) — both log via the same
+  // logAudit() as everything else above, but were missing from this union even though
+  // AdminScreen's TYPE_LABEL already had display labels for all of them.
+  | 'med_added' | 'med_edited' | 'med_status_changed' | 'med_deleted' | 'qr_manual'
+  // Logged once per commitReconcile() run that skipped ambiguous/unmatched HOSxP rows — see
+  // its doc comment in AppContext.tsx and ReconcileScreen's "ยาที่หลุดบ่อย" panel, which
+  // aggregates these across recent runs so a name that keeps failing to match stays visible
+  // instead of being a fresh, easy-to-miss surprise every single day.
+  | 'hosxp_unmatched'
+  // Logged once by resetAllStockLedgers() (AppContext.tsx) — the admin-only, typed-confirmation
+  // "start the system over" action that permanently deletes every tx document (the substock
+  // card ledger, report/turnover stats, usage-rate history for par suggestions) without
+  // touching current floor/lot quantities. Its own audit entry survives that deletion (it's
+  // logged to the separate auditLog collection, not txs) — the one durable record that this
+  // ever happened, and by whom.
+  | 'stock_ledger_reset'
+  // Logged once by resetAllQuantities() (AppContext.tsx) — same go-live-reset shape as
+  // stock_ledger_reset above, but the opposite half of the data: zeroes every med's `floor`
+  // and deletes every `lots` document (so substock, which is only ever the sum of lot.qty,
+  // goes to 0 too), without touching a med's name/code/par/bin/price/etc. Used when the
+  // deployed quantities are still sample data and the drug list itself is already real.
+  | 'quantity_reset'
+  | TxType;
+
+export interface AuditEntry {
+  id: string;
+  type: AuditType;
+  by: string;
+  ts: number;
+  note: string;
+}
+
+export interface RecvItem {
+  medId: string;
+  name: string;
+  unit: string;
+  lotNo: string;
+  exp: number;
+  qty: number;
+}
+
+/** A receive submitted by a ผู้ช่วยเภสัชกร (tech) — doesn't touch stock until a pharmacist/
+ * admin approves it. Lives in its own collection (not just an audit-log line) so there's
+ * something structured enough to actually approve: the real medId/lot/exp/qty needed to
+ * create the lot once approved, not just a human-readable note. */
+export interface PendingReceive {
+  id: string;
+  recvNo: string;
+  medId: string;
+  name: string;
+  unit: string;
+  lotNo: string;
+  exp: number;
+  qty: number;
+  requestedBy: string;
+  requestedByUid: string;
+  ts: number;
+  status: 'pending' | 'approved' | 'rejected';
+  resolvedBy?: string;
+  resolvedTs?: number;
+  rejectReason?: string;
+}
+
+export type Screen =
+  | 'login' | 'home' | 'transfer' | 'tconfirm' | 'done' | 'receive' | 'adjust'
+  | 'report' | 'labels' | 'settings' | 'more' | 'count' | 'reconcile' | 'admin' | 'meds' | 'wardmove' | 'substockcard';
+
+export type AdjType = 'adjust' | 'return' | 'damaged' | 'expired';
+export type ReportTab = 'aging' | 'turn' | 'disc' | 'insights' | 'category';
+export type LabelType = 'med' | 'lot' | 'loc';
+
+/** How a HOSxP file's drug name resolved against the formulary — see matchHosxpMed().
+ * 'exact' commits freely; 'fuzzy' (substring match) needs an explicit human confirmation
+ * before it's allowed to touch stock, since e.g. "Amoxicillin 250" can substring-match
+ * "Amoxicillin 500"; 'ambiguous' (matched more than one drug) and 'none' never auto-commit. */
+export type HosxpMatch =
+  | { kind: 'exact'; medId: string }
+  | { kind: 'fuzzy'; medId: string }
+  | { kind: 'ambiguous'; candidateIds: string[] }
+  | { kind: 'none' };
+
+export type AdminTab = 'users' | 'audit';
+export type AuditFilter = 'all' | 'users' | 'stock';
+export type TransferFilter = 'low' | 'all' | 'had' | 'urgent';
+
+export interface AppState {
+  meds: Med[];
+  lots: Lot[];
+  txs: Tx[];
+  users: User[];
+  authLog: AuditEntry[];
+  dbReady: boolean; // false until the first Firestore snapshot for meds arrives
+
+  authStatus: AuthStatus;
+  authMode: AuthMode;
+  myUid: string | null;
+  authUsername: string;
+  authPassword: string;
+  authName: string;
+  authDept: string;
+  authError: string | null;
+  authBusy: boolean;
+  authRemember: boolean;
+
+  screen: Screen;
+  // Real back-navigation history, not just a single "came from" pointer — see go()/back() in
+  // AppContext.tsx. A single prevScreen field (the old design) only ever remembers one level,
+  // so a two-deep chain (More → ตั้งค่า → จัดการรายการยา) had no correct "back" target once you
+  // left the immediately-previous screen: pressing back from จัดการรายการยา landed back on
+  // ตั้งค่า correctly, but pressing back again from there had already lost where *it* came
+  // from and fell back to a hardcoded 'more', which happened to be right only by coincidence
+  // for screens that are always opened from the More menu, and wrong for anything opened from
+  // elsewhere (Home's "ตัดออก" button into ปรับยอด, Done's "ดูบัตรสต็อก" into บัตรสต็อก substock).
+  navStack: Screen[];
+  role: Role | null;
+  online: boolean;
+  device: 'phone' | 'tablet';
+  pending: number;
+
+  cart: Record<string, number>;
+  search: string;
+  filter: TransferFilter;
+  wardFilter: 'all' | Ward;
+
+  wmFromSearch: string;
+  wmFromMed: string | null;
+  wmToSearch: string;
+  wmToMed: string | null;
+  wmQty: string;
+  wmReason: string;
+
+  recvNo: string;
+  recvSearch: string;
+  recvMed: string | null;
+  recvLot: string;
+  recvExp: string;
+  recvQty: string;
+  recvItems: RecvItem[];
+  pendingReceives: PendingReceive[];
+
+  adjType: AdjType | null;
+  adjSearch: string;
+  adjMed: string | null;
+  adjQty: string;
+  adjReason: string;
+  adjNote: string;
+
+  reportTab: ReportTab;
+  labelType: LabelType;
+  // Which shelf-code namespace the "ฉลากชั้นวาง" tab is printing/previewing — floor (LOCS,
+  // the original) or substock (SUB_LOCS, its own separate room/grid — see Med.binSub). Kept
+  // as state (not a local component var) because printLabels() in AppContext.tsx needs it
+  // too, same reason labelType itself is state and not local to LabelsScreen.
+  locScope: 'floor' | 'sub';
+  // Which physical shelf side the "ฉลากตัวยา" tab prints — 'all' (the original: a shared med
+  // prints BOTH its OPD and IPD shelf-strip labels in the same batch) or scoped to just one
+  // ward's labels. Real need: someone restocking only the OPD shelf run shouldn't have to sort
+  // a mixed OPD+IPD sticker sheet by hand first. Kept as state for the same reason locScope is
+  // — printLabels() in AppContext.tsx needs it too.
+  labelWardScope: 'all' | Ward;
+  // Which meds are checked in the label picker (see LabelsScreen.tsx) — a Record, not a Set,
+  // to match every other multi-select flag map in this state (hadOk, countInputs, ...), all
+  // chosen for the same reason: it patches/spreads cleanly through the plain-object state
+  // updates this app uses everywhere, where a Set would need its own clone-on-write handling.
+  // EMPTY means "nothing hand-picked" — printLabels()/the on-screen preview both read that as
+  // "print/preview everything active", not "print nothing", so leaving this alone never
+  // silently narrows what a fresh visit to the screen prints.
+  labelSelected: Record<string, boolean>;
+
+  qrOpen: boolean;
+  qrManualOpen: boolean;
+  qrCode: string;
+  qrManualReason: string;
+  qrPurpose: string | null;
+  hadOk: Record<string, boolean>;
+
+  doneKind: 'transfer' | 'receive' | 'recvPending' | null;
+  // medId is optional — a done row always has one going forward, but keeping it optional
+  // avoids a false sense that every historical code path is guaranteed to set it.
+  doneRows: { name: string; sub: string; qty: string; medId?: string }[];
+  toast: string | null;
+
+  countInputs: Record<string, string>;
+  // Substock's counterpart to countInputs — kept as a separate map (not a `loc` flag reusing
+  // the same one) so switching the count screen's location toggle back and forth never loses
+  // whichever set of numbers someone already typed for the other location.
+  subCountInputs: Record<string, string>;
+  hosxpText: string;
+  hosxpRows: { name: string; qty: number; match: HosxpMatch }[] | null;
+  hosxpConfirmFuzzy: boolean;
+  // Required confirmation gate before committing a daily reconcile — same shape as
+  // hosxpConfirmFuzzy above, for a different risk: this screen assumes the file/pasted text
+  // covers exactly one day (see its own on-screen warning), but nothing actually stops someone
+  // from feeding it a multi-day export by mistake, which would silently over-deduct the floor.
+  // See commitReconcile()/ReconcileScreen.tsx.
+  hosxpConfirmSingleDay: boolean;
+
+  // Import usage totals from a file (a real HOSxP "รายงานการใช้ยา" export, .xls/.xlsx, or a
+  // plain "ชื่อยา,จำนวน" CSV) to seed used30 — see suggestPar()/importUsageFile() in
+  // AppContext.tsx. Deliberately its own state, separate from the hosxp* fields above: this
+  // only ever touches used30 (a par-suggestion input), never floor/substock quantities, so it
+  // can't accidentally deduct real stock the way a half-finished HOSxP reconcile could.
+  // Date range instead of a fixed month/quarter/year preset — a real fiscal-year-to-date
+  // export (e.g. 1 ต.ค.–31 ส.ค., 11 months into a fiscal year that isn't over yet) never lines
+  // up with a clean 30/90/365-day bucket, so the person names the actual dates the file
+  // covers and the day count is computed from those (see USAGE_PERIOD_DAYS's replacement).
+  usageDateFrom: string;
+  usageDateTo: string;
+  usageFileName: string | null;
+  usageRows: { name: string; qty: number; match: HosxpMatch }[] | null;
+  usageConfirmFuzzy: boolean;
+
+  medsFocusId: string | null;
+  substockFocusId: string | null;
+
+  adminTab: AdminTab;
+  auditFilter: AuditFilter;
+  historyFrom: string;
+  historyTo: string;
+  // loc is optional (absent on every audit-log-only row, which never had one) — present only
+  // on tx rows, and only there to tell a floor count apart from a substock count (both log
+  // type:'count' — see commitCount vs commitSubCount in AppContext.tsx) since they'd otherwise
+  // render under the identical audit-log label despite being two different screens/meanings.
+  historyResults: { type: string; by: string; ts: number; note: string; loc?: string }[] | null;
+  historyLoading: boolean;
+
+  expiryWarnDays: number;
+  parFloorCoverDays: number;
+  parSubCoverDays: number;
+
+  // In-app replacement for window.confirm() — see confirmAsync()/ConfirmDialog.tsx. The
+  // browser's native confirm() is unreliable inside some Android WebView/PWA/in-app-browser
+  // contexts (it can silently return false, or never show anything, without the person ever
+  // seeing a dialog) — which reads as "I tapped the button and nothing happened" exactly like
+  // reported for "ใช้ยาทั้งหมดร่วมกันทั้ง OPD/IPD เลย". A real rendered dialog can't silently
+  // no-op that way.
+  confirmDialog: { message: string } | null;
+  // Same reasoning, for window.prompt() — see promptAsync()/PromptDialog.tsx. Used where a
+  // short free-text reason is required alongside a yes/no (e.g. "เหตุผลที่ปฏิเสธ" ใบเบิก).
+  promptDialog: { message: string } | null;
+
+  // True once a new deployed version's service worker is downloaded and waiting — see
+  // UpdateBanner.tsx/applyUpdate() in AppContext.tsx. registerType is 'prompt' (not
+  // 'autoUpdate') specifically so this never reloads the page on its own mid-task; it just
+  // shows a dismissible banner and updates only when someone taps it.
+  updateAvailable: boolean;
+
+  // Reactive mirror of guardOnce()'s internal busy-key tracking (AppContext.tsx) — guardOnce
+  // itself already prevents a double-tap from running the same commit action twice, but
+  // nothing made that busy state visible on screen, so a real Firestore round trip (a slow
+  // ward wifi connection, not hypothetical) left a commit button looking completely inert
+  // with no spinner/disabled state — exactly the "did my tap even register?" confusion this
+  // was built to remove. Keyed the same as guardOnce's key (plus ':<firstArg>' for per-item
+  // actions like scrapLot/commitCount, one busy flag per lot/med rather than one for the
+  // whole screen).
+  busy: Record<string, boolean>;
+}

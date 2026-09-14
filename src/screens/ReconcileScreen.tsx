@@ -1,0 +1,162 @@
+import { useMemo, useRef } from 'react';
+import { useApp } from '../store/AppContext';
+import { wardOf } from '../store/selectors';
+import { nf, thDate } from '../utils/format';
+import type { HosxpMatch, Med } from '../types';
+
+export default function ReconcileScreen() {
+  const { state, setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile } = useApp();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const medById = (id: string) => state.meds.find((x) => x.id === id);
+
+  const reconcileRows = (state.hosxpRows || []).map((r) => {
+    const med = r.match.kind === 'exact' || r.match.kind === 'fuzzy' ? medById(r.match.medId) : undefined;
+    const before = med ? med.floor : 0;
+    const after = med ? Math.max(0, before - r.qty) : 0;
+    return { fileText: r.name, qty: r.qty, match: r.match, med, before, after };
+  });
+
+  const fuzzyCount = reconcileRows.filter((r) => r.match.kind === 'fuzzy').length;
+  const skippedCount = reconcileRows.filter((r) => r.match.kind === 'ambiguous' || r.match.kind === 'none').length;
+  const canCommit = reconcileRows.length > 0 && (fuzzyCount === 0 || state.hosxpConfirmFuzzy) && state.hosxpConfirmSingleDay;
+
+  // "ยาที่หลุดบ่อย" — aggregates commitReconcile()'s own 'hosxp_unmatched' audit entries (see
+  // its doc comment, AppContext.tsx) across whatever's in the currently-loaded audit log
+  // (capped 300, newest first — same window every other audit-derived view in this app already
+  // works from). A name that fails to match every single day is easy to miss as "just another
+  // skip" in the moment; tallied up over time it's obviously worth fixing (renaming the med, or
+  // adding the HOSxP spelling as the med's own name) instead of re-discovering it each morning.
+  const unmatchedFreq = useMemo(() => {
+    const counts = new Map<string, { count: number; lastTs: number }>();
+    for (const e of state.authLog) {
+      if (e.type !== 'hosxp_unmatched') continue;
+      const names = (e.note.split('\n')[1] || '').split(' | ').map((s) => s.trim()).filter(Boolean);
+      for (const name of names) {
+        const cur = counts.get(name);
+        if (cur) { cur.count++; if (e.ts > cur.lastTs) cur.lastTs = e.ts; } else counts.set(name, { count: 1, lastTs: e.ts });
+      }
+    }
+    return Array.from(counts.entries()).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.count - a.count || b.lastTs - a.lastTs).slice(0, 10);
+  }, [state.authLog]);
+
+  return (
+    <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
+      <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 12 }}>
+        วิธีหลักในการตัดยอดหน้างาน — ใช้เป็นประจำทุกวัน เร็วกว่าการนับสต็อกจริง แนบไฟล์รายงานการใช้ยาจาก HOSxP (.xls/.xlsx) ของ<b>เมื่อวานวันเดียว</b>โดยตรง หรือวางข้อมูล CSV รูปแบบ "ชื่อยา,จำนวนจ่าย" ในช่องด้านล่าง — ระบบจะตัดยอดหน้างานให้ตรงกับที่จ่ายจริงโดยตรง (ถ้าปั๊มรายงานช่วงมากกว่า 1 วัน จะตัดยอดเกินจริง)
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".xls,.xlsx,.csv,text/csv"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) processHosxpFile(f);
+          e.target.value = '';
+        }}
+      />
+      <button
+        onClick={() => fileInputRef.current?.click()}
+        className="btn-primary"
+        style={{ width: '100%', padding: 11, borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 46, marginBottom: 10 }}
+      >
+        📎 แนบไฟล์ HOSxP ของเมื่อวาน (.xls/.xlsx)
+      </button>
+      <div className="muted" style={{ fontSize: 11, textAlign: 'center', marginBottom: 10 }}>— หรือวางข้อความด้านล่าง —</div>
+      <textarea
+        value={state.hosxpText}
+        onChange={(e) => setHosxpText(e.target.value)}
+        placeholder={'วางข้อมูลจากไฟล์ HOSxP รูปแบบ "ชื่อยา,จำนวนที่จ่าย" บรรทัดละ 1 รายการ เช่น\nPARACETAMOL 500 mg,340\namlodipine 5 mg,120'}
+        // Bug fix (mobile fit): under 16px, iOS Safari zooms the whole page in the moment
+        // this textarea is focused — pasting/typing HOSxP data on a phone is exactly the
+        // moment the layout should stay put, not zoom out from under the person typing.
+        style={{ width: '100%', minHeight: 120, border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 16, fontFamily: 'ui-monospace, monospace', resize: 'vertical', marginBottom: 10 }}
+      />
+      <button onClick={processHosxp} className="btn-primary" style={{ width: '100%', padding: 11, borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 46, marginBottom: 14 }}>ประมวลผล</button>
+
+      {reconcileRows.length > 0 && (
+        <>
+          <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 13 }}>
+            <div style={{ display: 'flex', padding: '9px 13px', background: 'var(--bg-subtle)', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+              <span style={{ flex: 1 }}>รายการยา</span><span style={{ width: 70, textAlign: 'right', flex: 'none' }}>จ่ายจริง</span><span style={{ width: 70, textAlign: 'right', flex: 'none' }}>ก่อน → หลัง</span>
+            </div>
+            {reconcileRows.map((r, i) => (
+              <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.3, fontWeight: r.match.kind === 'exact' ? 400 : 600 }}>
+                    {r.med ? r.med.name : r.fileText}
+                  </span>
+                  <span style={{ width: 70, textAlign: 'right', flex: 'none', fontSize: 13, fontWeight: 600, color: 'var(--red)' }}>{r.med ? '−' + nf(r.qty) : '—'}</span>
+                  <span className="muted" style={{ width: 70, textAlign: 'right', flex: 'none', fontSize: 12.5 }}>{r.med ? nf(r.before) + '→' + nf(r.after) : '—'}</span>
+                </div>
+                <MatchBadge match={r.match} fileText={r.fileText} medById={medById} />
+              </div>
+            ))}
+          </div>
+
+          {fuzzyCount > 0 && (
+            <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', background: 'var(--amber-bg)', border: '1px solid var(--amber)', borderRadius: 10, padding: '11px 12px', marginBottom: 12, cursor: 'pointer' }}>
+              <input type="checkbox" checked={state.hosxpConfirmFuzzy} onChange={(e) => setHosxpConfirmFuzzy(e.target.checked)} style={{ marginTop: 2, flex: 'none', width: 17, height: 17 }} />
+              <span style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--amber-ink)' }}>ตรวจสอบแล้วว่า {fuzzyCount} รายการที่ทำเครื่องหมาย ⚠ ด้านบน จับคู่กับยาถูกตัว (ชื่อในไฟล์ไม่ตรงกับชื่อในระบบเป๊ะๆ ระบบเดาให้จากชื่อที่ใกล้เคียงที่สุด)</span>
+            </label>
+          )}
+
+          {/* Bug fix (real risk): always required, not just for a fuzzy match — this screen
+              assumes exactly 1 day of data every time, and nothing else catches a multi-day
+              file fed in by mistake (e.g. catching up after a missed day) before it silently
+              over-deducts the floor. See commitReconcile()'s doc comment. */}
+          <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', background: 'var(--amber-bg)', border: '1px solid var(--amber)', borderRadius: 10, padding: '11px 12px', marginBottom: 12, cursor: 'pointer' }}>
+            <input type="checkbox" checked={state.hosxpConfirmSingleDay} onChange={(e) => setHosxpConfirmSingleDay(e.target.checked)} style={{ marginTop: 2, flex: 'none', width: 17, height: 17 }} />
+            <span style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--amber-ink)' }}>ยืนยันว่าไฟล์/ข้อมูลนี้ครอบคลุม<b>แค่ 1 วัน</b> (เมื่อวาน) — ถ้าครอบคลุมมากกว่านั้นจะตัดยอดหน้างานเกินจริง</span>
+          </label>
+
+          <button onClick={commitReconcile} disabled={!canCommit || !!state.busy['reconcile']} className="btn-primary" style={{ width: '100%', padding: 15, borderRadius: 12, fontSize: 15, minHeight: 52, opacity: canCommit && !state.busy['reconcile'] ? 1 : 0.5 }}>
+            {state.busy['reconcile'] ? 'กำลังตัดยอด…' : `ตัดยอดหน้างานตามไฟล์นี้ และบันทึก discrepancy log${skippedCount > 0 ? ' (ข้าม ' + skippedCount + ' รายการที่จับคู่ไม่ได้)' : ''}`}
+          </button>
+        </>
+      )}
+
+      {unmatchedFreq.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div className="muted" style={{ fontSize: 12, fontWeight: 600, margin: '0 2px 8px' }}>ยาที่หลุดบ่อย (จับคู่ไม่ได้จากไฟล์ HOSxP)</div>
+          <div className="card stagger" style={{ overflow: 'hidden' }}>
+            {unmatchedFreq.map((u, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 13px', borderBottom: i < unmatchedFreq.length - 1 ? '1px solid var(--border-soft)' : 0 }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.3 }}>{u.name}</span>
+                <span style={{ flex: 'none', fontSize: 11, fontWeight: 700, color: 'var(--red)', background: 'var(--red-bg)', padding: '2px 8px', borderRadius: 20 }}>{u.count} ครั้ง</span>
+                <span className="muted" style={{ flex: 'none', fontSize: 11 }}>ล่าสุด {thDate(u.lastTs)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 6 }}>ชื่อพวกนี้ไม่ตรงกับชื่อยาในระบบ — ถ้าเจอซ้ำบ่อย ลองแก้ชื่อยาในระบบ (หน้าจัดการรายการยา) ให้ตรงกับที่ไฟล์ HOSxP ใช้</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MatchBadge({ match, fileText, medById }: { match: HosxpMatch; fileText: string; medById: (id: string) => Med | undefined }) {
+  if (match.kind === 'exact') return null; // clean match — no need to draw attention
+  if (match.kind === 'fuzzy') {
+    return <div style={{ fontSize: 10.5, color: 'var(--amber-ink)', fontWeight: 600, marginTop: 3 }}>⚠ ไม่ตรงชื่อเป๊ะ — ไฟล์เขียนว่า "{fileText}"</div>;
+  }
+  if (match.kind === 'ambiguous') {
+    const candidates = match.candidateIds.map((id) => medById(id)).filter((m): m is Med => !!m);
+    const names = candidates.map((m) => m.name).join(', ');
+    // The common real case: the exact same drug exists as separate OPD and IPD shelf
+    // records (same name, different bin/par) — HOSxP's plain "ชื่อยา,จำนวน" export has no
+    // ward info to say which one this row belongs to, so it can never be auto-resolved
+    // safely. Name a specific reason instead of a generic "found several" — this is the one
+    // case a pharmacist will hit often and should recognize immediately, not puzzle over.
+    const isOpdIpdPair = candidates.length === 2 && candidates[0].name === candidates[1].name && wardOf(candidates[0]) !== wardOf(candidates[1]);
+    return (
+      <div style={{ fontSize: 10.5, color: 'var(--red)', fontWeight: 600, marginTop: 3 }}>
+        {isOpdIpdPair
+          ? '✕ ยานี้มีทั้งชั้น OPD และ IPD ชื่อเดียวกัน — HOSxP บอกไม่ได้ว่าจ่ายจากฝั่งไหน ต้องปรับยอดด้วยมือแยกราย ward'
+          : '✕ พบยาที่ชื่อใกล้เคียงกันหลายรายการ — ข้าม (' + names + ')'}
+      </div>
+    );
+  }
+  return <div style={{ fontSize: 10.5, color: 'var(--red)', fontWeight: 600, marginTop: 3 }}>✕ ไม่พบยานี้ในระบบ — ข้าม</div>;
+}
