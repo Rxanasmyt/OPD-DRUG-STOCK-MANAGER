@@ -7,6 +7,27 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.45.0] - 2026-09-14
+
+### Added
+- **Firestore backup script + daily GitHub Actions workflow** — Firestore's built-in "Scheduled
+  Backups" feature requires the Blaze billing plan; this is a free-tier (Spark) alternative.
+  `scripts/backup-firestore.mjs` dumps every top-level collection (`meds`, `lots`, `txs`,
+  `auditLog`, `users`, `usernames`, `pendingReceives`, `meta`) to a single JSON file via the
+  Firebase Admin SDK (read-only — never writes). `.github/workflows/firestore-backup.yml` runs
+  it automatically once a day (02:00 Asia/Bangkok) and uploads the result as a GitHub Actions
+  artifact retained for 14 days (also runnable on demand from the Actions tab). Added
+  `scripts/restore-firestore.mjs` as the matching restore tool — a manual, explicit,
+  dry-run-by-default script (`--confirm` to actually write, `--only=` to restore just some
+  collections) for the day a restore is actually needed. New `npm run backup` / `npm run
+  restore-backup` scripts for running either locally. New devDependency: `firebase-admin`.
+
+### ⚠️ ต้องตั้งค่าเองใน GitHub ก่อนใช้งานได้จริง
+Workflow นี้ต้องมี **GitHub repo secret ชื่อ `FIREBASE_SERVICE_ACCOUNT_KEY`** (เนื้อหา service
+account key JSON ทั้งไฟล์จาก Firebase Console → Project settings → Service accounts → Generate
+new private key) — ไม่งั้นทุกรันจะ fail ทันทีด้วยข้อความ error ที่ชัดเจน (ดูรายละเอียดขั้นตอนใน
+`.github/workflows/firestore-backup.yml`)
+
 ## [3.44.2] - 2026-09-14
 
 ### Fixed
