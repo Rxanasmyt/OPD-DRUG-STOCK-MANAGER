@@ -7,6 +7,17 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.45.1] - 2026-09-14
+
+### Fixed
+- **Firestore Backup workflow failed on first real run**: `firebase-admin`'s `@google-cloud/
+  firestore` dependency is marked `optional` in its own package.json, and `npm ci` on the GitHub
+  Actions runner skipped installing it — `node scripts/backup-firestore.mjs` then crashed
+  immediately with `Cannot find module '@google-cloud/firestore'` before reading anything.
+  Fixed by adding `@google-cloud/firestore` as an explicit direct devDependency (same version
+  firebase-admin already pins), which forces `npm ci` to always install it. Confirmed locally
+  with a clean `rm -rf node_modules && npm ci` + `require('@google-cloud/firestore')`.
+
 ## [3.45.0] - 2026-09-14
 
 ### Added
