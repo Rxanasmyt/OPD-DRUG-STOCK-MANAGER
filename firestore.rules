@@ -72,11 +72,18 @@ service cloud.firestore {
       allow write: if isActive();
     }
 
-    // ---- transactions & audit trail: append-only ----
+    // ---- transactions: append-only for everyone EXCEPT one admin-only escape hatch ----
     match /txs/{txId} {
       allow read: if isActive();
       allow create: if isActive();
-      allow update, delete: if false;
+      allow update: if false;
+      // Admin-only exception for resetAllStockLedgers() (AppContext.tsx) — the go-live
+      // "start the system over" action that wipes the substock card ledger/report/usage-rate
+      // history for every drug at once (current floor/lot quantities are never touched by it —
+      // see that function's own doc comment). Everyone else, including a signed-in
+      // pharm/tech, still can never delete a tx once written; only an admin, and only via that
+      // one deliberate, double-confirmed action.
+      allow delete: if isAdmin();
     }
     match /auditLog/{entryId} {
       allow read: if isActive();
