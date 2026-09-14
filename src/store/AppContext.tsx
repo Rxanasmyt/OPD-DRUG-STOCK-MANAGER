@@ -5,7 +5,7 @@ import {
 } from 'firebase/auth';
 import {
   collection, doc, onSnapshot, query, orderBy, limit, where, writeBatch, addDoc, updateDoc, setDoc,
-  runTransaction, getDocs, getDoc, increment, deleteField, type Transaction,
+  runTransaction, getDocs, getDoc, increment, deleteField, serverTimestamp, type Transaction,
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
@@ -2291,6 +2291,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setMedsFocusId = useCallback((id: string | null) => patch({ medsFocusId: id }), [patch]);
 
+  // ---------- pre-delete safety snapshot ----------
+  // Extra recovery layer specifically for the two go-live reset buttons below, on top of (not
+  // instead of) the daily external GitHub Actions backup (scripts/backup-firestore.mjs) — that
+  // backup can be up to ~24h stale, so an admin who reaches for one of these buttons an hour
+  // before the next scheduled run would otherwise lose that hour's data even though everything
+  // "worked as designed". This writes the exact documents about to be destroyed into a separate
+  // `_preResetSnapshots` collection FIRST, chunked to stay well under Firestore's per-doc size
+  // limit, so a mis-click can be undone by an admin (via scripts/restore-preresetsnapshot.mjs)
+  // without waiting on — or even needing — that day's external backup.
+  //
+  // `_preResetSnapshots` is admin-only in firestore.rules (read AND write) — this collection
+  // holds a full copy of whatever it's guarding, so it needs the same trust level as the data
+  // itself. Deliberately fails CLOSED: if this write throws (most likely because the updated
+  // firestore.rules exception for this collection hasn't been published to Firebase Console
+  // yet), the caller must NOT proceed with the destructive delete — better to block the go-live
+  // reset with a clear error than to silently perform an unrecoverable action with no safety
+  // net at all.
+  const snapshotBeforeDelete = useCallback(async (label: string, rows: { id: string; data: Record<string, unknown> }[]) => {
+    const stamp = Date.now();
+    const CHUNK = 300; // keeps each snapshot doc comfortably under Firestore's 1 MiB/doc limit
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      await withTimeout(setDoc(doc(db, '_preResetSnapshots', `${label}-${stamp}-${i}`), {
+        createdAt: serverTimestamp(),
+        createdBy: userName(),
+        label,
+        chunkIndex: i / CHUNK,
+        totalChunks: Math.max(1, Math.ceil(rows.length / CHUNK)),
+        totalDocs: rows.length,
+        docs: rows.slice(i, i + CHUNK),
+      }));
+    }
+  }, [userName]);
+
   // ---------- reset all stock ledgers (go-live) ----------
   // Real-world request: a hospital going live for real (after a testing/pilot period) wants a
   // clean starting point — every drug's substock card currently shows a noisy, incomplete
@@ -2323,19 +2356,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (typed !== 'RESET') { toast('ยกเลิก — ไม่ได้พิมพ์ยืนยันตรงตามที่กำหนด ไม่มีอะไรถูกลบ'); return; }
     try {
       const snap = await withTimeout(getDocs(collection(db, 'txs')));
-      const refs = snap.docs.map((d) => d.ref);
-      for (let i = 0; i < refs.length; i += 450) {
+      const rows = snap.docs.map((d) => ({ id: d.id, data: d.data() }));
+      try {
+        await snapshotBeforeDelete('txs', rows);
+      } catch (e) {
+        toastErr(e, 'ยกเลิก — สำรองข้อมูลก่อนลบไม่สำเร็จ (อาจยังไม่ได้ publish กฎ Firestore ล่าสุด) ยังไม่มีอะไรถูกลบ');
+        return;
+      }
+      for (let i = 0; i < rows.length; i += 450) {
         const batch = writeBatch(db);
-        refs.slice(i, i + 450).forEach((ref) => batch.delete(ref));
+        rows.slice(i, i + 450).forEach((r) => batch.delete(doc(db, 'txs', r.id)));
         await withTimeout(batch.commit());
       }
-      await logAudit({ type: 'stock_ledger_reset', note: 'รีเซ็ตบัตรสต็อกยาทุกตัว — ลบประวัติธุรกรรมทั้งหมด ' + nf(refs.length) + ' รายการ เพื่อเริ่มต้นใช้งานระบบจริง โดย ' + userName() });
+      await logAudit({ type: 'stock_ledger_reset', note: 'รีเซ็ตบัตรสต็อกยาทุกตัว — ลบประวัติธุรกรรมทั้งหมด ' + nf(rows.length) + ' รายการ (สำรองไว้ล่วงหน้าใน _preResetSnapshots แล้ว) เพื่อเริ่มต้นใช้งานระบบจริง โดย ' + userName() });
       hapticSuccess();
-      toast('รีเซ็ตบัตรสต็อกแล้ว — ลบประวัติธุรกรรม ' + nf(refs.length) + ' รายการ ยอดคงเหลือปัจจุบันไม่เปลี่ยนแปลง');
+      toast('รีเซ็ตบัตรสต็อกแล้ว — ลบประวัติธุรกรรม ' + nf(rows.length) + ' รายการ (สำรองไว้ก่อนลบแล้ว) ยอดคงเหลือปัจจุบันไม่เปลี่ยนแปลง');
     } catch (e) {
       toastErr(e, 'รีเซ็ตไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [myProfile, confirmAsync, promptAsync, toast, toastErr, logAudit, userName, guardOnce]);
+  }), [myProfile, confirmAsync, promptAsync, toast, toastErr, logAudit, userName, guardOnce, snapshotBeforeDelete]);
 
   // Real-world request: the current deployment's floor/substock numbers are sample data (the
   // drug NAMES/codes/pars/bins are real — only the quantities aren't) left over from setting
@@ -2361,6 +2400,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const lotSnap = await withTimeout(getDocs(collection(db, 'lots')));
       const medCount = state.meds.length;
       const lotCount = lotSnap.docs.length;
+      try {
+        // Snapshot the OLD floor value per med (not the whole med doc — name/code/par/bin etc.
+        // never change here, only `floor`) plus every lot about to be deleted, before either
+        // write happens.
+        await snapshotBeforeDelete('meds-floor', state.meds.map((m) => ({ id: m.id, data: { floor: m.floor, lastCountTs: m.lastCountTs ?? null, lastSubCountTs: m.lastSubCountTs ?? null } })));
+        await snapshotBeforeDelete('lots', lotSnap.docs.map((d) => ({ id: d.id, data: d.data() })));
+      } catch (e) {
+        toastErr(e, 'ยกเลิก — สำรองข้อมูลก่อนลบไม่สำเร็จ (อาจยังไม่ได้ publish กฎ Firestore ล่าสุด) ยังไม่มีอะไรถูกเปลี่ยน');
+        return;
+      }
       const ops: { ref: ReturnType<typeof doc>; kind: 'update' | 'delete' }[] = [
         ...state.meds.map((m) => ({ ref: doc(db, 'meds', m.id), kind: 'update' as const })),
         ...lotSnap.docs.map((d) => ({ ref: d.ref, kind: 'delete' as const })),
@@ -2373,13 +2422,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
         await withTimeout(batch.commit());
       }
-      await logAudit({ type: 'quantity_reset', note: 'รีเซ็ตจำนวนยาทุกตัวเป็น 0 — ยอดหน้างาน ' + nf(medCount) + ' รายการ, ลบ lot substock ' + nf(lotCount) + ' รายการ เพื่อเริ่มต้นใช้งานระบบจริง โดย ' + userName() });
+      await logAudit({ type: 'quantity_reset', note: 'รีเซ็ตจำนวนยาทุกตัวเป็น 0 — ยอดหน้างาน ' + nf(medCount) + ' รายการ, ลบ lot substock ' + nf(lotCount) + ' รายการ (สำรองไว้ล่วงหน้าใน _preResetSnapshots แล้ว) เพื่อเริ่มต้นใช้งานระบบจริง โดย ' + userName() });
       hapticSuccess();
-      toast('รีเซ็ตจำนวนยาแล้ว — ยอดหน้างานและ substock ของยาทุกตัวเป็น 0 แล้ว ชื่อยา/par/ชั้นวางยังอยู่ครบ');
+      toast('รีเซ็ตจำนวนยาแล้ว — ยอดหน้างานและ substock ของยาทุกตัวเป็น 0 แล้ว (สำรองไว้ก่อนลบแล้ว) ชื่อยา/par/ชั้นวางยังอยู่ครบ');
     } catch (e) {
       toastErr(e, 'รีเซ็ตไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [myProfile, state.meds, confirmAsync, promptAsync, toast, toastErr, logAudit, userName, guardOnce]);
+  }), [myProfile, state.meds, confirmAsync, promptAsync, toast, toastErr, logAudit, userName, guardOnce, snapshotBeforeDelete]);
 
   // Jump straight into บัตรสต็อก substock for one med, already open — used from เสร็จสิ้น
   // (DoneScreen) so "รับเข้า/เติมหน้างานสำเร็จ แล้วอยากดูบัตรตอนนี้เลย" is one tap instead of

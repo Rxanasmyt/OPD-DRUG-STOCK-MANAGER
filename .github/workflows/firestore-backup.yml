@@ -31,7 +31,15 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: node scripts/backup-firestore.mjs
+      - id: backup
+        run: node scripts/backup-firestore.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+      # Proves the file this run just produced can actually be restored — not just that it was
+      # written. Fails the whole run (GitHub emails the repo owner by default on a failed
+      # scheduled workflow) if a real document doesn't round-trip write->read correctly. See
+      # scripts/verify-backup.mjs for exactly what this checks and why.
+      - run: node scripts/verify-backup.mjs "${{ steps.backup.outputs.file }}"
         env:
           FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
       - uses: actions/upload-artifact@v4

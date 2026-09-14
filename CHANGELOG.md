@@ -7,6 +7,34 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.46.0] - 2026-09-14
+
+### Added
+- **Automated restore self-test on every backup run**: `.github/workflows/firestore-backup.yml`
+  now runs `scripts/verify-backup.mjs` right after every backup — it writes a copy of one real
+  document into a scratch collection (`_backupSelfTest`, never touched by the app), reads it
+  back, and deep-compares every field. If a restore write ever silently stopped working (wrong
+  permission, corrupted export, etc.) the whole workflow run now fails and GitHub emails the
+  repo owner by default — instead of that only being discovered the day someone actually needs
+  to restore.
+- **Automatic pre-delete safety snapshot** for the two go-live "reset" admin tools
+  (`resetAllStockLedgers`, `resetAllQuantities` in `AppContext.tsx`): before either one deletes
+  anything, it now copies every document about to be destroyed into a new `_preResetSnapshots`
+  Firestore collection first. This is an extra recovery layer on top of (not instead of) the
+  daily external backup — that backup can be up to ~24h stale, so an admin who mis-clicks an
+  hour before the next scheduled run would otherwise lose that hour's data even though nothing
+  else went wrong. **Fails closed**: if the safety snapshot itself can't be written (most likely
+  because the `firestore.rules` exception below hasn't been published yet), the reset now stops
+  with a clear error instead of proceeding without a safety net.
+- `scripts/restore-preresetsnapshot.mjs` — restores from that in-app safety snapshot (`--list`
+  to see what's available, `--label=... --confirm` to restore one). New `npm run restore-preset`
+  / `npm run verify-backup` scripts.
+
+### ⚠️ ต้อง publish กฎ Firestore ใหม่เองใน Firebase Console
+`firestore.rules` มีการเพิ่ม collection ใหม่ `_preResetSnapshots` (admin อ่าน/เขียนได้เท่านั้น) —
+**ต้อง publish กฎไฟล์นี้ใหม่ก่อน** ปุ่มรีเซ็ตทั้งสองปุ่มถึงจะทำงานได้ตามปกติ (ถ้ายังไม่ publish
+ปุ่มจะหยุดทำงานเองพร้อมข้อความแจ้งเตือน แทนที่จะลบข้อมูลโดยไม่มีการสำรองไว้ก่อน — เป็นไปตามที่ตั้งใจ)
+
 ## [3.45.1] - 2026-09-14
 
 ### Fixed

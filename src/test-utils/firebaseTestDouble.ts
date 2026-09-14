@@ -130,4 +130,5 @@ vi.mock('firebase/firestore', () => ({
   runTransaction: vi.fn(async (_db: unknown, fn: (trx: unknown) => unknown) => fn({ get: vi.fn(), update: vi.fn(), set: vi.fn() })),
   increment: (n: number) => n,
   deleteField: () => undefined,
+  serverTimestamp: () => new Date(),
 }));
