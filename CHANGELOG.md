@@ -7,6 +7,24 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.46.1] - 2026-09-21
+
+### Fixed
+- **`resetAllQuantities`'s pre-delete safety snapshot could record the wrong "old" floor
+  value**: it built the `meds-floor` snapshot from the client's cached `state.meds` instead of a
+  fresh Firestore read, unlike the `txs`/`lots` snapshots (both already read fresh via
+  `getDocs()`). If another device's stock-count update hadn't reached this browser's
+  `onSnapshot` listener yet when an admin hit "รีเซ็ตจำนวนยาทุกตัวเป็น 0", the snapshot recorded
+  a stale floor — so restoring it via `scripts/restore-preresetsnapshot.mjs` after a mistaken
+  reset would put back the wrong number, defeating the safety net's whole purpose. Both
+  `resetAllQuantities` and its `meds` update batch now read a fresh `getDocs(collection(db,
+  'meds'))` snapshot instead of `state.meds`.
+- **`snapshotBeforeDelete` wrote its chunks one at a time**: each `_preResetSnapshots` chunk is
+  an independent document with no ordering dependency on the others, so awaiting them serially
+  (dozens of round trips for a hospital with thousands of `txs`) needlessly multiplied both the
+  wait before the destructive delete could start and the chance any single chunk's timeout
+  tripped on a slow connection. Now fired with `Promise.all` instead.
+
 ## [3.46.0] - 2026-09-14
 
 ### Added

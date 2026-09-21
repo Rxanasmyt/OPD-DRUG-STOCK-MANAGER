@@ -2311,17 +2311,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const snapshotBeforeDelete = useCallback(async (label: string, rows: { id: string; data: Record<string, unknown> }[]) => {
     const stamp = Date.now();
     const CHUNK = 300; // keeps each snapshot doc comfortably under Firestore's 1 MiB/doc limit
+    const totalChunks = Math.max(1, Math.ceil(rows.length / CHUNK));
+    const writes: Promise<void>[] = [];
     for (let i = 0; i < rows.length; i += CHUNK) {
-      await withTimeout(setDoc(doc(db, '_preResetSnapshots', `${label}-${stamp}-${i}`), {
+      // Each chunk is its own document with no ordering dependency on the others, so fire them
+      // all at once instead of awaiting one round trip at a time — with thousands of txs this
+      // can be dozens of chunks, and the destructive delete right after this only starts once
+      // ALL of them resolve, so doing this serially would multiply both the wait and the chance
+      // any single chunk's withTimeout trips on a slow connection.
+      writes.push(withTimeout(setDoc(doc(db, '_preResetSnapshots', `${label}-${stamp}-${i}`), {
         createdAt: serverTimestamp(),
         createdBy: userName(),
         label,
         chunkIndex: i / CHUNK,
-        totalChunks: Math.max(1, Math.ceil(rows.length / CHUNK)),
+        totalChunks,
         totalDocs: rows.length,
         docs: rows.slice(i, i + CHUNK),
-      }));
+      })));
     }
+    await Promise.all(writes);
   }, [userName]);
 
   // ---------- reset all stock ledgers (go-live) ----------
@@ -2397,21 +2405,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const typed = await promptAsync('พิมพ์ RESET (ตัวพิมพ์ใหญ่) เพื่อยืนยันการล้างจำนวนยาทุกตัวเป็น 0 ถาวร — พิมพ์อย่างอื่นหรือกดยกเลิกเพื่อไม่ทำอะไรเลย');
     if (typed !== 'RESET') { toast('ยกเลิก — ไม่ได้พิมพ์ยืนยันตรงตามที่กำหนด ไม่มีอะไรถูกเปลี่ยน'); return; }
     try {
-      const lotSnap = await withTimeout(getDocs(collection(db, 'lots')));
-      const medCount = state.meds.length;
+      // Fresh reads, not the client's cached state.meds — that cache can be a moment stale
+      // (another device's onSnapshot update not applied here yet), and the snapshot below must
+      // record the actual value about to be overwritten in Firestore, not whatever this tab
+      // last saw, or an undo via restore-preresetsnapshot.mjs would restore the wrong floor.
+      const [medSnap, lotSnap] = await Promise.all([
+        withTimeout(getDocs(collection(db, 'meds'))),
+        withTimeout(getDocs(collection(db, 'lots'))),
+      ]);
+      const medCount = medSnap.docs.length;
       const lotCount = lotSnap.docs.length;
       try {
         // Snapshot the OLD floor value per med (not the whole med doc — name/code/par/bin etc.
         // never change here, only `floor`) plus every lot about to be deleted, before either
         // write happens.
-        await snapshotBeforeDelete('meds-floor', state.meds.map((m) => ({ id: m.id, data: { floor: m.floor, lastCountTs: m.lastCountTs ?? null, lastSubCountTs: m.lastSubCountTs ?? null } })));
+        await snapshotBeforeDelete('meds-floor', medSnap.docs.map((d) => ({ id: d.id, data: { floor: d.data().floor ?? 0, lastCountTs: d.data().lastCountTs ?? null, lastSubCountTs: d.data().lastSubCountTs ?? null } })));
         await snapshotBeforeDelete('lots', lotSnap.docs.map((d) => ({ id: d.id, data: d.data() })));
       } catch (e) {
         toastErr(e, 'ยกเลิก — สำรองข้อมูลก่อนลบไม่สำเร็จ (อาจยังไม่ได้ publish กฎ Firestore ล่าสุด) ยังไม่มีอะไรถูกเปลี่ยน');
         return;
       }
       const ops: { ref: ReturnType<typeof doc>; kind: 'update' | 'delete' }[] = [
-        ...state.meds.map((m) => ({ ref: doc(db, 'meds', m.id), kind: 'update' as const })),
+        ...medSnap.docs.map((d) => ({ ref: d.ref, kind: 'update' as const })),
         ...lotSnap.docs.map((d) => ({ ref: d.ref, kind: 'delete' as const })),
       ];
       for (let i = 0; i < ops.length; i += 450) {
@@ -2428,7 +2443,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       toastErr(e, 'รีเซ็ตไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [myProfile, state.meds, confirmAsync, promptAsync, toast, toastErr, logAudit, userName, guardOnce, snapshotBeforeDelete]);
+  }), [myProfile, confirmAsync, promptAsync, toast, toastErr, logAudit, userName, guardOnce, snapshotBeforeDelete]);
 
   // Jump straight into บัตรสต็อก substock for one med, already open — used from เสร็จสิ้น
   // (DoneScreen) so "รับเข้า/เติมหน้างานสำเร็จ แล้วอยากดูบัตรตอนนี้เลย" is one tap instead of
