@@ -285,6 +285,18 @@ export default function AdminScreen() {
             {isHistory && (
               <div className="muted" style={{ fontSize: 11.5, marginBottom: 9 }}>ผลค้นหา {thDate(new Date(state.historyFrom).getTime())} – {thDate(new Date(state.historyTo).getTime())} · {filtered.length} รายการ{filtered.length === 300 ? '+ (แสดงสูงสุด 300 รายการ ลองย่อช่วงวันที่)' : ''}</div>
             )}
+            {/* Bug fix: this used to be inferred from filtered.length === 300 — the count AFTER
+                auditFilter narrows by type — but searchHistory's own 1500-record cap
+                (AppContext.tsx) applies to the RAW date-range search BEFORE any type filter.
+                A search that hit that cap could filter down to well under 300 of one type,
+                showing no warning at all even though older records of that exact type may have
+                been silently dropped. state.historyTruncated is set once per search,
+                independent of the type filter, so this warning survives switching tabs. */}
+            {isHistory && state.historyTruncated && (
+              <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--amber-ink)', background: 'var(--amber-bg)', border: '1px solid var(--amber-border)', borderRadius: 9, padding: '8px 10px', marginBottom: 9 }}>
+                ⚠ ช่วงวันที่นี้มีรายการมากกว่าที่ระบบแสดงได้ (แสดงเฉพาะ 1,500 รายการล่าสุด) — รายการที่เก่ากว่านั้นในช่วงนี้อาจไม่ถูกนับรวม ไม่ว่าจะกรองด้วยตัวกรองไหนก็ตาม ลองย่อช่วงวันที่ให้แคบลงเพื่อดูให้ครบ
+              </div>
+            )}
             <div className="card stagger" style={{ overflow: 'hidden' }}>
               {filtered.map((e, i) => (
                 <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)' }}>

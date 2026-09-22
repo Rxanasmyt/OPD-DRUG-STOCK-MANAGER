@@ -117,7 +117,7 @@ function freshState(): AppState {
     substockFocusId: null,
 
     adminTab: 'users', auditFilter: 'all',
-    historyFrom: '', historyTo: '', historyResults: null, historyLoading: false,
+    historyFrom: '', historyTo: '', historyResults: null, historyLoading: false, historyTruncated: false,
 
     // Bug fix (real-world safety margin): parSubCoverDays was a flat 21 days — exactly the
     // worst-case gap between two central-warehouse deliveries (this hospital's real cycle is
@@ -3135,7 +3135,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---------- audit/tx history search (browse any date range, not just the live 300-cap) ----------
   const setHistoryFrom = useCallback((v: string) => patch({ historyFrom: v }), [patch]);
   const setHistoryTo = useCallback((v: string) => patch({ historyTo: v }), [patch]);
-  const clearHistorySearch = useCallback(() => patch({ historyResults: null }), [patch]);
+  const clearHistorySearch = useCallback(() => patch({ historyResults: null, historyTruncated: false }), [patch]);
 
   const searchHistory = useCallback(async () => {
     if (!state.historyFrom || !state.historyTo) { toast('เลือกช่วงวันที่ให้ครบทั้งจากและถึงก่อนค้นหา'); return; }
@@ -3155,7 +3155,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           .map((d) => d.data() as { type: string; by: string; ts: number; name?: string; note?: string; qty?: number; unit?: string; loc?: string })
           .map((x) => ({ type: x.type, by: x.by, ts: x.ts, loc: x.loc, note: (x.name ? x.name + ' — ' : '') + (x.note || '') + (x.qty != null ? ' (' + (x.qty > 0 ? '+' : '') + x.qty + ' ' + (x.unit || '') + ')' : '') })),
       ].sort((a, b) => b.ts - a.ts);
-      patch({ historyResults: all.slice(0, CAP), historyLoading: false });
+      patch({ historyResults: all.slice(0, CAP), historyLoading: false, historyTruncated: all.length > CAP });
       toast(
         all.length > CAP
           ? 'พบ ' + all.length + ' รายการ — แสดง ' + CAP + ' รายการล่าสุดในช่วงนี้ ลองย่อช่วงวันที่ให้แคบลง'

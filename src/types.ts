@@ -357,6 +357,13 @@ export interface AppState {
   // render under the identical audit-log label despite being two different screens/meanings.
   historyResults: { type: string; by: string; ts: number; note: string; loc?: string }[] | null;
   historyLoading: boolean;
+  // Bug fix: AdminScreen's persistent "showing only 300" note used to infer truncation purely
+  // from `filtered.length === 300` — but that's the count AFTER auditFilter narrows the type,
+  // while searchHistory's own 1500-record cap (see AppContext.tsx) applies BEFORE that filter.
+  // A search that hit the 1500 cap could easily filter down to under 300 of one type, silently
+  // showing no truncation warning at all even though up to 500 more of that exact type might be
+  // sitting past the cutoff. Tracked here, set once per search, independent of any filter.
+  historyTruncated: boolean;
 
   expiryWarnDays: number;
   parFloorCoverDays: number;

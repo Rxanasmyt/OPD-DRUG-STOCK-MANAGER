@@ -7,6 +7,26 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.54.0] - 2026-09-22
+
+### Fixed — overnight bug sweep, round 1
+- **ReconcileScreen preview under-stated the real deduction for a drug matched by more than one
+  file row**: `before`/`after` for each row read the med's live floor independently, but
+  `commitReconcile()` processes rows sequentially, each re-reading whatever the previous row in
+  the same run just wrote. A HOSxP export with two lines matching the same drug (two package-
+  size rows, or a genuine duplicate) previewed both against the same original floor instead of
+  the real cumulative effect — e.g. floor 100, rows of qty 10 and 5 both showed "100 → 90"
+  instead of the true "100 → 90 → 85". Preview now tracks a running per-med floor across its own
+  rows, mirroring the real commit exactly.
+- **AdminScreen's "showing only 300" truncation warning could silently miss real data loss**: it
+  was inferred from `filtered.length === 300` — the count AFTER the audit-type filter narrows
+  the list — but `searchHistory()`'s own 1,500-record cap on the raw date-range query happens
+  BEFORE that filter. A search that hit the 1,500 cap could filter down to well under 300 of one
+  type, showing no warning at all even though older records of that exact type may have been
+  silently dropped from the search results. New `historyTruncated` state flag set once per
+  search (independent of the type filter/tab), with its own persistent banner that survives
+  switching between filter tabs.
+
 ## [3.53.1] - 2026-09-22
 
 ### Changed
