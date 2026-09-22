@@ -1,5 +1,5 @@
 import { useApp } from '../store/AppContext';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
 import type { ReportTab } from '../types';
@@ -23,7 +23,7 @@ const DISC_TYPE_LABEL: Record<string, string> = {
 };
 
 export default function ReportScreen() {
-  const { state, setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary, goSubstockCardFor } = useApp();
+  const { state, setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary, goSubstockCardFor, fetchExecTxsThisMonth } = useApp();
   // Discrepancy log had no way to narrow it down — always the same fixed most-recent-30 slice
   // of state.txs, with no type filter and no way to find one specific drug's history, unlike
   // AdminScreen's audit log right next door which has both. Same underlying data (the live
@@ -53,7 +53,16 @@ export default function ReportScreen() {
   const execCritical = meds.length - execHealthy - execWarn;
   const execHealthyPct = meds.length ? Math.round((execHealthy / meds.length) * 100) : 100;
   const execTotalValue = meds.reduce((s, m) => s + (m.floor + subQty(state, m.id)) * m.price, 0);
-  const execTxsThisMonth = state.txs.filter((x) => x.ts >= Date.now() - 30 * 86400000).length;
+  // state.txs is the realtime cache capped to the 300 most-recent rows across ALL types, so it
+  // under-counts once a busy month exceeds that cap — use it only as an instant placeholder
+  // while the true server-side count (uncapped) loads in.
+  const [execTxsFresh, setExecTxsFresh] = useState<number | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetchExecTxsThisMonth().then((n) => { if (live && n != null) setExecTxsFresh(n); });
+    return () => { live = false; };
+  }, [fetchExecTxsThisMonth]);
+  const execTxsThisMonth = execTxsFresh ?? state.txs.filter((x) => x.ts >= Date.now() - 30 * 86400000).length;
   const execByValue = meds
     .map((m) => ({ m, oh: m.floor + subQty(state, m.id), value: (m.floor + subQty(state, m.id)) * m.price }))
     .sort((a, b) => b.value - a.value)

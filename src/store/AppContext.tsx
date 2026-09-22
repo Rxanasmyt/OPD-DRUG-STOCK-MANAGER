@@ -5,7 +5,7 @@ import {
 } from 'firebase/auth';
 import {
   collection, doc, onSnapshot, query, orderBy, limit, where, writeBatch, addDoc, updateDoc, setDoc,
-  runTransaction, getDocs, getDoc, increment, deleteField, serverTimestamp, type Transaction,
+  runTransaction, getDocs, getDoc, getCountFromServer, increment, deleteField, serverTimestamp, type Transaction,
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
@@ -382,6 +382,7 @@ export interface AppCtx {
   setHistoryTo: (v: string) => void;
   searchHistory: () => void;
   clearHistorySearch: () => void;
+  fetchExecTxsThisMonth: () => Promise<number | null>;
 }
 
 const Ctx = createContext<AppCtx | null>(null);
@@ -1589,7 +1590,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // meant for someone who wants the whole-formulary picture in one glance, not to operate the
   // app. Deliberately its own function (not routed through exportReportCsv's per-tab branches)
   // since a PTC-meeting printout and a spreadsheet export serve different readers.
-  const printExecutiveSummary = useCallback(() => {
+  const printExecutiveSummary = useCallback(async () => {
     const meds = state.meds.filter((m) => m.active);
     const totalValue = meds.reduce((s, m) => s + (m.floor + subQty(state, m.id)) * m.price, 0);
     const healthy = meds.filter((m) => toneFor(m) === 'var(--green)').length;
@@ -1601,7 +1602,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return m && l.qty > 0 && daysUntil(l.exp) <= state.expiryWarnDays ? s + l.qty * m.price : s;
     }, 0);
     const monthAgo = Date.now() - 30 * DAY;
-    const txsThisMonth = state.txs.filter((x) => x.ts >= monthAgo).length;
+    // state.txs is the realtime cache capped to the 300 most-recent rows across ALL types — a
+    // busy month can blow past that cap long before 30 days are covered. A printed PTC document
+    // needs the real count, so fetch it server-side and only fall back to the capped estimate
+    // (which can only ever under-count, never over-count) if that fetch fails.
+    let txsThisMonth: number;
+    try {
+      const snap = await withTimeout(getCountFromServer(query(collection(db, 'txs'), where('ts', '>=', monthAgo))));
+      txsThisMonth = snap.data().count;
+    } catch {
+      txsThisMonth = state.txs.filter((x) => x.ts >= monthAgo).length;
+    }
 
     const stats: ExecSummaryStat[] = [
       { label: 'มูลค่าคงคลังยาคงเหลือรวมทั้งหมด (หน้างานและสำรองคลังย่อย)', value: nf(Math.round(totalValue)) + ' บาท' },
@@ -2557,7 +2568,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Older tx rows written before medId existed have none, so this narrows to nothing older
     // than that migration for a name-duplicated drug — showing an incomplete-but-correct
     // ledger beats a complete-but-wrong one that silently mixes in the other ward's stock.
-    const hasNameTwin = state.meds.some((x) => x.id !== m.id && x.name === m.name);
+    // Active twins only: after "รวมสต็อก OPD+IPD" (mergeWardMeds/mergeAllWardPairs) the losing
+    // side is deactivated and zeroed, not a live ambiguity anymore, so it must not still trigger
+    // this narrowing (SubstockCardScreen's own hasNameTwin already excludes inactive twins —
+    // this needs to match or the two disagree about whether a twin exists).
+    const hasNameTwin = state.meds.some((x) => x.id !== m.id && x.active && x.name === m.name);
     const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('name', '==', m.name))));
     const rows = snap.docs
       .map((d) => d.data() as { type: string; ts: number; qty: number; note?: string; by: string; loc?: string; medId?: string })
@@ -2573,6 +2588,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let bal = 0;
     return rows.map((r) => { bal += r.qty; return { ...r, balance: bal }; });
   }, [state.meds]);
+
+  // The exec-summary "ธุรกรรมใน 30 วันล่าสุด" stat needs a true 30-day count, but state.txs is
+  // the realtime cache capped to the 300 most-recent rows across ALL types — a busy month can
+  // blow past that cap long before 30 days are covered, silently under-reporting. A server-side
+  // count avoids downloading every row just to show one number.
+  const fetchExecTxsThisMonth = useCallback(async (): Promise<number | null> => {
+    try {
+      const from = Date.now() - 30 * 86400000;
+      const snap = await withTimeout(getCountFromServer(query(collection(db, 'txs'), where('ts', '>=', from))));
+      return snap.data().count;
+    } catch {
+      return null;
+    }
+  }, []);
 
   // ---------- count ----------
   const setCountInput = useCallback((medId: string, v: string) => patch((st) => ({ countInputs: { ...st.countInputs, [medId]: digitsOnly(v) } })), [patch]);
@@ -3188,7 +3217,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     doneAgain,
     setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit,
-    setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch,
+    setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, fetchExecTxsThisMonth,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [state, myProfile, theme, toggleTheme]);
 

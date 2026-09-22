@@ -7,6 +7,28 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.55.0] - 2026-09-22
+
+### Fixed — overnight bug sweep, round 2
+- **SubstockCardScreen's "name-twin" (OPD/IPD same-drug) detection disagreed with the ledger
+  fetch it's supposed to explain**: `fetchSubstockLedger()` (AppContext.tsx) narrows the ledger
+  to only `medId`-tagged rows whenever ANY other med shares this drug's name — including an
+  inactive twin left behind by "รวมสต็อก OPD+IPD" (mergeWardMeds/mergeAllWardPairs), which is no
+  longer a live ambiguity, just merge history. SubstockCardScreen's own `hasNameTwin` correctly
+  excludes inactive twins already, so after a merge the two disagreed: the ledger still silently
+  dropped pre-merge untagged rows, but the UI's twin check said "no twin" and showed the generic
+  "อาจมีการปรับยอดนอกช่องทางปกติ — ตรวจสอบใน Audit log" mismatch banner instead of the accurate
+  merge-explanation message, sending pharmacists to chase a discrepancy that isn't real.
+  `fetchSubstockLedger`'s `hasNameTwin` now also excludes inactive twins, matching the screen.
+- **PTC executive summary's "ธุรกรรมใน 30 วันล่าสุด" (transactions in the last 30 days) could
+  silently under-count on a busy month**: both the on-screen exec stat and the printed executive
+  summary sheet computed it by filtering `state.txs`, the realtime cache capped to the 300
+  most-recent transactions across every type — a hospital doing more than 300 receive/transfer/
+  adjust/dispense/count transactions inside 30 days exhausts that cap before the window is
+  covered, understating real activity on an official PTC document. Both now fetch a true
+  server-side count (`getCountFromServer`, uncapped) and only fall back to the old capped
+  estimate — which can only ever under-count, never over-count — if that fetch fails.
+
 ## [3.54.0] - 2026-09-22
 
 ### Fixed — overnight bug sweep, round 1
