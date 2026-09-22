@@ -31,7 +31,7 @@ const MAX_ROWS_PER_SECTION = 15; // keeps the broadcast readable — the app its
 // change, update this block too.
 function floorMinOf(m) {
   if (typeof m.floorMin === 'number') return m.floorMin;
-  const raw = (m.parFloor || 0) * 0.3;
+  const raw = (m.parFloor || 0) * 0.5;
   if (raw <= 0) return 0;
   const step = raw >= 500 ? 100 : raw >= 100 ? 10 : raw >= 10 ? 5 : 1;
   return Math.round(raw / step) * step;

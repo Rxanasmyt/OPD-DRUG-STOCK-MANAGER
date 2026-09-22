@@ -7,6 +7,23 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.49.0] - 2026-09-22
+
+### Removed
+- "🖨 พิมพ์เฉพาะเร่งด่วนวันนี้" button + `printUrgentReplenishList()` (AppContext.tsx) removed
+  per request — the plain "🖨 พิมพ์ใบเติมหน้างานวันนี้" (below-Min, not just below-half-Min) stays.
+  The "🔴 เร่งด่วนวันนี้" filter chip and "เติมเฉพาะเร่งด่วนวันนี้" (add-to-cart) button are
+  untouched — only the print action for that subset was removed.
+
+### Changed
+- **Default Min (reorder point) raised from 30% to 50% of Max**, for every med that hasn't had
+  `floorMin` set by hand — `floorMinOf()` in `store/selectors.ts` (and its hand-synced duplicate
+  in `scripts/notify-low-stock.mjs`, which can't import the TS selector directly — see that
+  file's own comment). Flags a refill sooner/more conservatively across the whole formulary
+  without a migration write. A med with Max already set to 1 now also defaults its Min to 1
+  (previously defaulted to 0) — updated the "Max=Min=1" diagnostic filter's own comment on
+  MedsScreen to reflect this rather than leave it describing the old (now-wrong) math.
+
 ## [3.48.0] - 2026-09-22
 
 ### Added — 3 requested capabilities

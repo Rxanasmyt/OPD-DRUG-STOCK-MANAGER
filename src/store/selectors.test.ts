@@ -134,11 +134,11 @@ describe('floorMinOf', () => {
     expect(floorMinOf(med({ floorMin: 12, parFloor: 100 }))).toBe(12);
   });
 
-  it('defaults to a rounded ~30% of parFloor when floorMin is unset', () => {
+  it('defaults to a rounded ~50% of parFloor when floorMin is unset', () => {
     // Regression guard for the bug this function's own comment describes: a naive
-    // Math.round(parFloor*0.3) would give an odd-looking 27 here — roundStep-style
-    // rounding should land on a clean 25.
-    expect(floorMinOf(med({ parFloor: 90 }))).toBe(25);
+    // Math.round(parFloor*0.5) would give an odd-looking 43 here — roundStep-style
+    // rounding should land on a clean 45.
+    expect(floorMinOf(med({ parFloor: 86 }))).toBe(45);
     expect(floorMinOf(med({ parFloor: 0 }))).toBe(0);
   });
 });
@@ -225,7 +225,8 @@ describe('toneFor', () => {
 
 describe('isUrgentLow', () => {
   it('flags a shelf at/below half its own Min, not just below Min', () => {
-    // Min defaults to 30% of Max when floorMin is unset (floorMinOf()) — parFloor 100 -> Min 30.
+    // floorMin set explicitly here (30) — this test is about isUrgentLow()'s own "half of
+    // whatever Min is" rule, independent of floorMinOf()'s default-fallback ratio.
     expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 14 }))).toBe(true); // 14 < 15 (half of 30)
     expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 15 }))).toBe(false); // exactly half — not urgent yet
     expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 29 }))).toBe(false); // below Min but not urgent

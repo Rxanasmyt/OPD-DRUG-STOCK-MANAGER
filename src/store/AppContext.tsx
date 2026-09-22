@@ -212,7 +212,6 @@ export interface AppCtx {
   fillUrgent: () => void;
   printPickList: () => void;
   printTodayReplenishList: () => void;
-  printUrgentReplenishList: () => void;
   printWarehouseRequestList: () => void;
   removeFromCart: (id: string) => void;
   /** Empties the whole fill cart in one action — the only way out of a mis-built cart used
@@ -1097,28 +1096,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .filter((r) => r.qty > 0);
     if (!rows.length) { toast('รายการที่ต่ำกว่า Min ไม่มีของเหลือใน substock ให้เติมเลยสักรายการ — ต้องเบิกจากคลังใหญ่ก่อน'); return; }
     const ok = printPickListSheet(rows, 'ใบเติมหน้างานประจำวัน', 'รายการที่ต่ำกว่าจุดต้องเติม (Min) ประจำวันนี้', undefined, { printedBy: userName() });
-    toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
-  }, [state, toast, userName]);
-
-  // Same sheet as printTodayReplenishList above, scoped to just isUrgentLow() items — the
-  // paper counterpart of TransferScreen's "🔴 เร่งด่วนวันนี้" filter/fillUrgent(), for handing
-  // to someone else to walk the shelf with when there's no time (or no second phone) for the
-  // full below-Min list today. A short, separate function rather than a parameter on
-  // printTodayReplenishList — that one's wired straight to a plain onClick, and a boolean
-  // parameter there would collide with the MouseEvent React passes as the first argument.
-  const printUrgentReplenishList = useCallback(() => {
-    const items = state.meds.filter((m) => m.active && usesSubstock(m) && isUrgentLow(m));
-    if (!items.length) { toast('วันนี้ไม่มีรายการเร่งด่วน (ต่ำกว่าครึ่งหนึ่งของ Min)'); return; }
-    const rows = items
-      .map((m) => {
-        const need = Math.max(0, m.parFloor - m.floor);
-        const qty = suggestTransferQty(state, m);
-        const note = qty < need ? 'substock เหลือไม่พอเติมเต็ม par (ขาดอีก ' + nf(need - qty) + ' ' + m.unit + ')' : undefined;
-        return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note };
-      })
-      .filter((r) => r.qty > 0);
-    if (!rows.length) { toast('รายการเร่งด่วนไม่มีของเหลือใน substock ให้เติมเลยสักรายการ — ต้องเบิกจากคลังใหญ่ก่อน'); return; }
-    const ok = printPickListSheet(rows, 'ใบเติมหน้างานเร่งด่วนวันนี้', 'รายการต่ำกว่าครึ่งหนึ่งของ Min — เร่งด่วนที่สุดของวันนี้', undefined, { printedBy: userName() });
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state, toast, userName]);
 
@@ -3159,7 +3136,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify,
     lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify, go, back,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
-    setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, fillUrgent, printPickList, printTodayReplenishList, printUrgentReplenishList, removeFromCart, clearCart, commitTransfer,
+    setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, fillUrgent, printPickList, printTodayReplenishList, removeFromCart, clearCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, printWarehouseRequestList,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,

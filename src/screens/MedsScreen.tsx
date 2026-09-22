@@ -160,17 +160,13 @@ export default function MedsScreen() {
   // can show how many meds are in that group under the current status/ward/search filters,
   // which is the whole point ("บางกลุ่มจ่ายออกเยอะ บางกลุ่มใช้น้อย"): the counts are what let
   // someone spot a high-volume group vs. a rarely-touched one at a glance, before even tapping.
-  // "Max=Min=1" diagnostic: floorMinOf()'s own default-fallback (30% of Max, rounded to a nice
-  // step) computes 0 whenever Max is 1 — Math.round(1*0.3/1)*1 = 0 — so the ONLY way a med ever
-  // actually shows Min=1 alongside Max=1 is a real, explicit `floorMin: 1` stored on it (never
-  // the auto-default). That in turn only happens two ways: someone typed "1" into the "จุดต่ำสุด
-  // ต้องเติม (Min)" field by hand (this form, below), or a still-active med that legitimately
-  // has almost no daily usage got "ใช้ค่าแนะนำ" applied — suggestPar()'s roundStep() has a hard
-  // floor of 1 (`Math.max(step, ...)`, selectors.ts) so a near-zero-but-nonzero used30 can
-  // legitimately round Max down to 1, and if Min had already been hand-set to 1 earlier (or to
-  // match Max) it stays there. Either way this is real par data, not a bug in itself — but a Min
-  // that equals Max leaves genuinely zero warning room before a shelf reads "ต้องเติมด่วน", so
-  // it's worth being able to find at a glance instead of opening each med's edit form one by one.
+  // "Max=Min=1" diagnostic: finds meds where the reorder point (Min) has caught all the way up
+  // to the shelf's own capacity (Max) — real par data either way (a hand-set floorMin, or since
+  // floorMinOf()'s default-fallback is now 50% of Max — real-world request, raised from the
+  // original 30% — Max=1 now defaults to Min=1 too, `Math.round(1*0.5/1)*1 = 1`), not a bug in
+  // itself. But a Min that equals Max leaves genuinely zero warning room before a shelf reads
+  // "ต้องเติมด่วน", so it's worth being able to find at a glance instead of opening each med's
+  // edit form one by one.
   const parOneOnly = filter === 'parOne';
   const parOneCount = useMemo(
     () => state.meds.filter((m) => m.active && m.parFloor === 1 && floorMinOf(m) === 1).length,
@@ -605,7 +601,7 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
       </div>
       <label style={{ display: 'block', marginBottom: 9 }}>
         <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>จุดต่ำสุดต้องเติม (Min)</span>
-        <input value={v.floorMin} onChange={(e) => set('floorMin', digitsOnly(e.target.value))} placeholder={'ว่างไว้ = ' + nf(floorMinOf({ parFloor: parseInt(v.parFloor, 10) || 0 } as Med)) + ' (30% ของ Max ปัดเป็นเลขลงตัว)'} inputMode="numeric" style={inputStyle} />
+        <input value={v.floorMin} onChange={(e) => set('floorMin', digitsOnly(e.target.value))} placeholder={'ว่างไว้ = ' + nf(floorMinOf({ parFloor: parseInt(v.parFloor, 10) || 0 } as Med)) + ' (50% ของ Max ปัดเป็นเลขลงตัว)'} inputMode="numeric" style={inputStyle} />
         <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>ต่ำกว่าจุดนี้คือของจริงที่ต้องเติมตอนเช้า — คนละจุดกับ Max เพราะอัตราการใช้ OPD/IPD ไม่เท่ากัน แม้ยารหัสเดียวกันก็ตั้ง Min-Max ต่างกันได้ตามชั้นวางจริง</div>
       </label>
       <label style={{ display: 'block', marginBottom: 9 }}>

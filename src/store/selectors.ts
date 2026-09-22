@@ -62,13 +62,14 @@ export function binDisplayAll(m: Med): string {
 
 /** Real min-max par: `parFloor` is the shelf's capacity ("Max" — fill up TO this), `floorMin`
  * is the separate reorder point ("Min" — BELOW this is when it actually needs refilling).
- * Every med added before Min-Max existed has no floorMin — default it to 30% of Max, a
- * conventional reorder-point ratio, rather than requiring a one-time migration write. */
+ * Every med added before Min-Max existed has no floorMin — default it to 50% of Max (real-
+ * world request: raised from the original 30%, a more conservative reorder point that flags a
+ * refill sooner) rather than requiring a one-time migration write. */
 export function floorMinOf(m: Med): number {
   if (typeof m.floorMin === 'number') return m.floorMin;
   // ปัดค่า default ให้เป็นเลขลงตัว (หลักเดียว/หลักสิบ/หลักร้อยตามขนาด) เหมือน roundStep ที่ใช้กับ
-  // Max — กัน Min โผล่มาเป็นเลขเศษแปลกๆ เช่น 27, 13 จาก Math.round(parFloor*0.3) ตรงๆ
-  const raw = m.parFloor * 0.3;
+  // Max — กัน Min โผล่มาเป็นเลขเศษแปลกๆ เช่น 27, 13 จาก Math.round(parFloor*0.5) ตรงๆ
+  const raw = m.parFloor * 0.5;
   if (raw <= 0) return 0;
   const step = raw >= 500 ? 100 : raw >= 100 ? 10 : raw >= 10 ? 5 : 1;
   return Math.round(raw / step) * step;
