@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
 import { daysUntil, wardOf, binFor, binDisplayAll, isSharedMed } from '../store/selectors';
+import { parseBinRange, binInRange, binSortKey } from '../utils/binRange';
 import { thDate } from '../utils/format';
 import { QrCode } from '../components/QrCode';
 import { encodeQr } from '../utils/qr';
@@ -130,8 +131,28 @@ export default function LabelsScreen() {
   // everywhere else — so typing a bin code here selects exactly what a person standing at that
   // physical shelf would expect, never a code some OTHER tab happens to use for the same med.
   const binOf = (m: (typeof activeMeds)[number]) => state.labelType === 'loc' && state.locScope === 'sub' ? (m.binSub || '') : binDisplayAll(m);
+  // Every individual real bin code `m` sits in, kept SEPARATE (unlike binOf()'s combined
+  // "A1/B2" display string) — a range check needs to test each side on its own, since a shared
+  // med's OPD/IPD codes are two unrelated shelf positions that just happen to print on one row.
+  const binCodesOf = (m: (typeof activeMeds)[number]): string[] =>
+    state.labelType === 'loc' && state.locScope === 'sub'
+      ? (m.binSub ? [m.binSub] : [])
+      : [m.bin, ...(m.binIpd ? [m.binIpd] : [])].filter(Boolean);
   const pickerQ = pickerQuery.trim().toLowerCase();
-  const pickerMatches = pickerQ
+  // Real-world request: "อยากให้เลือกเป็นชุดชั้นวางยาได้ครับ เช่น A1-A7" — picking a whole run of
+  // numbered bins to print in one batch, not just one bin code at a time. When the typed query
+  // parses as a range (see binRange.ts — "A1-A7" or the "A1-7" shorthand), switch from plain
+  // substring search to matching every med with a bin code inside that range, sorted by shelf
+  // number so the list reads in physical shelf order instead of formulary order. A much higher
+  // cap than the name-search default: the whole point of a range is bulk-selecting everything
+  // in it, which can easily be more than the "browsing to find one drug" cap makes sense for.
+  const pickerRange = parseBinRange(pickerQuery);
+  const pickerMatches = pickerRange
+    ? activeMeds
+        .filter((m) => binCodesOf(m).some((c) => binInRange(c, pickerRange)))
+        .sort((a, b) => Math.min(...binCodesOf(a).map(binSortKey)) - Math.min(...binCodesOf(b).map(binSortKey)))
+        .slice(0, 200)
+    : pickerQ
     ? activeMeds.filter((m) => m.name.toLowerCase().indexOf(pickerQ) >= 0 || binOf(m).toLowerCase().indexOf(pickerQ) >= 0).slice(0, 20)
     : [];
 
@@ -232,9 +253,9 @@ export default function LabelsScreen() {
           <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.5, marginBottom: 8 }}>
             {selectedSet.size > 0
               ? `เลือกไว้ ${selectedSet.size} รายการ — ปุ่มพิมพ์ด้านล่างจะพิมพ์เฉพาะที่เลือกเท่านั้น`
-              : 'ไม่เลือกเลย = พิมพ์ทั้งหมด (ค่าเริ่มต้น) — ค้นหาด้วยชื่อยาหรือรหัสชั้นวาง (เช่น "J4") แล้วติ๊กเพื่อพิมพ์เฉพาะยาในชั้นนั้น'}
+              : 'ไม่เลือกเลย = พิมพ์ทั้งหมด (ค่าเริ่มต้น) — ค้นหาด้วยชื่อยา, รหัสชั้นวางเดียว (เช่น "J4") หรือทั้งชุด (เช่น "A1-A7") แล้วติ๊กหรือกด "เลือกทั้งหมดที่ค้นเจอ"'}
           </div>
-          <SearchInput value={pickerQuery} onChange={setPickerQuery} placeholder="ค้นหาชื่อยา หรือรหัสชั้นวาง (เช่น J4) เพื่อเลือก" style={{ marginBottom: pickerMatches.length || selectedSet.size ? 9 : 0 }} />
+          <SearchInput value={pickerQuery} onChange={setPickerQuery} placeholder="ชื่อยา, รหัสชั้น (J4) หรือช่วงชั้น (A1-A7)" style={{ marginBottom: pickerMatches.length || selectedSet.size ? 9 : 0 }} />
           {pickerMatches.length > 0 && (
             <>
               <button

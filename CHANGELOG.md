@@ -7,6 +7,18 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.52.0] - 2026-09-22
+
+### Added
+- **เลือกยาพิมพ์ QR เป็นช่วงรหัสชั้นวางได้ (เช่น "A1-A7")** — follow-up to v3.51.0's single-bin-
+  code search. The "เลือกยาเฉพาะบางตัว" picker now recognizes a shelf-code range in the search
+  box (`A1-A7`, or the shorthand `A1-7` reusing the first side's prefix) and selects every med
+  whose bin/binIpd/binSub code falls inside it — a whole run of numbered shelves in one batch
+  instead of hunting one code at a time. Matches sort by shelf number (A1, A2, … A7) instead of
+  formulary order, and the picker's usual 20-result cap is raised to 200 for a range match,
+  since bulk-selecting a whole run is the entire point. New `utils/binRange.ts`
+  (`parseBinRange`/`binInRange`/`binSortKey`) with 16 unit tests.
+
 ## [3.51.0] - 2026-09-22
 
 ### Added
