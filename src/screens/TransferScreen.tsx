@@ -74,6 +74,7 @@ export default function TransferScreen() {
     if (state.filter === 'low') return m.floor < floorMinOf(m);
     if (state.filter === 'urgent') return isUrgentLow(m);
     if (state.filter === 'had') return m.had;
+    if (state.filter === 'fridge') return m.fridge;
     return true;
   });
   // Counts per category under the low/all/had + search filter above but BEFORE the category
@@ -148,6 +149,7 @@ export default function TransferScreen() {
           <button className="chip" style={chip(state.filter === 'low')} onClick={() => setFilter('low')}>ต่ำกว่า Min ({low.length})</button>
           <button className="chip" style={chip(state.filter === 'all')} onClick={() => setFilter('all')}>ทั้งหมด</button>
           <button className="chip" style={chip(state.filter === 'had')} onClick={() => setFilter('had')}>High alert</button>
+          <button className="chip" style={{ ...chip(state.filter === 'fridge'), ...(state.filter === 'fridge' ? { background: 'var(--fridge)', borderColor: 'var(--fridge)' } : {}) }} onClick={() => setFilter('fridge')}>🧊 ตู้เย็น</button>
           {urgent.length > 0 && (
             <button className="chip" style={{ border: '1px dashed var(--red)', background: 'transparent', color: 'var(--red)' }} onClick={fillUrgent} title="เติมเฉพาะรายการที่ต่ำกว่าครึ่งหนึ่งของ Min — ที่เหลือรอได้ ไม่ต้องเติมทีละเยอะๆ">เติมเฉพาะเร่งด่วนวันนี้</button>
           )}
@@ -197,6 +199,7 @@ export default function TransferScreen() {
                     <MedDot code={m.code} />
                     <span>{m.name}</span>
                     {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
+                    {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
                   </div>
                   <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>
                     หน้างาน <Qty value={m.floor} unit={m.unit} tone={toneFor(m)} size={12.5} /> · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock {nf(sub(m.id))} / par {nf(m.parSub)} {m.unit}

@@ -214,6 +214,7 @@ export default function HomeScreen() {
                 <MedDot code={m.code} />
                 <span>{m.name}</span>
                 {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
+                {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
               </div>
               <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
                 หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={12.5} /> · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock {nf(sub(m.id))} {m.unit}
@@ -257,6 +258,7 @@ export default function HomeScreen() {
                 <MedDot code={m.code} />
                 <span>{m.name}</span>
                 {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
+                {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
               </div>
               <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
                 substock <Qty value={sub(m.id)} tone="var(--red)" size={12.5} /> / par {nf(m.parSub)}

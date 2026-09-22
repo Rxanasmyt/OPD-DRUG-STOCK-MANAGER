@@ -77,8 +77,12 @@ export default function TConfirmScreen() {
                 <MedDot code={m.code} />
                 <span>{m.name}</span>
                 {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
+                {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
               </div>
               <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>{used.join('  ·  ')}</div>
+              {m.fridge && (
+                <div style={{ fontSize: 11.5, marginTop: 2, fontWeight: 600, color: 'var(--fridge)' }}>🧊 ยาตู้เย็น — รีบนำเข้าตู้เย็นทันทีหลังเติมหน้างาน</div>
+              )}
               {m.had && (
                 <div style={{ fontSize: 11.5, marginTop: 2, fontWeight: 600, color: state.hadOk[id] ? 'var(--green)' : 'var(--had)' }}>
                   {state.hadOk[id] ? '✓ ยืนยัน QR แล้ว' : 'ต้องสแกน QR ก่อนยืนยัน'}

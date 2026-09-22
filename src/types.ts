@@ -10,6 +10,15 @@ export interface Med {
   dosageForm: string;
   price: number;
   had: boolean;
+  // Real-world request: "เพิ่มประเภทยาตู้เย็น" — needs refrigerated storage. Deliberately its own
+  // boolean flag, NOT another entry in DRUG_CATEGORIES (data/categories.ts) — cold-chain storage
+  // is a cross-cutting handling requirement any drug can carry regardless of its therapeutic
+  // group (insulin under "เบาหวาน", a vaccine under "ฉุกเฉิน", an injectable antibiotic under
+  // "ต้านจุลชีพ" can all need a fridge at once), same reasoning as `had` (high-alert) being its
+  // own flag rather than a category. Optional — every med added before this feature existed has
+  // none, defaults falsy everywhere (never carried a fridge requirement) rather than needing a
+  // migration write.
+  fridge?: boolean;
   active: boolean; // false = not carried by this hospital (from CSV "ไม่มียาในรพ.กรงปินัง" notes)
   parSub: number;
   parFloor: number; // shelf capacity target — "Max": เติมขึ้นไปถึงจุดนี้
@@ -206,7 +215,7 @@ export type HosxpMatch =
 
 export type AdminTab = 'users' | 'audit';
 export type AuditFilter = 'all' | 'users' | 'stock';
-export type TransferFilter = 'low' | 'all' | 'had' | 'urgent';
+export type TransferFilter = 'low' | 'all' | 'had' | 'urgent' | 'fridge';
 
 export interface AppState {
   meds: Med[];

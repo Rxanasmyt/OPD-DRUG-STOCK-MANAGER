@@ -7,6 +7,24 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.53.0] - 2026-09-22
+
+### Added
+- **ยาตู้เย็น (cold-chain / needs refrigerated storage)** — new `Med.fridge` boolean flag,
+  deliberately its OWN flag rather than another entry in `DRUG_CATEGORIES` (data/categories.ts):
+  cold-chain is a cross-cutting handling requirement any drug can carry regardless of its
+  therapeutic group or ward (insulin under เบาหวาน, a vaccine under ฉุกเฉิน, an injectable
+  antibiotic under ต้านจุลชีพ can all need a fridge at once) — same reasoning `had` (high-alert)
+  is its own flag instead of a category. Set it from จัดการรายการยา's add/edit form (🧊 chip
+  next to "ยา high alert?"). Shows as a 🧊 badge on MedsScreen, TransferScreen, TConfirmScreen,
+  and HomeScreen's low-stock lists; TConfirmScreen also gets an explicit "รีบนำเข้าตู้เย็นทันที
+  หลังเติมหน้างาน" reminder on the confirm step. New "🧊 ตู้เย็น" filter chip on TransferScreen
+  (เร่งด่วนวันนี้/ต่ำกว่า Min/ทั้งหมด/High alert row). Printed shelf-strip labels
+  (LabelsScreen/printLabels) show a combined "HIGH ALERT · 🧊 ตู้เย็น" tag line when a drug is
+  both. New `--fridge`/`--fridge-bg` theme tokens (light + dark) — a distinct cool blue, kept
+  apart from `--had`'s pink/magenta and `--ipd`'s purple so all three read as different kinds of
+  flag at a glance.
+
 ## [3.52.1] - 2026-09-22
 
 ### Fixed

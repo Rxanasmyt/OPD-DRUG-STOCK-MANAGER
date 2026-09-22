@@ -9,7 +9,7 @@ import { shortLabelName, fitSingleLineFontSizePx, splitTitleForDisplay } from '.
 import { SearchInput } from '../components/SearchInput';
 import { MedDot } from '../components/MedDot';
 import { LOCS } from '../data/locations';
-import type { LabelType, Ward } from '../types';
+import type { LabelType, Med, Ward } from '../types';
 
 // Mirrors print.ts's MAX_TITLE_PT/MIN_TITLE_PT (its pt values, here in px since the preview
 // card isn't a fixed physical size — it stretches to whatever width mobile/tablet gives it).
@@ -91,6 +91,12 @@ function AutoFitTitle({ text, color }: { text: string; color: string }) {
 }
 
 const TABS: [LabelType, string][] = [['med', 'ฉลากตัวยา'], ['lot', 'ฉลาก lot'], ['loc', 'ฉลากชั้นวาง']];
+
+// Mirrors AppContext.tsx's printLabels() own printTag() exactly — this preview has to show the
+// same combined "HIGH ALERT · 🧊 ตู้เย็น" line the real printout will, not just one or the other.
+function printTag(m: Med): string {
+  return [m.had ? 'HIGH ALERT' : '', m.fridge ? '🧊 ตู้เย็น' : ''].filter(Boolean).join(' · ');
+}
 
 // These preview cards are deliberately styled with literal colors (white background, #999
 // borders) since they represent actual printed paper, not themed app chrome — this badge
@@ -188,14 +194,14 @@ export default function LabelsScreen() {
   // always show it, which also happens to be exactly what tells two sides of the same drug
   // apart when labelWardScope is 'all' and both are mixed into the same preview.
   const rows = state.labelType === 'med'
-    ? meds.flatMap((m) => medSides(m).map((s) => ({ code: m.code, bin: s.bin, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + s.bin, tag: m.had ? 'HIGH ALERT' : '', tagColor: 'var(--had)', ward: s.ward as Ward | undefined }))).slice(0, 8)
+    ? meds.flatMap((m) => medSides(m).map((s) => ({ code: m.code, bin: s.bin, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + s.bin, tag: printTag(m), tagColor: m.had ? 'var(--had)' : 'var(--fridge)', ward: s.ward as Ward | undefined }))).slice(0, 8)
     : state.labelType === 'lot'
     ? wardLots.slice(0, 8).map((l) => {
         const m = meds.find((x) => x.id === l.medId);
         return { code: l.code, bin: undefined as string | undefined, payload: encodeQr('lot', l.code), title: m ? m.name : '—', sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: daysUntil(l.exp) < warn() ? 'ใกล้หมดอายุ' : '', tagColor: 'var(--amber)', ward: m && !isSharedMed(m) ? wardOf(m) : undefined };
       })
     : state.locScope === 'sub'
-    ? subMeds.slice(0, 8).map((m) => ({ code: m.code, bin: m.binSub, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · substock ' + m.binSub, tag: m.had ? 'HIGH ALERT' : '', tagColor: 'var(--had)', ward: undefined as Ward | undefined }))
+    ? subMeds.slice(0, 8).map((m) => ({ code: m.code, bin: m.binSub, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · substock ' + m.binSub, tag: printTag(m), tagColor: m.had ? 'var(--had)' : 'var(--fridge)', ward: undefined as Ward | undefined }))
     : LOCS.map((b) => ({ code: 'LOC-' + b, bin: undefined as string | undefined, payload: encodeQr('loc', 'LOC-' + b), title: 'ชั้นจ่ายยา ' + b, sub: 'หน้างาน OPD · สแกนเพื่อเปิดรายการในชั้นนี้', tag: '', tagColor: 'var(--muted)', ward: undefined as Ward | undefined }));
 
   // Bug fix: printLabels() (AppContext.tsx) emits TWO label rows for a shared med that has a

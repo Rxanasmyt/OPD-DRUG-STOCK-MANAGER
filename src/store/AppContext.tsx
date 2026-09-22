@@ -285,8 +285,8 @@ export interface AppCtx {
   updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => void;
 
   // meds (formulary) management
-  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string }) => void;
-  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string }) => void;
+  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string }) => void;
+  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string }) => void;
   /** Merges an existing OPD/IPD ward-pair (same name, one 'opd' one 'ipd' record) into a
    * single pooled record — see Med.binIpd. Survives as the OPD-ward record with the IPD
    * record's bin code carried over as `binIpd`; floor/used30/usedPrev30 are summed (not
@@ -1792,6 +1792,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const selectedSet = new Set(selectedIds);
     const meds = state.meds.filter((m) => m.active && (selectedSet.size === 0 || selectedSet.has(m.id)));
     let labels: PrintLabel[] = [];
+    // One combined tag line (labels have room for exactly one) — a med can be high-alert AND
+    // need refrigeration at once, so both show rather than one silently winning.
+    const printTag = (m: Med) => [m.had ? 'HIGH ALERT' : '', m.fridge ? '🧊 ตู้เย็น' : ''].filter(Boolean).join(' · ') || undefined;
     let heading = 'ฉลากตัวยา';
     if (state.labelType === 'med') {
       if (state.labelWardScope !== 'all') heading = 'ฉลากตัวยา (' + (state.labelWardScope === 'ipd' ? 'IPD' : 'OPD') + ')';
@@ -1806,7 +1809,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const scoped = state.labelWardScope === 'all' ? sides : sides.filter((s) => s.ward === state.labelWardScope);
         return scoped.map((s) => ({
           payload: encodeQr('med', m.code), id: m.code, title: shortLabelName(m.name),
-          sub: 'หน่วย ' + m.unit + ' · ชั้น ' + s.bin, tag: m.had ? 'HIGH ALERT' : undefined, bin: s.bin, ward: s.ward,
+          sub: 'หน่วย ' + m.unit + ' · ชั้น ' + s.bin, tag: printTag(m), bin: s.bin, ward: s.ward,
         }));
       });
     } else if (state.labelType === 'lot') {
@@ -1833,7 +1836,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       heading = 'ฉลากชั้นวาง substock';
       labels = meds.filter((m) => !m.noSubstock && m.binSub).map((m) => ({
         payload: encodeQr('med', m.code), id: m.code, title: shortLabelName(m.name),
-        sub: 'หน่วย ' + m.unit + ' · substock ' + m.binSub, tag: m.had ? 'HIGH ALERT' : undefined, bin: m.binSub,
+        sub: 'หน่วย ' + m.unit + ' · substock ' + m.binSub, tag: printTag(m), bin: m.binSub,
       }));
     } else {
       heading = 'ฉลากชั้นวาง';
@@ -2021,7 +2024,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [canEditPar, logAudit, toast]);
 
   // ---------- meds (formulary) management ----------
-  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string }) => {
+  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string }) => {
     if (!canEditPar) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
@@ -2060,6 +2063,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         trx.set(doc(collection(db, 'meds')), {
           code: c, name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
           price: input.price || 0, had: input.had, active: true,
+          ...(input.fridge ? { fridge: true } : {}),
           parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0), floor: 0,
           floorMin: Math.max(0, input.floorMin || 0),
           bin: normBin(input.bin),
@@ -2082,7 +2086,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // price, high-alert flag, shelf/bin, and both par levels — instead of hunting across
   // separate screens. `code` (the QR/label identifier) is deliberately never touched here —
   // labels already printed with it must keep resolving to this med.
-  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string }) => {
+  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string }) => {
     if (!canEditPar) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
@@ -2091,6 +2095,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const patch = {
       name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
       price: input.price || 0, had: input.had,
+      fridge: input.fridge ? true : deleteField(),
       bin: normBin(input.bin),
       parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0),
       floorMin: Math.max(0, input.floorMin || 0),

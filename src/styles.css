@@ -42,6 +42,11 @@
   --had: #8f1f4f;
   --ipd: #5a4fcf;
   --ipd-bg: #eeecfb;
+  /* ยาตู้เย็น (cold-chain — needs refrigerated storage) — a distinct cool blue, since this is a
+     genuinely different kind of flag from --had (dispensing-safety alert) or --ipd (which ward):
+     a storage/handling requirement any drug from any therapeutic group or ward can carry. */
+  --fridge: #1565c0;
+  --fridge-bg: #e3f0fc;
   /* reserved ONLY for the app's actual on-device "smart" features (usage-anomaly insights,
      OCR label read — see ReportScreen.tsx/ReceiveScreen.tsx) — a deliberately different hue
      family from the green/amber/red/violet vocabulary everything else uses, so it reads as "a
@@ -104,6 +109,8 @@
   --had: #e8639e;
   --ipd: #9d8fff;
   --ipd-bg: rgba(157, 143, 255, .16);
+  --fridge: #6ab7ff;
+  --fridge-bg: rgba(106, 183, 255, .16);
   --ai-1: #8b7dff;
   --ai-2: #4dd8e8;
   --ai-rgb: 139, 125, 255;
