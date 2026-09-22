@@ -7,6 +7,36 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.48.0] - 2026-09-22
+
+### Added — 3 requested capabilities
+- **สแกน QR ค้นหายาได้ทุกหน้าจอ**: scan-to-find-a-drug (`openScanSearch('viewMed')` — decode any
+  printed med/lot QR, jump straight to that drug's record) used to live only as one icon button
+  on จัดการรายการยา. Promoted into the app header itself (▣ button, next to the theme toggle) —
+  one tap from every single screen now, not just one, using the exact same underlying logic.
+- **Dashboard ภาพรวมผู้บริหาร** — new lead tab on the รายงาน screen (📊 ภาพรวมผู้บริหาร):
+  headline stat cards (มูลค่าคงคลังรวม, สุขภาพคลังยาโดยรวม %, มูลค่าเสี่ยงหมดอายุ, ธุรกรรม 30 วัน
+  ล่าสุด), 10 อันดับมูลค่าคงคลังสูงสุด, และ 10 อันดับใช้เร็วที่สุด — a one-minute-scan summary for
+  a pharmacy head or PTC meeting instead of piecing the same picture together from 4 separate
+  report tabs. Includes a one-tap "🖨 พิมพ์สรุปสำหรับ PTC" printable A4 sheet
+  (`printExecutiveSummarySheet` in `utils/print.ts`) with the hospital letterhead, plus its own
+  CSV export.
+- **แจ้งเตือนผ่าน LINE เมื่อยาต่ำกว่า par** — `scripts/notify-low-stock.mjs` +
+  `.github/workflows/low-stock-notify.yml`: runs weekday mornings (07:00 Asia/Bangkok), reads
+  today's real stock via the Firebase Admin SDK, and broadcasts a LINE message (via the LINE
+  Messaging API's Broadcast endpoint — sent to every account that added the hospital's LINE
+  Official Account as a friend, no per-user/group ID management needed) listing every drug below
+  its Min or substock par. Sends nothing on a day where nothing is actually low. Same free-tier,
+  no-backend architecture as the existing Firestore backup workflow — GitHub Actions is the
+  "server". New `npm run notify-low-stock` (`--dry-run` to preview without sending).
+
+### ⚠️ ต้องตั้งค่าเองก่อนใช้งานฟีเจอร์แจ้งเตือน LINE ได้จริง
+ต้องสร้าง **LINE Official Account** ฟรี (ให้พนักงานทุกคนเพิ่มเป็นเพื่อนครั้งเดียว — นั่นคือรายชื่อ
+ผู้รับแจ้งเตือนทั้งหมด ไม่ต้องจัดการ ID รายคน) แล้วออก **Channel Access Token** จาก LINE Developers
+Console นำไปวางเป็น GitHub secret ชื่อ `LINE_CHANNEL_ACCESS_TOKEN` — ดูขั้นตอนละเอียดทั้งหมดใน
+`.github/workflows/low-stock-notify.yml`'s header comment ก่อนตั้งค่า workflow จะ fail ทุกรันด้วย
+error ที่ชัดเจน (ไม่ใช่ทำงานเงียบๆ โดยไม่ส่งจริง)
+
 ## [3.47.0] - 2026-09-22
 
 ### Fixed — pre-go-live flow review

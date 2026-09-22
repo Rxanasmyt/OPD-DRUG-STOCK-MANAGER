@@ -571,3 +571,113 @@ export function printSubstockCardSheet(
   win.document.close();
   return true;
 }
+
+export interface ExecSummaryStat { label: string; value: string; note?: string; tone?: 'red' | 'amber' | 'green' | 'ink' }
+export interface ExecSummaryRow { name: string; unit: string; a: string; b: string }
+
+/**
+ * Real-world request: "Dashboard สรุปภาพรวมสำหรับผู้บริหาร/หัวหน้าเภสัชกรรม" — a one-page
+ * printable summary meant for a PTC (Pharmacy and Therapeutics Committee) meeting or a
+ * pharmacy-head's desk, not for someone operating the app day to day. Headline numbers first
+ * (the things a committee agenda actually opens with), then the two "what to look at" lists —
+ * highest-value holdings and fastest movers — a reader can scan in under a minute instead of
+ * having to open the app and piece the same picture together from four separate report tabs.
+ */
+export function printExecutiveSummarySheet(
+  stats: ExecSummaryStat[],
+  topValue: ExecSummaryRow[],
+  topUsage: ExecSummaryRow[],
+  meta: { printedBy?: string; periodLabel: string } = { periodLabel: '' },
+): boolean {
+  const now = Date.now();
+  const toneColor = (t?: string) => t === 'red' ? '#b3261e' : t === 'amber' ? '#a15c00' : t === 'green' ? '#175554' : '#14211a';
+  const statCards = stats
+    .map((s) => `<div class="stat">
+      <div class="v" style="color:${toneColor(s.tone)}">${escapeHtml(s.value)}</div>
+      <div class="l">${escapeHtml(s.label)}</div>
+      ${s.note ? `<div class="n">${escapeHtml(s.note)}</div>` : ''}
+    </div>`)
+    .join('');
+  const rowsHtml = (rows: ExecSummaryRow[], aLabel: string, bLabel: string) => `<table class="rows">
+    <thead><tr><th class="n">#</th><th class="name">รายการยา</th><th class="a">${escapeHtml(aLabel)}</th><th class="b">${escapeHtml(bLabel)}</th></tr></thead>
+    <tbody>${rows.map((r, i) => `<tr>
+      <td class="n">${i + 1}</td>
+      <td class="name">${escapeHtml(r.name)}</td>
+      <td class="a">${escapeHtml(r.a)}</td>
+      <td class="b">${escapeHtml(r.b)} ${escapeHtml(r.unit)}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+
+  const html = `<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><title>ภาพรวมสำหรับผู้บริหาร</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Sarabun', 'Noto Sans Thai', system-ui, -apple-system, sans-serif; margin: 0; color: #14211a; font-size: 11.5pt; }
+
+  .letterhead { display: flex; align-items: center; gap: 4mm; padding-bottom: 3mm; border-bottom: 1pt solid #14211a; }
+  .letterhead .crest { flex: none; display: flex; align-items: center; }
+  .letterhead .org .h1 { font-size: 14.5pt; font-weight: 700; line-height: 1.3; }
+  .letterhead .org .h2 { font-size: 10.5pt; color: #444; line-height: 1.3; }
+
+  .doctitle { text-align: center; font-size: 16.5pt; font-weight: 700; margin: 5mm 0 1mm; letter-spacing: .01em; }
+  .docsub { text-align: center; font-size: 10.5pt; color: #555; margin-bottom: 5mm; }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3mm; margin-bottom: 6mm; }
+  .stat { border: 0.6pt solid #b8c4bd; border-radius: 2mm; padding: 3mm 3mm 2.5mm; background: #f8faf9; }
+  .stat .v { font-size: 15pt; font-weight: 700; line-height: 1.15; }
+  .stat .l { font-size: 8.8pt; color: #444; margin-top: 1mm; line-height: 1.35; }
+  .stat .n { font-size: 8pt; color: #667; margin-top: 0.5mm; }
+
+  .sectitle { font-size: 12pt; font-weight: 700; margin: 6mm 0 2.5mm; padding-top: 4mm; border-top: 0.6pt solid #cdd6d1; }
+  .sectitle:first-of-type { border-top: none; padding-top: 0; }
+
+  table.rows { width: 100%; border-collapse: collapse; font-size: 10pt; break-inside: avoid; }
+  table.rows th { text-align: left; font-size: 9pt; font-weight: 700; color: #14211a; background: #eef6f6; border: 0.6pt solid #9fb8b8; padding: 1.8mm 2.6mm; }
+  table.rows td { padding: 2mm 2.6mm; border: 0.5pt solid #cdd6d1; }
+  table.rows tbody tr:nth-child(even) { background: #f8faf9; }
+  table.rows .n { width: 7mm; color: #667; text-align: center; }
+  table.rows .a, table.rows .b { width: 30mm; text-align: right; font-weight: 600; white-space: nowrap; }
+
+  .foot { display: flex; justify-content: space-between; font-size: 8.5pt; color: #667; margin-top: 6mm; padding-top: 2.5mm; border-top: 0.5pt solid #cdd6d1; }
+
+  @media screen {
+    body { background: #eee; padding: 14mm; }
+    .sheet { background: #fff; padding: 14mm 12mm; margin: 0 auto; max-width: 210mm; box-shadow: 0 0 0 1px #ddd; }
+  }
+</style></head>
+<body>
+  <div class="sheet">
+    <div class="letterhead">
+      <div class="crest">${crestImgMarkup(56)}</div>
+      <div class="org">
+        <div class="h1">โรงพยาบาลกรงปินัง</div>
+        <div class="h2">ห้องยา ฝ่ายเภสัชกรรม</div>
+      </div>
+    </div>
+    <div class="doctitle">ภาพรวมคลังยาสำหรับผู้บริหาร</div>
+    <div class="docsub">${escapeHtml(meta.periodLabel)} · ใช้ประกอบวาระ PTC / รายงานผู้บริหาร</div>
+
+    <div class="stats">${statCards}</div>
+
+    <div class="sectitle">10 อันดับมูลค่าคงคลังสูงสุด</div>
+    ${rowsHtml(topValue, 'จำนวนคงเหลือ', 'มูลค่า (บาท)')}
+
+    <div class="sectitle">10 อันดับใช้เร็วที่สุด (จ่าย 30 วัน)</div>
+    ${rowsHtml(topUsage, 'จ่าย 30 วัน', 'คงคลัง (วัน)')}
+
+    <div class="foot"><span>ผู้จัดทำ: ${escapeHtml(meta.printedBy || '—')}</span><span>พิมพ์จากระบบ ${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
+  </div>
+  <script>window.onload = function () { window.print(); };</script>
+</body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) return false;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  return true;
+}

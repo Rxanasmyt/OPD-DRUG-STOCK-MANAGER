@@ -1,13 +1,15 @@
 import { useApp } from '../store/AppContext';
 import { useState } from 'react';
-import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate } from '../store/selectors';
+import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
 import type { ReportTab } from '../types';
 import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
 
-const TABS: [ReportTab, string][] = [['aging', 'Stock aging'], ['category', 'แยกตามหมวดยา'], ['turn', 'Turnover'], ['insights', '🧠 วิเคราะห์อัตโนมัติ'], ['disc', 'Discrepancy log']];
-const REPORT_NAMES: Record<ReportTab, string> = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv' };
+// "exec" leads the tab strip — a PTC/pharmacy-head reader opening this screen wants the
+// headline picture first, not to have to find it after four operational tabs.
+const TABS: [ReportTab, string][] = [['exec', '📊 ภาพรวมผู้บริหาร'], ['aging', 'Stock aging'], ['category', 'แยกตามหมวดยา'], ['turn', 'Turnover'], ['insights', '🧠 วิเคราะห์อัตโนมัติ'], ['disc', 'Discrepancy log']];
+const REPORT_NAMES: Record<ReportTab, string> = { exec: 'executive_summary.csv', aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv' };
 const AGING_BUCKETS: [string, number, number, string][] = [
   ['หมดอายุแล้ว', -99999, 0, 'var(--red)'],
   ['เหลือ ≤ 30 วัน', 0, 30, 'var(--red)'],
@@ -21,7 +23,7 @@ const DISC_TYPE_LABEL: Record<string, string> = {
 };
 
 export default function ReportScreen() {
-  const { state, setReportTab, exportReportCsv, exportAllReports, goSubstockCardFor } = useApp();
+  const { state, setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary, goSubstockCardFor } = useApp();
   // Discrepancy log had no way to narrow it down — always the same fixed most-recent-30 slice
   // of state.txs, with no type filter and no way to find one specific drug's history, unlike
   // AdminScreen's audit log right next door which has both. Same underlying data (the live
@@ -42,6 +44,25 @@ export default function ReportScreen() {
   });
   const maxVal = Math.max(1, ...buckets.map((b) => b.value));
   const riskValue = buckets[0].value + buckets[1].value + buckets[2].value;
+
+  // ---------- ภาพรวมผู้บริหาร (exec tab) ----------
+  // Same underlying numbers aging/turn/category already compute above — this just rolls them
+  // into one headline-first view a pharmacy head/PTC reader can scan without visiting every tab.
+  const execHealthy = meds.filter((m) => toneFor(m) === 'var(--green)').length;
+  const execWarn = meds.filter((m) => toneFor(m) === 'var(--amber)').length;
+  const execCritical = meds.length - execHealthy - execWarn;
+  const execHealthyPct = meds.length ? Math.round((execHealthy / meds.length) * 100) : 100;
+  const execTotalValue = meds.reduce((s, m) => s + (m.floor + subQty(state, m.id)) * m.price, 0);
+  const execTxsThisMonth = state.txs.filter((x) => x.ts >= Date.now() - 30 * 86400000).length;
+  const execByValue = meds
+    .map((m) => ({ m, oh: m.floor + subQty(state, m.id), value: (m.floor + subQty(state, m.id)) * m.price }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 10);
+  const execByUsage = meds
+    .filter((m) => m.used30 > 0)
+    .slice()
+    .sort((a, b) => b.used30 - a.used30)
+    .slice(0, 10);
 
   const turnRate = (m: (typeof meds)[number]) => m.used30 / Math.max(1, m.parFloor);
   const turnRows = meds
@@ -129,9 +150,49 @@ export default function ReportScreen() {
           (ไม่ใช่แค่ discrepancy) · audit log เต็ม · ใบรับที่รออนุมัติ · รายชื่อผู้ใช้ (เฉพาะ Admin) ·
           ยาทั้งฟอร์มูลารี่ครบทุกฟิลด์ · lot ทุก lot ที่เคยรับเข้า (รวมที่หมด/ตัดออกแล้ว) · ค่าตั้งค่าระบบ
         </div>
-        <button onClick={exportReportCsv} className="btn-outline" style={{ width: '100%', padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44, marginBottom: 12 }}>
-          ↓ Export CSV เฉพาะแท็บนี้ — {REPORT_NAMES[state.reportTab]}
-        </button>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <button onClick={exportReportCsv} className="btn-outline" style={{ flex: 1, padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44 }}>
+            ↓ Export CSV — {REPORT_NAMES[state.reportTab]}
+          </button>
+          {state.reportTab === 'exec' && (
+            <button onClick={printExecutiveSummary} className="btn-primary" style={{ flex: 1, padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 700, minHeight: 44 }}>
+              🖨 พิมพ์สรุปสำหรับ PTC
+            </button>
+          )}
+        </div>
+
+        {state.reportTab === 'exec' && (
+          <>
+            <div className="grid-2 tablet-4" style={{ marginBottom: 16 }}>
+              <ExecStat label="มูลค่าคงคลังรวม" value={nf(Math.round(execTotalValue)) + ' บาท'} />
+              <ExecStat label="สุขภาพคลังยาโดยรวม" value={execHealthyPct + '% ปกติ'} note={`วิกฤต ${nf(execCritical)} · เริ่มต่ำ ${nf(execWarn)}`} tone={execHealthyPct >= 80 ? 'var(--green)' : execHealthyPct >= 50 ? 'var(--amber)' : 'var(--red)'} />
+              <ExecStat label={`มูลค่าเสี่ยงหมดอายุ ≤ ${state.expiryWarnDays} วัน`} value={nf(Math.round(riskValue)) + ' บาท'} tone={riskValue > 0 ? 'var(--amber)' : 'var(--green)'} />
+              <ExecStat label="ธุรกรรมใน 30 วันล่าสุด" value={nf(execTxsThisMonth) + ' รายการ'} note={nf(meds.length) + ' รายการยา active'} />
+            </div>
+
+            <div className="muted" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', margin: '0 2px 8px', textTransform: 'uppercase' }}>10 อันดับมูลค่าคงคลังสูงสุด</div>
+            <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 18 }}>
+              {execByValue.map((r) => (
+                <button key={r.m.id} onClick={() => goSubstockCardFor(r.m.id)} className="row-interactive" style={{ display: 'flex', justifyContent: 'space-between', gap: 10, width: '100%', border: 0, background: 'transparent', textAlign: 'left', padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', fontSize: 13 }}>
+                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.m.name}</span>
+                  <span style={{ flex: 'none', fontWeight: 700 }}>{nf(Math.round(r.value))} บาท</span>
+                </button>
+              ))}
+              {execByValue.length === 0 && <div style={{ padding: 18, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ยังไม่มีข้อมูล</div>}
+            </div>
+
+            <div className="muted" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', margin: '0 2px 8px', textTransform: 'uppercase' }}>10 อันดับใช้เร็วที่สุด (จ่าย 30 วัน)</div>
+            <div className="card stagger" style={{ overflow: 'hidden' }}>
+              {execByUsage.map((m) => (
+                <button key={m.id} onClick={() => goSubstockCardFor(m.id)} className="row-interactive" style={{ display: 'flex', justifyContent: 'space-between', gap: 10, width: '100%', border: 0, background: 'transparent', textAlign: 'left', padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', fontSize: 13 }}>
+                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
+                  <span style={{ flex: 'none', fontWeight: 700 }}>{nf(m.used30)} {m.unit}</span>
+                </button>
+              ))}
+              {execByUsage.length === 0 && <div style={{ padding: 18, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ยังไม่มีข้อมูลการใช้ยา</div>}
+            </div>
+          </>
+        )}
 
         {state.reportTab === 'aging' && (
           <>
@@ -301,6 +362,19 @@ export default function ReportScreen() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/** One headline number for the ภาพรวมผู้บริหาร tab — deliberately plainer than HomeScreen's
+ * StatTile (no icon, no click target): this screen is meant to be scanned/printed as a report,
+ * not tapped through as a dashboard. */
+function ExecStat({ label, value, note, tone }: { label: string; value: string; note?: string; tone?: string }) {
+  return (
+    <div className="card" style={{ padding: '13px 13px 12px' }}>
+      <div style={{ fontSize: 19, fontWeight: 800, lineHeight: 1.15, color: tone || 'var(--ink)', letterSpacing: '-.01em' }}>{value}</div>
+      <div className="muted" style={{ fontSize: 11, marginTop: 5, lineHeight: 1.4 }}>{label}</div>
+      {note && <div className="muted" style={{ fontSize: 10.5, marginTop: 1, lineHeight: 1.4 }}>{note}</div>}
     </div>
   );
 }

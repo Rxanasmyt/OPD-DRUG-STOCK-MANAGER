@@ -1,7 +1,7 @@
 {
   "name": "kpnhos-drug-substock-opd-ipd-management",
   "private": true,
-  "version": "3.47.0",
+  "version": "3.48.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,7 +12,8 @@
     "backup": "node scripts/backup-firestore.mjs",
     "restore-backup": "node scripts/restore-firestore.mjs",
     "restore-preset": "node scripts/restore-preresetsnapshot.mjs",
-    "verify-backup": "node scripts/verify-backup.mjs"
+    "verify-backup": "node scripts/verify-backup.mjs",
+    "notify-low-stock": "node scripts/notify-low-stock.mjs"
   },
   "dependencies": {
     "firebase": "^12.18.0",

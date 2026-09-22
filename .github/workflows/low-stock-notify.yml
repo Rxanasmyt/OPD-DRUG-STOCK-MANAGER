@@ -1,0 +1,45 @@
+name: Low-Stock LINE Notify
+
+# Daily LINE broadcast when any active drug is below its Min (floor) or substock par — the
+# free-tier (no backend) alternative to a push notification, since this static site has nothing
+# that can wake a closed browser. See scripts/notify-low-stock.mjs for exactly what triggers a
+# message and how it's built; it sends nothing on a day where nothing is actually low.
+#
+# One-time setup (do this once):
+#   1. Create a LINE Official Account (free) at https://www.linebiz.com/th/entry/ (or via the
+#      LINE Official Account Manager app) — this becomes "รพ.กรงปินัง ห้องยา" or similar. Every
+#      staff member who wants the alert adds this account as a friend once (scan its QR code) —
+#      that's the entire "who gets notified" list; no group/user IDs to manage.
+#   2. In the LINE Developers Console (https://developers.line.biz/console/), open that Official
+#      Account's provider → create/open a "Messaging API" channel for it.
+#   3. Under that channel's "Messaging API" tab → "Channel access token" → issue a long-lived
+#      token.
+#   4. This repo → Settings → Secrets and variables → Actions → New repository secret → name it
+#      LINE_CHANNEL_ACCESS_TOKEN → paste that token.
+#   5. This workflow also needs the same FIREBASE_SERVICE_ACCOUNT_KEY secret
+#      .github/workflows/firestore-backup.yml already documents setting up (read-only access to
+#      today's real stock numbers) — if that's already configured for this repo, nothing more to
+#      do there.
+#
+# Until both secrets exist, this workflow fails every run with a clear "env var is not set"
+# error (see the script) rather than silently sending nothing.
+
+on:
+  schedule:
+    - cron: '0 0 * * 1-5' # 07:00 Asia/Bangkok, Mon–Fri — before the day's restocking starts
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: node scripts/notify-low-stock.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}

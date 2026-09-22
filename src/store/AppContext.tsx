@@ -12,12 +12,12 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
 import { shortLabelName } from '../utils/labelName';
-import { printLabelSheet, printPickListSheet, type PrintLabel } from '../utils/print';
+import { printLabelSheet, printPickListSheet, printExecutiveSummarySheet, type PrintLabel, type ExecSummaryStat, type ExecSummaryRow } from '../utils/print';
 import { parseHosxpUsageWorkbook, parseUsageCsvText, type RawUsageRow } from '../utils/usageImport';
 import { LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
@@ -257,6 +257,7 @@ export interface AppCtx {
   setReportTab: (t: AppState['reportTab']) => void;
   exportReportCsv: () => void;
   exportAllReports: () => void;
+  printExecutiveSummary: () => void;
 
   // labels
   setLabelType: (t: AppState['labelType']) => void;
@@ -1528,7 +1529,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const exportReportCsv = useCallback(async () => {
     const st = state;
-    const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv' };
+    const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', exec: 'executive_summary.csv' };
     // Matches whatever ward tab is open on screen — exporting "everything" while the screen
     // shows only OPD (or vice versa) would be a silently misleading report.
     const wardMeds = st.meds.filter((m) => matchesWard(m, st.wardFilter));
@@ -1574,6 +1575,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         daysOfStockLeft(st, a.med) ?? '',
       ]);
       outcome = await downloadCsv([['medication', 'used_30d', 'used_prev_30d', 'change_pct', 'days_of_stock_left'], ...rows], names.insights);
+    } else if (st.reportTab === 'exec') {
+      const rows = wardMeds.filter((m) => m.active).map((m) => {
+        const oh = m.floor + subQty(st, m.id);
+        return [m.name, m.unit, oh, Math.round(oh * m.price), m.used30];
+      }).sort((a, b) => (b[3] as number) - (a[3] as number));
+      outcome = await downloadCsv([['medication', 'unit', 'on_hand', 'value_thb', 'used_30d'], ...rows], names.exec);
     } else {
       // The live txs subscription is capped at the most recent 300 (kept small on purpose —
       // it only backs the "recent activity" UI). A compliance report can't silently drop
@@ -1598,6 +1605,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (outcome === 'saved') toast('ดาวน์โหลด ' + names[state.reportTab] + ' แล้ว');
     else if (outcome === 'unavailable') toast('ดาวน์โหลดไฟล์ไม่ได้ในเบราว์เซอร์นี้');
   }, [state, toast, toastErr]);
+
+  // "Dashboard สรุปภาพรวมสำหรับผู้บริหาร/หัวหน้าเภสัชกรรม" — same underlying numbers the aging/
+  // category/turnover tabs already compute on screen, rolled into one headline-first printout
+  // meant for someone who wants the whole-formulary picture in one glance, not to operate the
+  // app. Deliberately its own function (not routed through exportReportCsv's per-tab branches)
+  // since a PTC-meeting printout and a spreadsheet export serve different readers.
+  const printExecutiveSummary = useCallback(() => {
+    const meds = state.meds.filter((m) => m.active);
+    const totalValue = meds.reduce((s, m) => s + (m.floor + subQty(state, m.id)) * m.price, 0);
+    const healthy = meds.filter((m) => toneFor(m) === 'var(--green)').length;
+    const warn = meds.filter((m) => toneFor(m) === 'var(--amber)').length;
+    const critical = meds.length - healthy - warn;
+    const healthyPct = meds.length ? Math.round((healthy / meds.length) * 100) : 100;
+    const riskValue = state.lots.reduce((s, l) => {
+      const m = meds.find((x) => x.id === l.medId);
+      return m && l.qty > 0 && daysUntil(l.exp) <= state.expiryWarnDays ? s + l.qty * m.price : s;
+    }, 0);
+    const monthAgo = Date.now() - 30 * DAY;
+    const txsThisMonth = state.txs.filter((x) => x.ts >= monthAgo).length;
+
+    const stats: ExecSummaryStat[] = [
+      { label: 'มูลค่าคงคลังรวม (หน้างาน+substock)', value: nf(Math.round(totalValue)) + ' บาท' },
+      { label: 'สุขภาพคลังยาโดยรวม', value: healthyPct + '% ปกติ', note: `วิกฤต ${nf(critical)} · เริ่มต่ำ ${nf(warn)}`, tone: healthyPct >= 80 ? 'green' : healthyPct >= 50 ? 'amber' : 'red' },
+      { label: `มูลค่าเสี่ยงหมดอายุใน ${state.expiryWarnDays} วัน`, value: nf(Math.round(riskValue)) + ' บาท', tone: riskValue > 0 ? 'amber' : 'green' },
+      { label: 'ธุรกรรมใน 30 วันล่าสุด', value: nf(txsThisMonth) + ' รายการ', note: nf(meds.length) + ' รายการยา active' },
+    ];
+
+    const byValue = meds
+      .map((m) => ({ m, oh: m.floor + subQty(state, m.id), value: (m.floor + subQty(state, m.id)) * m.price }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10)
+      .map((r): ExecSummaryRow => ({ name: r.m.name, unit: r.m.unit, a: nf(r.oh), b: nf(Math.round(r.value)) }));
+
+    const byUsage = meds
+      .filter((m) => m.used30 > 0)
+      .map((m) => {
+        const oh = m.floor + subQty(state, m.id);
+        const doh = Math.round(oh / dailyUsageRate(m));
+        return { m, doh };
+      })
+      .sort((a, b) => b.m.used30 - a.m.used30)
+      .slice(0, 10)
+      .map((r): ExecSummaryRow => ({ name: r.m.name, unit: r.m.unit, a: nf(r.m.used30), b: isFinite(r.doh) ? nf(r.doh) : '—' }));
+
+    const ok = printExecutiveSummarySheet(stats, byValue, byUsage, { printedBy: userName(), periodLabel: 'ข้อมูล ณ วันที่ ' + thDate(Date.now()) });
+    toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
+  }, [state, toast, userName]);
 
   // "ดึงข้อมูลได้ทุกอย่างที่เกี่ยวข้องกับข้อมูลในแอพ" — ก่อนหน้านี้ (v2.89.0) รวมแค่รายงานสำเร็จรูป
   // 4 ชุด + master data ยา/lot; รอบนี้ขยายให้ครบทุกคอลเลกชันจริงใน Firestore ที่แอพนี้เก็บ ไม่ใช่แค่
@@ -3110,7 +3164,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
-    setReportTab, exportReportCsv, exportAllReports,
+    setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
