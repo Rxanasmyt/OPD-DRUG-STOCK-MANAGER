@@ -7,6 +7,30 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.50.1] - 2026-09-22
+
+### Fixed
+- **HOSxP usage-import header detection missed a real export variant**: found testing an
+  actual hospital "รายงานการใช้ยา" file — its quantity/order-count columns were labeled plainly
+  "จำนวน"/"รายการ" instead of the documented "จำนวนที่ใช้"/"จำนวนใบสั่งยา". Header detection
+  matched neither, silently fell through to the hardcoded fallback column layout, and only
+  produced correct results because that particular file's column order happened to agree with
+  the fallback by coincidence — a differently-ordered export using this same "จำนวน" style
+  would have silently read the wrong column with no error at all. `parseHosxpUsageWorkbook()`
+  (`utils/usageImport.ts`) now also accepts a column whose header text is EXACTLY "จำนวน" (not
+  a substring match, so it can never also match "จำนวนใบสั่งยา") as a fallback when the more
+  specific "จำนวนที่ใช้" isn't present. Added 5 new tests locking in both header styles plus the
+  existing fallback behavior.
+
+### Verified
+- Full parse-and-match dry run against the actual uploaded file (425 usable rows): 420 matched
+  the current formulary exactly, 0 fuzzy, 0 ambiguous. Of the 5 unmatched: 2 are genuinely not
+  in the hospital's formulary (the source report's own "ไม่มียานี้ในบัญชียา รพ."/"ไม่มียาใน
+  รพ.กรงปินัง" annotations), and 3 have a stray mid-word space in the HOSxP export's own strength/
+  unit cell text (e.g. "LEVONORGESTRE L" instead of "LEVONORGESTREL") that breaks the name match
+  — a data-entry quirk in that report, not something this app's parser can safely guess-correct.
+  No parse exceptions on this file either before or after the fix.
+
 ## [3.50.0] - 2026-09-22
 
 ### Added

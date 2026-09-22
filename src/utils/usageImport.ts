@@ -51,10 +51,18 @@ export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<RawUsag
     const row = rows[r] || [];
     const texts = row.map((c) => cellText(c));
     const nc = texts.findIndex((t) => t.includes('รายการยา'));
-    // "จำนวนที่ใช้" must be matched before/instead of the more generic "จำนวน" so it never
-    // collides with "จำนวนใบสั่งยา" (also present on the same header row) — includes() on the
-    // full, more specific phrase is safe since "จำนวนใบสั่งยา" doesn't contain it.
-    const qc = texts.findIndex((t) => t.includes('จำนวนที่ใช้'));
+    // Bug fix (found testing a real exported file): some HOSxP report configurations label
+    // this column plainly "จำนวน" instead of "จำนวนที่ใช้", with the order-count column
+    // labeled "รายการ" instead of "จำนวนใบสั่งยา" — neither the "จำนวนที่ใช้" phrase nor the
+    // fallback layout below matched that file's actual header row at all, so it silently fell
+    // through to the fallback and only worked because that file's column order happened to
+    // agree with it by coincidence. Try "จำนวนที่ใช้" first (unambiguous, matched before the
+    // more generic "จำนวน" so it never collides with a genuine "จำนวนใบสั่งยา" column on the
+    // same row); only when that's absent, accept a column whose text is EXACTLY "จำนวน" and
+    // nothing else — an exact match (not .includes()) so it can never also match
+    // "จำนวนใบสั่งยา" (which contains "จำนวน" as a substring but is never literally just that).
+    let qc = texts.findIndex((t) => t.includes('จำนวนที่ใช้'));
+    if (qc < 0) qc = texts.findIndex((t) => t === 'จำนวน');
     if (nc >= 0 && qc >= 0) {
       headerIdx = r; nameCol = nc; qtyCol = qc;
       strengthCol = texts.findIndex((t) => t.includes('ความแรง'));
