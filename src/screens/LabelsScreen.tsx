@@ -279,6 +279,20 @@ export default function LabelsScreen() {
               </div>
             </>
           )}
+          {/* Bug fix (found reviewing the screen for clarity, not reported): a query that
+              matched nothing used to render nothing at all — indistinguishable from "still
+              typing" or, worse for the range syntax just added, from "did it even understand
+              this as a range?" A person typing "A1-A7" with a typo'd prefix or a shelf nobody's
+              assigned yet deserves to be told that, not silent blankness. Named differently for
+              a parsed-but-empty range vs an ordinary no-match, since those mean different things
+              to fix (wrong bin codes vs a genuine typo). */}
+          {pickerQuery.trim() && pickerMatches.length === 0 && (
+            <div className="muted" style={{ fontSize: 12, textAlign: 'center', padding: '10px 4px' }}>
+              {pickerRange
+                ? `ช่วง ${pickerRange.prefix}${pickerRange.from}-${pickerRange.prefix}${pickerRange.to} — ไม่พบยาที่มีรหัสชั้นวางอยู่ในช่วงนี้`
+                : 'ไม่พบยาที่ตรงกับ "' + pickerQuery.trim() + '"'}
+            </div>
+          )}
           {selectedSet.size > 0 && (
             <button
               onClick={clearLabelSelected}

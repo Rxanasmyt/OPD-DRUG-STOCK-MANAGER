@@ -7,6 +7,19 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.52.1] - 2026-09-22
+
+### Fixed
+- **Usability review** (checked every screen for "ใช้งานง่าย ดูข้อมูลง่าย สะดวกรวดเร็ว"): the
+  LabelsScreen med picker showed nothing at all when a search/shelf-code query matched zero
+  meds — indistinguishable from "still typing", and worse for the range syntax just added in
+  v3.52.0 (no way to tell whether "A1-A7" was even understood as a range or just didn't match).
+  Added an explicit empty-state message, worded differently for a parsed-but-empty range
+  ("ช่วง A1-A7 — ไม่พบยาที่มีรหัสชั้นวางอยู่ในช่วงนี้") vs an ordinary no-match, since those point
+  at different real causes (wrong/unassigned bin codes vs a plain typo). Rest of the app's
+  screens (ReceiveScreen, MedsScreen's 150-row cap, HomeScreen, ReportScreen's new exec tab,
+  etc.) checked and already handle this correctly — no other gaps found.
+
 ## [3.52.0] - 2026-09-22
 
 ### Added
