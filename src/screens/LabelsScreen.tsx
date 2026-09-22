@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
-import { daysUntil, wardOf, binFor, isSharedMed } from '../store/selectors';
+import { daysUntil, wardOf, binFor, binDisplayAll, isSharedMed } from '../store/selectors';
 import { thDate } from '../utils/format';
 import { QrCode } from '../components/QrCode';
 import { encodeQr } from '../utils/qr';
@@ -122,8 +122,17 @@ export default function LabelsScreen() {
   const selectedSet = new Set(selectedIds);
   const meds = selectedSet.size === 0 ? activeMeds : activeMeds.filter((m) => selectedSet.has(m.id));
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
-  const pickerMatches = pickerQuery.trim()
-    ? activeMeds.filter((m) => m.name.toLowerCase().indexOf(pickerQuery.trim().toLowerCase()) >= 0).slice(0, 20)
+  // Real-world request: "อยากเลือกยาที่ปริ้นตามรหัสชั้นวางยาได้" — printing a whole shelf/bin's
+  // worth of QR labels in one batch (e.g. re-organizing shelf "J4", or printing every code for
+  // one aisle) needs picking meds by shelf code, not just by name. The bin code shown here
+  // matches whichever code this screen is actually about to print: `binSub` on the substock
+  // shelf-strip tab (ฉลากชั้นวาง → substock), `binDisplayAll` (both OPD/IPD sides, e.g. "A1/B2")
+  // everywhere else — so typing a bin code here selects exactly what a person standing at that
+  // physical shelf would expect, never a code some OTHER tab happens to use for the same med.
+  const binOf = (m: (typeof activeMeds)[number]) => state.labelType === 'loc' && state.locScope === 'sub' ? (m.binSub || '') : binDisplayAll(m);
+  const pickerQ = pickerQuery.trim().toLowerCase();
+  const pickerMatches = pickerQ
+    ? activeMeds.filter((m) => m.name.toLowerCase().indexOf(pickerQ) >= 0 || binOf(m).toLowerCase().indexOf(pickerQ) >= 0).slice(0, 20)
     : [];
 
   // The substock shelf-strip labels (labelType 'loc' + locScope 'sub') are per-med shelf-strip
@@ -223,9 +232,9 @@ export default function LabelsScreen() {
           <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.5, marginBottom: 8 }}>
             {selectedSet.size > 0
               ? `เลือกไว้ ${selectedSet.size} รายการ — ปุ่มพิมพ์ด้านล่างจะพิมพ์เฉพาะที่เลือกเท่านั้น`
-              : 'ไม่เลือกเลย = พิมพ์ทั้งหมด (ค่าเริ่มต้น) — ค้นหาแล้วติ๊กเพื่อพิมพ์เฉพาะบางตัว'}
+              : 'ไม่เลือกเลย = พิมพ์ทั้งหมด (ค่าเริ่มต้น) — ค้นหาด้วยชื่อยาหรือรหัสชั้นวาง (เช่น "J4") แล้วติ๊กเพื่อพิมพ์เฉพาะยาในชั้นนั้น'}
           </div>
-          <SearchInput value={pickerQuery} onChange={setPickerQuery} placeholder="ค้นหาชื่อยาเพื่อเลือก" style={{ marginBottom: pickerMatches.length || selectedSet.size ? 9 : 0 }} />
+          <SearchInput value={pickerQuery} onChange={setPickerQuery} placeholder="ค้นหาชื่อยา หรือรหัสชั้นวาง (เช่น J4) เพื่อเลือก" style={{ marginBottom: pickerMatches.length || selectedSet.size ? 9 : 0 }} />
           {pickerMatches.length > 0 && (
             <>
               <button
@@ -237,10 +246,12 @@ export default function LabelsScreen() {
               <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 240, overflowY: 'auto' }}>
                 {pickerMatches.map((m) => {
                   const on = !!state.labelSelected[m.id];
+                  const bin = binOf(m);
                   return (
                     <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 11px', borderBottom: '1px solid var(--border-soft)', cursor: 'pointer', background: on ? 'var(--green-tint)' : undefined }}>
                       <input type="checkbox" checked={on} onChange={() => toggleLabelSelected(m.id)} style={{ width: 17, height: 17, flex: 'none' }} />
                       <span style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}><MedDot code={m.code} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span></span>
+                      {bin && <span className="muted" style={{ fontSize: 11, fontWeight: 700, flex: 'none', background: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 6px' }}>{bin}</span>}
                     </label>
                   );
                 })}

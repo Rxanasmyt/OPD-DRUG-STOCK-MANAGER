@@ -7,6 +7,18 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.51.0] - 2026-09-22
+
+### Added
+- **เลือกยาที่จะพิมพ์ QR ตามรหัสชั้นวางได้** (หน้าระบบฉลาก QR) — real-world request: printing a
+  whole shelf/bin's worth of labels in one batch (re-organizing shelf "J4", or one aisle at a
+  time) needs picking meds by shelf code, not just by name. The existing "เลือกยาเฉพาะบางตัว"
+  search box now also matches against the med's real shelf code — `binSub` on the substock
+  shelf-strip tab, both OPD/IPD sides (e.g. "A1/B2") everywhere else — so typing a bin code
+  (e.g. "J4") surfaces every med in that shelf, select-all-matched still works as before. Each
+  picker row now also shows the med's bin code next to its name so it's clear what's being
+  selected. Placeholder/helper text updated to mention the shelf-code search.
+
 ## [3.50.1] - 2026-09-22
 
 ### Fixed
