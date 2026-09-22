@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { suggestPar } from '../store/selectors';
+import { suggestPar, halfOfMaxRounded, floorMinOf } from '../store/selectors';
 import { nf, digitsOnly, parseIntSafe, isoDate, fiscalYearStartIso, DAY } from '../utils/format';
 import { notificationsSupported } from '../utils/notify';
 
 export default function SettingsScreen() {
   const {
-    state, warn, applyAllSuggested, recomputeUsageStats, go, updateGlobalSettings,
+    state, warn, applyAllSuggested, setAllMinHalfOfMax, recomputeUsageStats, go, updateGlobalSettings,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify,
     lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify,
@@ -35,6 +35,7 @@ export default function SettingsScreen() {
     const s = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
     return !!s && (s.sub !== m.parSub || s.floor !== m.parFloor);
   }).length;
+  const minHalfDiffCount = meds.filter((m) => halfOfMaxRounded(m.parFloor) !== floorMinOf(m)).length;
 
   const usageRows = state.usageRows || [];
   const usageMatched = usageRows.filter((r) => r.match.kind === 'exact').length;
@@ -181,6 +182,16 @@ export default function SettingsScreen() {
             <button onClick={recomputeUsageStats} disabled={!!state.busy['recomputeUsageStats']} style={{ border: '1px solid var(--green)', background: 'var(--bg-card)', color: 'var(--green)', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40, opacity: state.busy['recomputeUsageStats'] ? 0.7 : 1 }}>
               {state.busy['recomputeUsageStats'] ? 'กำลังคำนวณ…' : 'คำนวณสถิติการใช้ใหม่จากประวัติ HOSxP ↺'}
             </button>
+            {minHalfDiffCount > 0 && (
+              <button
+                onClick={setAllMinHalfOfMax}
+                disabled={!!state.busy['setAllMinHalfOfMax']}
+                title="เขียนทับค่า Min ของยาทุกตัว (รวมที่เคยตั้งเองไว้) ให้เป็น 50% ของ Max"
+                style={{ border: '1px solid var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40, opacity: state.busy['setAllMinHalfOfMax'] ? 0.7 : 1 }}
+              >
+                {state.busy['setAllMinHalfOfMax'] ? 'กำลังบันทึก…' : `ตั้ง Min ทั้งหมด = 50% ของ Max (${minHalfDiffCount} รายการเปลี่ยน)`}
+              </button>
+            )}
           </div>
         )}
         <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 8 }}>อัตราการใช้คำนวณจากประวัติ "นำเข้าจาก HOSxP" เท่านั้น ไม่ได้อัปเดตอัตโนมัติทุกวัน — ควรกด "คำนวณสถิติการใช้ใหม่" เป็นระยะ (เช่น เดือนละครั้ง) หลังจากใช้งานนำเข้า HOSxP มาสม่ำเสมอแล้ว ถ้ากดตอนที่ยังไม่มีประวัติ HOSxP เลย ค่าจะกลายเป็น 0 ทั้งหมด</div>

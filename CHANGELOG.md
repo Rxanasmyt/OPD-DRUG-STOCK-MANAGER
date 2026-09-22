@@ -7,6 +7,19 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.50.0] - 2026-09-22
+
+### Added
+- **"ตั้ง Min ทั้งหมด = 50% ของ Max" bulk admin action** (หน้าตั้งค่า → par) — real-world request:
+  the default-ratio change in v3.49.0 only affects a med that has never had `floorMin` hand-set;
+  this actually WRITES `floorMin = 50% of parFloor` explicitly onto every active med, including
+  ones with a custom Min already set to something else. Pharm/admin only, double-confirmed
+  (explains it overwrites custom values, names how many meds will change), chunked batch write,
+  logged to Audit log. New `halfOfMaxRounded()` in `store/selectors.ts` (the rounding-to-a-clean-
+  step math, pulled out of `floorMinOf()` so this action can compute the same default explicitly
+  even for a med `floorMinOf()` itself would otherwise just hand the custom value straight back
+  for).
+
 ## [3.49.0] - 2026-09-22
 
 ### Removed

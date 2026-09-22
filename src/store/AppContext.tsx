@@ -12,7 +12,7 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -277,6 +277,7 @@ export interface AppCtx {
   // settings / par
   applyOnePar: (medId: string, which: 'sub' | 'floor') => void;
   applyAllSuggested: () => void;
+  setAllMinHalfOfMax: () => void;
   setParSub: (medId: string, v: string) => void;
   setParFloor: (medId: string, v: string) => void;
   setMedBin: (medId: string, v: string) => void;
@@ -1878,6 +1879,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { toastErr(e, 'ปรับ par ไม่สำเร็จ'); }
   }), [canEditPar, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast, toastErr, guardOnce]);
 
+  // Real-world request: "ปรับยาหน้างานทั้งหมดในแอพ min เป็น 50% ของ max" — a one-time bulk
+  // normalization that writes floorMin EXPLICITLY onto every active med, not just the default-
+  // fallback ratio floorMinOf() already uses for any med without a hand-set floorMin (see that
+  // function and halfOfMaxRounded() above, both in selectors.ts). Unlike that fallback, this
+  // OVERWRITES any custom Min a pharmacist may have hand-set for a specific drug — genuinely
+  // different from "leave custom values alone, only fill in the unset ones", so it needs its
+  // own explicit, confirmed action rather than happening silently as a side effect.
+  const setAllMinHalfOfMax = useCallback(guardOnce('setAllMinHalfOfMax', async () => {
+    if (!canEditPar) return;
+    const targets = state.meds.filter((m) => m.active && halfOfMaxRounded(m.parFloor) !== floorMinOf(m));
+    if (!targets.length) { toast('ยาทุกตัวมี Min = 50% ของ Max อยู่แล้ว ไม่มีอะไรต้องเปลี่ยน'); return; }
+    if (!(await confirmAsync(
+      'ตั้งค่า Min ของยาทุกตัวเป็น 50% ของ Max?\n\n'
+      + 'จะเขียนทับค่า Min ปัจจุบันของยา ' + nf(targets.length) + ' รายการ (รวมถึงตัวที่เคยตั้งเองไว้ไม่เท่ากับ 50%) '
+      + 'ให้เป็น 50% ของ Max ทั้งหมด — ยาที่ Min เท่ากับ 50% ของ Max อยู่แล้วจะไม่ถูกแตะต้อง\n\n'
+      + 'แก้กลับเป็นรายตัวได้ภายหลังที่หน้าจัดการรายการยา ยืนยันหรือไม่?',
+    ))) return;
+    try {
+      for (let i = 0; i < targets.length; i += 400) {
+        const batch = writeBatch(db);
+        targets.slice(i, i + 400).forEach((m) => {
+          batch.update(doc(db, 'meds', m.id), { floorMin: halfOfMaxRounded(m.parFloor) });
+        });
+        await withTimeout(batch.commit());
+      }
+      logAudit({ type: 'par_updated', note: 'ตั้งค่า Min ยาทุกตัวเป็น 50% ของ Max (' + nf(targets.length) + ' รายการเปลี่ยนแปลง)' });
+      toast('ตั้งค่า Min เป็น 50% ของ Max แล้ว ' + nf(targets.length) + ' รายการ');
+    } catch (e) { toastErr(e, 'ตั้งค่า Min ไม่สำเร็จ'); }
+  }), [canEditPar, state.meds, confirmAsync, logAudit, toast, toastErr, guardOnce]);
+
   const debouncedParWrite = useCallback((medId: string, field: 'parSub' | 'parFloor', val: number) => {
     const key = 'par:' + medId + field;
     window.clearTimeout(parDebounce.current[medId + field]);
@@ -3143,7 +3174,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
-    applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
+    applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,

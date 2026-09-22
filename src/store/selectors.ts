@@ -60,6 +60,19 @@ export function binDisplayAll(m: Med): string {
   return isSharedMed(m) && m.binIpd && m.binIpd !== m.bin ? m.bin + '/' + m.binIpd : m.bin;
 }
 
+/** 50% of `parFloor` ("Max"), rounded to a nice step (1/5/10/100 depending on size) the same
+ * way roundStep() rounds Max itself — a naive Math.round(parFloor*0.5) alone would give an
+ * odd-looking number like 43 instead of a clean 45. Pulled out of floorMinOf() below so
+ * AppContext.tsx's bulk "ตั้ง Min ทั้งหมดเป็น 50% ของ Max" admin action can compute this same
+ * default EXPLICITLY for a med that already has its own hand-set floorMin — floorMinOf() itself
+ * always prefers that hand-set value and would just hand it back unchanged. */
+export function halfOfMaxRounded(parFloor: number): number {
+  const raw = parFloor * 0.5;
+  if (raw <= 0) return 0;
+  const step = raw >= 500 ? 100 : raw >= 100 ? 10 : raw >= 10 ? 5 : 1;
+  return Math.round(raw / step) * step;
+}
+
 /** Real min-max par: `parFloor` is the shelf's capacity ("Max" — fill up TO this), `floorMin`
  * is the separate reorder point ("Min" — BELOW this is when it actually needs refilling).
  * Every med added before Min-Max existed has no floorMin — default it to 50% of Max (real-
@@ -67,12 +80,7 @@ export function binDisplayAll(m: Med): string {
  * refill sooner) rather than requiring a one-time migration write. */
 export function floorMinOf(m: Med): number {
   if (typeof m.floorMin === 'number') return m.floorMin;
-  // ปัดค่า default ให้เป็นเลขลงตัว (หลักเดียว/หลักสิบ/หลักร้อยตามขนาด) เหมือน roundStep ที่ใช้กับ
-  // Max — กัน Min โผล่มาเป็นเลขเศษแปลกๆ เช่น 27, 13 จาก Math.round(parFloor*0.5) ตรงๆ
-  const raw = m.parFloor * 0.5;
-  if (raw <= 0) return 0;
-  const step = raw >= 500 ? 100 : raw >= 100 ? 10 : raw >= 10 ? 5 : 1;
-  return Math.round(raw / step) * step;
+  return halfOfMaxRounded(m.parFloor);
 }
 
 /** A shelf already at/below half of its own reorder point (Min) — not just "below Min" in
