@@ -294,7 +294,7 @@ export function printPickListSheet(
     .map((r, i) => `<tr>
       <td class="n">${i + 1}</td>
       <td class="bin">${escapeHtml(r.bin || '—')}</td>
-      <td class="name">${escapeHtml(r.name)}${r.note ? `<div class="note">⚠ ${escapeHtml(r.note)}</div>` : ''}</td>
+      <td class="name">${escapeHtml(r.name)}${r.note ? `<div class="note">หมายเหตุ: ${escapeHtml(r.note)}</div>` : ''}</td>
       <td class="qty">${r.qty.toLocaleString('en-US')} ${escapeHtml(r.unit)}</td>
       <td class="check">☐</td>
     </tr>`)
@@ -360,10 +360,10 @@ export function printPickListSheet(
     <div class="docsub">${escapeHtml(subheading)}</div>
     <table class="metabox">
       <tr><td class="k">วันที่</td><td class="v">${escapeHtml(thDateLong(now))}</td><td class="k">จำนวนรายการ</td><td class="v">${sorted.length} รายการ</td></tr>
-      <tr><td class="k">ผู้จัดทำรายการ</td><td class="v">${escapeHtml(meta.printedBy || '—')}</td><td class="k">พิมพ์เมื่อ</td><td class="v">${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }))}</td></tr>
+      <tr><td class="k">ผู้จัดทำรายการ</td><td class="v">${escapeHtml(meta.printedBy || '—')}</td><td class="k">วันที่จัดพิมพ์เอกสาร</td><td class="v">${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }))}</td></tr>
     </table>
     <table class="rows">
-      <thead><tr><th class="n">#</th><th class="bin">${escapeHtml(colLabels.bin)}</th><th class="name">รายการยา</th><th class="qty">${escapeHtml(colLabels.qty)}</th><th class="check">✓</th></tr></thead>
+      <thead><tr><th class="n">ลำดับ</th><th class="bin">${escapeHtml(colLabels.bin)}</th><th class="name">รายการยา</th><th class="qty">${escapeHtml(colLabels.qty)}</th><th class="check">✓</th></tr></thead>
       <tbody>${body}</tbody>
     </table>
     <div class="signoff">
@@ -541,10 +541,10 @@ export function printSubstockCardSheet(
         <div class="field"><span class="lbl">par substock</span><span class="val">${med.parSub.toLocaleString('en-US')} ${escapeHtml(med.unit)}</span></div>
       </div>
       <table>
-        <thead><tr><th style="width:9mm">ลำดับ</th><th style="width:22mm">วันที่</th><th class="num">รับ</th><th class="num">จ่าย</th><th class="num">คงเหลือ</th><th>โดย</th></tr></thead>
+        <thead><tr><th style="width:9mm">ลำดับ</th><th style="width:22mm">วันที่</th><th class="num">รับ</th><th class="num">จ่าย</th><th class="num">คงเหลือ</th><th>ผู้บันทึก</th></tr></thead>
         <tbody>${body}</tbody>
       </table>
-      ${rows.length === 0 ? '<div style="text-align:center;color:#245a59;padding:12mm 0;">ยานี้ยังไม่มีประวัติ substock</div>' : ''}
+      ${rows.length === 0 ? '<div style="text-align:center;color:#245a59;padding:12mm 0;">รายการยานี้ยังไม่มีประวัติการเคลื่อนไหวในระบบสำรองคลังย่อย (Substock)</div>' : ''}
       ${meta.totals ? `<div class="totals">
         <div class="t"><span class="k">รับเข้ารวม</span><span class="v recv">${meta.totals.received.toLocaleString('en-US')} ${escapeHtml(med.unit)}</span></div>
         <div class="t"><span class="k">เติมหน้างานรวม</span><span class="v disp">${meta.totals.dispensed.toLocaleString('en-US')} ${escapeHtml(med.unit)}</span></div>
@@ -553,12 +553,12 @@ export function printSubstockCardSheet(
         const lastBal = rows.length ? rows[rows.length - 1].balance : (meta.openingBalance ?? 0);
         const tie = lastBal === meta.liveBalance;
         return `<div class="tieout${tie ? '' : ' off'}">
-          <div class="t"><span class="k">ยอดตามประวัติ (แถวสุดท้าย)</span><span class="v">${lastBal.toLocaleString('en-US')} ${escapeHtml(med.unit)}</span></div>
-          <div class="t"><span class="k">ยอดจริงตอนนี้ (real-time)</span><span class="v">${meta.liveBalance.toLocaleString('en-US')} ${escapeHtml(med.unit)}</span></div>
-        </div>${!tie ? '<div class="note">⚠ ยอดสองบรรทัดข้างบนไม่ตรงกัน — ดูหมายเหตุด้านบน/ตรวจสอบใน Audit log</div>' : ''}`;
+          <div class="t"><span class="k">ยอดคงเหลือตามประวัติ (รายการล่าสุด)</span><span class="v">${lastBal.toLocaleString('en-US')} ${escapeHtml(med.unit)}</span></div>
+          <div class="t"><span class="k">ยอดคงเหลือจริงในปัจจุบัน (เรียลไทม์)</span><span class="v">${meta.liveBalance.toLocaleString('en-US')} ${escapeHtml(med.unit)}</span></div>
+        </div>${!tie ? '<div class="note">หมายเหตุ: ยอดคงเหลือทั้งสองรายการข้างต้นไม่สอดคล้องกัน โปรดตรวจสอบรายละเอียดเพิ่มเติมในระบบบันทึกการตรวจสอบ (Audit Log)</div>' : ''}`;
       })() : ''}
-      ${hasNegative ? '<div class="note">* ยอดคงเหลือในแถวนี้คำนวณจากประวัติธุรกรรมในระบบเท่านั้น ติดลบเพราะมีสต็อกตั้งต้นหรือรายการก่อนเริ่มบันทึกในระบบที่ไม่ปรากฏในประวัตินี้ — ไม่ใช่ยอดจริงบนชั้น ดูยอดจริงปัจจุบันได้จากหน้าจอ "บัตรสต็อก substock" เท่านั้น</div>' : ''}
-      <div class="foot"><span>ห้องยา ${med.ward === 'ipd' ? 'IPD' : 'OPD'} · รพ.กรงปินัง</span><span>พิมพ์จากระบบ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
+      ${hasNegative ? '<div class="note">หมายเหตุ: ยอดคงเหลือในรายการนี้คำนวณจากประวัติการทำธุรกรรมภายในระบบเท่านั้น ปรากฏเป็นจำนวนติดลบเนื่องจากมีสต็อกยกยอดเริ่มต้นหรือรายการก่อนการบันทึกข้อมูลในระบบซึ่งไม่ปรากฏในประวัตินี้ มิใช่ยอดคงเหลือที่แท้จริงบนชั้นวาง โปรดตรวจสอบยอดคงเหลือที่แท้จริงผ่านหน้าจอ "บัตรสต็อก substock" เท่านั้น</div>' : ''}
+      <div class="foot"><span>ห้องยา ${med.ward === 'ipd' ? 'IPD' : 'OPD'} · รพ.กรงปินัง</span><span>จัดพิมพ์จากระบบเมื่อวันที่ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
     </div>
   </div>
   <script>window.onload = function () { window.print(); };</script>
@@ -659,17 +659,17 @@ export function printExecutiveSummarySheet(
       </div>
     </div>
     <div class="doctitle">ภาพรวมคลังยาสำหรับผู้บริหาร</div>
-    <div class="docsub">${escapeHtml(meta.periodLabel)} · ใช้ประกอบวาระ PTC / รายงานผู้บริหาร</div>
+    <div class="docsub">${escapeHtml(meta.periodLabel)} · จัดทำเพื่อประกอบวาระการประชุมคณะกรรมการเภสัชกรรมและการบำบัด (PTC) หรือการรายงานต่อผู้บริหาร</div>
 
     <div class="stats">${statCards}</div>
 
-    <div class="sectitle">10 อันดับมูลค่าคงคลังสูงสุด</div>
+    <div class="sectitle">รายการยาที่มีมูลค่าคงคลังสูงสุด 10 อันดับแรก</div>
     ${rowsHtml(topValue, 'จำนวนคงเหลือ', 'มูลค่า (บาท)')}
 
-    <div class="sectitle">10 อันดับใช้เร็วที่สุด (จ่าย 30 วัน)</div>
+    <div class="sectitle">รายการยาที่มีอัตราการใช้สูงสุด 10 อันดับแรก (ยอดจ่ายในรอบ 30 วัน)</div>
     ${rowsHtml(topUsage, 'จ่าย 30 วัน', 'คงคลัง (วัน)')}
 
-    <div class="foot"><span>ผู้จัดทำ: ${escapeHtml(meta.printedBy || '—')}</span><span>พิมพ์จากระบบ ${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
+    <div class="foot"><span>จัดทำโดย: ${escapeHtml(meta.printedBy || '—')}</span><span>จัดพิมพ์จากระบบเมื่อวันที่ ${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
   </div>
   <script>window.onload = function () { window.print(); };</script>
 </body></html>`;

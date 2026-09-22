@@ -7,6 +7,26 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.53.1] - 2026-09-22
+
+### Changed
+- **ปรับถ้อยคำในเอกสารที่พิมพ์ได้ทุกใบให้เป็นทางการมากขึ้น** — real-world request: elevate the
+  register of every printed document (ใบจัดยาเติมชั้น, ใบเติมหน้างานประจำวัน, ใบขอเบิกจากคลังใหญ่,
+  บัตรสต็อก substock, ภาพรวมผู้บริหาร) without adding new sections — wording/tone only. Examples:
+  "พิมพ์เมื่อ" → "วันที่จัดพิมพ์เอกสาร", "โดย" (table header) → "ผู้บันทึก", "พิมพ์จากระบบ" →
+  "จัดพิมพ์จากระบบเมื่อวันที่", the ⚠-prefixed inline notes → "หมายเหตุ: ..." phrasing, "10 อันดับ
+  มูลค่าคงคลังสูงสุด" → "รายการยาที่มีมูลค่าคงคลังสูงสุด 10 อันดับแรก", "สุขภาพคลังยาโดยรวม" →
+  "สถานภาพคลังยาโดยรวม", "ธุรกรรมใน 30 วันล่าสุด" → "จำนวนธุรกรรมในรอบ 30 วันที่ผ่านมา", and every
+  pick-list subheading rewritten in fuller administrative-document phrasing. `printPickListSheet`'s
+  own header already used the mixed-Thai-English shorthand "#"/"✓" — "#" widened to "ลำดับ" to
+  match the substock card sheet's own convention (kept "✓" as-is since it's an iconographic column
+  header, not prose). Deliberately did NOT touch app-internal UI text (buttons, toasts, on-screen
+  labels) — the request was specifically about printed documents; on-screen wording stays in its
+  existing, more conversational register. Also left `par substock`'s mixed-English field label on
+  the substock card sheet alone — its 24mm-wide field box has no room for a longer Thai phrase
+  without wrapping, and it's an established app-specific term (same category as Min/Max/Par
+  elsewhere), not really "casual tone".
+
 ## [3.53.0] - 2026-09-22
 
 ### Added

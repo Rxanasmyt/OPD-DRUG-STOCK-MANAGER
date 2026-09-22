@@ -1067,7 +1067,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .map((id) => state.meds.find((m) => m.id === id))
       .filter((m): m is Med => !!m)
       .map((m) => ({ bin: binDisplayAll(m), name: m.name, qty: state.cart[m.id], unit: m.unit }));
-    const ok = printPickListSheet(rows, 'ใบจัดยาเติมชั้น', 'ตามรายการที่เลือกในตะกร้าเติมหน้างาน', undefined, { printedBy: userName() });
+    const ok = printPickListSheet(rows, 'ใบจัดยาเติมชั้น', 'จัดทำตามรายการที่คัดเลือกไว้ในระบบเติมหน้างาน', undefined, { printedBy: userName() });
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state.cart, state.meds, toast, userName]);
 
@@ -1096,7 +1096,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
       .filter((r) => r.qty > 0);
     if (!rows.length) { toast('รายการที่ต่ำกว่า Min ไม่มีของเหลือใน substock ให้เติมเลยสักรายการ — ต้องเบิกจากคลังใหญ่ก่อน'); return; }
-    const ok = printPickListSheet(rows, 'ใบเติมหน้างานประจำวัน', 'รายการที่ต่ำกว่าจุดต้องเติม (Min) ประจำวันนี้', undefined, { printedBy: userName() });
+    const ok = printPickListSheet(rows, 'ใบเติมหน้างานประจำวัน', 'รายการยาที่มีปริมาณต่ำกว่าจุดสั่งเติมขั้นต่ำ (Min) ประจำวันที่จัดพิมพ์เอกสาร', undefined, { printedBy: userName() });
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state, toast, userName]);
 
@@ -1131,7 +1131,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const qty = Math.max(0, (short ? m.parSub - subQty(state, m.id) : m.parFloor - m.floor));
       return { bin: m.code, name: m.name + (short ? '' : ' (ไม่มี substock)'), qty, unit: m.unit };
     });
-    const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการที่ต่ำกว่า par ทั้งระบบ (รวมยาที่ไม่มี substock)', { bin: 'รหัสยา', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() });
+    const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการยาที่มีปริมาณคงคลังต่ำกว่าเกณฑ์มาตรฐาน (Par) ทั้งระบบ รวมถึงรายการยาที่ไม่มีการสำรองคลังย่อย (Substock)', { bin: 'รหัสยา', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() });
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state, toast, userName]);
 
@@ -1604,10 +1604,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const txsThisMonth = state.txs.filter((x) => x.ts >= monthAgo).length;
 
     const stats: ExecSummaryStat[] = [
-      { label: 'มูลค่าคงคลังรวม (หน้างาน+substock)', value: nf(Math.round(totalValue)) + ' บาท' },
-      { label: 'สุขภาพคลังยาโดยรวม', value: healthyPct + '% ปกติ', note: `วิกฤต ${nf(critical)} · เริ่มต่ำ ${nf(warn)}`, tone: healthyPct >= 80 ? 'green' : healthyPct >= 50 ? 'amber' : 'red' },
-      { label: `มูลค่าเสี่ยงหมดอายุใน ${state.expiryWarnDays} วัน`, value: nf(Math.round(riskValue)) + ' บาท', tone: riskValue > 0 ? 'amber' : 'green' },
-      { label: 'ธุรกรรมใน 30 วันล่าสุด', value: nf(txsThisMonth) + ' รายการ', note: nf(meds.length) + ' รายการยา active' },
+      { label: 'มูลค่าคงคลังยาคงเหลือรวมทั้งหมด (หน้างานและสำรองคลังย่อย)', value: nf(Math.round(totalValue)) + ' บาท' },
+      { label: 'สถานภาพคลังยาโดยรวม', value: healthyPct + '% ปกติ', note: `ระดับวิกฤต ${nf(critical)} รายการ · ระดับเริ่มต่ำ ${nf(warn)} รายการ`, tone: healthyPct >= 80 ? 'green' : healthyPct >= 50 ? 'amber' : 'red' },
+      { label: `มูลค่ายาที่มีความเสี่ยงหมดอายุภายใน ${state.expiryWarnDays} วัน`, value: nf(Math.round(riskValue)) + ' บาท', tone: riskValue > 0 ? 'amber' : 'green' },
+      { label: 'จำนวนธุรกรรมในรอบ 30 วันที่ผ่านมา', value: nf(txsThisMonth) + ' รายการ', note: 'จำนวนรายการยาที่เปิดใช้งาน ' + nf(meds.length) + ' รายการ' },
     ];
 
     const byValue = meds
