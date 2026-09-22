@@ -7,6 +7,42 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.47.0] - 2026-09-22
+
+### Fixed — pre-go-live flow review
+Full walkthrough of every screen ahead of real deployment, checking that every day-to-day flow
+is fast, reliable, and has no dead ends. Found and fixed:
+
+- **A hung/flaky connection could freeze the app with no error message — including on the login
+  screen itself.** Every write that goes through a Firestore transaction (`runTx`) has always
+  raced against a 15s timeout (see `utils/timeout.ts`) so a stuck "hospital wifi captive portal"
+  connection fails fast with a clear message instead of spinning forever. That protection was
+  missing from **10 direct (non-transaction) Firestore calls**, the most serious being:
+  - **`signIn()`** — the very first action every single user takes every single day. A hung
+    connection here left the login button spinning indefinitely with zero feedback.
+  - **`logAudit()`/`logTx()`** — called by literally every daily commit (เติมหน้างาน, รับเข้า,
+    ปรับยอด, นับสต็อก, reconcile, ตัด lot หมดอายุ...). A hang here meant the on-screen action
+    looked frozen even though the real stock change moments earlier had already succeeded.
+  - `scrapLot()` (ตัด lot หมดอายุ), plus 6 lower-frequency admin-only writes (par apply, global
+    settings, edit/toggle a med, change a user's role/active state) — fixed for the same reason
+    and for consistency.
+  All 10 now go through the same `withTimeout()` wrapper every other write in the app already
+  uses.
+- **`TConfirmScreen`'s destination label** ("ชั้นจ่ายยา OPD/IPD") for a shared med still read
+  `state.wardFilter`, which has been permanently stuck at `'all'` since the OPD/IPD ward-tab UI
+  was removed (the same dead-code class already fixed in `printPickList`/`printLabels` in
+  `AppContext.tsx`) — always showed "OPD" for a shared med regardless of its real shelf
+  location(s). Now checks the med's actual `binIpd` (a genuine second physical shelf spot)
+  instead of the dead filter.
+
+### Also reviewed, no change needed
+`CountScreen`'s ปรับยอด quantity input was checked for a possible negative-number path
+(`floor`/`lots` with no clamp) — confirmed `setCountInput`/`setSubCountInput` already sanitize
+every keystroke through `digitsOnly()`, so a negative value can never actually reach the input
+state; not a real bug. `WardMoveScreen`'s med-search dropdowns not excluding each other's
+already-picked med were also checked — harmless, since `canSubmit` already blocks picking the
+same med on both sides before commit.
+
 ## [3.46.1] - 2026-09-21
 
 ### Fixed

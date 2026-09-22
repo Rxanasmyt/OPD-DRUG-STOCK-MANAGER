@@ -858,13 +858,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return { ...st, screen: prev || 'more', navStack: stack };
   }), []);
 
+  // Bug fix: these two both used a bare (unwrapped) addDoc() — unlike every write that goes
+  // through runTx (which wraps runTransaction in withTimeout right at its own definition,
+  // above). On a hung connection (the exact hospital-wifi-captive-portal case withTimeout's own
+  // doc comment describes) that await would never resolve OR reject, so this function would
+  // never reach its catch block — and since logAudit()/logTx() are called by every single
+  // daily commit action (transfer, receive, adjust, count, reconcile, scrap...), the calling
+  // guardOnce-protected function's busy state would stay stuck forever with no error shown,
+  // even though the real stock write moments earlier (via the properly-timed-out runTx)
+  // already succeeded. Wrapped in withTimeout so this fails fast with a message instead.
   const logAudit = useCallback(async (entry: { type: AuditType; note: string }) => {
-    try { await addDoc(collection(db, 'auditLog'), { ...entry, by: userName(), ts: Date.now() }); }
+    try { await withTimeout(addDoc(collection(db, 'auditLog'), { ...entry, by: userName(), ts: Date.now() })); }
     catch (e) { console.error('audit log write failed:', e); toast('บันทึกลง audit log ไม่สำเร็จ — รายการหลักบันทึกแล้ว แต่ประวัตินี้อาจหายไป'); }
   }, [userName, toast]);
 
   const logTx = useCallback(async (tx: Omit<import('../types').Tx, 'id' | 'ts' | 'by'>) => {
-    try { await addDoc(collection(db, 'txs'), { ...tx, by: userName(), ts: Date.now() }); }
+    try { await withTimeout(addDoc(collection(db, 'txs'), { ...tx, by: userName(), ts: Date.now() })); }
     catch (e) { console.error('tx log write failed:', e); toast('บันทึกประวัติธุรกรรมไม่สำเร็จ — ยอดสต็อกอัปเดตแล้ว แต่ไม่มีบันทึกรายการนี้ในประวัติ'); }
   }, [userName, toast]);
 
@@ -898,7 +907,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // where staying logged in would hand the next person someone else's session.
       await setPersistence(auth, state.authRemember ? browserLocalPersistence : browserSessionPersistence);
       const cred = await signInWithEmailAndPassword(auth, usernameToEmail(username), password);
-      await setDoc(doc(db, 'users', cred.user.uid), { lastLogin: Date.now() }, { merge: true });
+      // Bug fix: this setDoc used to be unwrapped — on a hung connection it would never
+      // resolve or reject, so `authBusy` (which gates the login button/spinner) would never
+      // clear via the `finally` below. Sign-in is the single highest-frequency screen in the
+      // whole app (every user, every day) — a stuck spinner here with no error message would
+      // be the worst possible first impression of a flaky connection, not just an inconvenience.
+      await withTimeout(setDoc(doc(db, 'users', cred.user.uid), { lastLogin: Date.now() }, { merge: true }));
     } catch (e) {
       patch({ authError: authErrorMessage(e) });
     } finally {
@@ -916,7 +930,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (password.length < 6) { patch({ authError: 'รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร' }); return; }
     patch({ authBusy: true, authError: null });
     try {
-      const takenSnap = await getDoc(doc(db, 'usernames', username));
+      const takenSnap = await withTimeout(getDoc(doc(db, 'usernames', username)));
       if (takenSnap.exists()) { patch({ authError: 'ชื่อผู้ใช้นี้มีคนใช้แล้ว' }); return; }
 
       const cred = await createUserWithEmailAndPassword(auth, usernameToEmail(username), password);
@@ -1499,7 +1513,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const m = state.meds.find((x) => x.id === l.medId);
     if (!m) return;
     try {
-      await updateDoc(doc(db, 'lots', lotId), { qty: 0 });
+      await withTimeout(updateDoc(doc(db, 'lots', lotId), { qty: 0 }));
       await logTx({ type: 'expired', name: m.name, medId: m.id, qty: -l.qty, unit: m.unit, reason: 'หมดอายุ / ใกล้หมดอายุ', note: 'lot ' + l.lotNo + ' exp ' + thDate(l.exp) + ' · มูลค่า ' + nf(l.qty * m.price) + ' บาท', loc: 'substock' });
       hapticSuccess();
       toast('ตัด lot ' + l.lotNo + ' ออกจาก substock แล้ว · บันทึกลง discrepancy log');
@@ -1806,7 +1820,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const sug = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
     if (!sug) { toast(m.name + ' ยังไม่มีสถิติการใช้ ไม่สามารถแนะนำ par ได้'); return; }
     try {
-      await updateDoc(doc(db, 'meds', medId), which === 'sub' ? { parSub: sug.sub } : { parFloor: sug.floor });
+      await withTimeout(updateDoc(doc(db, 'meds', medId), which === 'sub' ? { parSub: sug.sub } : { parFloor: sug.floor }));
       logAudit({ type: 'par_updated', note: 'ปรับ par' + (which === 'sub' ? 'substock' : 'หน้างาน') + ' ' + m.name + ' เป็น ' + nf(which === 'sub' ? sug.sub : sug.floor) + ' ตามค่าแนะนำจากสถิติ' });
     } catch (e) { console.error(e); toast('ปรับ par ไม่สำเร็จ'); }
   }, [canEditPar, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast]);
@@ -1938,7 +1952,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateGlobalSettings = useCallback(async (patchFields: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => {
     if (!canEditPar) return;
     try {
-      await setDoc(doc(db, 'meta', 'settings'), patchFields, { merge: true });
+      await withTimeout(setDoc(doc(db, 'meta', 'settings'), patchFields, { merge: true }));
       logAudit({ type: 'par_updated', note: 'แก้ไขการตั้งค่า: ' + Object.entries(patchFields).map(([k, v]) => k + '=' + v).join(', ') });
       toast('บันทึกการตั้งค่าแล้ว');
     } catch (e) { console.error(e); toast('บันทึกการตั้งค่าไม่สำเร็จ'); }
@@ -2029,7 +2043,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       category: input.category ? input.category : deleteField(),
     };
     try {
-      await updateDoc(doc(db, 'meds', medId), patch);
+      await withTimeout(updateDoc(doc(db, 'meds', medId), patch));
       logAudit({ type: 'med_edited', note: 'แก้ไขข้อมูลยา ' + name });
       toast('บันทึกข้อมูล ' + name + ' แล้ว');
     } catch (e) { console.error(e); toast('บันทึกไม่สำเร็จ'); }
@@ -2219,7 +2233,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!m) return;
     const next = !m.active;
     try {
-      await updateDoc(doc(db, 'meds', medId), { active: next });
+      await withTimeout(updateDoc(doc(db, 'meds', medId), { active: next }));
       logAudit({ type: 'med_status_changed', note: (next ? 'เปิดใช้งานยา ' : 'ปิดใช้งานยา (ตัดออกจากบัญชี) ') + m.name });
       toast((next ? 'เปิดใช้งาน ' : 'ปิดใช้งาน ') + m.name + ' แล้ว');
     } catch (e) { console.error(e); toast('เปลี่ยนสถานะไม่สำเร็จ'); }
@@ -3000,7 +3014,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     if (id === state.myUid && !(await confirmAsync('คุณกำลังจะเปลี่ยนบทบาทของตัวเอง จาก ' + roleLabelFor(u.role) + ' เป็น ' + roleLabelFor(role) + ' — ยืนยันหรือไม่?'))) return;
     try {
-      await updateDoc(doc(db, 'users', id), { role });
+      await withTimeout(updateDoc(doc(db, 'users', id), { role }));
       logAudit({ type: 'user_role_changed', note: 'เปลี่ยนบทบาท ' + u.name + ' จาก ' + roleLabelFor(u.role) + ' เป็น ' + roleLabelFor(role) });
     } catch (e) { console.error(e); toast('เปลี่ยนบทบาทไม่สำเร็จ'); }
   }, [state.users, state.myUid, logAudit, toast, confirmAsync]);
@@ -3024,7 +3038,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // that has logged in before is being reinstated, not approved for the first time.
     const isFirstApproval = next && !u.lastLogin;
     try {
-      await updateDoc(doc(db, 'users', id), { active: next });
+      await withTimeout(updateDoc(doc(db, 'users', id), { active: next }));
       logAudit({ type: isFirstApproval ? 'user_approved' : 'user_status_changed', note: (next ? (isFirstApproval ? 'อนุมัติบัญชี ' : 'เปิดใช้งานบัญชี ') : 'ปิดใช้งานบัญชี ') + u.name });
       toast((next ? 'เปิดใช้งาน' : 'ปิดใช้งาน') + 'บัญชี ' + u.name + ' แล้ว');
     } catch (e) { console.error(e); toast('เปลี่ยนสถานะไม่สำเร็จ'); }

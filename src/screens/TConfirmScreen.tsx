@@ -41,12 +41,13 @@ export default function TConfirmScreen() {
   // possible: TransferScreen's ward tab only scopes which meds are *offered*, not what's
   // already sitting in the cart from before a tab switch. Named after whichever ward(s) the
   // cart's items actually belong to.
-  // Bug fix: a shared med (isSharedMed — see selectors.ts) always reports wardOf()==='opd'
-  // regardless of which tab it was actually added from, which used to make this label say
-  // "OPD" even when someone filled their cart entirely from the IPD tab. A shared med's real
-  // destination is whichever tab is currently open (it's the same shelf, just a different
-  // room/bin depending which one you're standing in), not its stored `ward`.
-  const cartWards = new Set(rows.map((r) => (isSharedMed(r.m) ? (state.wardFilter === 'ipd' ? 'ipd' : 'opd') : wardOf(r.m))));
+  // Bug fix: this used to pick one side of a shared med via state.wardFilter (which tab was
+  // open) — dead ever since the OPD/IPD ward tab UI was removed (see printPickList/printLabels
+  // in AppContext.tsx for the same gap fixed the same way). A shared med pools ONE floor
+  // number for both wards (isSharedMed's own doc comment in selectors.ts: "IPD just pulls off
+  // the OPD shelf rather than keeping its own"), so it only genuinely has two separate
+  // destinations when it also has a distinct `binIpd` — a real second physical shelf spot.
+  const cartWards = new Set(rows.flatMap((r) => (isSharedMed(r.m) && r.m.binIpd && r.m.binIpd !== r.m.bin ? ['opd', 'ipd'] : [wardOf(r.m)])));
   const destLabel = cartWards.size === 0 ? 'ชั้นจ่ายยา'
     : cartWards.size > 1 ? 'ชั้นจ่ายยา (OPD + IPD)'
     : cartWards.has('ipd') ? 'ชั้นจ่ายยา IPD' : 'ชั้นจ่ายยา OPD';
