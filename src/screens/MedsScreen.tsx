@@ -562,10 +562,17 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
         </label>
         <label>
           <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>
-            {v.fridge ? '🧊 ตำแหน่งตู้เย็น (บริการ)' : v.shared ? 'ชั้นวาง (OPD)' : v.ward === 'ipd' ? 'ชั้นวาง (IPD)' : 'ชั้นวาง (OPD)'}
+            {v.fridge
+              ? (v.noSubstock ? '🧊 ตำแหน่งตู้เย็น (ตำแหน่งเดียว — ไม่มี substock)' : '🧊 ตำแหน่งตู้เย็น (บริการ)')
+              : v.shared ? 'ชั้นวาง (OPD)' : v.ward === 'ipd' ? 'ชั้นวาง (IPD)' : 'ชั้นวาง (OPD)'}
           </span>
           {v.fridge ? (
-            <FridgeCodeField value={v.bin} onChange={(val) => set('bin', val)} options={FRIDGE_SVC_OPTS} style={!v.shared && v.ward === 'ipd' ? { borderColor: WARD_COLOR.ipd } : {}} />
+            // A noSubstock fridge med (e.g. OPV — lives ONLY in a service fridge, or a
+            // rarely-used vaccine dispensed straight out of the storage fridge, never moved to
+            // a service position) has just ONE real position, and it could be either kind of
+            // fridge — offer the full FRIDGE_LOCS list here instead of assuming it's always a
+            // service code the way the normal 2-stage (คลัง→บริการ) case does.
+            <FridgeCodeField value={v.bin} onChange={(val) => set('bin', val)} options={v.noSubstock ? FRIDGE_LOCS : FRIDGE_SVC_OPTS} style={!v.shared && v.ward === 'ipd' ? { borderColor: WARD_COLOR.ipd } : {}} />
           ) : (
             <input value={v.bin} onChange={(e) => set('bin', sanitizeBin(e.target.value))} placeholder="เช่น J4 หรือ ตู้ยา-1" style={{ ...inputStyle, textTransform: 'uppercase' as const, ...(!v.shared && v.ward === 'ipd' ? { borderColor: WARD_COLOR.ipd } : {}) }} />
           )}
@@ -590,7 +597,7 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
             <label style={{ display: 'block', marginBottom: 7 }}>
               <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{v.fridge ? '🧊 ตำแหน่งตู้เย็น (OPD — IPD)' : 'ชั้นวาง (IPD)'}</span>
               {v.fridge ? (
-                <FridgeCodeField value={v.binIpd} onChange={(val) => set('binIpd', val)} options={FRIDGE_SVC_OPTS} style={{ borderColor: WARD_COLOR.ipd }} />
+                <FridgeCodeField value={v.binIpd} onChange={(val) => set('binIpd', val)} options={v.noSubstock ? FRIDGE_LOCS : FRIDGE_SVC_OPTS} style={{ borderColor: WARD_COLOR.ipd }} />
               ) : (
                 <input value={v.binIpd} onChange={(e) => set('binIpd', sanitizeBin(e.target.value))} placeholder="เช่น J4 หรือ ตู้ยา-1" style={{ ...inputStyle, textTransform: 'uppercase' as const, borderColor: WARD_COLOR.ipd }} />
               )}
@@ -698,9 +705,15 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
         </button>
         <button onClick={() => set('noSubstock', !v.noSubstock)} className="chip" style={{ ...chip(v.noSubstock), flex: 1, textAlign: 'center' }}>{v.noSubstock ? '✓ ไม่มี substock' : 'ไม่มี substock?'}</button>
       </div>
-      {v.noSubstock && (
+      {v.noSubstock && !v.fridge && (
         <div style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 9, padding: '8px 10px', marginTop: -6, marginBottom: 12 }}>
           เช่น ยาน้ำ/ยาพ่น — รับยาเข้าแล้วขึ้นหน้างานทันที ไม่ต้องเติมจาก substock อีกขั้น (par substock ปิดใช้งานให้อัตโนมัติ)
+        </div>
+      )}
+      {v.noSubstock && v.fridge && (
+        <div style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 9, padding: '8px 10px', marginTop: -6, marginBottom: 12 }}>
+          ยาตู้เย็นที่มีตำแหน่งเดียว (ไม่ผ่าน 2 ขั้น คลัง→บริการ) — เช่น อยู่แค่ตู้เย็นบริการ (OPV) หรืออยู่แค่ตู้เย็นคลังแล้วหยิบใช้จากตรงนั้นเลย
+          กรอกรหัสตู้จริงที่ช่อง "ตำแหน่งตู้เย็น" ด้านบน (เลือกจาก dropdown ได้ทั้งรหัสคลังและรหัสบริการ) รับยาเข้าแล้วขึ้นตำแหน่งนั้นทันที
         </div>
       )}
       <div style={{ display: 'flex', gap: 8 }}>
