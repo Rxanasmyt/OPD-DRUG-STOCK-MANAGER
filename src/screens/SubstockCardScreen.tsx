@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type ReactNode, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, useRef, type ReactNode, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
 import { subQty, wardOf, subTone } from '../store/selectors';
 import { nf, thDate, fiscalYear } from '../utils/format';
@@ -25,6 +25,11 @@ const TYPE_META: Record<string, { icon: string; label: string }> = {
   // AppContext.tsx) — a floor count logs the same type but never appears here.
   count: { icon: '🔢', label: 'นับสต็อก (ปรับยอด)' },
 };
+
+// Must match fetchSubstockLedger's own SUBSTOCK_LEDGER_TYPES (AppContext.tsx) exactly — used
+// below only to detect when a NEW relevant row has arrived via the live txs listener, not to
+// filter what's shown (fetchSubstockLedger already does the real filtering server-round-trip).
+const SUBSTOCK_LEDGER_TYPES = new Set(['receive_from_central', 'transfer_to_floor', 'expired', 'count']);
 
 /** The digital replacement for the paper "บัตรคุมสต็อกยา" (yellow stock card) — same
  * วันที่/รับ/จ่าย/คงเหลือ layout staff already read off the physical card, generated from real
@@ -113,6 +118,36 @@ export default function SubstockCardScreen() {
     openCard(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.substockFocusId]);
+
+  // Bug fix (real-time): the ledger rows were only ever fetched once, on openCard — a receive
+  // into substock or a transfer out to the floor happening on ANY device while this card sits
+  // open (e.g. left up on a tablet at the shelf) never appeared until the med was re-searched.
+  // Worse, the top-line liveBalance above IS reactive (subQty reads the live lots listener), so
+  // it would race ahead of the stale ledger and the "mismatch" banner below would fire on a
+  // perfectly normal new transaction, not a real discrepancy. state.txs is itself a live-synced
+  // listener (capped to the 300 most recent, but a just-happened transaction is always in that
+  // window), so watch it for a newer row belonging to this med and silently re-pull the ledger
+  // when one shows up — no loading spinner, no resetting search/year, just the rows updating
+  // under the reader the way the balance already did.
+  const latestRelevantTxTs = useMemo(() => {
+    if (!medId) return 0;
+    return state.txs.reduce((mx, t) => {
+      if (t.medId !== medId || !SUBSTOCK_LEDGER_TYPES.has(t.type)) return mx;
+      if ((t.type === 'expired' || t.type === 'count') && t.loc !== 'substock') return mx;
+      return t.ts > mx ? t.ts : mx;
+    }, 0);
+  }, [state.txs, medId]);
+  const seenTxTs = useRef(0);
+  useEffect(() => {
+    seenTxTs.current = 0; // reset the baseline whenever a different med's card opens
+  }, [medId]);
+  useEffect(() => {
+    if (!medId || !latestRelevantTxTs) return;
+    if (seenTxTs.current === 0) { seenTxTs.current = latestRelevantTxTs; return; } // openCard's own fetch already covers this
+    if (latestRelevantTxTs <= seenTxTs.current) return;
+    seenTxTs.current = latestRelevantTxTs;
+    fetchSubstockLedger(medId).then(setRows).catch((e) => console.error(e));
+  }, [latestRelevantTxTs, medId, fetchSubstockLedger]);
 
   const liveBalance = med ? subQty(state, med.id) : 0;
   const balanceTone = med ? subTone(liveBalance, med.parSub) : 'var(--green)';

@@ -7,6 +7,29 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.56.0] - 2026-09-23
+
+### Fixed — QR code flow verification (receive→substock, substock→floor, real-time card)
+- **บัตรสต็อก substock (SubstockCardScreen) ไม่อัปเดตแบบเรียลไทม์**: ledger rows were fetched
+  exactly once when the card opened (`fetchSubstockLedger`, a one-shot `getDocs`) and never
+  refreshed again while the screen stayed open — but the top-line "คงเหลือ" balance right above
+  it IS reactive (`subQty`, backed by the live `lots` listener). Leave a substock card open on a
+  tablet at the shelf while another device receives stock in or transfers stock out for that
+  same drug, and the live balance would update instantly while the ledger table underneath it
+  sat frozen on the old data — worse, the "mismatch" warning banner (compares live balance
+  against the ledger's own running total) would then fire on a perfectly normal, just-happened
+  transaction, not a real discrepancy. The screen now watches the live `txs` listener for a new
+  row belonging to the open med (receive_from_central / transfer_to_floor / expired / count) and
+  silently re-pulls the ledger the moment one lands — no spinner, no reset of the search box or
+  fiscal-year filter, the rows just update the way the balance already did.
+- Verified end-to-end and found no other defects: `meds`/`lots` real-time listeners keep QR
+  resolution (`resolveMed`, shelf-location fallback for shared OPD/IPD meds) fresh; the
+  receive→substock path (`commitReceive`/`approvePendingReceive`) and substock→floor path
+  (`commitTransfer`) are both atomic (transaction/batch — stock update and tx-log write commit
+  or fail together, so the ledger can never silently drift from real stock movement); the camera
+  scanner (`QrScanner.tsx`, jsQR) has correct secure-context/permission/no-camera error handling
+  and continuous autofocus. Ready to print and stick labels on real shelves.
+
 ## [3.55.0] - 2026-09-22
 
 ### Fixed — overnight bug sweep, round 2
