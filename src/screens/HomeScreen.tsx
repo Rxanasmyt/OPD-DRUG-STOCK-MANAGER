@@ -306,7 +306,7 @@ export default function HomeScreen() {
               <button
                 onClick={() => { if (d < 0) { pickAdjType('expired'); go('adjust'); } else { bump(m.id, 1); go('transfer'); } }}
                 className="press-spring"
-                style={{ border: '1px solid var(--border)', background: 'var(--bg-subtle)', color: 'var(--ink)', padding: '8px 11px', borderRadius: 10, fontSize: 12.5, fontWeight: 600, flex: 'none', minHeight: 38 }}
+                style={{ border: '1px solid var(--border)', background: 'var(--bg-subtle)', color: 'var(--ink)', padding: '8px 11px', borderRadius: 10, fontSize: 12.5, fontWeight: 600, flex: 'none', minHeight: 44 }}
               >
                 {d < 0 ? 'ตัดออก' : 'ใช้ก่อน'}
               </button>

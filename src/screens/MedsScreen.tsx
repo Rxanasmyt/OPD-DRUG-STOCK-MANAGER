@@ -3,6 +3,7 @@ import { useApp } from '../store/AppContext';
 import { nf, digitsOnly } from '../utils/format';
 import { wardOf, wardLabel, floorMinOf, toneFor, isSharedMed, categoryOf } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
+import { Badge } from '../components/Badge';
 import { Qty } from '../components/Qty';
 import type { Med, Ward } from '../types';
 import { EmptyState } from '../components/EmptyState';
@@ -381,7 +382,19 @@ export default function MedsScreen() {
         </button>
       )}
 
-      <SearchInput value={q} onChange={setQ} placeholder="ค้นหาชื่อยา" style={{ marginBottom: 10 }} />
+      <SearchInput value={q} onChange={setQ} placeholder="ค้นหาชื่อยา" style={{ marginBottom: q.trim() || filter !== 'active' || wardTab !== 'all' || catTab !== 'all' ? 6 : 10 }} />
+      {/* Only shown once something's actually been changed from default — this screen has 4
+          independent filter dimensions (status/search/ward/category) with no single reset
+          before this, so clearing all of them meant tapping each one back to its own default
+          individually. */}
+      {(q.trim() || filter !== 'active' || wardTab !== 'all' || catTab !== 'all') && (
+        <button
+          onClick={() => { setQ(''); setFilter('active'); setWardTab('all'); setCatTab('all'); }}
+          style={{ display: 'block', marginLeft: 'auto', marginBottom: 10, border: 0, background: 'transparent', color: 'var(--green)', fontSize: 12, fontWeight: 600, padding: '4px 2px' }}
+        >
+          ✕ ล้างตัวกรองทั้งหมด
+        </button>
+      )}
 
       <div className="card stagger" style={{ overflow: 'hidden' }}>
         {/* Category headers only render in the "ทุกหมวด" view — picking one category tab
@@ -423,20 +436,20 @@ export default function MedsScreen() {
                     )}
                     <div style={{ display: 'flex', gap: 5, marginTop: 5 }}>
                       {isSharedMed(m) ? (
-                        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--green)', background: 'var(--green-tint)', padding: '2px 7px', borderRadius: 20 }}>OPD+IPD ร่วมกัน</span>
+                        <Badge color="var(--green)" bg="var(--green-tint)">OPD+IPD ร่วมกัน</Badge>
                       ) : (
-                        <span style={{ fontSize: 10, fontWeight: 700, color: WARD_COLOR[wardOf(m)], background: WARD_BG[wardOf(m)], padding: '2px 7px', borderRadius: 20 }}>{wardOf(m) === 'opd' ? 'OPD' : 'IPD'}</span>
+                        <Badge color={WARD_COLOR[wardOf(m)]} bg={WARD_BG[wardOf(m)]}>{wardOf(m) === 'opd' ? 'OPD' : 'IPD'}</Badge>
                       )}
-                      {m.noSubstock && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--amber-ink)', background: 'var(--amber-bg)', padding: '2px 7px', borderRadius: 20 }}>ไม่มี substock</span>}
+                      {m.noSubstock && <Badge color="var(--amber-ink)" bg="var(--amber-bg)">ไม่มี substock</Badge>}
                     </div>
                   </div>
-                  <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: m.active ? 'var(--green)' : 'var(--muted)', background: m.active ? 'var(--green-tint)' : 'var(--bg-subtle)', padding: '4px 8px', borderRadius: 20 }}>{m.active ? 'ใช้งานอยู่' : 'ปิดใช้งาน'}</span>
+                  <Badge flexNone size={10.5} padding="4px 8px" color={m.active ? 'var(--green)' : 'var(--muted)'} bg={m.active ? 'var(--green-tint)' : 'var(--bg-subtle)'}>{m.active ? 'ใช้งานอยู่' : 'ปิดใช้งาน'}</Badge>
                 </div>
                 <div style={{ display: 'flex', gap: 7 }}>
-                  <button onClick={() => { setEditingId(isEditing ? null : m.id); setAddOpen(false); }} style={{ flex: 1, border: '1px solid var(--green)', background: isEditing ? 'var(--green)' : 'var(--bg-card)', color: isEditing ? '#fff' : 'var(--green)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 38 }}>
+                  <button onClick={() => { setEditingId(isEditing ? null : m.id); setAddOpen(false); }} style={{ flex: 1, border: '1px solid var(--green)', background: isEditing ? 'var(--green)' : 'var(--bg-card)', color: isEditing ? '#fff' : 'var(--green)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44 }}>
                     {isEditing ? 'ปิดฟอร์มแก้ไข' : 'แก้ไขข้อมูล'}
                   </button>
-                  <button onClick={() => toggleMedActive(m.id)} style={{ flex: 1, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 38 }}>
+                  <button onClick={() => toggleMedActive(m.id)} style={{ flex: 1, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44 }}>
                     {m.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}
                   </button>
                   <button
@@ -504,8 +517,19 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
    * button in the app instead of looking inert on a slow connection. */
   mergeBusy?: boolean;
 }) {
+  const { setFormDirty } = useApp();
   const [v, setV] = useState<MedFormValues>(initial);
   const set = <K extends keyof MedFormValues>(k: K, val: MedFormValues[K]) => setV((s) => ({ ...s, [k]: val }));
+  // Bug fix: tapping a different bottom-nav tab while this form was open (e.g. a reflex tap on
+  // "หน้าหลัก") used to unmount it instantly with zero warning — every field typed so far just
+  // vanished. go() (AppContext.tsx) now asks for confirmation first whenever this is true.
+  // Cleared on unmount too, so a stale `true` can never outlive the form itself (e.g. after a
+  // successful save unmounts this component via the parent closing the edit panel).
+  useEffect(() => {
+    setFormDirty(JSON.stringify(v) !== JSON.stringify(initial));
+    return () => setFormDirty(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [v]);
   const suggestedCategory = suggestCategoryId(v.name);
   // Bug fix: nothing stopped Min (floorMin) from being saved higher than Max (parFloor) — a
   // typo or a copy-paste mixup produces a shelf that's flagged "must refill" while ALSO already

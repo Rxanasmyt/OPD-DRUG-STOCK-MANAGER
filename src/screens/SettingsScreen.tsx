@@ -3,6 +3,7 @@ import { useApp } from '../store/AppContext';
 import { suggestPar, halfOfMaxRounded, floorMinOf, parAnomalies } from '../store/selectors';
 import { nf, digitsOnly, parseIntSafe, isoDate, fiscalYearStartIso, DAY } from '../utils/format';
 import { notificationsSupported } from '../utils/notify';
+import { StatusDot } from '../components/Badge';
 
 export default function SettingsScreen() {
   const {
@@ -103,9 +104,7 @@ export default function SettingsScreen() {
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>เบราว์เซอร์/อุปกรณ์นี้ไม่รองรับการแจ้งเตือนแบบนี้</div>
         ) : notifyEnabled ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--green)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--green)' }} /> เปิดอยู่
-            </span>
+            <StatusDot color="var(--green)">เปิดอยู่</StatusDot>
             <button onClick={disableExpiryNotify} style={{ marginLeft: 'auto', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}>ปิด</button>
           </div>
         ) : notifyPermission === 'denied' ? (
@@ -129,9 +128,7 @@ export default function SettingsScreen() {
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>เบราว์เซอร์/อุปกรณ์นี้ไม่รองรับการแจ้งเตือนแบบนี้</div>
         ) : lowStockNotifyEnabled ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--green)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--green)' }} /> เปิดอยู่
-            </span>
+            <StatusDot color="var(--green)">เปิดอยู่</StatusDot>
             <button onClick={disableLowStockNotify} style={{ marginLeft: 'auto', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}>ปิด</button>
           </div>
         ) : notifyPermission === 'denied' ? (
