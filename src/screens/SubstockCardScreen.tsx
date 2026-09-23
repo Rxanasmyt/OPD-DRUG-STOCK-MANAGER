@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
-import { subQty, wardOf, subTone } from '../store/selectors';
+import { subQty, wardOf, subTone, usesSubstock } from '../store/selectors';
 import { nf, thDate, fiscalYear } from '../utils/format';
 import { printSubstockCardSheet } from '../utils/print';
 import { downloadCsv } from '../utils/csv';
@@ -48,8 +48,13 @@ export default function SubstockCardScreen() {
   const [year, setYear] = useState<number | 'all'>('all');
 
   const med = medId ? state.meds.find((m) => m.id === medId) : null;
+  // A noSubstock med (liquids/inhalers/sprays) has no substock stage at all — its central-
+  // warehouse receipts credit the floor directly, no lot is ever created (see commitReceive) —
+  // so there is no real "บัตรสต็อก substock" to show for it (fetchSubstockLedger now returns
+  // empty for one too — see AppContext.tsx). Excluded from the picker so searching for one
+  // doesn't dead-end on an always-empty card.
   const options = !medId && search.trim()
-    ? state.meds.filter((m) => m.active && m.name.toLowerCase().indexOf(search.trim().toLowerCase()) >= 0).slice(0, 10)
+    ? state.meds.filter((m) => m.active && usesSubstock(m) && m.name.toLowerCase().indexOf(search.trim().toLowerCase()) >= 0).slice(0, 10)
     : [];
 
   const openCard = async (id: string) => {

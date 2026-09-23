@@ -2561,6 +2561,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const fetchSubstockLedger = useCallback(async (medId: string) => {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return [];
+    // Bug fix: a noSubstock med (liquids/inhalers/sprays — see usesSubstock()) never has a
+    // substock stage at all; commitReceive credits its floor directly (to:'floor', no lot ever
+    // created) instead of creating a substock lot. Nothing gated this screen from being opened
+    // for one anyway (SubstockCardScreen's search has no usesSubstock filter), so its real
+    // receive_from_central history — which the comment below assumed was always a substock
+    // credit — would get counted as substock "received" here, while subQty() (real lots, none
+    // exist) correctly reads 0. That produced a permanent false "mismatch" warning on any
+    // noSubstock med with receive history, and a running balance for a stock stage that was
+    // never real. Nothing to show for a med with no substock stage — return empty up front.
+    if (!usesSubstock(m)) return [];
     // A name query alone would merge two drugs' history the moment OPD and IPD versions of
     // the same drug share a name (see wardOf/Ward) — every tx write now also tags `medId`
     // (see the Tx type), so when this med has a same-name "twin" in the other ward, trust
