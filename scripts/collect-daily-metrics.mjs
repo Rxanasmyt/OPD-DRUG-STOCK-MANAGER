@@ -142,12 +142,19 @@ async function main() {
     }
   }
   const now = Date.now();
+  // Calendar-day difference in Asia/Bangkok time, not a raw 24h-window count — mirrors
+  // src/utils/format.ts's daysUntil(), which was fixed for exactly this reason (a raw
+  // floor((exp-now)/DAY) ticks over 24h after the exact instant this runs, not at local
+  // midnight, so this cron — scheduled ~00:05 Bangkok — could flag/miss a lot expiring "today"
+  // depending on the runner's UTC clock rather than the hospital's own calendar day).
+  const todayStartMs = bangkokDayStartMs(bangkokIsoDate(now));
   let nearExpiryValue = 0, expiredValue = 0;
   for (const l of lots) {
     if (!activeIds.has(l.medId) || !(l.qty > 0)) continue;
     const m = meds.find((x) => x.id === l.medId);
     if (!m) continue;
-    const daysLeft = Math.floor(((l.exp || 0) - now) / DAY);
+    const expStartMs = bangkokDayStartMs(bangkokIsoDate(l.exp || 0));
+    const daysLeft = Math.round((expStartMs - todayStartMs) / DAY);
     const value = l.qty * (m.price || 0);
     if (daysLeft < 0) expiredValue += value;
     else if (daysLeft < expiryWarnDays) nearExpiryValue += value;

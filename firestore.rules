@@ -18,6 +18,7 @@ service cloud.firestore {
     function isActive() { return signedIn() && myProfile().active == true; }
     function isAdmin() { return isActive() && myProfile().role == 'admin'; }
     function isPharmOrAdmin() { return isActive() && (myProfile().role == 'pharm' || myProfile().role == 'admin'); }
+    function isNonNegNum(v) { return v is number && v >= 0; }
 
     // ---- user profiles ----
     match /users/{uid} {
@@ -67,19 +68,37 @@ service cloud.firestore {
       allow read: if isActive();
       allow create, delete: if isAdmin();
       allow update: if isAdmin()
-                    || (isActive() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['floor', 'lastCountTs', 'lastSubCountTs']));
+                    || (isActive() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['floor', 'lastCountTs', 'lastSubCountTs'])
+                        && isNonNegNum(request.resource.data.floor));
     }
     // ---- lots: any approved staff can read/write (receiving, FEFO transfer, scrap
-    // all touch lots as part of normal day-to-day work, not just pharm/admin) ----
+    // all touch lots as part of normal day-to-day work, not just pharm/admin). Schema-checked
+    // (not just role-checked) since this is a shared-write collection — a real stock quantity,
+    // not just a UI-hidden field, so it's worth blocking obviously-malformed writes (negative/
+    // non-numeric qty, wrong-typed medId) at the database layer too, not just in client JS. ----
     match /lots/{lotId} {
       allow read: if isActive();
-      allow write: if isActive();
+      allow create: if isActive()
+                    && request.resource.data.medId is string
+                    && isNonNegNum(request.resource.data.qty)
+                    && request.resource.data.exp is number;
+      allow update: if isActive()
+                    && request.resource.data.medId is string
+                    && isNonNegNum(request.resource.data.qty);
+      allow delete: if isActive();
     }
 
-    // ---- transactions: append-only for everyone EXCEPT one admin-only escape hatch ----
+    // ---- transactions: append-only for everyone EXCEPT one admin-only escape hatch.
+    // Schema-checked on create — this is the audit ledger the app treats as authoritative
+    // history, so a malformed/fabricated entry (wrong-typed qty, no `by`/`ts`) shouldn't be
+    // acceptable just because the writer is a signed-in active user. ----
     match /txs/{txId} {
       allow read: if isActive();
-      allow create: if isActive();
+      allow create: if isActive()
+                    && request.resource.data.type is string
+                    && request.resource.data.qty is number
+                    && request.resource.data.by is string
+                    && request.resource.data.ts is number;
       allow update: if false;
       // Admin-only exception for resetAllStockLedgers() (AppContext.tsx) — the go-live
       // "start the system over" action that wipes the substock card ledger/report/usage-rate
@@ -91,7 +110,11 @@ service cloud.firestore {
     }
     match /auditLog/{entryId} {
       allow read: if isActive();
-      allow create: if isActive();
+      allow create: if isActive()
+                    && request.resource.data.type is string
+                    && request.resource.data.note is string
+                    && request.resource.data.by is string
+                    && request.resource.data.ts is number;
       allow update, delete: if false;
     }
 

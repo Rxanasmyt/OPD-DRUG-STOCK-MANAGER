@@ -890,6 +890,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return { ...st, screen: prev || 'more', navStack: stack };
   }), []);
 
+  // Bug fix: navStack (above) is a purely in-memory "came from" stack — it never touched the
+  // browser's real history, so the physical/hardware back button (or a swipe-back gesture) on
+  // mobile bypassed it entirely and left the PWA outright instead of popping one in-app screen,
+  // even from three levels deep. Fix: mirror every in-app forward navigation as one real
+  // history entry (one push per navStack growth, since a single tap can occasionally chain two
+  // screen changes — e.g. goReceiveFor), and treat every real "back" (hardware button, browser
+  // back, swipe gesture — all surface as a popstate event) as a pop of the SAME in-app stack.
+  // The one in-app back button (App.tsx's ← chevron) now calls history.back() instead of back()
+  // directly, so it funnels through this same popstate handler too — one source of truth, no
+  // risk of the two stacks drifting out of sync with each other.
+  const navDepthRef = useRef(state.navStack.length);
+  useEffect(() => {
+    const cur = state.navStack.length;
+    const prev = navDepthRef.current;
+    for (let i = prev; i < cur; i++) history.pushState({ opdNav: true }, '');
+    navDepthRef.current = cur;
+  }, [state.navStack.length]);
+  useEffect(() => {
+    const onPopState = () => { if (navDepthRef.current > 0) back(); };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [back]);
+
   // Bug fix: this used a bare (unwrapped) addDoc() — unlike every write that goes through
   // runTx (which wraps runTransaction in withTimeout right at its own definition, above). On a
   // hung connection (the exact hospital-wifi-captive-portal case withTimeout's own doc comment
@@ -1545,6 +1568,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!l) return;
     const m = state.meds.find((x) => x.id === l.medId);
     if (!m) return;
+    // Bug fix (workflow safety): this zeroes a real lot's qty permanently with no undo — every
+    // other destructive action in the app (delete med, full reset, merge wards) confirms first,
+    // but this one, despite being the single most common destructive tap on the floor (scrapping
+    // an expired lot), fired instantly. One line, not the heavier typed-confirmation used for
+    // bulk/admin actions, since this is routine day-to-day work, not a rare admin operation.
+    if (!(await confirmAsync('ตัด lot ' + l.lotNo + ' (' + m.name + ') จำนวน ' + nf(l.qty) + ' หน่วย ออกจาก substock ถาวร?\nกู้คืนไม่ได้'))) return;
     try {
       // Bug fix (data integrity): re-read the lot's real qty inside the same transaction that
       // zeroes it and logs the write-off — the old plain updateDoc + separate logTx() could
@@ -1569,7 +1598,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       console.error(e);
       toast('ตัด lot ไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [state.lots, state.meds, userName, toast, guardOnce]);
+  }), [state.lots, state.meds, userName, toast, guardOnce, confirmAsync]);
 
   // ---------- report ----------
   const setReportTab = useCallback((t: AppState['reportTab']) => patch({ reportTab: t }), [patch]);
