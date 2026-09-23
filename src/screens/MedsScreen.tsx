@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly } from '../utils/format';
 import { wardOf, wardLabel, floorMinOf, toneFor, isSharedMed, categoryOf } from '../store/selectors';
@@ -42,12 +42,42 @@ function sanitizeBin(v: string): string {
   return v.toUpperCase().replace(/[^A-Z0-9\u0E00-\u0E7F-]/g, '').slice(0, 10);
 }
 const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: 'var(--ipd)' };
-// Placeholder hints for a fridge med's shelf fields, built from FRIDGE_LOCS (data/locations.ts)
-// so the example codes shown here can never drift out of sync with what the printed ฉลากตู้เย็น
-// sheet (LabelsScreen) actually generates — 'บริการ' (service) codes for the floor/dispensing
-// field, 'คลัง'/'วัคซีน' (storage) codes for the substock field.
-const FRIDGE_SVC_HINT = FRIDGE_LOCS.filter(([c]) => c.includes('SVC')).map(([c]) => c).join(' หรือ ');
-const FRIDGE_STORE_HINT = FRIDGE_LOCS.filter(([c]) => !c.includes('SVC')).map(([c]) => c).join(' หรือ ');
+// Fridge-code options for a fridge med's shelf fields, split from FRIDGE_LOCS (data/locations.ts)
+// so the codes offered here can never drift out of sync with what the printed ฉลากตู้เย็น sheet
+// (LabelsScreen) actually generates — 'บริการ' (service) codes for the floor/dispensing fields,
+// 'คลัง'/'วัคซีน' (storage) codes for the substock field.
+const FRIDGE_SVC_OPTS = FRIDGE_LOCS.filter(([c]) => c.includes('SVC'));
+const FRIDGE_STORE_OPTS = FRIDGE_LOCS.filter(([c]) => !c.includes('SVC'));
+
+/** Real-world request: typing a fridge code by hand every time invites typos that then silently
+ * fail to match the printed ฉลากตู้เย็น QR labels — a dropdown of the actual known codes next to
+ * the free-text input (kept, in case a 5th fridge or a one-off code is ever needed) makes the
+ * common case a single tap. Both stay in sync: picking from the dropdown fills the text input,
+ * typing in the input still works and the dropdown just shows no match for anything outside the
+ * fixed list. */
+function FridgeCodeField({ value, onChange, options, style, disabled }: { value: string; onChange: (v: string) => void; options: [string, string][]; style?: CSSProperties; disabled?: boolean }) {
+  return (
+    <div style={{ display: 'flex', gap: 6 }}>
+      <input
+        value={value}
+        onChange={(e) => onChange(sanitizeBin(e.target.value))}
+        placeholder={'เช่น ' + options.map(([c]) => c).join(' หรือ ')}
+        disabled={disabled}
+        style={{ ...inputStyle, textTransform: 'uppercase' as const, flex: 1, ...(disabled ? { background: 'var(--bg-subtle)', color: 'var(--muted)' } : {}), ...style }}
+      />
+      <select
+        value={value}
+        onChange={(e) => { if (e.target.value) onChange(e.target.value); }}
+        disabled={disabled}
+        aria-label="เลือกรหัสตู้เย็น"
+        style={{ flex: 'none', width: 92, border: '1px solid var(--border)', borderRadius: 10, background: disabled ? 'var(--bg-subtle)' : 'var(--bg-card)', color: disabled ? 'var(--muted)' : 'var(--ink)', fontSize: 12.5, padding: '0 4px' }}
+      >
+        <option value="">— เลือก —</option>
+        {options.map(([code, name]) => <option key={code} value={code}>{code} · {name}</option>)}
+      </select>
+    </div>
+  );
+}
 const WARD_BG: Record<Ward, string> = { opd: 'var(--green-tint)', ipd: 'var(--ipd-bg)' };
 
 interface MedFormValues {
@@ -534,7 +564,11 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
           <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>
             {v.fridge ? '🧊 ตำแหน่งตู้เย็น (บริการ)' : v.shared ? 'ชั้นวาง (OPD)' : v.ward === 'ipd' ? 'ชั้นวาง (IPD)' : 'ชั้นวาง (OPD)'}
           </span>
-          <input value={v.bin} onChange={(e) => set('bin', sanitizeBin(e.target.value))} placeholder={v.fridge ? 'เช่น ' + FRIDGE_SVC_HINT : 'เช่น J4 หรือ ตู้ยา-1'} style={{ ...inputStyle, textTransform: 'uppercase' as const, ...(!v.shared && v.ward === 'ipd' ? { borderColor: WARD_COLOR.ipd } : {}) }} />
+          {v.fridge ? (
+            <FridgeCodeField value={v.bin} onChange={(val) => set('bin', val)} options={FRIDGE_SVC_OPTS} style={!v.shared && v.ward === 'ipd' ? { borderColor: WARD_COLOR.ipd } : {}} />
+          ) : (
+            <input value={v.bin} onChange={(e) => set('bin', sanitizeBin(e.target.value))} placeholder="เช่น J4 หรือ ตู้ยา-1" style={{ ...inputStyle, textTransform: 'uppercase' as const, ...(!v.shared && v.ward === 'ipd' ? { borderColor: WARD_COLOR.ipd } : {}) }} />
+          )}
         </label>
       </div>
       {/* Bug fix (usability): "เฉพาะ IPD" used to only be reachable by first unticking "ใช้ยอด
@@ -554,8 +588,12 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
         {v.shared ? (
           <div style={{ marginTop: 7 }}>
             <label style={{ display: 'block', marginBottom: 7 }}>
-              <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{v.fridge ? '🧊 ตำแหน่งตู้เย็น (บริการ — IPD)' : 'ชั้นวาง (IPD)'}</span>
-              <input value={v.binIpd} onChange={(e) => set('binIpd', sanitizeBin(e.target.value))} placeholder={v.fridge ? 'เช่น ' + FRIDGE_SVC_HINT : 'เช่น J4 หรือ ตู้ยา-1'} style={{ ...inputStyle, textTransform: 'uppercase' as const, borderColor: WARD_COLOR.ipd }} />
+              <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{v.fridge ? '🧊 ตำแหน่งตู้เย็น (OPD — IPD)' : 'ชั้นวาง (IPD)'}</span>
+              {v.fridge ? (
+                <FridgeCodeField value={v.binIpd} onChange={(val) => set('binIpd', val)} options={FRIDGE_SVC_OPTS} style={{ borderColor: WARD_COLOR.ipd }} />
+              ) : (
+                <input value={v.binIpd} onChange={(e) => set('binIpd', sanitizeBin(e.target.value))} placeholder="เช่น J4 หรือ ตู้ยา-1" style={{ ...inputStyle, textTransform: 'uppercase' as const, borderColor: WARD_COLOR.ipd }} />
+              )}
             </label>
             <div style={{ fontSize: 10.5, lineHeight: 1.5, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 9, padding: '8px 10px' }}>
               ใช้สต็อกร่วมกันทั้ง OPD และ IPD — หน้างาน/par/substock เป็นยอดเดียวกันหมด ต่างกันแค่รหัสชั้นวางที่แสดงตามฝั่งที่ดู (IPD หยิบยาจากชั้น OPD ตรง ๆ)
@@ -599,14 +637,18 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
         </div>
       )}
       <label style={{ display: 'block', marginBottom: 9 }}>
-        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{v.fridge ? '🧊 ตำแหน่งตู้เย็น (คลัง/สต็อกสำรอง)' : 'ชั้นวาง substock (คลังย่อย)'}</span>
-        <input
-          value={v.binSub}
-          onChange={(e) => set('binSub', sanitizeBin(e.target.value))}
-          placeholder={v.fridge ? 'เช่น ' + FRIDGE_STORE_HINT : 'เช่น A1 หรือ ชั้น-1 — ว่างไว้ถ้ายังไม่ได้กำหนด'}
-          disabled={v.noSubstock}
-          style={{ ...inputStyle, textTransform: 'uppercase' as const, ...(v.noSubstock ? { background: 'var(--bg-subtle)', color: 'var(--muted)' } : {}) }}
-        />
+        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{v.fridge ? '🧊 ตำแหน่งตู้เย็น (คลังวัคซีน/คลังยาเย็น)' : 'ชั้นวาง substock (คลังย่อย)'}</span>
+        {v.fridge ? (
+          <FridgeCodeField value={v.binSub} onChange={(val) => set('binSub', val)} options={FRIDGE_STORE_OPTS} disabled={v.noSubstock} />
+        ) : (
+          <input
+            value={v.binSub}
+            onChange={(e) => set('binSub', sanitizeBin(e.target.value))}
+            placeholder="เช่น A1 หรือ ชั้น-1 — ว่างไว้ถ้ายังไม่ได้กำหนด"
+            disabled={v.noSubstock}
+            style={{ ...inputStyle, textTransform: 'uppercase' as const, ...(v.noSubstock ? { background: 'var(--bg-subtle)', color: 'var(--muted)' } : {}) }}
+          />
+        )}
         <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>
           {v.fridge
             ? 'ตำแหน่งจัดเก็บในตู้เย็นคลังวัคซีน/คลังยา — คนละตู้กับตำแหน่งบริการด้านบน พิมพ์ฉลากตู้เย็นได้ในหน้าฉลาก QR'
