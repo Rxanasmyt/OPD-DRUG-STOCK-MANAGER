@@ -596,6 +596,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         const profile = { id: snap.id, ...snap.data() } as User;
+        // Bug fix (observed live): under a badly unstable connection, a reconnecting listen
+        // stream can deliver a snapshot where exists() is true but the document fields are
+        // still incomplete/not yet hydrated (the profile write itself mid-sync) — treated the
+        // same as !exists() before this, it went straight through as a real "pending approval"
+        // profile with empty name/username, rendering the broken "บัญชี (@) สมัครสำเร็จแล้ว".
+        // A real profile (however written) always has a username; treat one without it exactly
+        // like a not-yet-existing doc — wait for a snapshot that actually has real data, rather
+        // than committing to a state built from a half-synced read.
+        if (!profile.username) {
+          clearDowngrade();
+          downgradeTimer = window.setTimeout(() => patch({ authStatus: 'signedOut' }), downgradeDelay);
+          return;
+        }
         if (profile.active) {
           clearDowngrade();
           setMyProfile(profile);
