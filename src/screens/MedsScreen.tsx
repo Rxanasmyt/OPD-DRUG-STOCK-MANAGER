@@ -469,6 +469,15 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
   const [v, setV] = useState<MedFormValues>(initial);
   const set = <K extends keyof MedFormValues>(k: K, val: MedFormValues[K]) => setV((s) => ({ ...s, [k]: val }));
   const suggestedCategory = suggestCategoryId(v.name);
+  // Bug fix: nothing stopped Min (floorMin) from being saved higher than Max (parFloor) — a
+  // typo or a copy-paste mixup produces a shelf that's flagged "must refill" while ALSO already
+  // over its own refill target, and every "suggested qty to add" computation downstream
+  // (HomeScreen's quick-add button, TransferScreen's bump()) turns negative for it. Block the
+  // save instead of letting a bad pair reach Firestore — cheap to catch here, expensive to
+  // debug later as "the app shows a weird negative number".
+  const parFloorNum = parseInt(v.parFloor, 10) || 0;
+  const floorMinTyped = v.floorMin.trim() !== '' ? parseInt(v.floorMin, 10) || 0 : null;
+  const minExceedsMax = floorMinTyped !== null && parFloorNum > 0 && floorMinTyped > parFloorNum;
   const setShared = (on: boolean) => setV((s) => ({ ...s, shared: on, binIpd: on ? s.binIpd : '' }));
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
 
@@ -605,6 +614,11 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
         <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>จุดต่ำสุดต้องเติม (Min)</span>
         <input value={v.floorMin} onChange={(e) => set('floorMin', digitsOnly(e.target.value))} placeholder={'ว่างไว้ = ' + nf(floorMinOf({ parFloor: parseInt(v.parFloor, 10) || 0 } as Med)) + ' (50% ของ Max ปัดเป็นเลขลงตัว)'} inputMode="numeric" style={inputStyle} />
         <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>ต่ำกว่าจุดนี้คือของจริงที่ต้องเติมตอนเช้า — คนละจุดกับ Max เพราะอัตราการใช้ OPD/IPD ไม่เท่ากัน แม้ยารหัสเดียวกันก็ตั้ง Min-Max ต่างกันได้ตามชั้นวางจริง</div>
+        {minExceedsMax && (
+          <div style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--red)', background: 'var(--red-bg)', borderRadius: 9, padding: '8px 10px', marginTop: 6 }}>
+            Min ({nf(floorMinTyped)}) สูงกว่า Max ({nf(parFloorNum)}) — ต้องตั้ง Min ไม่เกิน Max แก้ตัวเลขก่อนบันทึก
+          </div>
+        )}
       </label>
       <label style={{ display: 'block', marginBottom: 9 }}>
         <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>ตัวคูณกันชน (volatility) — ใช้ตอนคำนวณ "ค่าแนะนำ"</span>
@@ -636,7 +650,7 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
       )}
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={onCancel} className="btn-outline" style={{ flex: 1, padding: 12, borderRadius: 10, fontSize: 13.5, minHeight: 46 }}>ยกเลิก</button>
-        <button onClick={() => onSubmit(v)} disabled={!v.name.trim()} className="btn-primary" style={{ flex: 1, padding: 12, borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 46, opacity: v.name.trim() ? 1 : 0.5 }}>{submitLabel}</button>
+        <button onClick={() => onSubmit(v)} disabled={!v.name.trim() || minExceedsMax} className="btn-primary" style={{ flex: 1, padding: 12, borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 46, opacity: v.name.trim() && !minExceedsMax ? 1 : 0.5 }}>{submitLabel}</button>
       </div>
     </div>
   );

@@ -7,6 +7,26 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.59.0] - 2026-09-23
+
+### Fixed — pre-production bug sweep (critical: substock count broken for non-pharm/admin staff)
+- **⚠️ สำคัญมาก ต้อง publish firestore.rules ใหม่ด้วย (ไม่ใช่แค่ deploy โค้ด)**: การนับสต็อก
+  substock (CountScreen.tsx โหมด "substock") ไม่มีการจำกัดสิทธิ์ตาม role เลย — ผู้ช่วยเภสัชกร (tech)
+  เข้าถึงและกดบันทึกได้ปกติ แต่ `commitSubCount`/`commitAllSubCounts` (AppContext.tsx) เขียนฟิลด์
+  `lastSubCountTs` ลงเอกสาร meds ซึ่ง **ไม่เคยถูกเพิ่มเข้า firestore.rules'** รายการฟิลด์ที่พนักงาน
+  ทั่วไปเขียนได้ (`floor`, `lastCountTs` เท่านั้น) — ตอน field นี้ถูกเพิ่มเข้าแอพ (แยก clock การนับ
+  substock ออกจากการนับหน้างาน) ไม่ได้แก้ rules ตามไปด้วย ผลคือถ้า จพ.เภสัชกรรม (tech) พยายามบันทึก
+  ผลนับสต็อก substock ระบบจะถูก Firestore Security Rules ปฏิเสธการเขียนทันที (permission-denied)
+  ทำให้ transaction ทั้งก้อนล้มเหลว — **ไม่บันทึกอะไรเลยแม้แต่ตัวเลข lot ที่ปรับ** ต่อให้กดซ้ำกี่ครั้งก็
+  ยังพังเหมือนเดิมเพราะเป็นปัญหาสิทธิ์ ไม่ใช่ปัญหาเชื่อมต่อ — แก้โดยเพิ่ม `lastSubCountTs` เข้ารายการ
+  ฟิลด์ที่พนักงานทุกคนเขียนได้ใน firestore.rules **ต้อง copy ไฟล์ firestore.rules ทั้งไฟล์ไป paste
+  ใน Firebase Console → Firestore Database → Rules → Publish ใหม่ก่อนใช้งานจริง มิฉะนั้นบัคนี้จะยัง
+  อยู่ต่อไปแม้โค้ดแอพจะ deploy แล้วก็ตาม**
+- **หน้าเพิ่ม/แก้ไขยาไม่ป้องกันการตั้ง Min สูงกว่า Max**: ไม่มีการ validate เลยว่า floorMin ≤ parFloor
+  ตอนกรอกฟอร์ม — ถ้ากรอกผิดโดยไม่ตั้งใจ (เช่น สลับช่อง) จะได้ยาที่ถูกตั้งว่า "ต่ำกว่า Min ต้องเติม" ทั้งที่
+  เกิน Max ไปแล้ว และทุกจุดที่คำนวณ "จำนวนที่ควรเติม" (ปุ่มด่วนหน้าแรก, ตะกร้าเติมหน้างาน) จะกลายเป็น
+  ค่าติดลบ — เพิ่มคำเตือนสีแดงและบล็อกการบันทึกจนกว่าจะแก้ Min ให้ไม่เกิน Max
+
 ## [3.58.0] - 2026-09-23
 
 ### Fixed — pre-production bug sweep, HomeScreen
