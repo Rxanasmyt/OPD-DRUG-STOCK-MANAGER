@@ -901,14 +901,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // directly, so it funnels through this same popstate handler too — one source of truth, no
   // risk of the two stacks drifting out of sync with each other.
   const navDepthRef = useRef(state.navStack.length);
+  // Set right before back() runs FROM a real popstate (physical/browser back, or the in-app ←
+  // button via history.back()), so the length-effect below can tell "the stack shrank because a
+  // real history entry was just consumed" apart from "the stack shrank some other way" (e.g.
+  // sign-out resetting navStack straight to [] — a plain state reset, not a back-navigation).
+  // Only the latter needs correcting: without this, signing out three screens deep would leave
+  // 3 orphaned entries in the browser's real history, silently eating the next 3 back-button
+  // presses on a shared/kiosk device before the button does anything again.
+  const navShrinkFromPopstateRef = useRef(false);
   useEffect(() => {
     const cur = state.navStack.length;
     const prev = navDepthRef.current;
-    for (let i = prev; i < cur; i++) history.pushState({ opdNav: true }, '');
+    if (cur > prev) {
+      for (let i = prev; i < cur; i++) history.pushState({ opdNav: true }, '');
+    } else if (cur < prev && !navShrinkFromPopstateRef.current) {
+      history.go(-(prev - cur));
+    }
+    navShrinkFromPopstateRef.current = false;
     navDepthRef.current = cur;
   }, [state.navStack.length]);
   useEffect(() => {
-    const onPopState = () => { if (navDepthRef.current > 0) back(); };
+    const onPopState = () => { if (navDepthRef.current > 0) { navShrinkFromPopstateRef.current = true; back(); } };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, [back]);

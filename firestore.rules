@@ -84,7 +84,8 @@ service cloud.firestore {
                     && request.resource.data.exp is number;
       allow update: if isActive()
                     && request.resource.data.medId is string
-                    && isNonNegNum(request.resource.data.qty);
+                    && isNonNegNum(request.resource.data.qty)
+                    && request.resource.data.exp is number;
       allow delete: if isActive();
     }
 
