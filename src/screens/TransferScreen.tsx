@@ -70,7 +70,7 @@ export default function TransferScreen() {
   const urgent = meds.filter(isUrgentLow);
   const q = state.search.trim().toLowerCase();
   const filteredByStatus = meds.filter((m) => {
-    if (q && m.name.toLowerCase().indexOf(q) < 0) return false;
+    if (q && m.name.toLowerCase().indexOf(q) < 0 && m.code.toLowerCase().indexOf(q) < 0) return false;
     if (state.filter === 'low') return m.floor < floorMinOf(m);
     if (state.filter === 'urgent') return isUrgentLow(m);
     if (state.filter === 'had') return m.had;

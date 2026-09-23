@@ -214,7 +214,7 @@ export default function MedsScreen() {
 
   const medsBeforeWard = state.meds
     .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : filter === 'inactive' ? !m.active : (m.parFloor === 1 && floorMinOf(m) === 1)))
-    .filter((m) => !q.trim() || m.name.toLowerCase().indexOf(q.trim().toLowerCase()) >= 0);
+    .filter((m) => { const s = q.trim().toLowerCase(); return !s || m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0; });
 
   // Bug fix (clarity): matchesWard() (used everywhere else — TransferScreen/ReceiveScreen/etc.)
   // deliberately puts a shared med under BOTH the "OPD" and "IPD" tab, since it really is

@@ -27,10 +27,10 @@ export default function WardMoveScreen() {
   const fromMed = state.wmFromMed ? meds.find((m) => m.id === state.wmFromMed) : null;
   const toMed = state.wmToMed ? meds.find((m) => m.id === state.wmToMed) : null;
   const fromOptions = !state.wmFromMed && state.wmFromSearch.trim()
-    ? meds.filter((m) => m.name.toLowerCase().indexOf(state.wmFromSearch.trim().toLowerCase()) >= 0).slice(0, 8)
+    ? meds.filter((m) => { const s = state.wmFromSearch.trim().toLowerCase(); return m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0; }).slice(0, 8)
     : [];
   const toOptions = !state.wmToMed && state.wmToSearch.trim()
-    ? meds.filter((m) => m.id !== fromMed?.id && m.name.toLowerCase().indexOf(state.wmToSearch.trim().toLowerCase()) >= 0).slice(0, 8)
+    ? meds.filter((m) => { const s = state.wmToSearch.trim().toLowerCase(); return m.id !== fromMed?.id && (m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0); }).slice(0, 8)
     : [];
   const qty = parseInt(state.wmQty, 10) || 0;
   const canSubmit = !!fromMed && !!toMed && fromMed.id !== toMed.id && qty > 0 && qty <= fromMed.floor && state.wmReason.trim();

@@ -80,7 +80,7 @@ export default function CountScreen() {
   const meds = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return active
-      .filter((m) => !needle || m.name.toLowerCase().indexOf(needle) >= 0)
+      .filter((m) => !needle || m.name.toLowerCase().indexOf(needle) >= 0 || m.code.toLowerCase().indexOf(needle) >= 0)
       .filter((m) => catTab === 'all' || categoryOf(m) === catTab)
       .filter((m) => scope === 'all' || (scope === 'never' ? !lastTsOf(m) : typedSet.has(m.id)))
       .sort((a, b) => (sort === 'name'

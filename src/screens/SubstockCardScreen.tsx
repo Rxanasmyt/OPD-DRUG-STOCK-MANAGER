@@ -64,7 +64,7 @@ export default function SubstockCardScreen() {
   // AppContext.tsx), so it gets the same card, just built from floor history instead of
   // substock history. No longer excluded from the picker.
   const options = !medId && search.trim()
-    ? state.meds.filter((m) => m.active && m.name.toLowerCase().indexOf(search.trim().toLowerCase()) >= 0).slice(0, 10)
+    ? state.meds.filter((m) => { const s = search.trim().toLowerCase(); return m.active && (m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0); }).slice(0, 10)
     : [];
 
   const openCard = async (id: string) => {

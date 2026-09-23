@@ -46,7 +46,7 @@ export default function AdjustScreen() {
   const adjMed = state.adjMed ? meds.find((m) => m.id === state.adjMed) : null;
   // OPD/IPD ward tabs removed — one combined picker across the whole formulary.
   const options = !state.adjMed && state.adjSearch.trim()
-    ? meds.filter((m) => m.name.toLowerCase().indexOf(state.adjSearch.trim().toLowerCase()) >= 0).slice(0, 10)
+    ? meds.filter((m) => { const s = state.adjSearch.trim().toLowerCase(); return m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0; }).slice(0, 10)
     : [];
 
   const scrapRows = state.lots
