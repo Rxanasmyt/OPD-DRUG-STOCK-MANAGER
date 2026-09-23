@@ -5,6 +5,7 @@ import { nf, thDate, isoDate, DAY } from '../utils/format';
 import type { ReportTab, DailyMetrics } from '../types';
 import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
+import { printKpiReportSheet } from '../utils/print';
 
 // "exec" leads the tab strip — a PTC/pharmacy-head reader opening this screen wants the
 // headline picture first, not to have to find it after four operational tabs. "kpi" trails
@@ -28,7 +29,7 @@ const DISC_TYPE_LABEL: Record<string, string> = {
 export default function ReportScreen() {
   const {
     state, setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary, goSubstockCardFor, fetchExecTxsThisMonth,
-    fetchDailyMetrics, exportDailyMetricsCsv,
+    fetchDailyMetrics, exportDailyMetricsCsv, userName, toast,
   } = useApp();
   // Discrepancy log had no way to narrow it down — always the same fixed most-recent-30 slice
   // of state.txs, with no type filter and no way to find one specific drug's history, unlike
@@ -448,13 +449,25 @@ export default function ReportScreen() {
 
             {kpiRows.length > 0 && (
               <>
-                <button
-                  onClick={() => exportDailyMetricsCsv(kpiRows)}
-                  className="btn-outline"
-                  style={{ width: '100%', padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44, marginBottom: 14 }}
-                >
-                  ↓ Export CSV — {nf(kpiRows.length)} วัน ({kpiFrom} ถึง {kpiTo})
-                </button>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                  <button
+                    onClick={() => exportDailyMetricsCsv(kpiRows)}
+                    className="btn-outline"
+                    style={{ flex: 1, padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44 }}
+                  >
+                    ↓ Export CSV — {nf(kpiRows.length)} วัน
+                  </button>
+                  <button
+                    onClick={() => {
+                      const ok = printKpiReportSheet(kpiRows, { fromDate: kpiFrom, toDate: kpiTo, printedBy: userName() });
+                      if (!ok) toast('เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
+                    }}
+                    className="btn-primary"
+                    style={{ flex: 1, padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 700, minHeight: 44 }}
+                  >
+                    🖨 พิมพ์รายงานทางการ
+                  </button>
+                </div>
 
                 <div className="grid-2 tablet-4" style={{ marginBottom: 16 }}>
                   <ExecStat label="มูลค่าคงคลังล่าสุด" value={kpiLast ? nf(Math.round(kpiLast.totalStockValue)) + ' บาท' : '—'} note={kpiLast ? 'ณ ' + kpiLast.date : undefined} />

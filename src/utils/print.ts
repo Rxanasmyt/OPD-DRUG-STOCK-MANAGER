@@ -2,6 +2,7 @@ import { qrSvgMarkup } from './qr';
 import { fitSingleLineFontSizePx, splitTitleForDisplay } from './labelName';
 import { fiscalYear, thDateLong } from './format';
 import { HOSPITAL_CREST_DATA_URI } from './crestImage';
+import type { DailyMetrics } from '../types';
 
 // The real crest (see HospitalCrest.tsx / crestImage.ts) as a plain <img>, sized to fit an
 // sizePx-tall box while keeping its real (non-square) aspect ratio — the source crop is
@@ -674,6 +675,186 @@ export function printExecutiveSummarySheet(
     ${rowsHtml(topUsage, 'จ่าย 30 วัน', 'คงคลัง (วัน)')}
 
     <div class="foot"><span>จัดทำโดย: ${escapeHtml(meta.printedBy || '—')}</span><span>จัดพิมพ์จากระบบเมื่อวันที่ ${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
+  </div>
+  <script>window.onload = function () { window.print(); };</script>
+</body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) return false;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  return true;
+}
+
+/**
+ * A minimal, dependency-free SVG line chart — this app has no charting library, and pulling
+ * one in just for a single printed report isn't worth the weight (see usageImport.ts's own
+ * note on why `xlsx`, a much smaller ask, is already lazy-loaded). Plain inline SVG prints
+ * crisply at any resolution (unlike a canvas snapshot) and needs nothing from the page's own
+ * script to render, which matters here since this is a NEW popup window's static HTML string,
+ * same as every other sheet in this file.
+ */
+function trendChartSvg(rows: { label: string; value: number }[], color: string, valueFmt: (n: number) => string): string {
+  const width = 700, height = 170, padL = 56, padR = 12, padT = 10, padB = 24;
+  const plotW = width - padL - padR, plotH = height - padT - padB;
+  if (!rows.length) return '<div style="padding:20px;text-align:center;color:#8a9490;font-size:10.5pt">ไม่มีข้อมูลในช่วงที่เลือก</div>';
+  const values = rows.map((r) => r.value);
+  const max = Math.max(...values, 0);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+  const x = (i: number) => padL + (rows.length === 1 ? plotW / 2 : (i / (rows.length - 1)) * plotW);
+  const y = (v: number) => padT + plotH - ((v - min) / range) * plotH;
+  const pathD = rows.map((r, i) => (i === 0 ? 'M' : 'L') + ' ' + x(i).toFixed(1) + ' ' + y(r.value).toFixed(1)).join(' ');
+  const dots = rows.map((r, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(r.value).toFixed(1)}" r="2" fill="${color}"/>`).join('');
+  const gridN = 4;
+  let grid = '', yLabels = '';
+  for (let g = 0; g <= gridN; g++) {
+    const v = min + (range * g) / gridN;
+    const gy = y(v);
+    grid += `<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${width - padR}" y2="${gy.toFixed(1)}" stroke="#e1e8e4" stroke-width="0.6"/>`;
+    yLabels += `<text x="${padL - 6}" y="${(gy + 3).toFixed(1)}" font-size="7.5" fill="#667" text-anchor="end" font-family="Sarabun, sans-serif">${escapeHtml(valueFmt(Math.round(v)))}</text>`;
+  }
+  // Sparse x labels (at most ~7) — a full 90-day range printed with every date would be
+  // unreadable; the underlying data table below the chart still carries every single day.
+  const maxXLabels = 7;
+  const step = Math.max(1, Math.ceil(rows.length / maxXLabels));
+  let xLabels = '';
+  rows.forEach((r, i) => {
+    if (i % step === 0 || i === rows.length - 1) {
+      xLabels += `<text x="${x(i).toFixed(1)}" y="${height - 6}" font-size="7.5" fill="#667" text-anchor="middle" font-family="Sarabun, sans-serif">${escapeHtml(r.label)}</text>`;
+    }
+  });
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="display:block;width:100%;height:auto">
+    ${grid}<path d="${pathD}" fill="none" stroke="${color}" stroke-width="1.6"/>${dots}${yLabels}${xLabels}
+  </svg>`;
+}
+
+/**
+ * Formal printed version of the "📅 ตัวชี้วัดย้อนหลัง" report tab — same letterhead/Sarabun/teal
+ * treatment as every other official sheet in this file (printPickListSheet/
+ * printExecutiveSummarySheet), for a pharmacy head/PTC reader who wants the trend as a real
+ * document to file or hand up the chain, not just a screen they have to open the app for.
+ * Takes the already-fetched range (see fetchDailyMetrics in AppContext.tsx) rather than
+ * querying anything itself — this file has no Firestore access of its own, by design (every
+ * other sheet here works the same way).
+ */
+export function printKpiReportSheet(rows: DailyMetrics[], meta: { fromDate: string; toDate: string; printedBy?: string } = { fromDate: '', toDate: '' }): boolean {
+  const now = new Date();
+  const sum = (f: (r: DailyMetrics) => number) => rows.reduce((s, r) => s + f(r), 0);
+  const last = rows[rows.length - 1];
+  const short = (d: string) => d.slice(5); // "2026-09-22" -> "09-22", plenty for a chart axis
+  const stats: { label: string; value: string; note?: string; tone?: string }[] = [
+    { label: 'มูลค่าคงคลังล่าสุด', value: last ? Math.round(last.totalStockValue).toLocaleString('en-US') + ' บาท' : '—', note: last ? 'ณ ' + last.date : undefined },
+    { label: 'รับเข้ารวมช่วงนี้', value: sum((r) => r.receivedQty).toLocaleString('en-US'), note: sum((r) => r.receivedCount).toLocaleString('en-US') + ' ครั้ง' },
+    { label: 'จ่ายจริงรวม (HOSxP)', value: sum((r) => r.dispensedQty).toLocaleString('en-US') },
+    { label: 'par ผิดพลาดล่าสุด', value: last ? last.parErrorCount.toLocaleString('en-US') + ' รายการ' : '—', tone: last && last.parErrorCount > 0 ? '#b3261e' : '#175554' },
+    {
+      label: 'อัตราขาดสต็อกจริงล่าสุด',
+      value: last && last.usedMedCount > 0 ? ((last.stockoutCount / last.usedMedCount) * 100).toFixed(1) + '%' : '—',
+      tone: last && last.stockoutCount > 0 ? '#b3261e' : '#175554',
+    },
+    {
+      label: 'เวลารอเบิกยาเฉลี่ย',
+      value: (() => {
+        const totalApproved = sum((r) => r.receiveApprovedCount);
+        if (!totalApproved) return '—';
+        const totalHours = rows.reduce((s, r) => s + (r.receiveLeadTimeAvgHours ?? 0) * r.receiveApprovedCount, 0);
+        return (totalHours / totalApproved).toFixed(1) + ' ชม.';
+      })(),
+    },
+  ];
+  const statCards = stats
+    .map((s) => `<div class="stat"><div class="v" style="color:${s.tone || '#14211a'}">${escapeHtml(s.value)}</div><div class="l">${escapeHtml(s.label)}</div>${s.note ? `<div class="n">${escapeHtml(s.note)}</div>` : ''}</div>`)
+    .join('');
+
+  const valueChart = trendChartSvg(rows.map((r) => ({ label: short(r.date), value: r.totalStockValue })), '#007371', (n) => n.toLocaleString('en-US'));
+  const dispensedChart = trendChartSvg(rows.map((r) => ({ label: short(r.date), value: r.dispensedQty })), '#a15c00', (n) => n.toLocaleString('en-US'));
+  const parErrorChart = trendChartSvg(rows.map((r) => ({ label: short(r.date), value: r.parErrorCount })), '#b3261e', (n) => n.toLocaleString('en-US'));
+
+  const tableRows = rows
+    .map((r) => `<tr>
+      <td>${escapeHtml(r.date)}</td>
+      <td class="num">${Math.round(r.totalStockValue).toLocaleString('en-US')}</td>
+      <td class="num">${r.receivedQty.toLocaleString('en-US')}</td>
+      <td class="num">${r.dispensedQty.toLocaleString('en-US')}</td>
+      <td class="num" style="${r.parErrorCount > 0 ? 'color:#b3261e;font-weight:700' : ''}">${r.parErrorCount.toLocaleString('en-US')}</td>
+      <td class="num">${r.stockoutCount.toLocaleString('en-US')}</td>
+      <td class="num">${r.activeUserCount.toLocaleString('en-US')}</td>
+    </tr>`)
+    .join('');
+
+  const html = `<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><title>รายงานตัวชี้วัดคลังยา</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Sarabun', 'Noto Sans Thai', system-ui, -apple-system, sans-serif; margin: 0; color: #14211a; font-size: 11.5pt; }
+
+  .letterhead { display: flex; align-items: center; gap: 4mm; padding-bottom: 3mm; border-bottom: 1pt solid #14211a; }
+  .letterhead .crest { flex: none; display: flex; align-items: center; }
+  .letterhead .org .h1 { font-size: 14.5pt; font-weight: 700; line-height: 1.3; }
+  .letterhead .org .h2 { font-size: 10.5pt; color: #444; line-height: 1.3; }
+
+  .doctitle { text-align: center; font-size: 16.5pt; font-weight: 700; margin: 5mm 0 1mm; letter-spacing: .01em; }
+  .docsub { text-align: center; font-size: 10.5pt; color: #555; margin-bottom: 5mm; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm; margin-bottom: 6mm; }
+  .stat { border: 0.6pt solid #b8c4bd; border-radius: 2mm; padding: 3mm 3mm 2.5mm; background: #f8faf9; break-inside: avoid; }
+  .stat .v { font-size: 14pt; font-weight: 700; line-height: 1.15; }
+  .stat .l { font-size: 8.8pt; color: #444; margin-top: 1mm; line-height: 1.35; }
+  .stat .n { font-size: 8pt; color: #667; margin-top: 0.5mm; }
+
+  .sectitle { font-size: 12pt; font-weight: 700; margin: 6mm 0 2.5mm; padding-top: 4mm; border-top: 0.6pt solid #cdd6d1; break-after: avoid; }
+  .sectitle:first-of-type { border-top: none; padding-top: 0; }
+  .chartbox { border: 0.6pt solid #b8c4bd; border-radius: 2mm; padding: 3mm; background: #fff; break-inside: avoid; margin-bottom: 4mm; }
+
+  table.rows { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+  table.rows th { text-align: left; font-size: 8.8pt; font-weight: 700; color: #14211a; background: #eef6f6; border: 0.6pt solid #9fb8b8; padding: 1.8mm 2.4mm; }
+  table.rows td { padding: 1.8mm 2.4mm; border: 0.5pt solid #cdd6d1; }
+  table.rows tbody tr:nth-child(even) { background: #f8faf9; }
+  table.rows .num { text-align: right; }
+
+  .foot { display: flex; justify-content: space-between; font-size: 8.5pt; color: #667; margin-top: 6mm; padding-top: 2.5mm; border-top: 0.5pt solid #cdd6d1; }
+
+  @media screen {
+    body { background: #eee; padding: 14mm; }
+    .sheet { background: #fff; padding: 14mm 12mm; margin: 0 auto; max-width: 210mm; box-shadow: 0 0 0 1px #ddd; }
+  }
+</style></head>
+<body>
+  <div class="sheet">
+    <div class="letterhead">
+      <div class="crest">${crestImgMarkup(56)}</div>
+      <div class="org">
+        <div class="h1">โรงพยาบาลกรงปินัง</div>
+        <div class="h2">ห้องยา ฝ่ายเภสัชกรรม</div>
+      </div>
+    </div>
+    <div class="doctitle">รายงานตัวชี้วัดคลังยา (KPI Report)</div>
+    <div class="docsub">ช่วงวันที่ ${escapeHtml(meta.fromDate)} ถึง ${escapeHtml(meta.toDate)} · ${rows.length} วัน</div>
+
+    <div class="stats">${statCards}</div>
+
+    <div class="sectitle">แนวโน้มมูลค่าคงคลัง (บาท)</div>
+    <div class="chartbox">${valueChart}</div>
+
+    <div class="sectitle">แนวโน้มจ่ายจริงรายวัน (ตามไฟล์ HOSxP)</div>
+    <div class="chartbox">${dispensedChart}</div>
+
+    <div class="sectitle">แนวโน้ม par ที่ผิดพลาดรายวัน</div>
+    <div class="chartbox">${parErrorChart}</div>
+
+    <div class="sectitle">ข้อมูลรายวัน</div>
+    <table class="rows">
+      <thead><tr><th>วันที่</th><th class="num">มูลค่าคงคลัง</th><th class="num">รับเข้า</th><th class="num">จ่ายจริง</th><th class="num">par ผิด</th><th class="num">ขาดสต็อก</th><th class="num">ผู้ใช้งาน</th></tr></thead>
+      <tbody>${tableRows}</tbody>
+    </table>
+
+    <div class="foot"><span>จัดทำโดย: ${escapeHtml(meta.printedBy || '—')}</span><span>จัดพิมพ์จากระบบเมื่อวันที่ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
   </div>
   <script>window.onload = function () { window.print(); };</script>
 </body></html>`;
