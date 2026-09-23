@@ -146,6 +146,70 @@ export function usageAnomalies(meds: Med[], threshold = 0.4): UsageAnomaly[] {
     .sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct));
 }
 
+/** One thing wrong with a med's own Min/Max/par substock numbers — not a stock LEVEL problem
+ * (that's isUrgentLow/needsWarehouseRequest, which compare a number against its par), but the
+ * par NUMBERS THEMSELVES not making internal sense, almost always a typo (an extra/missing
+ * zero, Min and Max swapped, par substock left at 0 for a drug that's actually dispensed
+ * every day). `severity: 'error'` is an internal contradiction — always wrong, no judgment
+ * call. `severity: 'review'` is a real number that just looks implausible next to this med's
+ * own real usage rate — worth a human glance, not necessarily wrong (a genuinely new drug with
+ * a deliberately generous starting par is a legitimate reason for a big gap). */
+export interface ParAnomaly { med: Med; code: string; severity: 'error' | 'review'; note: string }
+
+export function parAnomaliesFor(m: Med, floorCoverDays: number, subCoverDays: number): ParAnomaly[] {
+  if (!m.active) return [];
+  const out: ParAnomaly[] = [];
+  const min = floorMinOf(m);
+  // Min (reorder point) at or above Max (shelf capacity) — the shelf can never sit anywhere
+  // between "needs refilling" and "full" as designed; a fresh top-up already reads as at/below
+  // its own reorder point, so it re-triggers every single day regardless of real usage.
+  if (m.parFloor > 0 && min >= m.parFloor) {
+    out.push({ med: m, code: 'min_ge_max', severity: 'error', note: 'Min (' + nf0(min) + ') ≥ Max (' + nf0(m.parFloor) + ') — ตั้งจุดเติม (Min) เท่ากับหรือสูงกว่าความจุชั้น (Max)' });
+  }
+  // A substock-backed med whose substock par can't even refill its own shelf to Max once —
+  // structurally under-provisioned: substock exists specifically to top the shelf back up (see
+  // suggestPar()'s doc comment on why subCoverDays > floorCoverDays), so this almost always
+  // means the two fields got mixed up when they were typed in.
+  if (usesSubstock(m) && m.parFloor > 0 && m.parSub > 0 && m.parSub < m.parFloor) {
+    out.push({ med: m, code: 'sub_lt_floor', severity: 'error', note: 'par substock (' + nf0(m.parSub) + ') < par หน้างาน (' + nf0(m.parFloor) + ') — substock เติมชั้นให้เต็ม Max ไม่ได้แม้แต่ครั้งเดียว' });
+  }
+  // Actively dispensed (real usage on record) but Max was never set at all — every stock-level
+  // check this app makes (isUrgentLow, needsWarehouseRequest, transfer suggestions) silently
+  // reads as "never low" against a par of 0, so this drug quietly gets skipped by every
+  // refill/reorder prompt in the app despite genuinely being in active use.
+  if (m.used30 > 0 && m.parFloor === 0) {
+    out.push({ med: m, code: 'no_par_floor', severity: 'error', note: 'มีการจ่ายจริง (' + nf0(m.used30) + ' หน่วย/30 วัน) แต่ยังไม่ได้ตั้ง par หน้างาน (Max) — ระบบจะไม่แจ้งเตือนต่ำกว่า Min ให้เลย' });
+  }
+  if (usesSubstock(m) && m.used30 > 0 && m.parSub === 0) {
+    out.push({ med: m, code: 'no_par_sub', severity: 'error', note: 'มีการจ่ายจริง (' + nf0(m.used30) + ' หน่วย/30 วัน) แต่ยังไม่ได้ตั้ง par substock — ระบบจะไม่แจ้งเตือนให้เบิกจากคลังใหญ่' });
+  }
+  // A real, current usage-rate baseline exists — compare the CURRENT par against what that
+  // rate would suggest today. A wide gap either direction is worth a look: a par several times
+  // smaller than what real usage needs will chronically run out; one several times larger ties
+  // up shelf/substock space (and expiry risk) for stock that just sits there. 'review' (not
+  // 'error') — a deliberately generous starting par or a recent real change in prescribing
+  // habits (see usageAnomalies() above) are both legitimate reasons real usage and the
+  // currently-set par could genuinely disagree this much.
+  const suggested = suggestPar(m, floorCoverDays, subCoverDays);
+  if (suggested) {
+    if (m.parFloor > 0 && (suggested.floor >= m.parFloor * 3 || suggested.floor * 3 <= m.parFloor)) {
+      out.push({ med: m, code: 'floor_far_from_suggested', severity: 'review', note: 'par หน้างานปัจจุบัน ' + nf0(m.parFloor) + ' ต่างจากค่าแนะนำจากอัตราการใช้จริง (' + nf0(suggested.floor) + ') มาก — ควรตรวจสอบ' });
+    }
+    if (usesSubstock(m) && m.parSub > 0 && (suggested.sub >= m.parSub * 3 || suggested.sub * 3 <= m.parSub)) {
+      out.push({ med: m, code: 'sub_far_from_suggested', severity: 'review', note: 'par substock ปัจจุบัน ' + nf0(m.parSub) + ' ต่างจากค่าแนะนำจากอัตราการใช้จริง (' + nf0(suggested.sub) + ') มาก — ควรตรวจสอบ' });
+    }
+  }
+  return out;
+}
+
+export function parAnomalies(meds: Med[], floorCoverDays: number, subCoverDays: number): ParAnomaly[] {
+  return meds.flatMap((m) => parAnomaliesFor(m, floorCoverDays, subCoverDays));
+}
+
+function nf0(n: number): string {
+  return Math.round(n).toLocaleString('en-US');
+}
+
 /** One row of the "แยกตามหมวด" report — everything that matters about a therapeutic group at
  * a glance: how much of the formulary it is, what it's worth sitting on the shelf right now,
  * and how much of it is in trouble (below Min, or expiring soon). Pure and state-derived, so

@@ -874,23 +874,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return { ...st, screen: prev || 'more', navStack: stack };
   }), []);
 
-  // Bug fix: these two both used a bare (unwrapped) addDoc() — unlike every write that goes
-  // through runTx (which wraps runTransaction in withTimeout right at its own definition,
-  // above). On a hung connection (the exact hospital-wifi-captive-portal case withTimeout's own
-  // doc comment describes) that await would never resolve OR reject, so this function would
-  // never reach its catch block — and since logAudit()/logTx() are called by every single
-  // daily commit action (transfer, receive, adjust, count, reconcile, scrap...), the calling
+  // Bug fix: this used a bare (unwrapped) addDoc() — unlike every write that goes through
+  // runTx (which wraps runTransaction in withTimeout right at its own definition, above). On a
+  // hung connection (the exact hospital-wifi-captive-portal case withTimeout's own doc comment
+  // describes) that await would never resolve OR reject, so this function would never reach its
+  // catch block, and since logAudit() is called by several commit actions, the calling
   // guardOnce-protected function's busy state would stay stuck forever with no error shown,
   // even though the real stock write moments earlier (via the properly-timed-out runTx)
   // already succeeded. Wrapped in withTimeout so this fails fast with a message instead.
+  //
+  // Note: every stock-mutating commit function used to also have a standalone logTx() twin of
+  // this, called right after its own runTx() resolved — two separate network round trips for
+  // what's really one logical write. That left a real gap: a dropped connection between the two
+  // could change stock with no matching txs history row (or vice versa). Every such call site
+  // has since been folded into the SAME transaction as its stock write (trx.set(doc(collection
+  // (db, 'txs')), {...}) inline — see commitTransfer/commitAdjust/commitCount/commitSubCount/
+  // commitReconcile/scrapLot/commitWardMove/approvePendingReceive), so logTx() no longer has a
+  // reason to exist — audit trail entries (a human-readable note, not a stock-affecting ledger
+  // row) are the only thing still logged outside a transaction, via logAudit() below.
   const logAudit = useCallback(async (entry: { type: AuditType; note: string }) => {
     try { await withTimeout(addDoc(collection(db, 'auditLog'), { ...entry, by: userName(), ts: Date.now() })); }
     catch (e) { console.error('audit log write failed:', e); toast('บันทึกลง audit log ไม่สำเร็จ — รายการหลักบันทึกแล้ว แต่ประวัตินี้อาจหายไป'); }
-  }, [userName, toast]);
-
-  const logTx = useCallback(async (tx: Omit<import('../types').Tx, 'id' | 'ts' | 'by'>) => {
-    try { await withTimeout(addDoc(collection(db, 'txs'), { ...tx, by: userName(), ts: Date.now() })); }
-    catch (e) { console.error('tx log write failed:', e); toast('บันทึกประวัติธุรกรรมไม่สำเร็จ — ยอดสต็อกอัปเดตแล้ว แต่ไม่มีบันทึกรายการนี้ในประวัติ'); }
   }, [userName, toast]);
 
   // Shared tail for every commit-style catch block below — logs the real error, but shows
@@ -1489,22 +1493,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // real applied delta, not the raw typed amount.
     let before = 0, after = 0;
     try {
+      // Bug fix (data integrity): the stock write and its tx-log entry used to be two separate
+      // network operations (runTx here, then a standalone logTx() after it resolved) — same
+      // "ledger drift" gap commitTransfer's own fix comment describes: a dropped connection
+      // between the two left floor changed with no matching history row. Folded the tx-log
+      // write into the same transaction (trx.set, not logTx()) so both commit atomically.
       await runTx(async (trx) => {
         const ref = doc(db, 'meds', m.id);
         const snap = await trx.get(ref);
         before = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
         after = Math.max(0, before + sign * q);
         trx.update(ref, { floor: after });
+        trx.set(doc(collection(db, 'txs')), {
+          type: t, name: m.name, medId: m.id, qty: after - before, unit: m.unit,
+          reason: state.adjReason, note: state.adjNote || '—', loc: 'floor', by: userName(), ts: Date.now(),
+        } satisfies Omit<import('../types').Tx, 'id'>);
       });
       const appliedQty = after - before;
-      await logTx({ type: t, name: m.name, medId: m.id, qty: appliedQty, unit: m.unit, reason: state.adjReason, note: state.adjNote || '—', loc: 'floor' });
       patch({ adjQty: '', adjReason: '', adjNote: '', adjMed: null, adjSearch: '' });
       hapticSuccess();
       toast('บันทึกแล้ว · ' + m.name + ' ' + (appliedQty > 0 ? '+' : appliedQty < 0 ? '−' : '') + nf(Math.abs(appliedQty)) + ' ' + m.unit);
     } catch (e) {
       toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [state, logTx, toast, toastErr, patch, guardOnce]);
+  }), [state, userName, toast, toastErr, patch, guardOnce]);
 
   const scrapLot = useCallback(guardOnce('scrapLot', async (lotId: string) => {
     const l = state.lots.find((x) => x.id === lotId);
@@ -1512,15 +1524,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const m = state.meds.find((x) => x.id === l.medId);
     if (!m) return;
     try {
-      await withTimeout(updateDoc(doc(db, 'lots', lotId), { qty: 0 }));
-      await logTx({ type: 'expired', name: m.name, medId: m.id, qty: -l.qty, unit: m.unit, reason: 'หมดอายุ / ใกล้หมดอายุ', note: 'lot ' + l.lotNo + ' exp ' + thDate(l.exp) + ' · มูลค่า ' + nf(l.qty * m.price) + ' บาท', loc: 'substock' });
+      // Bug fix (data integrity): re-read the lot's real qty inside the same transaction that
+      // zeroes it and logs the write-off — the old plain updateDoc + separate logTx() could
+      // both use a stale local l.qty (understating/overstating the logged write-off value if
+      // someone else's transfer/count had already changed this lot) AND leave the two writes
+      // non-atomic (see commitAdjust's note on this exact class of gap).
+      let realQty = l.qty;
+      await runTx(async (trx) => {
+        const ref = doc(db, 'lots', lotId);
+        const snap = await trx.get(ref);
+        realQty = (snap.data() as { qty?: number } | undefined)?.qty ?? l.qty;
+        trx.update(ref, { qty: 0 });
+        trx.set(doc(collection(db, 'txs')), {
+          type: 'expired', name: m.name, medId: m.id, qty: -realQty, unit: m.unit,
+          reason: 'หมดอายุ / ใกล้หมดอายุ', note: 'lot ' + l.lotNo + ' exp ' + thDate(l.exp) + ' · มูลค่า ' + nf(realQty * m.price) + ' บาท',
+          loc: 'substock', by: userName(), ts: Date.now(),
+        } satisfies Omit<import('../types').Tx, 'id'>);
+      });
       hapticSuccess();
       toast('ตัด lot ' + l.lotNo + ' ออกจาก substock แล้ว · บันทึกลง discrepancy log');
     } catch (e) {
       console.error(e);
       toast('ตัด lot ไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [state.lots, state.meds, logTx, toast, guardOnce]);
+  }), [state.lots, state.meds, userName, toast, guardOnce]);
 
   // ---------- report ----------
   const setReportTab = useCallback((t: AppState['reportTab']) => patch({ reportTab: t }), [patch]);
@@ -2680,21 +2707,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!m) return;
     try {
       let delta = 0;
+      let note = '';
+      // Bug fix (data integrity): tx-log write folded into the same transaction as the floor
+      // write (was a separate logTx() call after commit) — see commitAdjust's note on this
+      // exact class of gap.
       await runTx(async (trx) => {
         const ref = doc(db, 'meds', medId);
         const snap = await trx.get(ref);
         const curFloor = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
         delta = q - curFloor;
+        note = delta < 0
+          ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — คาดว่าจ่ายผ่าน HOSxP แต่ยังไม่ reconcile'
+          : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ควรตรวจสอบย้อนหลัง' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
         trx.update(ref, { floor: q, lastCountTs: Date.now() });
+        trx.set(doc(collection(db, 'txs')), {
+          type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit,
+          reason: 'นับสต็อกหน้างานประจำรอบ', note, loc: 'floor', by: userName(), ts: Date.now(),
+        } satisfies Omit<import('../types').Tx, 'id'>);
       });
       patch((st) => { const ci = { ...st.countInputs }; delete ci[medId]; return { countInputs: ci }; });
-      const note = delta < 0
-        ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — คาดว่าจ่ายผ่าน HOSxP แต่ยังไม่ reconcile'
-        : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ควรตรวจสอบย้อนหลัง' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
-      await logTx({ type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit, reason: 'นับสต็อกหน้างานประจำรอบ', note, loc: 'floor' });
       toast(m.name + ' — ' + note);
     } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }), [state.countInputs, state.meds, logTx, toast, toastErr, patch, guardOnce]);
+  }), [state.countInputs, state.meds, userName, toast, toastErr, patch, guardOnce]);
 
   // Batch version of commitCount() for a real cycle count: someone walks the shelf typing
   // numbers into 20-40 rows, then commits the lot in one tap. Deliberately NOT one big
@@ -2718,18 +2752,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!m) continue;
       try {
         let delta = 0;
+        // Bug fix (data integrity): tx-log write folded into the same per-med transaction —
+        // see commitCount's note on this exact class of gap.
         await runTx(async (trx) => {
           const ref = doc(db, 'meds', medId);
           const snap = await trx.get(ref);
           const curFloor = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
           delta = q - curFloor;
+          const note = delta < 0
+            ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — คาดว่าจ่ายผ่าน HOSxP แต่ยังไม่ reconcile'
+            : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ควรตรวจสอบย้อนหลัง' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
           trx.update(ref, { floor: q, lastCountTs: Date.now() });
+          trx.set(doc(collection(db, 'txs')), {
+            type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit,
+            reason: 'นับสต็อกหน้างานประจำรอบ (บันทึกทั้งชุด)', note, loc: 'floor', by: userName(), ts: Date.now(),
+          } satisfies Omit<import('../types').Tx, 'id'>);
         });
         patch((st) => { const ci = { ...st.countInputs }; delete ci[medId]; return { countInputs: ci }; });
-        const note = delta < 0
-          ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — คาดว่าจ่ายผ่าน HOSxP แต่ยังไม่ reconcile'
-          : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ควรตรวจสอบย้อนหลัง' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
-        await logTx({ type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit, reason: 'นับสต็อกหน้างานประจำรอบ (บันทึกทั้งชุด)', note, loc: 'floor' });
         ok++;
         if (delta !== 0) diffs++;
       } catch (e) { console.error(e); failed++; }
@@ -2739,7 +2778,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toast(failed > 0
       ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
       : 'บันทึกครบ ' + ok + ' รายการ' + (diffs > 0 ? ' · มีส่วนต่าง ' + diffs + ' รายการ (ดูได้ใน Discrepancy log)' : ' · ตรงกับระบบทุกรายการ'));
-  }), [state.countInputs, state.meds, logTx, toast, patch, guardOnce]);
+  }), [state.countInputs, state.meds, toast, patch, guardOnce]);
 
   // ---------- substock count ----------
   const setSubCountInput = useCallback((medId: string, v: string) => patch((st) => ({ subCountInputs: { ...st.subCountInputs, [medId]: digitsOnly(v) } })), [patch]);
@@ -2766,7 +2805,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!m) return;
     try {
       let delta = 0;
+      let note = '';
       const lotIds = state.lots.filter((l) => l.medId === medId).map((l) => l.id);
+      // Bug fix (data integrity): tx-log write folded into the same transaction as the lot
+      // writes — see commitCount's note on this exact class of gap.
       await runTx(async (trx) => {
         const liveLots: { id: string; qty: number; exp: number }[] = [];
         for (const lotId of lotIds) {
@@ -2792,15 +2834,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           });
         }
         trx.update(doc(db, 'meds', medId), { lastSubCountTs: Date.now() });
+        note = delta < 0
+          ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — ตัดออกจาก lot ที่ใกล้หมดอายุที่สุดก่อน'
+          : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ลงเป็น lot ปรับยอด ยังไม่ทราบวันหมดอายุจริง ควรแก้ไขเมื่อทราบ' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
+        trx.set(doc(collection(db, 'txs')), {
+          type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit,
+          reason: 'นับสต็อก substock ประจำรอบ', note, loc: 'substock', by: userName(), ts: Date.now(),
+        } satisfies Omit<import('../types').Tx, 'id'>);
       });
       patch((st) => { const ci = { ...st.subCountInputs }; delete ci[medId]; return { subCountInputs: ci }; });
-      const note = delta < 0
-        ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — ตัดออกจาก lot ที่ใกล้หมดอายุที่สุดก่อน'
-        : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ลงเป็น lot ปรับยอด ยังไม่ทราบวันหมดอายุจริง ควรแก้ไขเมื่อทราบ' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
-      await logTx({ type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit, reason: 'นับสต็อก substock ประจำรอบ', note, loc: 'substock' });
       toast(m.name + ' — ' + note);
     } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }), [state.subCountInputs, state.meds, state.lots, logTx, toast, toastErr, patch, guardOnce]);
+  }), [state.subCountInputs, state.meds, state.lots, userName, toast, toastErr, patch, guardOnce]);
 
   /** Batch version of commitSubCount(), mirroring commitAllCounts() — sequential per-med
    * transactions (never one lumped write) for the same reason: each has to re-read its own
@@ -2820,6 +2865,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         let delta = 0;
         const lotIds = state.lots.filter((l) => l.medId === medId).map((l) => l.id);
+        // Bug fix (data integrity): tx-log write folded into the same transaction — see
+        // commitCount's note on this exact class of gap.
         await runTx(async (trx) => {
           const liveLots: { id: string; qty: number; exp: number }[] = [];
           for (const lotId of lotIds) {
@@ -2845,12 +2892,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             });
           }
           trx.update(doc(db, 'meds', medId), { lastSubCountTs: Date.now() });
+          const note = delta < 0
+            ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — ตัดออกจาก lot ที่ใกล้หมดอายุที่สุดก่อน'
+            : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ลงเป็น lot ปรับยอด ยังไม่ทราบวันหมดอายุจริง ควรแก้ไขเมื่อทราบ' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
+          trx.set(doc(collection(db, 'txs')), {
+            type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit,
+            reason: 'นับสต็อก substock ประจำรอบ (บันทึกทั้งชุด)', note, loc: 'substock', by: userName(), ts: Date.now(),
+          } satisfies Omit<import('../types').Tx, 'id'>);
         });
         patch((st) => { const ci = { ...st.subCountInputs }; delete ci[medId]; return { subCountInputs: ci }; });
-        const note = delta < 0
-          ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — ตัดออกจาก lot ที่ใกล้หมดอายุที่สุดก่อน'
-          : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ลงเป็น lot ปรับยอด ยังไม่ทราบวันหมดอายุจริง ควรแก้ไขเมื่อทราบ' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
-        await logTx({ type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit, reason: 'นับสต็อก substock ประจำรอบ (บันทึกทั้งชุด)', note, loc: 'substock' });
         ok++;
         if (delta !== 0) diffs++;
       } catch (e) { console.error(e); failed++; }
@@ -2858,7 +2908,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toast(failed > 0
       ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
       : 'บันทึกครบ ' + ok + ' รายการ' + (diffs > 0 ? ' · มีส่วนต่าง ' + diffs + ' รายการ (ดูได้ใน Discrepancy log)' : ' · ตรงกับระบบทุกรายการ'));
-  }), [state.subCountInputs, state.meds, state.lots, logTx, toast, patch, guardOnce]);
+  }), [state.subCountInputs, state.meds, state.lots, userName, toast, patch, guardOnce]);
 
   // ---------- hosxp reconcile ----------
   const setHosxpText = useCallback((v: string) => patch({ hosxpText: v }), [patch]);
@@ -2934,14 +2984,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const m = medId ? meds.find((x) => x.id === medId) : null;
         if (!m) { skipped++; skippedNames.push(r.name); continue; }
         let after = 0, before = 0;
+        // Bug fix (data integrity): tx-log write folded into the same transaction as the floor
+        // deduction — was a separate logTx() call after runTx() resolved, the exact "stock
+        // changed but no matching history row if the second call drops" gap commitTransfer's
+        // own fix comment describes. This is the daily real-dispense deduction path — the one
+        // number this whole app exists to keep trustworthy — so it gets the same atomic
+        // treatment every other stock-mutating flow already has.
         await runTx(async (trx) => {
           const ref = doc(db, 'meds', m.id);
           const snap = await trx.get(ref);
           before = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
           after = Math.max(0, before - r.qty);
           trx.update(ref, { floor: after });
+          trx.set(doc(collection(db, 'txs')), {
+            type: 'reconcile_hosxp', name: m.name, medId: m.id, qty: -(before - after), unit: m.unit,
+            reason: 'นำเข้าจากไฟล์ HOSxP',
+            note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP' + (r.match.kind === 'fuzzy' ? ' (จับคู่ชื่อแบบไม่ตรงเป๊ะ — ยืนยันโดยผู้ใช้แล้ว)' : ''),
+            loc: 'floor', by: userName(), ts: Date.now(),
+          } satisfies Omit<import('../types').Tx, 'id'>);
         });
-        await logTx({ type: 'reconcile_hosxp', name: m.name, medId: m.id, qty: -(before - after), unit: m.unit, reason: 'นำเข้าจากไฟล์ HOSxP', note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP' + (r.match.kind === 'fuzzy' ? ' (จับคู่ชื่อแบบไม่ตรงเป๊ะ — ยืนยันโดยผู้ใช้แล้ว)' : ''), loc: 'floor' });
         applied++;
       }
       // Bug fix (efficiency): a name that fails to match keeps failing every single day until
@@ -2974,7 +3035,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // rows actually landed, worth telling the person rather than implying nothing happened.
       toastErr(e, 'ประมวลผลไม่สำเร็จ' + (applied > 0 ? ' — ตัดยอดไปแล้ว ' + applied + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง'));
     }
-  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpConfirmSingleDay, state.meds, logTx, logAudit, toast, toastErr, patch, guardOnce]);
+  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpConfirmSingleDay, state.meds, userName, logAudit, toast, toastErr, patch, guardOnce]);
 
   // ---------- usage-rate import (par) ----------
   // Lets a site whose formulary is too new to have 60 days of in-app HOSxP reconcile history

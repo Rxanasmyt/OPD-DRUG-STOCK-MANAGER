@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { suggestPar, halfOfMaxRounded, floorMinOf } from '../store/selectors';
+import { suggestPar, halfOfMaxRounded, floorMinOf, parAnomalies } from '../store/selectors';
 import { nf, digitsOnly, parseIntSafe, isoDate, fiscalYearStartIso, DAY } from '../utils/format';
 import { notificationsSupported } from '../utils/notify';
 
@@ -36,6 +36,15 @@ export default function SettingsScreen() {
     return !!s && (s.sub !== m.parSub || s.floor !== m.parFloor);
   }).length;
   const minHalfDiffCount = meds.filter((m) => halfOfMaxRounded(m.parFloor) !== floorMinOf(m)).length;
+
+  // Real-world request: Min/Max/par substock are hand-typed numbers — an extra/missing zero,
+  // or Min and Max swapped, is a genuinely easy typo to make and easy to miss just glancing at
+  // a long meds list. This flags the internal-contradiction cases (always wrong, no judgment
+  // call — see parAnomaliesFor()'s own doc comment) as errors, and a par that's wildly out of
+  // line with the drug's own real usage rate as a softer "worth a look" review.
+  const anomalies = parAnomalies(meds, state.parFloorCoverDays, state.parSubCoverDays);
+  const anomalyErrors = anomalies.filter((a) => a.severity === 'error');
+  const anomalyReviews = anomalies.filter((a) => a.severity === 'review');
 
   const usageRows = state.usageRows || [];
   const usageMatched = usageRows.filter((r) => r.match.kind === 'exact').length;
@@ -196,6 +205,37 @@ export default function SettingsScreen() {
         )}
         <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 8 }}>อัตราการใช้คำนวณจากประวัติ "นำเข้าจาก HOSxP" เท่านั้น ไม่ได้อัปเดตอัตโนมัติทุกวัน — ควรกด "คำนวณสถิติการใช้ใหม่" เป็นระยะ (เช่น เดือนละครั้ง) หลังจากใช้งานนำเข้า HOSxP มาสม่ำเสมอแล้ว ถ้ากดตอนที่ยังไม่มีประวัติ HOSxP เลย ค่าจะกลายเป็น 0 ทั้งหมด</div>
       </div>
+
+      {anomalies.length > 0 && (
+        <div className="card" style={{ padding: 13, marginBottom: 13, border: '1px solid ' + (anomalyErrors.length > 0 ? 'var(--red)' : 'var(--amber)'), background: anomalyErrors.length > 0 ? 'var(--red-bg, #fbeceb)' : 'var(--amber-bg)' }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 4, color: anomalyErrors.length > 0 ? 'var(--red)' : 'var(--amber-ink)' }}>
+            ⚠️ par Min/Max/substock ที่ดูผิดปกติ ({anomalies.length} รายการ)
+          </div>
+          <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginBottom: 10 }}>
+            {anomalyErrors.length > 0 && <>{anomalyErrors.length} รายการขัดแย้งในตัวเอง (เช่น Min ≥ Max, ยังไม่ได้ตั้ง par ทั้งที่มีการจ่ายจริง) ควรแก้ไข{anomalyReviews.length > 0 ? ' · ' : ''}</>}
+            {anomalyReviews.length > 0 && <>{anomalyReviews.length} รายการค่าต่างจากที่แนะนำจากสถิติการใช้จริงมาก ควรตรวจสอบ</>}
+          </div>
+          <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {anomalies.slice(0, 30).map((a, i) => (
+              <div key={a.med.id + a.code + i} style={{ background: 'var(--bg-card)', borderRadius: 9, padding: '8px 10px', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: a.severity === 'error' ? 'var(--red)' : 'var(--amber-ink)' }}>
+                    {a.severity === 'error' ? 'ผิดพลาด' : 'ควรทบทวน'}
+                  </span>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.med.name}</span>
+                </div>
+                <div className="muted" style={{ fontSize: 11, lineHeight: 1.5 }}>{a.note}</div>
+              </div>
+            ))}
+            {anomalies.length > 30 && <div className="muted" style={{ fontSize: 11, textAlign: 'center' }}>และอีก {anomalies.length - 30} รายการ</div>}
+          </div>
+          {canEdit && (
+            <button onClick={() => go('meds')} style={{ marginTop: 10, width: '100%', border: 0, background: anomalyErrors.length > 0 ? 'var(--red)' : 'var(--amber)', color: '#fff', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>
+              ไปที่จัดการรายการยา เพื่อแก้ไข →
+            </button>
+          )}
+        </div>
+      )}
 
       {canEdit && (
         <div className="card" style={{ padding: 13, marginBottom: 13 }}>
