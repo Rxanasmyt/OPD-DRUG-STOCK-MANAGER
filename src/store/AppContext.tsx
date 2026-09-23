@@ -192,6 +192,10 @@ export interface AppCtx {
    * comment. Call with `true` while dirty, `false` once saved/cancelled/reset (including on
    * unmount, so a stale `true` can't outlive the form itself). */
   setFormDirty: (dirty: boolean) => void;
+  /** For any dismiss path other than go() that can close a dirty form — resolves true (safe to
+   * proceed) immediately if nothing's dirty, otherwise asks first. See BottomSheet usage in
+   * MedsScreen.tsx for the intended caller. */
+  confirmLeaveIfDirty: () => Promise<boolean>;
 
   // auth
   setAuthMode: (m: AuthMode) => void;
@@ -888,17 +892,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // here rather than in each individual form: ask once, and only navigate through if confirmed.
   const unsavedFormRef = useRef(false);
   const setFormDirty = useCallback((dirty: boolean) => { unsavedFormRef.current = dirty; }, []);
+  // Shared by go() below AND by any other UI that can dismiss a dirty form without going
+  // through onCancel — e.g. MedsScreen's BottomSheet backdrop tap/✕ button. Resolves true (safe
+  // to proceed) immediately if nothing's dirty; otherwise asks once, same wording either way.
+  const confirmLeaveIfDirty = useCallback(async () => {
+    if (!unsavedFormRef.current) return true;
+    const ok = await confirmAsync('มีข้อมูลที่ยังไม่ได้บันทึก ออกจากหน้านี้เลยไหม? การแก้ไขที่ทำไว้จะหายไป');
+    if (ok) unsavedFormRef.current = false;
+    return ok;
+  }, [confirmAsync]);
   const go = useCallback((s: Screen) => {
     if (unsavedFormRef.current) {
       void (async () => {
-        if (!(await confirmAsync('มีข้อมูลที่ยังไม่ได้บันทึก ออกจากหน้านี้เลยไหม? การแก้ไขที่ทำไว้จะหายไป'))) return;
-        unsavedFormRef.current = false;
+        if (!(await confirmLeaveIfDirty())) return;
         setState((st) => ({ ...st, screen: s, navStack: pushNav(st.navStack, st.screen) }));
       })();
       return;
     }
     setState((st) => ({ ...st, screen: s, navStack: pushNav(st.navStack, st.screen) }));
-  }, [confirmAsync]);
+  }, [confirmLeaveIfDirty]);
   // Pops the real history stack instead of a single fixed "came from" pointer — see navStack
   // on AppState. Bug this replaced: back() used to hardcode every screen except tconfirm to
   // return to 'more', which only happened to be right for screens always opened from the More
@@ -3463,7 +3475,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<AppCtx>(() => ({
     state, myProfile, theme, toggleTheme, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, respondConfirm, promptAsync, respondPrompt, applyUpdate, dismissUpdate,
     notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify,
-    lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify, go, back, setFormDirty,
+    lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify, go, back, setFormDirty, confirmLeaveIfDirty,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
     setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, fillUrgent, printPickList, printTodayReplenishList, removeFromCart, clearCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, printWarehouseRequestList,

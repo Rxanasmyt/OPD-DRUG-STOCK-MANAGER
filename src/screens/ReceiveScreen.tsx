@@ -8,6 +8,7 @@ import { Qty } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
 import { MedMiniCard } from '../components/MedMiniCard';
 import { StepIndicator, RECEIVE_STEPS } from '../components/StepIndicator';
+import { NumberStepper } from '../components/NumberStepper';
 import { SearchInput } from '../components/SearchInput';
 import type { Med } from '../types';
 
@@ -276,7 +277,7 @@ export default function ReceiveScreen() {
             </div>
             <label style={{ display: 'block', marginBottom: 10 }}>
               <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>จำนวนที่รับ ({recvMed.unit})</span>
-              <input value={state.recvQty} onChange={(e) => setRecvQty(e.target.value)} inputMode="numeric" style={{ ...inputStyle, fontSize: 16, fontWeight: 600 }} />
+              <NumberStepper value={state.recvQty} onChange={setRecvQty} unit={recvMed.unit} />
             </label>
             <button onClick={addRecv} className="btn-outline" style={{ width: '100%', padding: 12, borderRadius: 10, fontSize: 14.5, fontWeight: 600, minHeight: 46 }}>เพิ่มลงใบรับ</button>
           </>

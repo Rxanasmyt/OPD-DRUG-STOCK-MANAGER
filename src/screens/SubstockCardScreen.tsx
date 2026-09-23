@@ -5,6 +5,7 @@ import { nf, thDate, fiscalYear } from '../utils/format';
 import { printSubstockCardSheet } from '../utils/print';
 import { downloadCsv } from '../utils/csv';
 import { MedDot } from '../components/MedDot';
+import { Qty } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
 import { SkeletonList } from '../components/Skeleton';
 import { EmptyState } from '../components/EmptyState';
@@ -307,7 +308,7 @@ export default function SubstockCardScreen() {
                   <span className="muted" style={{ fontSize: 11 }}>{hasSub ? 'substock คงเหลือตอนนี้ (real-time)' : 'หน้างานคงเหลือตอนนี้ (real-time)'}</span>
                   <span style={{ fontSize: 11, fontWeight: 800, color: balanceTone }}>{balancePct}% ของ par</span>
                 </div>
-                <div style={{ fontSize: 30, fontWeight: 800, color: balanceTone, lineHeight: 1.15, marginTop: 2 }}>{nf(liveBalance)} <span style={{ fontSize: 13, fontWeight: 600 }}>{med.unit}</span></div>
+                <div style={{ lineHeight: 1.15, marginTop: 2 }}><Qty value={liveBalance} tone={balanceTone} size={30} /> <span style={{ fontSize: 13, fontWeight: 600, color: balanceTone }}>{med.unit}</span></div>
                 <div className="bar-track" style={{ height: 5, background: 'var(--border-soft)', borderRadius: 3, marginTop: 8 }}>
                   <div className="bar-fill" style={{ height: '100%', transform: 'scaleX(' + Math.max(3, Math.min(100, balancePct)) / 100 + ')', background: balanceTone, borderRadius: 3 }} />
                 </div>
