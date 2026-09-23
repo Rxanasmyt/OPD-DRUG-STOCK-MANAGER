@@ -1,5 +1,5 @@
 import type { AppState, HosxpMatch, Med, Role, Ward, Tx } from '../types';
-import { DAY, daysUntil, isoDate } from '../utils/format';
+import { DAY, daysUntil, isoDate, nf } from '../utils/format';
 import { UNCATEGORIZED, DRUG_CATEGORIES, categoryLabel } from '../data/categories';
 
 /** Pure, stateless helpers derived from AppState — no mutation, safe to call during render. */
@@ -164,24 +164,24 @@ export function parAnomaliesFor(m: Med, floorCoverDays: number, subCoverDays: nu
   // between "needs refilling" and "full" as designed; a fresh top-up already reads as at/below
   // its own reorder point, so it re-triggers every single day regardless of real usage.
   if (m.parFloor > 0 && min >= m.parFloor) {
-    out.push({ med: m, code: 'min_ge_max', severity: 'error', note: 'Min (' + nf0(min) + ') ≥ Max (' + nf0(m.parFloor) + ') — ตั้งจุดเติม (Min) เท่ากับหรือสูงกว่าความจุชั้น (Max)' });
+    out.push({ med: m, code: 'min_ge_max', severity: 'error', note: 'Min (' + nf(min) + ') ≥ Max (' + nf(m.parFloor) + ') — ตั้งจุดเติม (Min) เท่ากับหรือสูงกว่าความจุชั้น (Max)' });
   }
   // A substock-backed med whose substock par can't even refill its own shelf to Max once —
   // structurally under-provisioned: substock exists specifically to top the shelf back up (see
   // suggestPar()'s doc comment on why subCoverDays > floorCoverDays), so this almost always
   // means the two fields got mixed up when they were typed in.
   if (usesSubstock(m) && m.parFloor > 0 && m.parSub > 0 && m.parSub < m.parFloor) {
-    out.push({ med: m, code: 'sub_lt_floor', severity: 'error', note: 'par substock (' + nf0(m.parSub) + ') < par หน้างาน (' + nf0(m.parFloor) + ') — substock เติมชั้นให้เต็ม Max ไม่ได้แม้แต่ครั้งเดียว' });
+    out.push({ med: m, code: 'sub_lt_floor', severity: 'error', note: 'par substock (' + nf(m.parSub) + ') < par หน้างาน (' + nf(m.parFloor) + ') — substock เติมชั้นให้เต็ม Max ไม่ได้แม้แต่ครั้งเดียว' });
   }
   // Actively dispensed (real usage on record) but Max was never set at all — every stock-level
   // check this app makes (isUrgentLow, needsWarehouseRequest, transfer suggestions) silently
   // reads as "never low" against a par of 0, so this drug quietly gets skipped by every
   // refill/reorder prompt in the app despite genuinely being in active use.
   if (m.used30 > 0 && m.parFloor === 0) {
-    out.push({ med: m, code: 'no_par_floor', severity: 'error', note: 'มีการจ่ายจริง (' + nf0(m.used30) + ' หน่วย/30 วัน) แต่ยังไม่ได้ตั้ง par หน้างาน (Max) — ระบบจะไม่แจ้งเตือนต่ำกว่า Min ให้เลย' });
+    out.push({ med: m, code: 'no_par_floor', severity: 'error', note: 'มีการจ่ายจริง (' + nf(m.used30) + ' หน่วย/30 วัน) แต่ยังไม่ได้ตั้ง par หน้างาน (Max) — ระบบจะไม่แจ้งเตือนต่ำกว่า Min ให้เลย' });
   }
   if (usesSubstock(m) && m.used30 > 0 && m.parSub === 0) {
-    out.push({ med: m, code: 'no_par_sub', severity: 'error', note: 'มีการจ่ายจริง (' + nf0(m.used30) + ' หน่วย/30 วัน) แต่ยังไม่ได้ตั้ง par substock — ระบบจะไม่แจ้งเตือนให้เบิกจากคลังใหญ่' });
+    out.push({ med: m, code: 'no_par_sub', severity: 'error', note: 'มีการจ่ายจริง (' + nf(m.used30) + ' หน่วย/30 วัน) แต่ยังไม่ได้ตั้ง par substock — ระบบจะไม่แจ้งเตือนให้เบิกจากคลังใหญ่' });
   }
   // A real, current usage-rate baseline exists — compare the CURRENT par against what that
   // rate would suggest today. A wide gap either direction is worth a look: a par several times
@@ -193,10 +193,10 @@ export function parAnomaliesFor(m: Med, floorCoverDays: number, subCoverDays: nu
   const suggested = suggestPar(m, floorCoverDays, subCoverDays);
   if (suggested) {
     if (m.parFloor > 0 && (suggested.floor >= m.parFloor * 3 || suggested.floor * 3 <= m.parFloor)) {
-      out.push({ med: m, code: 'floor_far_from_suggested', severity: 'review', note: 'par หน้างานปัจจุบัน ' + nf0(m.parFloor) + ' ต่างจากค่าแนะนำจากอัตราการใช้จริง (' + nf0(suggested.floor) + ') มาก — ควรตรวจสอบ' });
+      out.push({ med: m, code: 'floor_far_from_suggested', severity: 'review', note: 'par หน้างานปัจจุบัน ' + nf(m.parFloor) + ' ต่างจากค่าแนะนำจากอัตราการใช้จริง (' + nf(suggested.floor) + ') มาก — ควรตรวจสอบ' });
     }
     if (usesSubstock(m) && m.parSub > 0 && (suggested.sub >= m.parSub * 3 || suggested.sub * 3 <= m.parSub)) {
-      out.push({ med: m, code: 'sub_far_from_suggested', severity: 'review', note: 'par substock ปัจจุบัน ' + nf0(m.parSub) + ' ต่างจากค่าแนะนำจากอัตราการใช้จริง (' + nf0(suggested.sub) + ') มาก — ควรตรวจสอบ' });
+      out.push({ med: m, code: 'sub_far_from_suggested', severity: 'review', note: 'par substock ปัจจุบัน ' + nf(m.parSub) + ' ต่างจากค่าแนะนำจากอัตราการใช้จริง (' + nf(suggested.sub) + ') มาก — ควรตรวจสอบ' });
     }
   }
   return out;
@@ -204,10 +204,6 @@ export function parAnomaliesFor(m: Med, floorCoverDays: number, subCoverDays: nu
 
 export function parAnomalies(meds: Med[], floorCoverDays: number, subCoverDays: number): ParAnomaly[] {
   return meds.flatMap((m) => parAnomaliesFor(m, floorCoverDays, subCoverDays));
-}
-
-function nf0(n: number): string {
-  return Math.round(n).toLocaleString('en-US');
 }
 
 /** One row of the "แยกตามหมวด" report — everything that matters about a therapeutic group at
