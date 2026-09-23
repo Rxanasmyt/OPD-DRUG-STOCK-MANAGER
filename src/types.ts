@@ -200,7 +200,50 @@ export type Screen =
   | 'report' | 'labels' | 'settings' | 'more' | 'count' | 'reconcile' | 'admin' | 'meds' | 'wardmove' | 'substockcard';
 
 export type AdjType = 'adjust' | 'return' | 'damaged' | 'expired';
-export type ReportTab = 'aging' | 'turn' | 'disc' | 'insights' | 'category' | 'exec';
+export type ReportTab = 'aging' | 'turn' | 'disc' | 'insights' | 'category' | 'exec' | 'kpi';
+
+/**
+ * One day's automated KPI snapshot — written once/day by scripts/collect-daily-metrics.mjs
+ * (a GitHub Actions cron job, same free-tier "GitHub Actions IS the server" pattern already
+ * used by backup-firestore.mjs/notify-low-stock.mjs, see those files' own doc comments for
+ * why this static site has no server of its own to run a schedule on). Doc id is the date
+ * itself (YYYY-MM-DD, Asia/Bangkok) so a range query is just `where(documentId(), '>=', from)`.
+ * Real-world request: track stock value/qty, dispensing rate, data accuracy, and staff
+ * activity over any custom date range, not just "right now" — Firestore only ever holds
+ * CURRENT meds/lots state, so a real trend needs each day's numbers captured as they were,
+ * not re-derived from today's data. Never written by the client (firestore.rules denies client
+ * writes to this collection outright) — only ever by the cron script's service-account
+ * credentials, which bypass rules entirely.
+ */
+export interface DailyMetrics {
+  date: string; // YYYY-MM-DD, also the doc id
+  generatedAt: number;
+  // ---- คงคลัง (end-of-day snapshot) ----
+  activeMedCount: number;
+  totalFloorQty: number;
+  totalSubQty: number;
+  totalStockValue: number;
+  lowStockCount: number;
+  urgentLowCount: number;
+  nearExpiryValue: number;
+  expiredValue: number;
+  // ---- อัตราการจ่าย/เบิก (that day's transaction activity) ----
+  receivedQty: number;
+  receivedCount: number;
+  transferredQty: number;
+  dispensedQty: number;
+  adjustQty: number;
+  txCount: number;
+  // ---- ความแม่นยำข้อมูล ----
+  parErrorCount: number;
+  parReviewCount: number;
+  countDiscrepancyCount: number;
+  hosxpUnmatchedCount: number;
+  reconciledToday: boolean;
+  // ---- กิจกรรมผู้ใช้งาน ----
+  activeUserCount: number;
+  txByUser: Record<string, number>;
+}
 export type LabelType = 'med' | 'lot' | 'loc';
 
 /** How a HOSxP file's drug name resolved against the formulary — see matchHosxpMed().

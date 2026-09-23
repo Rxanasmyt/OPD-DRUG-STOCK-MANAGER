@@ -1,0 +1,38 @@
+name: Daily KPI Metrics
+
+# Captures one day's KPI snapshot (stock value/qty, dispensing rate, data accuracy, staff
+# activity) into Firestore's dailyMetrics collection — see scripts/collect-daily-metrics.mjs
+# and src/types.ts's DailyMetrics for exactly what's captured and why. Reuses the same
+# FIREBASE_SERVICE_ACCOUNT_KEY secret backup-firestore.mjs/low-stock-notify.yml already use —
+# nothing more to set up if either of those is already configured for this repo.
+#
+# Runs shortly after midnight Asia/Bangkok, computing the day that just ended. Also runnable
+# on demand from the Actions tab — pass a `date` input (YYYY-MM-DD) to backfill a specific past
+# day; the transaction-derived fields (dispensing/receiving/accuracy/staff-activity) are
+# accurate for any past date, but the stock-snapshot fields reflect stock AS OF THE RUN, not
+# that historical date — see the script's own header comment for why that's an unavoidable
+# limitation of Firestore having no built-in history.
+
+on:
+  schedule:
+    - cron: '5 17 * * *' # 17:05 UTC = 00:05 Asia/Bangkok — just after the day rolls over
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Backfill a specific date (YYYY-MM-DD) instead of "yesterday"'
+        required: false
+        type: string
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/collect-daily-metrics.mjs ${{ inputs.date && format('--date={0}', inputs.date) || '' }}
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
