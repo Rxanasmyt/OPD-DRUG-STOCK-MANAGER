@@ -183,6 +183,16 @@ export function parAnomaliesFor(m: Med, floorCoverDays: number, subCoverDays: nu
   if (usesSubstock(m) && m.used30 > 0 && m.parSub === 0) {
     out.push({ med: m, code: 'no_par_sub', severity: 'error', note: 'มีการจ่ายจริง (' + nf(m.used30) + ' หน่วย/30 วัน) แต่ยังไม่ได้ตั้ง par substock — ระบบจะไม่แจ้งเตือนให้เบิกจากคลังใหญ่' });
   }
+  // The one case no_par_floor above doesn't already cover: a med with literally zero stock on
+  // the shelf, no par ever configured, AND no recorded usage (used30 === 0 — so no_par_floor's
+  // own `m.used30 > 0` guard doesn't fire). isUrgentLow/needsWarehouseRequest both read this as
+  // "0 < 0", i.e. never low — a brand-new or never-dispensed drug could sit out of stock
+  // indefinitely with nothing in the app ever surfacing it. 'review', not 'error': this could
+  // just as well be a legitimately-inactive-in-practice drug nobody's gotten around to
+  // formally disabling yet, so it's worth a glance, not necessarily wrong.
+  if (m.floor === 0 && m.parFloor === 0 && !(m.used30 > 0)) {
+    out.push({ med: m, code: 'floor_zero_no_par', severity: 'review', note: 'หน้างานว่างเปล่า (0) และยังไม่เคยตั้ง par หน้างานเลย — ควรตรวจสอบว่าควรมีสต็อกยานี้หรือไม่' });
+  }
   // A real, current usage-rate baseline exists — compare the CURRENT par against what that
   // rate would suggest today. A wide gap either direction is worth a look: a par several times
   // smaller than what real usage needs will chronically run out; one several times larger ties
@@ -303,8 +313,15 @@ export function roleLabelFor(role: Role | null): string {
 // CSS custom properties, not literal hex — these feed straight into inline `background`/
 // `color` styles (see HomeScreen/TransferScreen), so a literal hex here would show the
 // light-mode color even in dark mode, unlike every other themed color in the app.
+// Bug fix: `floor / Math.max(1, parFloor)` guards divide-by-zero, but for a med whose par was
+// never configured at all (parFloor === 0 — a real, common state; see parAnomaliesFor's
+// no_par_floor), that guard makes the ratio degenerate to the raw floor qty itself (floor/1)
+// instead of a real proportion — a med sitting at floor:50 with no par set read as 50 >= 0.75
+// and showed a confidently "green/healthy" tone despite par never having been set. Treat an
+// unconfigured par as "needs a look" (amber), never a false "healthy" green.
 export function toneFor(m: Med): string {
-  const r = m.floor / Math.max(1, m.parFloor);
+  if (m.parFloor === 0) return 'var(--amber)';
+  const r = m.floor / m.parFloor;
   return r < 0.34 ? 'var(--red)' : r < 0.75 ? 'var(--amber)' : 'var(--green)';
 }
 
@@ -312,8 +329,10 @@ export function toneFor(m: Med): string {
 // ratio that actually matters on screens about the substock stage (ReceiveScreen's request
 // list, SubstockCardScreen's live-balance tile) rather than the shelf. Pulled out as a shared
 // export instead of staying duplicated per-screen, same reasoning as needsWarehouseRequest().
+// Same unconfigured-par fix as toneFor() above.
 export function subTone(cur: number, par: number): string {
-  const r = cur / Math.max(1, par);
+  if (par === 0) return 'var(--amber)';
+  const r = cur / par;
   return r < 0.34 ? 'var(--red)' : r < 0.75 ? 'var(--amber)' : 'var(--green)';
 }
 

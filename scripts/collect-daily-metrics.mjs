@@ -66,6 +66,10 @@ function parAnomalyCounts(meds, floorCoverDays, subCoverDays) {
     if (usesSubstock(m) && m.parFloor > 0 && m.parSub > 0 && m.parSub < m.parFloor) errors++;
     if (m.used30 > 0 && m.parFloor === 0) errors++;
     if (usesSubstock(m) && m.used30 > 0 && m.parSub === 0) errors++;
+    // Kept in sync with selectors.ts's parAnomaliesFor 'floor_zero_no_par' check — a med at
+    // literally zero stock with no par ever configured and no recorded usage, the one gap the
+    // two used30>0 checks above don't cover.
+    if (m.floor === 0 && m.parFloor === 0 && !(m.used30 > 0)) reviews++;
     const suggested = suggestPar(m, floorCoverDays, subCoverDays);
     if (suggested) {
       if (m.parFloor > 0 && (suggested.floor >= m.parFloor * 3 || suggested.floor * 3 <= m.parFloor)) reviews++;

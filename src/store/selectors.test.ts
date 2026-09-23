@@ -3,7 +3,7 @@ import type { AppState, Med } from '../types';
 import {
   wardOf, matchesWard, binFor, binDisplayAll, floorMinOf, isUrgentLow, needsWarehouseRequest,
   lastReconcileDateIso, subQty, usageAnomalies,
-  daysOfStockLeft, fefoLot, toneFor, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
+  daysOfStockLeft, fefoLot, toneFor, subTone, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
   categoryOf, categoryStats, parAnomaliesFor,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
@@ -207,13 +207,15 @@ describe('daysOfStockLeft', () => {
 });
 
 describe('toneFor', () => {
-  it('never divides by zero for a med with parFloor still 0 (new, not-yet-configured)', () => {
-    // The Math.max(1, ...) guard just prevents a NaN crash — it does not force a verdict.
-    // With par 0 and any floor stock, the ratio comes out "healthy" (>=100% of the guarded
-    // denominator), which is the correct read: there's stock and no real target to fall short of.
+  // Bug fix: a `Math.max(1, parFloor)` guard used to just prevent a NaN crash without forcing
+  // a real verdict — for a med with par never configured (parFloor: 0), the ratio degenerated
+  // to the raw floor qty itself (floor/1), so e.g. floor:5 read as 5/1=5 >= 0.75 and showed a
+  // confidently wrong "green/healthy" tone despite par never having been set at all. An
+  // unconfigured par is never a health verdict either way — amber ("needs a look"), always.
+  it('never divides by zero for a med with parFloor still 0 (new, not-yet-configured), and never claims "healthy"', () => {
     expect(() => toneFor(med({ parFloor: 0, floor: 5 }))).not.toThrow();
-    expect(toneFor(med({ parFloor: 0, floor: 5 }))).toBe('var(--green)');
-    expect(toneFor(med({ parFloor: 0, floor: 0 }))).toBe('var(--red)'); // 0 floor is still 0 floor
+    expect(toneFor(med({ parFloor: 0, floor: 5 }))).toBe('var(--amber)');
+    expect(toneFor(med({ parFloor: 0, floor: 0 }))).toBe('var(--amber)');
   });
 
   it('thresholds at the documented 34%/75% of par', () => {
@@ -388,5 +390,36 @@ describe('parAnomaliesFor', () => {
   it('ignores an inactive med entirely', () => {
     const m = med({ active: false, parFloor: 50, floorMin: 60 });
     expect(parAnomaliesFor(m, 4, 28)).toEqual([]);
+  });
+
+  it('flags zero stock + never-configured par + no usage as a review (the one gap no_par_floor does not cover)', () => {
+    const m = med({ parFloor: 0, parSub: 0, floorMin: 0, floor: 0, used30: 0 });
+    const codes = parAnomaliesFor(m, 4, 28).map((a) => a.code);
+    expect(codes).toContain('floor_zero_no_par');
+    expect(codes).not.toContain('no_par_floor'); // that one only fires when used30 > 0
+  });
+
+  it('does not flag floor_zero_no_par once real usage exists (no_par_floor covers that case instead)', () => {
+    const m = med({ parFloor: 0, parSub: 0, floorMin: 0, floor: 0, used30: 10 });
+    expect(parAnomaliesFor(m, 4, 28).map((a) => a.code)).not.toContain('floor_zero_no_par');
+  });
+
+  it('does not flag floor_zero_no_par once a floor par has actually been configured', () => {
+    const m = med({ parFloor: 50, parSub: 0, floorMin: 25, floor: 0, used30: 0 });
+    expect(parAnomaliesFor(m, 4, 28).map((a) => a.code)).not.toContain('floor_zero_no_par');
+  });
+});
+
+describe('subTone', () => {
+  // Same fix/reasoning as toneFor() above, applied to the substock ratio.
+  it('never claims "healthy" for an unconfigured par, regardless of current qty', () => {
+    expect(subTone(5, 0)).toBe('var(--amber)');
+    expect(subTone(0, 0)).toBe('var(--amber)');
+  });
+
+  it('thresholds at the documented 34%/75% of par once a real par is set', () => {
+    expect(subTone(33, 100)).toBe('var(--red)');
+    expect(subTone(74, 100)).toBe('var(--amber)');
+    expect(subTone(75, 100)).toBe('var(--green)');
   });
 });
