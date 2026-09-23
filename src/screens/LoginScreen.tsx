@@ -133,7 +133,12 @@ export default function LoginScreen() {
           </div>
 
           <div style={{ position: 'relative', display: 'flex', gap: 2, background: 'rgba(255,255,255,.09)', border: '1px solid rgba(255,255,255,.08)', padding: 3, borderRadius: 12, marginBottom: 18 }}>
-            <span style={{ position: 'absolute', top: 3, bottom: 3, left: isRegister ? '50%' : 3, width: 'calc(50% - 3px)', background: 'var(--ink-soft)', borderRadius: 9, boxShadow: '0 3px 10px -3px rgba(0,0,0,.4)', transition: 'left var(--dur-slow) var(--ease-spring)' }} />
+            {/* left stays fixed at 3px; sliding is done with transform (compositor-only, no
+                reflow) instead of animating left directly — translateX(100%) of this element's
+                own width (`calc(50% - 3px)`) lands it exactly at the same spot `left: 50%` used
+                to, since container-width/2 - 3px is both this element's width and the delta
+                between the two left values. */}
+            <span style={{ position: 'absolute', top: 3, bottom: 3, left: 3, width: 'calc(50% - 3px)', transform: isRegister ? 'translateX(100%)' : 'translateX(0)', background: 'var(--ink-soft)', borderRadius: 9, boxShadow: '0 3px 10px -3px rgba(0,0,0,.4)', transition: 'transform var(--dur-slow) var(--ease-spring)' }} />
             <button onClick={() => setAuthMode('login')} className="press-spring" style={{ position: 'relative', flex: 1, border: 0, background: 'transparent', color: !isRegister ? 'var(--ink)' : 'rgba(242,245,239,.75)', padding: '10px 0', borderRadius: 9, fontSize: 13.5, fontWeight: 600 }}>เข้าสู่ระบบ</button>
             <button onClick={() => setAuthMode('register')} className="press-spring" style={{ position: 'relative', flex: 1, border: 0, background: 'transparent', color: isRegister ? 'var(--ink)' : 'rgba(242,245,239,.75)', padding: '10px 0', borderRadius: 9, fontSize: 13.5, fontWeight: 600 }}>สมัครสมาชิก</button>
           </div>

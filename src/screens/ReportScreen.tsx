@@ -258,7 +258,7 @@ export default function ReportScreen() {
                     <span className="muted" style={{ fontSize: 13, flex: 'none' }}>{b.lots} lot · {nf(b.value)} บาท</span>
                   </div>
                   <div className="bar-track" style={{ height: 6, background: 'var(--border-soft)', borderRadius: 3, marginTop: 7 }}>
-                    <div className="bar-fill" style={{ height: '100%', width: Math.max(2, Math.round((b.value / maxVal) * 100)) + '%', background: b.fg, borderRadius: 3 }} />
+                    <div className="bar-fill" style={{ height: '100%', transform: 'scaleX(' + Math.max(2, Math.round((b.value / maxVal) * 100)) / 100 + ')', background: b.fg, borderRadius: 3 }} />
                   </div>
                 </div>
               ))}
@@ -283,7 +283,7 @@ export default function ReportScreen() {
                     <span style={{ fontSize: 13, fontWeight: 700, flex: 'none' }}>{nf(r.value)} บาท</span>
                   </div>
                   <div className="bar-track" style={{ height: 5, background: 'var(--border-soft)', borderRadius: 3, marginTop: 7 }}>
-                    <div className="bar-fill" style={{ height: '100%', width: Math.max(2, Math.round((r.value / catMaxValue) * 100)) + '%', background: 'var(--green)', borderRadius: 3 }} />
+                    <div className="bar-fill" style={{ height: '100%', transform: 'scaleX(' + Math.max(2, Math.round((r.value / catMaxValue) * 100)) / 100 + ')', background: 'var(--green)', borderRadius: 3 }} />
                   </div>
                   <div className="muted" style={{ fontSize: 11.5, marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                     <span>{nf(r.meds)} รายการ</span>

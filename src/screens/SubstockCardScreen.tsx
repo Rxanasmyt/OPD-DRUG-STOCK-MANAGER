@@ -309,7 +309,7 @@ export default function SubstockCardScreen() {
                 </div>
                 <div style={{ fontSize: 30, fontWeight: 800, color: balanceTone, lineHeight: 1.15, marginTop: 2 }}>{nf(liveBalance)} <span style={{ fontSize: 13, fontWeight: 600 }}>{med.unit}</span></div>
                 <div className="bar-track" style={{ height: 5, background: 'var(--border-soft)', borderRadius: 3, marginTop: 8 }}>
-                  <div className="bar-fill" style={{ height: '100%', width: Math.max(3, Math.min(100, balancePct)) + '%', background: balanceTone, borderRadius: 3 }} />
+                  <div className="bar-fill" style={{ height: '100%', transform: 'scaleX(' + Math.max(3, Math.min(100, balancePct)) / 100 + ')', background: balanceTone, borderRadius: 3 }} />
                 </div>
               </div>
               <div style={{ flex: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
