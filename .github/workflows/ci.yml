@@ -19,7 +19,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Bug fix: pinned at 20 since this workflow was added, but every run since at least
+          # v3.58.0 has failed on `npm test` with "TypeError: webidl.util.markAsUncloneable is
+          # not a function" inside jsdom's bundled undici (node_modules/undici/lib/web/cache/
+          # cachestorage.js) — a known jsdom-30/undici-8 incompatibility with Node 20's older
+          # built-ins, unrelated to any app code change (confirmed: every CI run in the log back
+          # to v3.58.0 failed the same way, including ones that only touched docs/CSS). Node 22
+          # (what this repo's own dev/build environment already runs, where the same test suite
+          # passes clean) doesn't hit it — bumping the pin here instead of guessing at a jsdom
+          # downgrade, since 22 is already the proven-working version.
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run lint
