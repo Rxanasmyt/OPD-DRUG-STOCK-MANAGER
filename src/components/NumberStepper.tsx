@@ -26,10 +26,19 @@ export function NumberStepper({ value, onChange, unit, step = 1, min = 0, max, i
   inputStyle?: React.CSSProperties;
 }) {
   const held = useRef<{ timeout: number; interval: number } | null>(null);
+  // Bug fix: a held-down repeat's setInterval callback is created ONCE, at the moment the press
+  // starts, and keeps calling that same closure for the rest of the hold — but `value` is a
+  // prop that changes on every tick (each bump() calls onChange(), which re-renders this
+  // component with a new `value`). Without this ref, every repeat kept reading the STALE
+  // `value` from the instant the press began, so `cur` never advanced past that original
+  // number and the whole hold only ever incremented once no matter how long it was held —
+  // confirmed live: a real ~1.1s press only moved the count by 1 instead of the expected ~8.
+  const valueRef = useRef(value);
+  valueRef.current = value;
 
   const clamp = (n: number) => Math.max(min, max != null ? Math.min(max, n) : n);
   const bump = (dir: 1 | -1) => {
-    const cur = parseInt(value, 10) || 0;
+    const cur = parseInt(valueRef.current, 10) || 0;
     const next = clamp(cur + dir * step);
     if (next !== cur) { onChange(String(next)); hapticTick(); }
   };
