@@ -921,12 +921,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // persistence signs out the moment the tab/browser closes, for a shared/kiosk device
       // where staying logged in would hand the next person someone else's session.
       await setPersistence(auth, state.authRemember ? browserLocalPersistence : browserSessionPersistence);
-      const cred = await signInWithEmailAndPassword(auth, usernameToEmail(username), password);
-      // Bug fix: this setDoc used to be unwrapped — on a hung connection it would never
-      // resolve or reject, so `authBusy` (which gates the login button/spinner) would never
-      // clear via the `finally` below. Sign-in is the single highest-frequency screen in the
-      // whole app (every user, every day) — a stuck spinner here with no error message would
-      // be the worst possible first impression of a flaky connection, not just an inconvenience.
+      // Bug fix: this call itself used to be unwrapped — the very thing it warns about two
+      // lines down (a hung connection that never resolves or rejects, leaving `authBusy` stuck
+      // forever with no error) applied just as much to signInWithEmailAndPassword itself as to
+      // the setDoc that follows it, and this IS the highest-frequency network call in the whole
+      // app — every sign-in, every device, every day. Confirmed live: on a badly unstable
+      // connection the button spun on "กำลังดำเนินการ" indefinitely with nothing to tell the
+      // person to retry or walk away.
+      const cred = await withTimeout(signInWithEmailAndPassword(auth, usernameToEmail(username), password));
       await withTimeout(setDoc(doc(db, 'users', cred.user.uid), { lastLogin: Date.now() }, { merge: true }));
     } catch (e) {
       patch({ authError: authErrorMessage(e) });
@@ -948,7 +950,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const takenSnap = await withTimeout(getDoc(doc(db, 'usernames', username)));
       if (takenSnap.exists()) { patch({ authError: 'ชื่อผู้ใช้นี้มีคนใช้แล้ว' }); return; }
 
-      const cred = await createUserWithEmailAndPassword(auth, usernameToEmail(username), password);
+      // Same fix as signIn(): unwrapped, this could hang forever on a stuck connection with
+      // authBusy never clearing and no error shown — the account-creation counterpart of the
+      // sign-in bug above.
+      const cred = await withTimeout(createUserWithEmailAndPassword(auth, usernameToEmail(username), password));
       try {
         const profile: Omit<User, 'id'> = { username, name, role: 'tech', dept, active: false, createdAt: Date.now(), lastLogin: null };
         const batch = writeBatch(db);
