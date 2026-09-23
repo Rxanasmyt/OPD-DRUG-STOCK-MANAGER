@@ -3,6 +3,7 @@ import { useApp } from '../store/AppContext';
 import { wardOf } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
 import type { HosxpMatch, Med } from '../types';
+import { Badge } from '../components/Badge';
 
 export default function ReconcileScreen() {
   const { state, setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile } = useApp();
@@ -139,7 +140,7 @@ export default function ReconcileScreen() {
             {unmatchedFreq.map((u, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 13px', borderBottom: i < unmatchedFreq.length - 1 ? '1px solid var(--border-soft)' : 0 }}>
                 <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.3 }}>{u.name}</span>
-                <span style={{ flex: 'none', fontSize: 11, fontWeight: 700, color: 'var(--red)', background: 'var(--red-bg)', padding: '2px 8px', borderRadius: 20 }}>{u.count} ครั้ง</span>
+                <Badge flexNone size={11} padding="2px 8px" color="var(--red)" bg="var(--red-bg)">{u.count} ครั้ง</Badge>
                 <span className="muted" style={{ flex: 'none', fontSize: 11 }}>ล่าสุด {thDate(u.lastTs)}</span>
               </div>
             ))}

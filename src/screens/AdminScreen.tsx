@@ -5,6 +5,7 @@ import type { AdminTab, AuditFilter, Role, User } from '../types';
 import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
 import { QrCode } from '../components/QrCode';
+import { Badge } from '../components/Badge';
 
 const ADMIN_TABS: [AdminTab, string][] = [['users', 'ผู้ใช้งาน'], ['audit', 'Audit log']];
 const ROLES: Role[] = ['pharm', 'tech', 'admin'];
@@ -179,7 +180,7 @@ export default function AdminScreen() {
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 6 }}>
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</span>
-                          {isMe && <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: 'var(--green)', background: 'var(--green-tint)', padding: '2px 7px', borderRadius: 20 }}>คุณ</span>}
+                          {isMe && <Badge flexNone size={10.5} color="var(--green)" bg="var(--green-tint)">คุณ</Badge>}
                         </div>
                         <div className="muted" style={{ fontSize: 11.5, marginTop: 1 }}>@{u.username} · {u.dept}</div>
                       </div>

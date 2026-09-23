@@ -446,7 +446,12 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 .nav-pill {
   position: absolute; top: 6px; bottom: 6px; border-radius: 16px;
   background: var(--green-tint);
-  transition: transform var(--dur-slow) var(--ease-spring), width var(--dur-slow) var(--ease-spring);
+  /* Bug fix: `width` never actually changes between renders (NAV_DEF's tab count is fixed), so
+     transitioning it did nothing — `left`, which is what actually moves on every tab switch,
+     was the one property missing from this list, so the pill jumped to the new tab instantly
+     instead of sliding. `transform` stays listed for App.tsx's own press-state uses of this
+     class elsewhere, if any get added later. */
+  transition: left var(--dur-slow) var(--ease-spring), transform var(--dur-slow) var(--ease-spring);
 }
 
 /* Buttons/cards that want the "premium" tactile press instead of the default flat scale */

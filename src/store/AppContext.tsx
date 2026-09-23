@@ -188,6 +188,10 @@ export interface AppCtx {
   disableLowStockNotify: () => void;
   go: (s: Screen) => void;
   back: () => void;
+  /** Marks whether a form with real unsaved edits is currently open — see go()'s own doc
+   * comment. Call with `true` while dirty, `false` once saved/cancelled/reset (including on
+   * unmount, so a stale `true` can't outlive the form itself). */
+  setFormDirty: (dirty: boolean) => void;
 
   // auth
   setAuthMode: (m: AuthMode) => void;
@@ -877,7 +881,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     void maybeNotifyLowStock(belowMinCount, urgentCount);
   }, [state.authStatus, state.dbReady, state.meds, lowStockNotifyEnabled]);
 
-  const go = useCallback((s: Screen) => setState((st) => ({ ...st, screen: s, navStack: pushNav(st.navStack, st.screen) })), []);
+  // Bug fix: a form with real unsaved edits (currently just MedForm's add/edit — see
+  // setFormDirty below) used to vanish silently the moment someone tapped a different
+  // bottom-nav tab, since App.tsx's Screens() switch unmounts the current screen outright on
+  // navigation. `go()` is the one function every such navigation funnels through, so gate it
+  // here rather than in each individual form: ask once, and only navigate through if confirmed.
+  const unsavedFormRef = useRef(false);
+  const setFormDirty = useCallback((dirty: boolean) => { unsavedFormRef.current = dirty; }, []);
+  const go = useCallback((s: Screen) => {
+    if (unsavedFormRef.current) {
+      void (async () => {
+        if (!(await confirmAsync('มีข้อมูลที่ยังไม่ได้บันทึก ออกจากหน้านี้เลยไหม? การแก้ไขที่ทำไว้จะหายไป'))) return;
+        unsavedFormRef.current = false;
+        setState((st) => ({ ...st, screen: s, navStack: pushNav(st.navStack, st.screen) }));
+      })();
+      return;
+    }
+    setState((st) => ({ ...st, screen: s, navStack: pushNav(st.navStack, st.screen) }));
+  }, [confirmAsync]);
   // Pops the real history stack instead of a single fixed "came from" pointer — see navStack
   // on AppState. Bug this replaced: back() used to hardcode every screen except tconfirm to
   // return to 'more', which only happened to be right for screens always opened from the More
@@ -3442,7 +3463,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<AppCtx>(() => ({
     state, myProfile, theme, toggleTheme, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, respondConfirm, promptAsync, respondPrompt, applyUpdate, dismissUpdate,
     notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify,
-    lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify, go, back,
+    lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify, go, back, setFormDirty,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
     setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, fillUrgent, printPickList, printTodayReplenishList, removeFromCart, clearCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, printWarehouseRequestList,
