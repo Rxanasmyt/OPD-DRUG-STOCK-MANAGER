@@ -43,7 +43,7 @@ export default function MoreScreen() {
       title: 'รายงานและเอกสาร',
       items: [
         { icon: '📊', label: 'รายงานและ Export CSV', sub: 'stock aging · turnover · discrepancy', screen: 'report' },
-        { icon: '🗂️', label: 'บัตรสต็อก substock', sub: 'รับ-จ่าย-คงเหลือ real-time แทนบัตรกระดาษ', screen: 'substockcard' },
+        { icon: '🗂️', label: 'บัตรคุมยา', sub: 'รับ-จ่าย-คงเหลือ real-time แทนบัตรกระดาษ — ทุกยา รวมยาที่ไม่มี substock', screen: 'substockcard' },
         { icon: '▣', label: 'ระบบฉลาก QR', sub: 'พิมพ์ฉลากตัวยา lot และชั้นวาง', screen: 'labels' },
       ],
     },

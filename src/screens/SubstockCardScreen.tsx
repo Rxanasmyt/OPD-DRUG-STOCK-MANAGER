@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
-import { subQty, wardOf, subTone, usesSubstock } from '../store/selectors';
+import { subQty, wardOf, subTone, usesSubstock, toneFor } from '../store/selectors';
 import { nf, thDate, fiscalYear } from '../utils/format';
 import { printSubstockCardSheet } from '../utils/print';
 import { downloadCsv } from '../utils/csv';
@@ -24,12 +24,22 @@ const TYPE_META: Record<string, { icon: string; label: string }> = {
   // Only ever reaches this ledger tagged loc:'substock' (see fetchSubstockLedger's guard in
   // AppContext.tsx) — a floor count logs the same type but never appears here.
   count: { icon: '🔢', label: 'นับสต็อก (ปรับยอด)' },
+  // The rest only ever show up on a FLOOR ledger (noSubstock med — see fetchFloorLedger) —
+  // adjust/return/damaged/reconcile_hosxp/ward_move all only ever touch floor, never substock.
+  reconcile_hosxp: { icon: '🧾', label: 'ตัดยอด HOSxP' },
+  adjust: { icon: '⚖️', label: 'ปรับยอด' },
+  return: { icon: '↩️', label: 'คืนยา' },
+  damaged: { icon: '💥', label: 'ยาเสีย/ชำรุด' },
+  ward_move_in: { icon: '↘️', label: 'ย้ายมาจากชั้นอื่น' },
+  ward_move_out: { icon: '↗️', label: 'ย้ายไปชั้นอื่น' },
 };
 
-// Must match fetchSubstockLedger's own SUBSTOCK_LEDGER_TYPES (AppContext.tsx) exactly — used
-// below only to detect when a NEW relevant row has arrived via the live txs listener, not to
-// filter what's shown (fetchSubstockLedger already does the real filtering server-round-trip).
+// Must match fetchSubstockLedger's/fetchFloorLedger's own *_LEDGER_TYPES (AppContext.tsx)
+// exactly — used below only to detect when a NEW relevant row has arrived via the live txs
+// listener, not to filter what's shown (the fetch functions already do the real filtering
+// server-round-trip).
 const SUBSTOCK_LEDGER_TYPES = new Set(['receive_from_central', 'transfer_to_floor', 'expired', 'count']);
+const FLOOR_LEDGER_TYPES = new Set(['receive_from_central', 'transfer_to_floor', 'reconcile_hosxp', 'adjust', 'return', 'damaged', 'ward_move_in', 'ward_move_out', 'count']);
 
 /** The digital replacement for the paper "บัตรคุมสต็อกยา" (yellow stock card) — same
  * วันที่/รับ/จ่าย/คงเหลือ layout staff already read off the physical card, generated from real
@@ -37,7 +47,7 @@ const SUBSTOCK_LEDGER_TYPES = new Set(['receive_from_central', 'transfer_to_floo
  * live, or print an A4 sheet in the same shape as the card for anyone who still wants a
  * physical printout on file. */
 export default function SubstockCardScreen() {
-  const { state, fetchSubstockLedger, toast, setSubstockFocusId, go, setAdminTab, setAuditFilter } = useApp();
+  const { state, fetchSubstockLedger, fetchFloorLedger, toast, setSubstockFocusId, go, setAdminTab, setAuditFilter } = useApp();
   const [search, setSearch] = useState('');
   const [medId, setMedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -48,13 +58,13 @@ export default function SubstockCardScreen() {
   const [year, setYear] = useState<number | 'all'>('all');
 
   const med = medId ? state.meds.find((m) => m.id === medId) : null;
-  // A noSubstock med (liquids/inhalers/sprays) has no substock stage at all — its central-
-  // warehouse receipts credit the floor directly, no lot is ever created (see commitReceive) —
-  // so there is no real "บัตรสต็อก substock" to show for it (fetchSubstockLedger now returns
-  // empty for one too — see AppContext.tsx). Excluded from the picker so searching for one
-  // doesn't dead-end on an always-empty card.
+  // Real-world request: a noSubstock med (liquids/inhalers/sprays/injectables) has no substock
+  // stage, but floor plays substock's role for it (receive from central lands directly on
+  // floor, the daily HOSxP usage-cut deducts from floor too — see fetchFloorLedger in
+  // AppContext.tsx), so it gets the same card, just built from floor history instead of
+  // substock history. No longer excluded from the picker.
   const options = !medId && search.trim()
-    ? state.meds.filter((m) => m.active && usesSubstock(m) && m.name.toLowerCase().indexOf(search.trim().toLowerCase()) >= 0).slice(0, 10)
+    ? state.meds.filter((m) => m.active && m.name.toLowerCase().indexOf(search.trim().toLowerCase()) >= 0).slice(0, 10)
     : [];
 
   const openCard = async (id: string) => {
@@ -66,7 +76,7 @@ export default function SubstockCardScreen() {
     setRows(null);
     setYear('all');
     try {
-      const ledger = await fetchSubstockLedger(id);
+      const ledger = await (usesSubstock(m) ? fetchSubstockLedger(id) : fetchFloorLedger(id));
       setRows(ledger);
       // Default to whichever fiscal year is most relevant to look at right now: this year's
       // (ปีงบประมาณปัจจุบัน) if it already has activity, otherwise the most recent year that
@@ -134,29 +144,37 @@ export default function SubstockCardScreen() {
   // window), so watch it for a newer row belonging to this med and silently re-pull the ledger
   // when one shows up — no loading spinner, no resetting search/year, just the rows updating
   // under the reader the way the balance already did.
+  const hasSub = med ? usesSubstock(med) : true;
   const latestRelevantTxTs = useMemo(() => {
-    if (!medId) return 0;
+    if (!medId || !med) return 0;
+    const useSub = usesSubstock(med);
+    const types = useSub ? SUBSTOCK_LEDGER_TYPES : FLOOR_LEDGER_TYPES;
     return state.txs.reduce((mx, t) => {
-      if (t.medId !== medId || !SUBSTOCK_LEDGER_TYPES.has(t.type)) return mx;
-      if ((t.type === 'expired' || t.type === 'count') && t.loc !== 'substock') return mx;
+      if (t.medId !== medId || !types.has(t.type)) return mx;
+      if (useSub) {
+        if ((t.type === 'expired' || t.type === 'count') && t.loc !== 'substock') return mx;
+      } else {
+        if (t.type === 'receive_from_central' && t.to !== 'floor') return mx;
+        if (t.type === 'count' && t.loc !== 'floor') return mx;
+      }
       return t.ts > mx ? t.ts : mx;
     }, 0);
-  }, [state.txs, medId]);
+  }, [state.txs, medId, med]);
   const seenTxTs = useRef(0);
   useEffect(() => {
     seenTxTs.current = 0; // reset the baseline whenever a different med's card opens
   }, [medId]);
   useEffect(() => {
-    if (!medId || !latestRelevantTxTs) return;
+    if (!medId || !latestRelevantTxTs || !med) return;
     if (seenTxTs.current === 0) { seenTxTs.current = latestRelevantTxTs; return; } // openCard's own fetch already covers this
     if (latestRelevantTxTs <= seenTxTs.current) return;
     seenTxTs.current = latestRelevantTxTs;
-    fetchSubstockLedger(medId).then(setRows).catch((e) => console.error(e));
-  }, [latestRelevantTxTs, medId, fetchSubstockLedger]);
+    (usesSubstock(med) ? fetchSubstockLedger(medId) : fetchFloorLedger(medId)).then(setRows).catch((e) => console.error(e));
+  }, [latestRelevantTxTs, medId, med, fetchSubstockLedger, fetchFloorLedger]);
 
-  const liveBalance = med ? subQty(state, med.id) : 0;
-  const balanceTone = med ? subTone(liveBalance, med.parSub) : 'var(--green)';
-  const balancePct = med ? Math.round((liveBalance / Math.max(1, med.parSub)) * 100) : 0;
+  const liveBalance = med ? (hasSub ? subQty(state, med.id) : med.floor) : 0;
+  const balanceTone = med ? (hasSub ? subTone(liveBalance, med.parSub) : toneFor(med)) : 'var(--green)';
+  const balancePct = med ? Math.round((liveBalance / Math.max(1, hasSub ? med.parSub : med.parFloor)) * 100) : 0;
   const lastLedgerBalance = rows && rows.length ? rows[rows.length - 1].balance : 0;
   // The live balance (from current lots) and the ledger's computed running total should
   // always agree — if they don't, something in the tx history is incomplete or a lot was
@@ -183,7 +201,9 @@ export default function SubstockCardScreen() {
     // row's own signed qty (same math the running balance itself uses).
     const openingBalance = viewRows.length ? viewRows[0].balance - viewRows[0].qty : undefined;
     const ok = printSubstockCardSheet(
-      { code: med.code, name: med.name, parSub: med.parSub, unit: med.unit, ward: wardOf(med) },
+      hasSub
+        ? { code: med.code, name: med.name, parSub: med.parSub, unit: med.unit, ward: wardOf(med) }
+        : { code: med.code, name: med.name, parSub: med.parFloor, unit: med.unit, ward: wardOf(med), parLabel: 'par หน้างาน (Max)', heading: 'บัตรคุมยา (ไม่มี substock)' },
       cardRows,
       year,
       { totals: yearTotals ? { received: yearTotals.received, dispensed: yearTotals.dispensed } : undefined, openingBalance, liveBalance },
@@ -198,7 +218,7 @@ export default function SubstockCardScreen() {
       thDate(r.ts), TYPE_META[r.type]?.label || r.type,
       r.qty > 0 ? r.qty : '', r.qty < 0 ? -r.qty : '', r.balance, r.by, r.note,
     ]);
-    const fname = 'substock_card_' + med.code + '_' + (year === 'all' ? 'ทุกปี' : 'FY' + year) + '.csv';
+    const fname = (hasSub ? 'substock_card_' : 'floor_card_') + med.code + '_' + (year === 'all' ? 'ทุกปี' : 'FY' + year) + '.csv';
     const outcome = await downloadCsv([header, ...body], fname);
     toast(outcome === 'saved' ? 'ดาวน์โหลด CSV แล้ว' : outcome === 'declined' ? 'ยกเลิกการบันทึกไฟล์' : 'ดาวน์โหลดไม่สำเร็จ — เบราว์เซอร์นี้ไม่รองรับ');
   };
@@ -211,7 +231,7 @@ export default function SubstockCardScreen() {
           box already is: relevant only before a med is chosen. */}
       {!medId && (
         <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 12 }}>
-          เลือกยาเพื่อดูบัตรสต็อก substock แบบ real-time — รับจากคลังใหญ่ / เติมหน้างาน / ตัดหมดอายุ พร้อมยอดคงเหลือสะสม แทนบัตรกระดาษที่ต้องจดมือ
+          เลือกยาเพื่อดูบัตรคุมยาแบบ real-time — รับจากคลังใหญ่ / เติมหน้างาน / ตัดหมดอายุ พร้อมยอดคงเหลือสะสม แทนบัตรกระดาษที่ต้องจดมือ — ยาที่ไม่มี substock (ยาฉีด/ยาน้ำ/ยาพ่น) จะแสดงบัตรอ้างอิงจากยอดหน้างานแทน
         </div>
       )}
 
@@ -223,7 +243,9 @@ export default function SubstockCardScreen() {
               {options.map((m) => (
                 <button key={m.id} onClick={() => openCard(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
                   <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name} <WardBadge med={m} /></span>
-                  <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock ปัจจุบัน {nf(subQty(state, m.id))} {m.unit}</span>
+                  <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>
+                    {usesSubstock(m) ? 'substock ปัจจุบัน ' + nf(subQty(state, m.id)) : 'หน้างานปัจจุบัน ' + nf(m.floor)} {m.unit}
+                  </span>
                 </button>
               ))}
             </div>
@@ -245,7 +267,7 @@ export default function SubstockCardScreen() {
             <div style={{ background: 'linear-gradient(135deg, #f0b429 0%, var(--amber) 100%)', color: '#2a1f0a', padding: '12px 15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 14, fontWeight: 800, letterSpacing: '.02em', display: 'flex', alignItems: 'center', gap: 7 }}>
                 <span aria-hidden="true" style={{ width: 26, height: 26, borderRadius: 8, background: 'rgba(255,255,255,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>🗂️</span>
-                บัตรคุมสต็อกยา
+                {hasSub ? 'บัตรคุมสต็อกยา' : 'บัตรคุมยา (ไม่มี substock)'}
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 {/* Multi-year history browser — the paper card needed a new sheet every fiscal
@@ -271,7 +293,7 @@ export default function SubstockCardScreen() {
               <Field label="ชื่อยา" full><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MedDot code={med.code} size={9} />{med.name} <WardBadge med={med} size="md" /></span></Field>
               <Field label="รหัสยา">{med.code}</Field>
               <Field label="หน่วยนับ" noBorderRight>{med.unit}</Field>
-              <Field label="par substock" noBorder>{nf(med.parSub)} {med.unit}</Field>
+              <Field label={hasSub ? 'par substock' : 'par หน้างาน (Max)'} noBorder>{nf(hasSub ? med.parSub : med.parFloor)} {med.unit}</Field>
             </div>
             <div style={{ padding: '12px 14px', background: 'var(--bg-card)', display: 'flex', gap: 10 }}>
               {/* The one number everyone actually walks up to this screen for — sized to read
@@ -282,7 +304,7 @@ export default function SubstockCardScreen() {
                   never said which, and reading that off by mental math isn't "เห็นภาพชัดเจน". */}
               <div style={{ flex: 1, background: 'var(--bg-subtle)', border: '1px solid var(--border-soft)', borderRadius: 12, padding: '11px 13px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-                  <span className="muted" style={{ fontSize: 11 }}>substock คงเหลือตอนนี้ (real-time)</span>
+                  <span className="muted" style={{ fontSize: 11 }}>{hasSub ? 'substock คงเหลือตอนนี้ (real-time)' : 'หน้างานคงเหลือตอนนี้ (real-time)'}</span>
                   <span style={{ fontSize: 11, fontWeight: 800, color: balanceTone }}>{balancePct}% ของ par</span>
                 </div>
                 <div style={{ fontSize: 30, fontWeight: 800, color: balanceTone, lineHeight: 1.15, marginTop: 2 }}>{nf(liveBalance)} <span style={{ fontSize: 13, fontWeight: 600 }}>{med.unit}</span></div>
@@ -328,7 +350,7 @@ export default function SubstockCardScreen() {
               // or 4 tiles) always fills its row evenly.
               <div style={{ padding: '0 14px 12px', display: 'grid', gridTemplateColumns: `repeat(${2 + (yearTotals.expired > 0 ? 1 : 0) + (yearTotals.counted !== 0 ? 1 : 0)}, 1fr)`, gap: 8 }}>
                 <SummaryTile label="รับเข้ารวม" value={yearTotals.received} unit={med.unit} color="var(--green)" />
-                <SummaryTile label="เติมหน้างานรวม" value={yearTotals.dispensed} unit={med.unit} color="var(--red)" />
+                <SummaryTile label={hasSub ? 'เติมหน้างานรวม' : 'จ่ายออก/ปรับยอดรวม'} value={yearTotals.dispensed} unit={med.unit} color="var(--red)" />
                 {yearTotals.expired > 0 && <SummaryTile label="ตัดหมดอายุรวม" value={yearTotals.expired} unit={med.unit} color="var(--amber-ink)" />}
                 {yearTotals.counted !== 0 && <SummaryTile label="ปรับยอดจากนับสต็อก" value={yearTotals.counted} unit={med.unit} color={yearTotals.counted > 0 ? 'var(--green)' : 'var(--red)'} />}
               </div>
@@ -358,11 +380,14 @@ export default function SubstockCardScreen() {
           </div>
 
           {/* Type-icon legend — the ledger table below packs each row's type into a single
-              icon (📥🚚🗑️🔢) to keep the grid narrow enough for a phone screen; the only place
-              their meaning used to live was each row's `title` attribute, which needs a mouse
-              hover that a touchscreen never provides. Spelled out once, plainly, here. */}
+              icon (📥🚚🗑️🔢🧾⚖️↩️💥↘️↗️) to keep the grid narrow enough for a phone screen; the
+              only place their meaning used to live was each row's `title` attribute, which
+              needs a mouse hover that a touchscreen never provides. Spelled out once, plainly,
+              here — only the types that actually appear in THIS med's full history, not all 10
+              possible ones at once (a floor-ledger med legitimately only ever sees a handful of
+              them; showing the rest would just be clutter with no matching rows below). */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px', padding: '9px 13px', background: 'var(--bg-subtle)', border: '1px solid var(--border-soft)', borderRadius: 12, marginBottom: 12 }}>
-            {Object.values(TYPE_META).map((t) => (
+            {Array.from(new Set((rows || []).map((r) => r.type))).map((t) => TYPE_META[t]).filter((t): t is { icon: string; label: string } => !!t).map((t) => (
               <span key={t.label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11 }}>
                 <span aria-hidden="true">{t.icon}</span>
                 <span className="muted">{t.label}</span>
@@ -412,8 +437,8 @@ export default function SubstockCardScreen() {
               {viewRows.length === 0 && (
                 <EmptyState
                   icon="🗂️"
-                  title={rows && rows.length > 0 ? 'ไม่มีประวัติ substock ใน' + (year === 'all' ? 'ช่วงนี้' : 'ปีงบ ' + year) : 'ยานี้ยังไม่มีประวัติ substock'}
-                  sub={rows && rows.length > 0 ? 'ลองสลับดูปีงบอื่น หรือเลือก "ทุกปี"' : 'จะเริ่มมีประวัติทันทีที่รับเข้า/เติมหน้างาน/ตัดหมดอายุยานี้ครั้งแรก'}
+                  title={rows && rows.length > 0 ? 'ไม่มีประวัติใน' + (year === 'all' ? 'ช่วงนี้' : 'ปีงบ ' + year) : 'ยานี้ยังไม่มีประวัติ' + (hasSub ? ' substock' : '')}
+                  sub={rows && rows.length > 0 ? 'ลองสลับดูปีงบอื่น หรือเลือก "ทุกปี"' : hasSub ? 'จะเริ่มมีประวัติทันทีที่รับเข้า/เติมหน้างาน/ตัดหมดอายุยานี้ครั้งแรก' : 'จะเริ่มมีประวัติทันทีที่รับเข้า/ตัดยอด HOSxP/ปรับยอดยานี้ครั้งแรก'}
                 />
               )}
             </div>

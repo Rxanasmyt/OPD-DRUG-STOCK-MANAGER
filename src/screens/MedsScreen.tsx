@@ -8,6 +8,7 @@ import type { Med, Ward } from '../types';
 import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
 import { DRUG_CATEGORIES, categoryLabel } from '../data/categories';
+import { FRIDGE_LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
 
 type Filter = 'active' | 'inactive' | 'all' | 'parOne';
@@ -41,6 +42,12 @@ function sanitizeBin(v: string): string {
   return v.toUpperCase().replace(/[^A-Z0-9\u0E00-\u0E7F-]/g, '').slice(0, 10);
 }
 const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: 'var(--ipd)' };
+// Placeholder hints for a fridge med's shelf fields, built from FRIDGE_LOCS (data/locations.ts)
+// so the example codes shown here can never drift out of sync with what the printed ฉลากตู้เย็น
+// sheet (LabelsScreen) actually generates — 'บริการ' (service) codes for the floor/dispensing
+// field, 'คลัง'/'วัคซีน' (storage) codes for the substock field.
+const FRIDGE_SVC_HINT = FRIDGE_LOCS.filter(([c]) => c.includes('SVC')).map(([c]) => c).join(' หรือ ');
+const FRIDGE_STORE_HINT = FRIDGE_LOCS.filter(([c]) => !c.includes('SVC')).map(([c]) => c).join(' หรือ ');
 const WARD_BG: Record<Ward, string> = { opd: 'var(--green-tint)', ipd: 'var(--ipd-bg)' };
 
 interface MedFormValues {
@@ -524,8 +531,10 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
           <input value={v.price} onChange={(e) => set('price', e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" style={inputStyle} />
         </label>
         <label>
-          <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{v.shared ? 'ชั้นวาง (OPD)' : v.ward === 'ipd' ? 'ชั้นวาง (IPD)' : 'ชั้นวาง (OPD)'}</span>
-          <input value={v.bin} onChange={(e) => set('bin', sanitizeBin(e.target.value))} placeholder="เช่น J4 หรือ ตู้ยา-1" style={{ ...inputStyle, textTransform: 'uppercase' as const, ...(!v.shared && v.ward === 'ipd' ? { borderColor: WARD_COLOR.ipd } : {}) }} />
+          <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>
+            {v.fridge ? '🧊 ตำแหน่งตู้เย็น (บริการ)' : v.shared ? 'ชั้นวาง (OPD)' : v.ward === 'ipd' ? 'ชั้นวาง (IPD)' : 'ชั้นวาง (OPD)'}
+          </span>
+          <input value={v.bin} onChange={(e) => set('bin', sanitizeBin(e.target.value))} placeholder={v.fridge ? 'เช่น ' + FRIDGE_SVC_HINT : 'เช่น J4 หรือ ตู้ยา-1'} style={{ ...inputStyle, textTransform: 'uppercase' as const, ...(!v.shared && v.ward === 'ipd' ? { borderColor: WARD_COLOR.ipd } : {}) }} />
         </label>
       </div>
       {/* Bug fix (usability): "เฉพาะ IPD" used to only be reachable by first unticking "ใช้ยอด
@@ -545,8 +554,8 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
         {v.shared ? (
           <div style={{ marginTop: 7 }}>
             <label style={{ display: 'block', marginBottom: 7 }}>
-              <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>ชั้นวาง (IPD)</span>
-              <input value={v.binIpd} onChange={(e) => set('binIpd', sanitizeBin(e.target.value))} placeholder="เช่น J4 หรือ ตู้ยา-1" style={{ ...inputStyle, textTransform: 'uppercase' as const, borderColor: WARD_COLOR.ipd }} />
+              <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{v.fridge ? '🧊 ตำแหน่งตู้เย็น (บริการ — IPD)' : 'ชั้นวาง (IPD)'}</span>
+              <input value={v.binIpd} onChange={(e) => set('binIpd', sanitizeBin(e.target.value))} placeholder={v.fridge ? 'เช่น ' + FRIDGE_SVC_HINT : 'เช่น J4 หรือ ตู้ยา-1'} style={{ ...inputStyle, textTransform: 'uppercase' as const, borderColor: WARD_COLOR.ipd }} />
             </label>
             <div style={{ fontSize: 10.5, lineHeight: 1.5, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 9, padding: '8px 10px' }}>
               ใช้สต็อกร่วมกันทั้ง OPD และ IPD — หน้างาน/par/substock เป็นยอดเดียวกันหมด ต่างกันแค่รหัสชั้นวางที่แสดงตามฝั่งที่ดู (IPD หยิบยาจากชั้น OPD ตรง ๆ)
@@ -590,15 +599,19 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
         </div>
       )}
       <label style={{ display: 'block', marginBottom: 9 }}>
-        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>ชั้นวาง substock (คลังย่อย)</span>
+        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{v.fridge ? '🧊 ตำแหน่งตู้เย็น (คลัง/สต็อกสำรอง)' : 'ชั้นวาง substock (คลังย่อย)'}</span>
         <input
           value={v.binSub}
           onChange={(e) => set('binSub', sanitizeBin(e.target.value))}
-          placeholder="เช่น A1 หรือ ชั้น-1 — ว่างไว้ถ้ายังไม่ได้กำหนด"
+          placeholder={v.fridge ? 'เช่น ' + FRIDGE_STORE_HINT : 'เช่น A1 หรือ ชั้น-1 — ว่างไว้ถ้ายังไม่ได้กำหนด'}
           disabled={v.noSubstock}
           style={{ ...inputStyle, textTransform: 'uppercase' as const, ...(v.noSubstock ? { background: 'var(--bg-subtle)', color: 'var(--muted)' } : {}) }}
         />
-        <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>รหัสชั้น/ตู้ในคลังย่อย substock — คนละรหัสกับชั้นวางหน้างานด้านบน (คนละห้อง คนละ QR) ใช้พิมพ์ฉลากชั้นวาง substock ในหน้าฉลาก QR ได้</div>
+        <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>
+          {v.fridge
+            ? 'ตำแหน่งจัดเก็บในตู้เย็นคลังวัคซีน/คลังยา — คนละตู้กับตำแหน่งบริการด้านบน พิมพ์ฉลากตู้เย็นได้ในหน้าฉลาก QR'
+            : 'รหัสชั้น/ตู้ในคลังย่อย substock — คนละรหัสกับชั้นวางหน้างานด้านบน (คนละห้อง คนละ QR) ใช้พิมพ์ฉลากชั้นวาง substock ในหน้าฉลาก QR ได้'}
+        </div>
       </label>
       <div className="grid-2" style={{ marginBottom: 9 }}>
         <label>

@@ -26,34 +26,37 @@ export default function DoneScreen() {
 
       {showSubstock && (
         <div style={{ fontSize: 11, color: 'var(--amber-ink)', background: 'var(--amber-bg)', border: '1px solid var(--amber-border)', borderRadius: 20, padding: '4px 11px', display: 'inline-block', margin: '10px 0 0', fontWeight: 700 }}>
-          บัตรคุมสต็อกยา · ปีงบประมาณ {fiscalYear()}
+          บัตรคุมยา · ปีงบประมาณ {fiscalYear()}
         </div>
       )}
 
       <div className="card" style={{ textAlign: 'left', margin: '14px 0 18px', overflow: 'hidden' }}>
         {state.doneRows.map((d, i) => {
           const m = medById(d.medId);
-          // A noSubstock med (liquids/sprays — see usesSubstock) never has a substock
-          // balance to show; showing "0" there would read as a problem instead of the
-          // by-design "goes straight to the shelf" behavior it actually is.
-          const showRowSubstock = showSubstock && m && usesSubstock(m);
+          // A noSubstock med (liquids/sprays/injectables — see usesSubstock) never has a
+          // substock balance, but it DOES have a floor-based card now (floor plays substock's
+          // role for it — see fetchFloorLedger in AppContext.tsx), so still show the row, just
+          // reading from floor instead of substock.
+          const showRow = showSubstock && !!m;
+          const hasSub = m ? usesSubstock(m) : false;
           return (
             <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', animation: `fade .3s var(--ease-out) both`, animationDelay: `${Math.min(i, 6) * 40}ms` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                 <span style={{ fontSize: 13, minWidth: 0 }}>{d.name}<span style={{ display: 'block', fontSize: 11, color: 'var(--muted)' }}>{d.sub}</span></span>
                 <span style={{ fontSize: 13.5, fontWeight: 700, flex: 'none' }}>{d.qty}</span>
               </div>
-              {showRowSubstock && (
+              {showRow && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 7, paddingTop: 7, borderTop: '1px dashed var(--border-soft)' }}>
                   <span className="muted" style={{ fontSize: 11.5 }}>
-                    substock ตอนนี้ (real-time) <b style={{ color: 'var(--ink)', fontSize: 13 }}>{nf(sub(d.medId!))}</b>
+                    {hasSub ? 'substock ตอนนี้ (real-time) ' : 'หน้างานตอนนี้ (real-time) '}
+                    <b style={{ color: 'var(--ink)', fontSize: 13 }}>{nf(hasSub ? sub(d.medId!) : m!.floor)}</b>
                   </span>
                   <button
                     onClick={() => goSubstockCardFor(d.medId!)}
                     className="press-spring"
                     style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--green)', fontSize: 12, fontWeight: 700, padding: 0 }}
                   >
-                    ดูบัตรสต็อก →
+                    ดูบัตร →
                   </button>
                 </div>
               )}

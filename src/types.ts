@@ -282,10 +282,11 @@ export interface AppState {
   reportTab: ReportTab;
   labelType: LabelType;
   // Which shelf-code namespace the "ฉลากชั้นวาง" tab is printing/previewing — floor (LOCS,
-  // the original) or substock (SUB_LOCS, its own separate room/grid — see Med.binSub). Kept
+  // the original), substock (SUB_LOCS, its own separate room/grid — see Med.binSub), or
+  // fridge (FRIDGE_LOCS — the pharmacy's own cold-chain storage, see data/locations.ts). Kept
   // as state (not a local component var) because printLabels() in AppContext.tsx needs it
   // too, same reason labelType itself is state and not local to LabelsScreen.
-  locScope: 'floor' | 'sub';
+  locScope: 'floor' | 'sub' | 'fridge';
   // Which physical shelf side the "ฉลากตัวยา" tab prints — 'all' (the original: a shared med
   // prints BOTH its OPD and IPD shelf-strip labels in the same batch) or scoped to just one
   // ward's labels. Real need: someone restocking only the OPD shelf run shouldn't have to sort

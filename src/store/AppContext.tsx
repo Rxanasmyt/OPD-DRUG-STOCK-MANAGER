@@ -19,7 +19,7 @@ import { encodeQr, parseQr } from '../utils/qr';
 import { shortLabelName } from '../utils/labelName';
 import { printLabelSheet, printPickListSheet, printExecutiveSummarySheet, type PrintLabel, type ExecSummaryStat, type ExecSummaryRow } from '../utils/print';
 import { parseHosxpUsageWorkbook, parseUsageCsvText, type RawUsageRow } from '../utils/usageImport';
-import { LOCS } from '../data/locations';
+import { LOCS, FRIDGE_LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
 import { withTimeout, TimeoutError } from '../utils/timeout';
 import { readNotifyEnabled, writeNotifyEnabled, readLowStockNotifyEnabled, writeLowStockNotifyEnabled, requestPermission, currentPermission, maybeNotifyExpiring, maybeNotifyLowStock } from '../utils/notify';
@@ -323,6 +323,7 @@ export interface AppCtx {
 
   // count
   fetchSubstockLedger: (medId: string) => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
+  fetchFloorLedger: (medId: string) => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
   setCountInput: (medId: string, v: string) => void;
   commitCount: (medId: string) => void;
   /** Commits every count typed on the นับสต็อก screen in one action — same per-med
@@ -1867,6 +1868,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         payload: encodeQr('med', m.code), id: m.code, title: shortLabelName(m.name),
         sub: 'หน่วย ' + m.unit + ' · substock ' + m.binSub, tag: printTag(m), bin: m.binSub,
       }));
+    } else if (state.locScope === 'fridge') {
+      // Real-world request: the pharmacy's own cold-chain fridges (vaccine/cold-drug storage,
+      // 2 shared OPD+IPD service fridges — see FRIDGE_LOCS' own doc comment) need their
+      // positions labeled just like LOCS does for floor shelves, printed ahead of any med
+      // actually being assigned there yet — a generic location sheet, not per-med.
+      heading = 'ฉลากตู้เย็น';
+      labels = FRIDGE_LOCS.map(([code, name]) => ({ payload: encodeQr('loc', 'LOC-' + code), id: 'LOC-' + code, title: '🧊 ' + name, sub: 'สแกนเพื่อเปิดรายการยาในตู้นี้' }));
     } else {
       heading = 'ฉลากชั้นวาง';
       labels = LOCS.map((b) => ({ payload: encodeQr('loc', 'LOC-' + b), id: 'LOC-' + b, title: 'ชั้นจ่ายยา ' + b, sub: 'หน้างาน OPD · สแกนเพื่อเปิดรายการในชั้นนี้' }));
@@ -2617,6 +2625,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return rows.map((r) => { bal += r.qty; return { ...r, balance: bal }; });
   }, [state.meds]);
 
+  // Real-world request: a noSubstock med (liquid/inhaler/spray/injectable — see usesSubstock())
+  // has no substock ledger to show (fetchSubstockLedger above returns empty for one), but staff
+  // still need the SAME picture for it: how much came in from the central warehouse, how much
+  // the daily HOSxP usage-cut took out, what's left — floor plays the role substock plays for
+  // every other drug. Every type here already only ever touches floor (see the comment on
+  // fetchSubstockLedger above) and every one is already stored with the correct sign for a
+  // floor-inflow/outflow reading — unlike transfer_to_floor's flip in the substock ledger (an
+  // outflow there), it's the same number read as an INFLOW here, so no sign massaging needed.
+  const FLOOR_LEDGER_TYPES = new Set(['receive_from_central', 'transfer_to_floor', 'reconcile_hosxp', 'adjust', 'return', 'damaged', 'ward_move_in', 'ward_move_out', 'count']);
+  const fetchFloorLedger = useCallback(async (medId: string) => {
+    const m = state.meds.find((x) => x.id === medId);
+    if (!m) return [];
+    // Same OPD/IPD name-twin hazard as fetchSubstockLedger — trust only rows tagged for THIS
+    // med once a live (active) same-name twin exists.
+    const hasNameTwin = state.meds.some((x) => x.id !== m.id && x.active && x.name === m.name);
+    const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('name', '==', m.name))));
+    const rows = snap.docs
+      .map((d) => d.data() as { type: string; ts: number; qty: number; note?: string; by: string; loc?: string; to?: string; medId?: string })
+      // receive_from_central needs its own guard unlike the rest: a med WITH substock has this
+      // type land at substock (to:'substock'), not floor — only the noSubstock case (to:'floor')
+      // belongs here. Every other type in FLOOR_LEDGER_TYPES is only ever logged against floor
+      // in the first place (see fetchSubstockLedger's comment), so no further guard needed.
+      .filter((x) => FLOOR_LEDGER_TYPES.has(x.type) && (x.type !== 'receive_from_central' || x.to === 'floor') && (x.type !== 'count' || x.loc === 'floor'))
+      .filter((x) => !hasNameTwin || x.medId === m.id)
+      .map((x) => ({ ts: x.ts, type: x.type, qty: x.qty, note: x.note || '', by: x.by }))
+      .sort((a, b) => a.ts - b.ts);
+    let bal = 0;
+    return rows.map((r) => { bal += r.qty; return { ...r, balance: bal }; });
+  }, [state.meds]);
+
   // The exec-summary "ธุรกรรมใน 30 วันล่าสุด" stat needs a true 30-day count, but state.txs is
   // the realtime cache capped to the 300 most-recent rows across ALL types — a busy month can
   // blow past that cap long before 30 days are covered, silently under-reporting. A server-side
@@ -3045,9 +3083,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const bin = payload.id.replace(/^LOC-/, '');
         // A shared med (see isSharedMed) has TWO shelf codes — bin (OPD) and binIpd (IPD) —
         // so scanning the physical shelf label on the IPD side must still resolve it, not
-        // just the OPD one it happens to be stored under.
-        const pool = state.meds.filter((m) => m.active && (m.bin === bin || m.binIpd === bin));
-        med = pool.find((m) => (purpose === 'receive' ? subQty(state, m.id) < m.parSub : m.floor < floorMinOf(m))) || pool[0] || null;
+        // just the OPD one it happens to be stored under. A receive scan also needs to match
+        // binSub: the new "ฉลากตู้เย็น" location labels (printLabels' locScope 'fridge'
+        // branch) print bare location QRs for the pharmacy's own cold-storage fridges ahead of
+        // any med being assigned yet — same pre-print-the-position idea as the floor LOCS
+        // sheet — and a vaccine/cold-drug's storage position lives in binSub, not bin/binIpd
+        // (their รับเข้า credits substock/storage, same as any other drug's binSub rack).
+        // Transfer purpose stays bin/binIpd-only: it's always resolving a FLOOR position.
+        const pool = state.meds.filter((m) => m.active && (m.bin === bin || m.binIpd === bin || (purpose === 'receive' && m.binSub === bin)));
+        // Bug fix: the "which one's actually running low" tie-breaker for a shared bin code
+        // used subQty<parSub unconditionally for a receive scan — always false for a noSubstock
+        // med (no lots, subQty always 0), so two noSubstock meds sharing one fridge binSub code
+        // (e.g. two vaccines both stored in FR-VAC1) could never be told apart by need; it fell
+        // through to pool[0], an arbitrary first match that might not be the drug actually being
+        // received. A noSubstock med's real "running low" signal is its floor level, same check
+        // transfer purpose already uses.
+        med = pool.find((m) => {
+          if (purpose !== 'receive') return m.floor < floorMinOf(m);
+          return usesSubstock(m) ? subQty(state, m.id) < m.parSub : m.floor < floorMinOf(m);
+        }) || pool[0] || null;
         if (!med) { toast('ไม่พบยาที่ผูกกับชั้น ' + bin + ' ในระบบ'); return; }
       } else {
         // A substock shelf-strip label (bin set to binSub — see printLabels' locScope 'sub'
@@ -3239,7 +3293,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
-    fetchSubstockLedger, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
+    fetchSubstockLedger, fetchFloorLedger, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
     setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,

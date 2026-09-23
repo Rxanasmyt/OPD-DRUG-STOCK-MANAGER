@@ -8,7 +8,7 @@ import { encodeQr } from '../utils/qr';
 import { shortLabelName, fitSingleLineFontSizePx, splitTitleForDisplay } from '../utils/labelName';
 import { SearchInput } from '../components/SearchInput';
 import { MedDot } from '../components/MedDot';
-import { LOCS } from '../data/locations';
+import { LOCS, FRIDGE_LOCS } from '../data/locations';
 import type { LabelType, Med, Ward } from '../types';
 
 // Mirrors print.ts's MAX_TITLE_PT/MIN_TITLE_PT (its pt values, here in px since the preview
@@ -202,6 +202,8 @@ export default function LabelsScreen() {
       })
     : state.locScope === 'sub'
     ? subMeds.slice(0, 8).map((m) => ({ code: m.code, bin: m.binSub, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · substock ' + m.binSub, tag: printTag(m), tagColor: m.had ? 'var(--had)' : 'var(--fridge)', ward: undefined as Ward | undefined }))
+    : state.locScope === 'fridge'
+    ? FRIDGE_LOCS.map(([code, name]) => ({ code: 'LOC-' + code, bin: undefined as string | undefined, payload: encodeQr('loc', 'LOC-' + code), title: '🧊 ' + name, sub: 'สแกนเพื่อเปิดรายการยาในตู้นี้', tag: '', tagColor: 'var(--fridge)', ward: undefined as Ward | undefined }))
     : LOCS.map((b) => ({ code: 'LOC-' + b, bin: undefined as string | undefined, payload: encodeQr('loc', 'LOC-' + b), title: 'ชั้นจ่ายยา ' + b, sub: 'หน้างาน OPD · สแกนเพื่อเปิดรายการในชั้นนี้', tag: '', tagColor: 'var(--muted)', ward: undefined as Ward | undefined }));
 
   // Bug fix: printLabels() (AppContext.tsx) emits TWO label rows for a shared med that has a
@@ -212,7 +214,7 @@ export default function LabelsScreen() {
   // Now routed through medSides() so a ward-scoped print (labelWardScope !== 'all') counts
   // correctly too — a shared med scoped to one ward contributes exactly 1, not 2.
   const medLabelCount = meds.reduce((n, m) => n + medSides(m).length, 0);
-  const labelCount = state.labelType === 'lot' ? wardLots.length : state.labelType === 'med' ? medLabelCount : state.locScope === 'sub' ? subMeds.length : LOCS.length;
+  const labelCount = state.labelType === 'lot' ? wardLots.length : state.labelType === 'med' ? medLabelCount : state.locScope === 'sub' ? subMeds.length : state.locScope === 'fridge' ? FRIDGE_LOCS.length : LOCS.length;
 
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
@@ -241,11 +243,19 @@ export default function LabelsScreen() {
           <div style={{ display: 'flex', gap: 7, marginBottom: 8 }}>
             <button className="chip" style={{ ...chip(state.locScope === 'floor'), flex: 1, minHeight: 40 }} onClick={() => setLocScope('floor')}>ชั้นวางหน้างาน (floor)</button>
             <button className="chip" style={{ ...chip(state.locScope === 'sub'), flex: 1, minHeight: 40 }} onClick={() => setLocScope('sub')}>ชั้นวาง substock</button>
+            <button className="chip" style={{ ...chip(state.locScope === 'fridge'), flex: 1, minHeight: 40 }} onClick={() => setLocScope('fridge')}>🧊 ตู้เย็น</button>
           </div>
           {state.locScope === 'sub' && (
             <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.5, marginBottom: 12 }}>
               แสดงเฉพาะยาที่กำหนด "ชั้นวาง substock" ไว้แล้ว (ตั้งได้ที่หน้าจัดการยา) — แต่ละดวงมี
               QR + ชื่อยา + ขนาดยา เหมือนฉลากตัวยาหน้างาน แค่โชว์รหัสชั้น substock แทน
+            </div>
+          )}
+          {state.locScope === 'fridge' && (
+            <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.5, marginBottom: 12 }}>
+              ฉลากตำแหน่งตู้เย็นของห้องยา 4 ตู้ (คลังวัคซีน/คลังยา/บริการ 1/บริการ 2) — พิมพ์ติดตัวตู้ได้ทันที
+              ก่อนจะผูกยาเข้ากับตู้ไหนก็ได้ กรอกรหัสตู้ (เช่น FR-VAC1) ลงช่อง "ชั้นวาง"/"ชั้นวาง substock"
+              ของยานั้นที่หน้าจัดการยา เพื่อให้สแกนแล้วเจอยาถูกตัว
             </div>
           )}
         </>

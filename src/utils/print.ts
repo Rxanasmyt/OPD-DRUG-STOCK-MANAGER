@@ -398,7 +398,11 @@ export interface SubstockCardRow {
  * pen-run smudge, or just fall behind because nobody got around to writing today's line yet.
  */
 export function printSubstockCardSheet(
-  med: { code: string; name: string; parSub: number; unit: string; ward?: 'opd' | 'ipd' },
+  // parLabel/heading let a noSubstock med (injectables/liquids — see usesSubstock() in
+  // selectors.ts) print the SAME sheet shape against its floor par instead of substock par,
+  // for a drug whose floor plays substock's role (see fetchFloorLedger in AppContext.tsx) —
+  // both default to the original substock wording so every existing call site is unaffected.
+  med: { code: string; name: string; parSub: number; unit: string; ward?: 'opd' | 'ipd'; parLabel?: string; heading?: string },
   rows: SubstockCardRow[],
   fyLabel?: number | 'all',
   // Real-world request: this used to be a flat row-by-row table with nothing to tie the
@@ -533,12 +537,12 @@ export function printSubstockCardSheet(
       </div>
     </div>
     <div class="card">
-      <div class="band"><span class="title">บัตรคุมสต็อกยา (Substock)</span><span class="fy">ปีงบประมาณ ${fy}</span></div>
+      <div class="band"><span class="title">${escapeHtml(med.heading || 'บัตรคุมสต็อกยา (Substock)')}</span><span class="fy">ปีงบประมาณ ${fy}</span></div>
       <div class="fields">
         <div class="field"><span class="lbl">ชื่อยา</span><span class="val">${escapeHtml(med.name)}</span></div>
         <div class="field"><span class="lbl">รหัสยา</span><span class="val">${escapeHtml(med.code)}</span></div>
         <div class="field"><span class="lbl">หน่วยนับ</span><span class="val">${escapeHtml(med.unit)}</span></div>
-        <div class="field"><span class="lbl">par substock</span><span class="val">${med.parSub.toLocaleString('en-US')} ${escapeHtml(med.unit)}</span></div>
+        <div class="field"><span class="lbl">${escapeHtml(med.parLabel || 'par substock')}</span><span class="val">${med.parSub.toLocaleString('en-US')} ${escapeHtml(med.unit)}</span></div>
       </div>
       <table>
         <thead><tr><th style="width:9mm">ลำดับ</th><th style="width:22mm">วันที่</th><th class="num">รับ</th><th class="num">จ่าย</th><th class="num">คงเหลือ</th><th>ผู้บันทึก</th></tr></thead>

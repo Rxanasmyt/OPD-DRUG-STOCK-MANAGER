@@ -50,7 +50,7 @@ const TITLES: Record<Screen, [string, string]> = {
   admin: ['จัดการผู้ใช้งาน', 'Audit log ทั้งระบบ'],
   meds: ['จัดการรายการยา', 'เพิ่ม / ปิดใช้งาน / ลบ'],
   wardmove: ['ย้ายยาระหว่างชั้นวาง', 'เช่น ลิ้นชักฉีดยา IPD → stat OPD'],
-  substockcard: ['บัตรสต็อก substock', 'รับ-จ่าย-คงเหลือ real-time'],
+  substockcard: ['บัตรคุมยา', 'รับ-จ่าย-คงเหลือ real-time'],
 };
 
 const CAN_BACK: Screen[] = ['tconfirm', 'adjust', 'report', 'labels', 'settings', 'count', 'reconcile', 'admin', 'meds', 'wardmove', 'substockcard'];
