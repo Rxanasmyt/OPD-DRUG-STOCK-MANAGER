@@ -9,7 +9,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
-  AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward,
+  AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor } from './selectors';
@@ -324,6 +324,10 @@ export interface AppCtx {
   // count
   fetchSubstockLedger: (medId: string) => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
   fetchFloorLedger: (medId: string) => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
+  /** date/date2 are inclusive ISO (YYYY-MM-DD) bounds — see DailyMetrics in types.ts and
+   * scripts/collect-daily-metrics.mjs for what populates this collection and how. */
+  fetchDailyMetrics: (fromDate: string, toDate: string) => Promise<DailyMetrics[]>;
+  exportDailyMetricsCsv: (rows: DailyMetrics[]) => Promise<void>;
   setCountInput: (medId: string, v: string) => void;
   commitCount: (medId: string) => void;
   /** Commits every count typed on the นับสต็อก screen in one action — same per-med
@@ -1554,7 +1558,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const exportReportCsv = useCallback(async () => {
     const st = state;
-    const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', exec: 'executive_summary.csv' };
+    // 'kpi' never actually reaches here — ReportScreen hides this generic export button for
+    // that tab in favor of exportDailyMetricsCsv on its own fetched date range — but the map
+    // still needs every ReportTab key to satisfy state.reportTab's type below.
+    const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', exec: 'executive_summary.csv', kpi: 'kpi_metrics.csv' };
     // Matches whatever ward tab is open on screen — exporting "everything" while the screen
     // shows only OPD (or vice versa) would be a silently misleading report.
     const wardMeds = st.meds.filter((m) => matchesWard(m, st.wardFilter));
@@ -2696,6 +2703,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // ---------- KPI / daily metrics report ----------
+  // Reads scripts/collect-daily-metrics.mjs's daily output (see DailyMetrics in types.ts) for
+  // any caller-chosen range — a plain one-shot fetch (like fetchSubstockLedger above), not a
+  // live listener: a historical report doesn't need to re-render mid-view if today's row
+  // happens to land while it's open, and the collection only ever gets one new doc/day.
+  const fetchDailyMetrics = useCallback(async (fromDate: string, toDate: string): Promise<DailyMetrics[]> => {
+    const snap = await withTimeout(getDocs(query(
+      collection(db, 'dailyMetrics'),
+      where('date', '>=', fromDate), where('date', '<=', toDate), orderBy('date', 'asc'),
+    )));
+    return snap.docs.map((d) => d.data() as DailyMetrics);
+  }, []);
+
+  const exportDailyMetricsCsv = useCallback(async (rows: DailyMetrics[]) => {
+    const header = [
+      'วันที่', 'ยาที่ใช้งาน', 'คงเหลือหน้างาน', 'คงเหลือ substock', 'มูลค่าคงคลัง (บาท)',
+      'ต่ำกว่า Min', 'เร่งด่วน', 'มูลค่าใกล้หมดอายุ', 'มูลค่าหมดอายุ',
+      'รับเข้า (จำนวน)', 'รับเข้า (ครั้ง)', 'เติมหน้างาน', 'จ่ายจริง (HOSxP)', 'ปรับยอด/คืน/หมดอายุ', 'ธุรกรรมรวม',
+      'par ผิดพลาด', 'par ควรทบทวน', 'นับสต็อกพบส่วนต่าง', 'จับคู่ HOSxP ไม่ได้', 'ตัดยอด HOSxP วันนี้หรือไม่',
+      'ผู้ใช้งานที่ทำรายการ',
+    ];
+    const body = rows.map((r) => [
+      r.date, r.activeMedCount, r.totalFloorQty, r.totalSubQty, r.totalStockValue,
+      r.lowStockCount, r.urgentLowCount, r.nearExpiryValue, r.expiredValue,
+      r.receivedQty, r.receivedCount, r.transferredQty, r.dispensedQty, r.adjustQty, r.txCount,
+      r.parErrorCount, r.parReviewCount, r.countDiscrepancyCount, r.hosxpUnmatchedCount, r.reconciledToday ? 'ใช่' : 'ไม่ใช่',
+      r.activeUserCount,
+    ]);
+    await downloadCsv([header, ...body], 'kpi_' + (rows[0]?.date || '') + '_ถึง_' + (rows[rows.length - 1]?.date || '') + '.csv');
+  }, []);
+
   // ---------- count ----------
   const setCountInput = useCallback((medId: string, v: string) => patch((st) => ({ countInputs: { ...st.countInputs, [medId]: digitsOnly(v) } })), [patch]);
 
@@ -3354,7 +3392,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
-    fetchSubstockLedger, fetchFloorLedger, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
+    fetchSubstockLedger, fetchFloorLedger, fetchDailyMetrics, exportDailyMetricsCsv, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
     setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,

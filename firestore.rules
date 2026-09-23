@@ -114,6 +114,16 @@ service cloud.firestore {
       allow write: if isPharmOrAdmin();
     }
 
+    // ---- daily KPI snapshots (scripts/collect-daily-metrics.mjs, see types.ts:DailyMetrics)
+    // ---- written once/day by a GitHub Actions cron job using the service-account credentials
+    // (which bypass these rules entirely, same as backup-firestore.mjs/notify-low-stock.mjs) —
+    // never by the app itself, so client writes are denied outright rather than scoped to a
+    // role. Any active user can read it (report/KPI screen). ----
+    match /dailyMetrics/{date} {
+      allow read: if isActive();
+      allow write: if false;
+    }
+
     // ---- pre-delete safety snapshots (AppContext.tsx: snapshotBeforeDelete()) ----
     // Before resetAllStockLedgers()/resetAllQuantities() delete anything, they first copy every
     // document about to be destroyed in here — an in-app undo layer that doesn't depend on

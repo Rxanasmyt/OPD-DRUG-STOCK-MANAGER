@@ -1,15 +1,18 @@
 import { useApp } from '../store/AppContext';
 import { useEffect, useState } from 'react';
 import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor } from '../store/selectors';
-import { nf, thDate } from '../utils/format';
-import type { ReportTab } from '../types';
+import { nf, thDate, isoDate, DAY } from '../utils/format';
+import type { ReportTab, DailyMetrics } from '../types';
 import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
 
 // "exec" leads the tab strip — a PTC/pharmacy-head reader opening this screen wants the
-// headline picture first, not to have to find it after four operational tabs.
-const TABS: [ReportTab, string][] = [['exec', '📊 ภาพรวมผู้บริหาร'], ['aging', 'Stock aging'], ['category', 'แยกตามหมวดยา'], ['turn', 'Turnover'], ['insights', '🧠 วิเคราะห์อัตโนมัติ'], ['disc', 'Discrepancy log']];
-const REPORT_NAMES: Record<ReportTab, string> = { exec: 'executive_summary.csv', aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv' };
+// headline picture first, not to have to find it after four operational tabs. "kpi" trails
+// everything else — it's a distinct kind of report (historical trend over a chosen range, not
+// "right now"), so it gets its own visual treatment (see isKpi below) the same way "insights"
+// already does for "computed, not just filtered".
+const TABS: [ReportTab, string][] = [['exec', '📊 ภาพรวมผู้บริหาร'], ['aging', 'Stock aging'], ['category', 'แยกตามหมวดยา'], ['turn', 'Turnover'], ['insights', '🧠 วิเคราะห์อัตโนมัติ'], ['disc', 'Discrepancy log'], ['kpi', '📅 ตัวชี้วัดย้อนหลัง']];
+const REPORT_NAMES: Record<ReportTab, string> = { exec: 'executive_summary.csv', aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', kpi: 'kpi_metrics.csv' };
 const AGING_BUCKETS: [string, number, number, string][] = [
   ['หมดอายุแล้ว', -99999, 0, 'var(--red)'],
   ['เหลือ ≤ 30 วัน', 0, 30, 'var(--red)'],
@@ -23,7 +26,10 @@ const DISC_TYPE_LABEL: Record<string, string> = {
 };
 
 export default function ReportScreen() {
-  const { state, setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary, goSubstockCardFor, fetchExecTxsThisMonth } = useApp();
+  const {
+    state, setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary, goSubstockCardFor, fetchExecTxsThisMonth,
+    fetchDailyMetrics, exportDailyMetricsCsv,
+  } = useApp();
   // Discrepancy log had no way to narrow it down — always the same fixed most-recent-30 slice
   // of state.txs, with no type filter and no way to find one specific drug's history, unlike
   // AdminScreen's audit log right next door which has both. Same underlying data (the live
@@ -117,6 +123,28 @@ export default function ReportScreen() {
     .sort((a, b) => a.days - b.days)
     .slice(0, 20);
 
+  // ---------- 📅 ตัวชี้วัดย้อนหลัง (kpi tab) ----------
+  // Own date range + fetched rows, local to this screen — a bounded historical query, not part
+  // of the always-live global state everything else on this screen reads from. Defaults to the
+  // last 30 days so the tab shows something useful the moment it's opened, same as every other
+  // report tab here does with whatever's already in state.
+  const [kpiFrom, setKpiFrom] = useState(() => isoDate(Date.now() - 29 * DAY));
+  const [kpiTo, setKpiTo] = useState(() => isoDate(Date.now()));
+  const [kpiRows, setKpiRows] = useState<DailyMetrics[]>([]);
+  const [kpiLoading, setKpiLoading] = useState(false);
+  const [kpiLoaded, setKpiLoaded] = useState(false);
+  const loadKpi = () => {
+    setKpiLoading(true);
+    fetchDailyMetrics(kpiFrom, kpiTo).then((rows) => { setKpiRows(rows); setKpiLoaded(true); }).finally(() => setKpiLoading(false));
+  };
+  useEffect(() => {
+    if (state.reportTab === 'kpi' && !kpiLoaded) loadKpi();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.reportTab]);
+  const kpiSum = (f: (r: DailyMetrics) => number) => kpiRows.reduce((s, r) => s + f(r), 0);
+  const kpiLast = kpiRows[kpiRows.length - 1];
+  const kpiReconcileMissedDays = kpiRows.filter((r) => !r.reconciledToday).length;
+
   return (
     <div style={{ animation: 'fade .18s' }}>
       <div style={{ padding: '12px 14px 10px', position: 'sticky', top: 0, zIndex: 2 }} className="sticky-bar">
@@ -159,16 +187,21 @@ export default function ReportScreen() {
           (ไม่ใช่แค่ discrepancy) · audit log เต็ม · ใบรับที่รออนุมัติ · รายชื่อผู้ใช้ (เฉพาะ Admin) ·
           ยาทั้งฟอร์มูลารี่ครบทุกฟิลด์ · lot ทุก lot ที่เคยรับเข้า (รวมที่หมด/ตัดออกแล้ว) · ค่าตั้งค่าระบบ
         </div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <button onClick={exportReportCsv} className="btn-outline" style={{ flex: 1, padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44 }}>
-            ↓ Export CSV — {REPORT_NAMES[state.reportTab]}
-          </button>
-          {state.reportTab === 'exec' && (
-            <button onClick={printExecutiveSummary} className="btn-primary" style={{ flex: 1, padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 700, minHeight: 44 }}>
-              🖨 พิมพ์สรุปสำหรับ PTC
+        {/* "kpi" has its own date-range-scoped export below (exportDailyMetricsCsv on the
+            fetched rows) — the generic exportReportCsv here only ever knows how to export
+            whatever's in state right now, which doesn't make sense for a historical range. */}
+        {state.reportTab !== 'kpi' && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <button onClick={exportReportCsv} className="btn-outline" style={{ flex: 1, padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44 }}>
+              ↓ Export CSV — {REPORT_NAMES[state.reportTab]}
             </button>
-          )}
-        </div>
+            {state.reportTab === 'exec' && (
+              <button onClick={printExecutiveSummary} className="btn-primary" style={{ flex: 1, padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 700, minHeight: 44 }}>
+                🖨 พิมพ์สรุปสำหรับ PTC
+              </button>
+            )}
+          </div>
+        )}
 
         {state.reportTab === 'exec' && (
           <>
@@ -368,6 +401,87 @@ export default function ReportScreen() {
               })}
               {discRows.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ไม่พบรายการที่ตรงกับตัวกรอง</div>}
             </div>
+          </>
+        )}
+
+        {state.reportTab === 'kpi' && (
+          <>
+            <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, padding: '0 2px', marginBottom: 11 }}>
+              เก็บ snapshot อัตโนมัติทุกวันโดยระบบ (มูลค่า/ปริมาณคงคลัง, อัตราการจ่าย/เบิก, ความแม่นยำข้อมูล,
+              กิจกรรมผู้ใช้งาน) — เลือกช่วงวันที่แล้วกด "ดึงรายงาน" เพื่อดูแนวโน้มย้อนหลังได้ทุกช่วง
+              ข้อมูลเริ่มมีตั้งแต่วันที่ระบบเริ่มเก็บอัตโนมัติเป็นต้นไป วันที่ยังไม่มี snapshot จะไม่ปรากฏในผลลัพธ์
+            </div>
+            <div className="grid-2" style={{ gap: 8, marginBottom: 10 }}>
+              <label>
+                <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>จากวันที่</span>
+                <input type="date" value={kpiFrom} onChange={(e) => setKpiFrom(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 15, minHeight: 40 }} />
+              </label>
+              <label>
+                <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>ถึงวันที่</span>
+                <input type="date" value={kpiTo} onChange={(e) => setKpiTo(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 15, minHeight: 40 }} />
+              </label>
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+              <button className="chip" style={chip(false)} onClick={() => { setKpiFrom(isoDate(Date.now() - 6 * DAY)); setKpiTo(isoDate(Date.now())); }}>7 วันล่าสุด</button>
+              <button className="chip" style={chip(false)} onClick={() => { setKpiFrom(isoDate(Date.now() - 29 * DAY)); setKpiTo(isoDate(Date.now())); }}>30 วันล่าสุด</button>
+              <button className="chip" style={chip(false)} onClick={() => { setKpiFrom(isoDate(Date.now() - 89 * DAY)); setKpiTo(isoDate(Date.now())); }}>90 วันล่าสุด</button>
+              <button onClick={loadKpi} disabled={kpiLoading || kpiFrom > kpiTo} className="btn-primary" style={{ marginLeft: 'auto', padding: '9px 16px', borderRadius: 9, fontSize: 12.5, fontWeight: 700, minHeight: 38, opacity: kpiLoading || kpiFrom > kpiTo ? 0.6 : 1 }}>
+                {kpiLoading ? 'กำลังโหลด…' : 'ดึงรายงาน'}
+              </button>
+            </div>
+            {kpiFrom > kpiTo && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>"จากวันที่" ต้องไม่มากกว่า "ถึงวันที่"</div>}
+
+            {kpiLoaded && !kpiLoading && kpiRows.length === 0 && (
+              <EmptyState icon="📅" title="ยังไม่มีข้อมูลในช่วงนี้" sub="ระบบเก็บ snapshot วันละ 1 ครั้งอัตโนมัติ — ถ้าเพิ่งเริ่มใช้ระบบนี้ ให้รอสักวันหรือลองเลือกช่วงวันที่ใหม่กว่านี้" />
+            )}
+
+            {kpiRows.length > 0 && (
+              <>
+                <button
+                  onClick={() => exportDailyMetricsCsv(kpiRows)}
+                  className="btn-outline"
+                  style={{ width: '100%', padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44, marginBottom: 14 }}
+                >
+                  ↓ Export CSV — {nf(kpiRows.length)} วัน ({kpiFrom} ถึง {kpiTo})
+                </button>
+
+                <div className="grid-2 tablet-4" style={{ marginBottom: 16 }}>
+                  <ExecStat label="มูลค่าคงคลังล่าสุด" value={kpiLast ? nf(Math.round(kpiLast.totalStockValue)) + ' บาท' : '—'} note={kpiLast ? 'ณ ' + kpiLast.date : undefined} />
+                  <ExecStat label="รับเข้ารวมช่วงนี้" value={nf(kpiSum((r) => r.receivedQty))} note={nf(kpiSum((r) => r.receivedCount)) + ' ครั้ง'} />
+                  <ExecStat label="จ่ายจริงรวม (HOSxP)" value={nf(kpiSum((r) => r.dispensedQty))} note={kpiReconcileMissedDays > 0 ? kpiReconcileMissedDays + ' วันไม่ได้ตัดยอด' : 'ตัดยอดครบทุกวัน'} tone={kpiReconcileMissedDays > 0 ? 'var(--amber)' : undefined} />
+                  <ExecStat
+                    label="par ผิดพลาดล่าสุด"
+                    value={kpiLast ? nf(kpiLast.parErrorCount) + ' รายการ' : '—'}
+                    note={kpiLast ? 'ควรทบทวนอีก ' + nf(kpiLast.parReviewCount) : undefined}
+                    tone={kpiLast && kpiLast.parErrorCount > 0 ? 'var(--red)' : 'var(--green)'}
+                  />
+                </div>
+
+                <div className="muted" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', margin: '0 2px 8px', textTransform: 'uppercase' }}>แนวโน้มรายวัน</div>
+                <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', padding: '9px 13px', background: 'var(--bg-subtle)', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+                    <span style={{ width: 76, flex: 'none' }}>วันที่</span>
+                    <span style={{ flex: 1, textAlign: 'right' }}>มูลค่าคงคลัง</span>
+                    <span style={{ width: 64, textAlign: 'right', flex: 'none' }}>จ่ายจริง</span>
+                    <span style={{ width: 60, textAlign: 'right', flex: 'none' }}>par ผิด</span>
+                    <span style={{ width: 56, textAlign: 'right', flex: 'none' }}>ผู้ใช้</span>
+                  </div>
+                  {kpiRows.slice().reverse().map((r) => (
+                    <div key={r.date} style={{ display: 'flex', padding: '9px 13px', borderBottom: '1px solid var(--border-soft)', fontSize: 12.5, alignItems: 'center' }}>
+                      <span style={{ width: 76, flex: 'none', color: 'var(--ink)' }}>{r.date.slice(5)}</span>
+                      <span style={{ flex: 1, textAlign: 'right' }}>{nf(Math.round(r.totalStockValue))}</span>
+                      <span style={{ width: 64, textAlign: 'right', flex: 'none' }}>{nf(r.dispensedQty)}</span>
+                      <span style={{ width: 60, textAlign: 'right', flex: 'none', fontWeight: r.parErrorCount > 0 ? 700 : 400, color: r.parErrorCount > 0 ? 'var(--red)' : 'var(--muted)' }}>{nf(r.parErrorCount)}</span>
+                      <span style={{ width: 56, textAlign: 'right', flex: 'none' }}>{nf(r.activeUserCount)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="muted" style={{ fontSize: 11, lineHeight: 1.6, padding: '0 2px' }}>
+                  "มูลค่าคงคลัง" ของแต่ละวันบันทึกจากยอดจริง ณ ตอนที่ระบบเก็บ snapshot (หลังเที่ยงคืนของวันนั้น) —
+                  ส่วน "จ่ายจริง/par ผิด/ผู้ใช้" อ้างอิงประวัติธุรกรรมจริงของวันนั้นเสมอ ถูกต้องไม่ว่าจะดูย้อนหลังไปนานแค่ไหน
+                </div>
+              </>
+            )}
           </>
         )}
       </div>
