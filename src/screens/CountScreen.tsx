@@ -80,7 +80,7 @@ export default function CountScreen() {
   const meds = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return active
-      .filter((m) => !needle || m.name.toLowerCase().indexOf(needle) >= 0)
+      .filter((m) => !needle || m.name.toLowerCase().indexOf(needle) >= 0 || m.code.toLowerCase().indexOf(needle) >= 0)
       .filter((m) => catTab === 'all' || categoryOf(m) === catTab)
       .filter((m) => scope === 'all' || (scope === 'never' ? !lastTsOf(m) : typedSet.has(m.id)))
       .sort((a, b) => (sort === 'name'
@@ -122,7 +122,7 @@ export default function CountScreen() {
           <span className="muted" style={{ fontSize: 11.5 }}>นับใน 30 วันล่าสุด {nf(countedRecently)} / {nf(active.length)} รายการ</span>
         </div>
         <div className="bar-track" style={{ height: 6, background: 'var(--border-soft)', borderRadius: 3 }}>
-          <div className="bar-fill" style={{ height: '100%', width: Math.max(2, Math.round((countedRecently / Math.max(1, active.length)) * 100)) + '%', background: 'var(--green)', borderRadius: 3 }} />
+          <div className="bar-fill" style={{ height: '100%', transform: 'scaleX(' + Math.max(2, Math.round((countedRecently / Math.max(1, active.length)) * 100)) / 100 + ')', background: 'var(--green)', borderRadius: 3 }} />
         </div>
         <div className="muted" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
           เคยนับอย่างน้อยครั้งหนึ่งแล้ว {nf(countedEver)} รายการ · ยังไม่เคยนับเลย {nf(active.length - countedEver)} รายการ

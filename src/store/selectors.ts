@@ -1,5 +1,5 @@
 import type { AppState, HosxpMatch, Med, Role, Ward, Tx } from '../types';
-import { DAY, daysUntil, isoDate } from '../utils/format';
+import { DAY, daysUntil, isoDate, nf } from '../utils/format';
 import { UNCATEGORIZED, DRUG_CATEGORIES, categoryLabel } from '../data/categories';
 
 /** Pure, stateless helpers derived from AppState — no mutation, safe to call during render. */
@@ -164,24 +164,34 @@ export function parAnomaliesFor(m: Med, floorCoverDays: number, subCoverDays: nu
   // between "needs refilling" and "full" as designed; a fresh top-up already reads as at/below
   // its own reorder point, so it re-triggers every single day regardless of real usage.
   if (m.parFloor > 0 && min >= m.parFloor) {
-    out.push({ med: m, code: 'min_ge_max', severity: 'error', note: 'Min (' + nf0(min) + ') ≥ Max (' + nf0(m.parFloor) + ') — ตั้งจุดเติม (Min) เท่ากับหรือสูงกว่าความจุชั้น (Max)' });
+    out.push({ med: m, code: 'min_ge_max', severity: 'error', note: 'Min (' + nf(min) + ') ≥ Max (' + nf(m.parFloor) + ') — ตั้งจุดเติม (Min) เท่ากับหรือสูงกว่าความจุชั้น (Max)' });
   }
   // A substock-backed med whose substock par can't even refill its own shelf to Max once —
   // structurally under-provisioned: substock exists specifically to top the shelf back up (see
   // suggestPar()'s doc comment on why subCoverDays > floorCoverDays), so this almost always
   // means the two fields got mixed up when they were typed in.
   if (usesSubstock(m) && m.parFloor > 0 && m.parSub > 0 && m.parSub < m.parFloor) {
-    out.push({ med: m, code: 'sub_lt_floor', severity: 'error', note: 'par substock (' + nf0(m.parSub) + ') < par หน้างาน (' + nf0(m.parFloor) + ') — substock เติมชั้นให้เต็ม Max ไม่ได้แม้แต่ครั้งเดียว' });
+    out.push({ med: m, code: 'sub_lt_floor', severity: 'error', note: 'par substock (' + nf(m.parSub) + ') < par หน้างาน (' + nf(m.parFloor) + ') — substock เติมชั้นให้เต็ม Max ไม่ได้แม้แต่ครั้งเดียว' });
   }
   // Actively dispensed (real usage on record) but Max was never set at all — every stock-level
   // check this app makes (isUrgentLow, needsWarehouseRequest, transfer suggestions) silently
   // reads as "never low" against a par of 0, so this drug quietly gets skipped by every
   // refill/reorder prompt in the app despite genuinely being in active use.
   if (m.used30 > 0 && m.parFloor === 0) {
-    out.push({ med: m, code: 'no_par_floor', severity: 'error', note: 'มีการจ่ายจริง (' + nf0(m.used30) + ' หน่วย/30 วัน) แต่ยังไม่ได้ตั้ง par หน้างาน (Max) — ระบบจะไม่แจ้งเตือนต่ำกว่า Min ให้เลย' });
+    out.push({ med: m, code: 'no_par_floor', severity: 'error', note: 'มีการจ่ายจริง (' + nf(m.used30) + ' หน่วย/30 วัน) แต่ยังไม่ได้ตั้ง par หน้างาน (Max) — ระบบจะไม่แจ้งเตือนต่ำกว่า Min ให้เลย' });
   }
   if (usesSubstock(m) && m.used30 > 0 && m.parSub === 0) {
-    out.push({ med: m, code: 'no_par_sub', severity: 'error', note: 'มีการจ่ายจริง (' + nf0(m.used30) + ' หน่วย/30 วัน) แต่ยังไม่ได้ตั้ง par substock — ระบบจะไม่แจ้งเตือนให้เบิกจากคลังใหญ่' });
+    out.push({ med: m, code: 'no_par_sub', severity: 'error', note: 'มีการจ่ายจริง (' + nf(m.used30) + ' หน่วย/30 วัน) แต่ยังไม่ได้ตั้ง par substock — ระบบจะไม่แจ้งเตือนให้เบิกจากคลังใหญ่' });
+  }
+  // The one case no_par_floor above doesn't already cover: a med with literally zero stock on
+  // the shelf, no par ever configured, AND no recorded usage (used30 === 0 — so no_par_floor's
+  // own `m.used30 > 0` guard doesn't fire). isUrgentLow/needsWarehouseRequest both read this as
+  // "0 < 0", i.e. never low — a brand-new or never-dispensed drug could sit out of stock
+  // indefinitely with nothing in the app ever surfacing it. 'review', not 'error': this could
+  // just as well be a legitimately-inactive-in-practice drug nobody's gotten around to
+  // formally disabling yet, so it's worth a glance, not necessarily wrong.
+  if (m.floor === 0 && m.parFloor === 0 && !(m.used30 > 0)) {
+    out.push({ med: m, code: 'floor_zero_no_par', severity: 'review', note: 'หน้างานว่างเปล่า (0) และยังไม่เคยตั้ง par หน้างานเลย — ควรตรวจสอบว่าควรมีสต็อกยานี้หรือไม่' });
   }
   // A real, current usage-rate baseline exists — compare the CURRENT par against what that
   // rate would suggest today. A wide gap either direction is worth a look: a par several times
@@ -193,10 +203,10 @@ export function parAnomaliesFor(m: Med, floorCoverDays: number, subCoverDays: nu
   const suggested = suggestPar(m, floorCoverDays, subCoverDays);
   if (suggested) {
     if (m.parFloor > 0 && (suggested.floor >= m.parFloor * 3 || suggested.floor * 3 <= m.parFloor)) {
-      out.push({ med: m, code: 'floor_far_from_suggested', severity: 'review', note: 'par หน้างานปัจจุบัน ' + nf0(m.parFloor) + ' ต่างจากค่าแนะนำจากอัตราการใช้จริง (' + nf0(suggested.floor) + ') มาก — ควรตรวจสอบ' });
+      out.push({ med: m, code: 'floor_far_from_suggested', severity: 'review', note: 'par หน้างานปัจจุบัน ' + nf(m.parFloor) + ' ต่างจากค่าแนะนำจากอัตราการใช้จริง (' + nf(suggested.floor) + ') มาก — ควรตรวจสอบ' });
     }
     if (usesSubstock(m) && m.parSub > 0 && (suggested.sub >= m.parSub * 3 || suggested.sub * 3 <= m.parSub)) {
-      out.push({ med: m, code: 'sub_far_from_suggested', severity: 'review', note: 'par substock ปัจจุบัน ' + nf0(m.parSub) + ' ต่างจากค่าแนะนำจากอัตราการใช้จริง (' + nf0(suggested.sub) + ') มาก — ควรตรวจสอบ' });
+      out.push({ med: m, code: 'sub_far_from_suggested', severity: 'review', note: 'par substock ปัจจุบัน ' + nf(m.parSub) + ' ต่างจากค่าแนะนำจากอัตราการใช้จริง (' + nf(suggested.sub) + ') มาก — ควรตรวจสอบ' });
     }
   }
   return out;
@@ -204,10 +214,6 @@ export function parAnomaliesFor(m: Med, floorCoverDays: number, subCoverDays: nu
 
 export function parAnomalies(meds: Med[], floorCoverDays: number, subCoverDays: number): ParAnomaly[] {
   return meds.flatMap((m) => parAnomaliesFor(m, floorCoverDays, subCoverDays));
-}
-
-function nf0(n: number): string {
-  return Math.round(n).toLocaleString('en-US');
 }
 
 /** One row of the "แยกตามหมวด" report — everything that matters about a therapeutic group at
@@ -307,8 +313,15 @@ export function roleLabelFor(role: Role | null): string {
 // CSS custom properties, not literal hex — these feed straight into inline `background`/
 // `color` styles (see HomeScreen/TransferScreen), so a literal hex here would show the
 // light-mode color even in dark mode, unlike every other themed color in the app.
+// Bug fix: `floor / Math.max(1, parFloor)` guards divide-by-zero, but for a med whose par was
+// never configured at all (parFloor === 0 — a real, common state; see parAnomaliesFor's
+// no_par_floor), that guard makes the ratio degenerate to the raw floor qty itself (floor/1)
+// instead of a real proportion — a med sitting at floor:50 with no par set read as 50 >= 0.75
+// and showed a confidently "green/healthy" tone despite par never having been set. Treat an
+// unconfigured par as "needs a look" (amber), never a false "healthy" green.
 export function toneFor(m: Med): string {
-  const r = m.floor / Math.max(1, m.parFloor);
+  if (m.parFloor === 0) return 'var(--amber)';
+  const r = m.floor / m.parFloor;
   return r < 0.34 ? 'var(--red)' : r < 0.75 ? 'var(--amber)' : 'var(--green)';
 }
 
@@ -316,8 +329,10 @@ export function toneFor(m: Med): string {
 // ratio that actually matters on screens about the substock stage (ReceiveScreen's request
 // list, SubstockCardScreen's live-balance tile) rather than the shelf. Pulled out as a shared
 // export instead of staying duplicated per-screen, same reasoning as needsWarehouseRequest().
+// Same unconfigured-par fix as toneFor() above.
 export function subTone(cur: number, par: number): string {
-  const r = cur / Math.max(1, par);
+  if (par === 0) return 'var(--amber)';
+  const r = cur / par;
   return r < 0.34 ? 'var(--red)' : r < 0.75 ? 'var(--amber)' : 'var(--green)';
 }
 

@@ -220,7 +220,7 @@ export default function HomeScreen() {
                 หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={12.5} /> · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock {nf(sub(m.id))} {m.unit}
               </div>
               <div className="bar-track" style={{ height: 4, background: 'var(--border-soft)', borderRadius: 2, marginTop: 6 }}>
-                <div className="bar-fill" style={{ height: '100%', width: Math.max(3, Math.min(100, Math.round((m.floor / Math.max(1, m.parFloor)) * 100))) + '%', background: toneFor(m), borderRadius: 2 }} />
+                <div className="bar-fill" style={{ height: '100%', transform: 'scaleX(' + Math.max(3, Math.min(100, Math.round((m.floor / Math.max(1, m.parFloor)) * 100))) / 100 + ')', background: toneFor(m), borderRadius: 2 }} />
               </div>
               <div style={{ marginTop: 6 }}>
                 <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={m.floor < floorMinOf(m) * 0.5} />

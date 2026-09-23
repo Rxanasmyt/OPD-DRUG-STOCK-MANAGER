@@ -63,7 +63,7 @@ const NAV_DEF: [Screen, string, string][] = [
 ];
 
 export default function App() {
-  const { state, roleLabel, go, back, theme, toggleTheme, openScanSearch } = useApp();
+  const { state, roleLabel, go, theme, toggleTheme, openScanSearch } = useApp();
 
   // Direction-aware screen transition — every screen already fades itself in on mount, but
   // that read identical whether you'd just drilled into a screen or backed out of one. Nav
@@ -104,7 +104,10 @@ export default function App() {
       <header style={{ background: 'linear-gradient(155deg, #149c9a 0%, var(--green) 55%, var(--green-dark) 100%)', color: 'var(--ink-soft)', padding: 'calc(env(safe-area-inset-top, 0px) + 12px) 16px 13px', display: 'flex', alignItems: 'center', gap: 10, flex: 'none', boxShadow: '0 4px 14px -6px rgba(0,76,75,.5)', position: 'relative', overflow: 'hidden', zIndex: 3 }}>
         <div className="mesh-bg" aria-hidden="true" />
         {canBack ? (
-          <button onClick={back} style={{ position: 'relative', border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 32, height: 32, borderRadius: 9, fontSize: 16, flex: 'none' }}>←</button>
+          // Goes through the real browser history (see AppContext.tsx's popstate handler) rather
+          // than calling back() directly, so this button and the physical/hardware back button
+          // stay on the exact same stack instead of two that can drift out of sync.
+          <button onClick={() => history.back()} style={{ position: 'relative', border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 32, height: 32, borderRadius: 9, fontSize: 16, flex: 'none' }}>←</button>
         ) : (
           // Real hospital crest, not just a screen title — every screen carries one now
           // (Login/SubstockCard/print sheets already did), but only shown here on the 5

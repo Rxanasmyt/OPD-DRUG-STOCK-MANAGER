@@ -49,7 +49,7 @@ export default function ReceiveScreen() {
   const recvMed = state.recvMed ? state.meds.find((m) => m.id === state.recvMed) : null;
   // OPD/IPD ward tabs removed — one combined picker across the whole formulary.
   const options = !state.recvMed && state.recvSearch.trim()
-    ? state.meds.filter((m) => m.active && m.name.toLowerCase().indexOf(state.recvSearch.trim().toLowerCase()) >= 0).slice(0, 12)
+    ? state.meds.filter((m) => { const s = state.recvSearch.trim().toLowerCase(); return m.active && (m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0); }).slice(0, 12)
     : [];
   // Bug fix: this screen used to show NOTHING until someone typed a search — a person opening
   // "รับเข้า" to see what actually needs requisitioning from the central warehouse had no way

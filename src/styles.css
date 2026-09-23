@@ -287,9 +287,15 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
   .grid-2.tablet-2 { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* Progress / meter bars — animate width changes (par level, aging buckets) */
+/* Progress / meter bars (par level, aging buckets) — always full width, scaled down with a
+   transform instead of animating `width` directly: `width` is a layout property (forces a
+   browser reflow on every Firestore snapshot update that moves one of these bars), transform is
+   compositor-only. transform-origin: left so it still reads as "filling from the left" like a
+   width change would, just without the reflow cost — matters on the low-end Android devices
+   this app runs on, since these bars sit on screens (HomeScreen, ReportScreen) that re-render
+   often as live stock data changes. */
 .bar-track { overflow: hidden; }
-.bar-fill { transition: width var(--dur-slow) var(--ease-out); }
+.bar-fill { width: 100%; transform-origin: left; transition: transform var(--dur-slow) var(--ease-out); }
 
 /* Rows that act as list items / nav targets get a gentle press + hover lift */
 .row-interactive {

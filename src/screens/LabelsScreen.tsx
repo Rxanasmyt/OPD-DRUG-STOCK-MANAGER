@@ -159,7 +159,7 @@ export default function LabelsScreen() {
         .sort((a, b) => Math.min(...binCodesOf(a).map(binSortKey)) - Math.min(...binCodesOf(b).map(binSortKey)))
         .slice(0, 200)
     : pickerQ
-    ? activeMeds.filter((m) => m.name.toLowerCase().indexOf(pickerQ) >= 0 || binOf(m).toLowerCase().indexOf(pickerQ) >= 0).slice(0, 20)
+    ? activeMeds.filter((m) => m.name.toLowerCase().indexOf(pickerQ) >= 0 || binOf(m).toLowerCase().indexOf(pickerQ) >= 0 || m.code.toLowerCase().indexOf(pickerQ) >= 0).slice(0, 20)
     : [];
 
   // The substock shelf-strip labels (labelType 'loc' + locScope 'sub') are per-med shelf-strip

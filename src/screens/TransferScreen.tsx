@@ -70,7 +70,7 @@ export default function TransferScreen() {
   const urgent = meds.filter(isUrgentLow);
   const q = state.search.trim().toLowerCase();
   const filteredByStatus = meds.filter((m) => {
-    if (q && m.name.toLowerCase().indexOf(q) < 0) return false;
+    if (q && m.name.toLowerCase().indexOf(q) < 0 && m.code.toLowerCase().indexOf(q) < 0) return false;
     if (state.filter === 'low') return m.floor < floorMinOf(m);
     if (state.filter === 'urgent') return isUrgentLow(m);
     if (state.filter === 'had') return m.had;
@@ -208,7 +208,7 @@ export default function TransferScreen() {
                       — brought here too so the screen someone actually works from all day shows
                       the same clear picture, not just a line of numbers to parse. */}
                   <div className="bar-track" style={{ height: 4, background: 'var(--border-soft)', borderRadius: 2, marginTop: 5 }}>
-                    <div className="bar-fill" style={{ height: '100%', width: Math.max(3, Math.min(100, Math.round((m.floor / Math.max(1, m.parFloor)) * 100))) + '%', background: toneFor(m), borderRadius: 2 }} />
+                    <div className="bar-fill" style={{ height: '100%', transform: 'scaleX(' + Math.max(3, Math.min(100, Math.round((m.floor / Math.max(1, m.parFloor)) * 100))) / 100 + ')', background: toneFor(m), borderRadius: 2 }} />
                   </div>
                   <div style={{ fontSize: 11.5, color: 'var(--green)', marginTop: 5 }}>
                     FEFO: lot {f ? f.lotNo : '—'} · exp {f ? thDate(f.exp) : 'ไม่มีของใน substock'}

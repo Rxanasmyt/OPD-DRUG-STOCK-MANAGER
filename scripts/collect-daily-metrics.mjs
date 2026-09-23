@@ -66,6 +66,10 @@ function parAnomalyCounts(meds, floorCoverDays, subCoverDays) {
     if (usesSubstock(m) && m.parFloor > 0 && m.parSub > 0 && m.parSub < m.parFloor) errors++;
     if (m.used30 > 0 && m.parFloor === 0) errors++;
     if (usesSubstock(m) && m.used30 > 0 && m.parSub === 0) errors++;
+    // Kept in sync with selectors.ts's parAnomaliesFor 'floor_zero_no_par' check — a med at
+    // literally zero stock with no par ever configured and no recorded usage, the one gap the
+    // two used30>0 checks above don't cover.
+    if (m.floor === 0 && m.parFloor === 0 && !(m.used30 > 0)) reviews++;
     const suggested = suggestPar(m, floorCoverDays, subCoverDays);
     if (suggested) {
       if (m.parFloor > 0 && (suggested.floor >= m.parFloor * 3 || suggested.floor * 3 <= m.parFloor)) reviews++;
@@ -142,12 +146,19 @@ async function main() {
     }
   }
   const now = Date.now();
+  // Calendar-day difference in Asia/Bangkok time, not a raw 24h-window count — mirrors
+  // src/utils/format.ts's daysUntil(), which was fixed for exactly this reason (a raw
+  // floor((exp-now)/DAY) ticks over 24h after the exact instant this runs, not at local
+  // midnight, so this cron — scheduled ~00:05 Bangkok — could flag/miss a lot expiring "today"
+  // depending on the runner's UTC clock rather than the hospital's own calendar day).
+  const todayStartMs = bangkokDayStartMs(bangkokIsoDate(now));
   let nearExpiryValue = 0, expiredValue = 0;
   for (const l of lots) {
     if (!activeIds.has(l.medId) || !(l.qty > 0)) continue;
     const m = meds.find((x) => x.id === l.medId);
     if (!m) continue;
-    const daysLeft = Math.floor(((l.exp || 0) - now) / DAY);
+    const expStartMs = bangkokDayStartMs(bangkokIsoDate(l.exp || 0));
+    const daysLeft = Math.round((expStartMs - todayStartMs) / DAY);
     const value = l.qty * (m.price || 0);
     if (daysLeft < 0) expiredValue += value;
     else if (daysLeft < expiryWarnDays) nearExpiryValue += value;

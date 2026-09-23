@@ -64,7 +64,7 @@ export default function SubstockCardScreen() {
   // AppContext.tsx), so it gets the same card, just built from floor history instead of
   // substock history. No longer excluded from the picker.
   const options = !medId && search.trim()
-    ? state.meds.filter((m) => m.active && m.name.toLowerCase().indexOf(search.trim().toLowerCase()) >= 0).slice(0, 10)
+    ? state.meds.filter((m) => { const s = search.trim().toLowerCase(); return m.active && (m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0); }).slice(0, 10)
     : [];
 
   const openCard = async (id: string) => {
@@ -309,7 +309,7 @@ export default function SubstockCardScreen() {
                 </div>
                 <div style={{ fontSize: 30, fontWeight: 800, color: balanceTone, lineHeight: 1.15, marginTop: 2 }}>{nf(liveBalance)} <span style={{ fontSize: 13, fontWeight: 600 }}>{med.unit}</span></div>
                 <div className="bar-track" style={{ height: 5, background: 'var(--border-soft)', borderRadius: 3, marginTop: 8 }}>
-                  <div className="bar-fill" style={{ height: '100%', width: Math.max(3, Math.min(100, balancePct)) + '%', background: balanceTone, borderRadius: 3 }} />
+                  <div className="bar-fill" style={{ height: '100%', transform: 'scaleX(' + Math.max(3, Math.min(100, balancePct)) / 100 + ')', background: balanceTone, borderRadius: 3 }} />
                 </div>
               </div>
               <div style={{ flex: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
