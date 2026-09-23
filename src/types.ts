@@ -234,6 +234,17 @@ export interface DailyMetrics {
   dispensedQty: number;
   adjustQty: number;
   txCount: number;
+  // Real-world request: how long a เบิก (tech-submitted, needs pharm/admin approval — see
+  // commitReceive's `!approve` branch) actually sat waiting before the stock it asked for was
+  // created. Only ever real for that specific flow — a pharm/admin's own receive is approved
+  // instantly (approve === true), so it never enters pendingReceives at all and has no wait to
+  // measure. `receiveApprovedCount` is the sample size behind the average — 0 approvals that
+  // day means `receiveLeadTimeAvgHours` is null (nothing to average), not a misleading 0.
+  receiveLeadTimeAvgHours: number | null;
+  receiveApprovedCount: number;
+  // Current backlog (as of script run time, not "that day") — how many เบิก requests are still
+  // sitting unapproved right now. Same "as of run time" caveat as the คงคลัง section above.
+  receivePendingBacklog: number;
   // ---- ความแม่นยำข้อมูล ----
   parErrorCount: number;
   parReviewCount: number;
@@ -243,6 +254,15 @@ export interface DailyMetrics {
   // ---- กิจกรรมผู้ใช้งาน ----
   activeUserCount: number;
   txByUser: Record<string, number>;
+  // Real-world request: "อัตราขาดสต็อกจริง" — distinct from lowStockCount/urgentLowCount above
+  // (which flag "below its own reorder point", a warning) — this counts a med that is
+  // GENUINELY OUT (floor === 0) while it's actually in real use (used30 > 0), the case that
+  // means a patient could show up needing it and find none. `usedMedCount` is the denominator
+  // (active meds with any real usage) so any date-range aggregation can recompute the true rate
+  // (stockoutCount / usedMedCount) instead of averaging a stored percentage, which would be
+  // wrong the moment the denominator itself changes day to day.
+  stockoutCount: number;
+  usedMedCount: number;
 }
 export type LabelType = 'med' | 'lot' | 'loc';
 

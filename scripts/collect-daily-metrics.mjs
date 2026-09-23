@@ -123,6 +123,7 @@ async function main() {
   for (const l of lots) subByMed.set(l.medId, (subByMed.get(l.medId) || 0) + (l.qty || 0));
 
   let totalFloorQty = 0, totalSubQty = 0, totalStockValue = 0, lowStockCount = 0, urgentLowCount = 0;
+  let stockoutCount = 0, usedMedCount = 0;
   for (const m of activeMeds) {
     const floor = m.floor || 0;
     const sub = subByMed.get(m.id) || 0;
@@ -132,6 +133,13 @@ async function main() {
     const min = floorMinOf(m);
     if (floor < min) lowStockCount++;
     if (floor < min * 0.5) urgentLowCount++;
+    // "อัตราขาดสต็อกจริง" — genuinely out (not just below its reorder point) while actually in
+    // real use, see DailyMetrics.stockoutCount's own doc comment for why this is distinct from
+    // lowStockCount/urgentLowCount above.
+    if (m.used30 > 0) {
+      usedMedCount++;
+      if (floor === 0) stockoutCount++;
+    }
   }
   const now = Date.now();
   let nearExpiryValue = 0, expiredValue = 0;
@@ -182,6 +190,20 @@ async function main() {
     if (m) hosxpUnmatchedCount += parseInt(m[1], 10);
   }
 
+  // ---- เวลารอเบิกยา (เบิก→อนุมัติ, see DailyMetrics.receiveLeadTimeAvgHours's own doc comment
+  // for why this only ever measures the tech-submitted/pharm-approved flow) ----
+  const pendingSnap = await db.collection('pendingReceives').get();
+  let leadTimeSumHours = 0, receiveApprovedCount = 0, receivePendingBacklog = 0;
+  for (const d of pendingSnap.docs) {
+    const p = d.data();
+    if (p.status === 'pending') { receivePendingBacklog++; continue; }
+    if (p.status !== 'approved' || typeof p.resolvedTs !== 'number') continue;
+    if (p.resolvedTs < dayStart || p.resolvedTs >= dayEnd) continue; // resolved ON this target day
+    leadTimeSumHours += (p.resolvedTs - p.ts) / (60 * 60 * 1000);
+    receiveApprovedCount++;
+  }
+  const receiveLeadTimeAvgHours = receiveApprovedCount > 0 ? leadTimeSumHours / receiveApprovedCount : null;
+
   const metrics = {
     date: targetDate,
     generatedAt: now,
@@ -189,9 +211,11 @@ async function main() {
     totalFloorQty, totalSubQty, totalStockValue, lowStockCount, urgentLowCount,
     nearExpiryValue, expiredValue,
     receivedQty, receivedCount, transferredQty, dispensedQty, adjustQty, txCount: txs.length,
+    receiveLeadTimeAvgHours, receiveApprovedCount, receivePendingBacklog,
     parErrorCount, parReviewCount, countDiscrepancyCount, hosxpUnmatchedCount, reconciledToday,
     activeUserCount: Object.keys(txByUser).length,
     txByUser,
+    stockoutCount, usedMedCount,
   };
 
   await db.collection('dailyMetrics').doc(targetDate).set(metrics);

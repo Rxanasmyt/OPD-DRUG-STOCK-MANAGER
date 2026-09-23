@@ -144,6 +144,17 @@ export default function ReportScreen() {
   const kpiSum = (f: (r: DailyMetrics) => number) => kpiRows.reduce((s, r) => s + f(r), 0);
   const kpiLast = kpiRows[kpiRows.length - 1];
   const kpiReconcileMissedDays = kpiRows.filter((r) => !r.reconciledToday).length;
+  // Rate (not a stored/averaged percentage) recomputed from the latest day's raw counts — a
+  // rate averaged across days would be wrong the moment usedMedCount itself changes day to day.
+  const kpiStockoutRatePct = kpiLast && kpiLast.usedMedCount > 0 ? (kpiLast.stockoutCount / kpiLast.usedMedCount) * 100 : null;
+  // Weighted (not simple) average across the range — a day with 1 approval and a day with 20
+  // must not count equally toward the overall figure.
+  const kpiLeadTimeWeightedHours = (() => {
+    const totalApproved = kpiSum((r) => r.receiveApprovedCount);
+    if (totalApproved === 0) return null;
+    const totalHours = kpiRows.reduce((s, r) => s + (r.receiveLeadTimeAvgHours ?? 0) * r.receiveApprovedCount, 0);
+    return totalHours / totalApproved;
+  })();
 
   return (
     <div style={{ animation: 'fade .18s' }}>
@@ -454,6 +465,17 @@ export default function ReportScreen() {
                     value={kpiLast ? nf(kpiLast.parErrorCount) + ' รายการ' : '—'}
                     note={kpiLast ? 'ควรทบทวนอีก ' + nf(kpiLast.parReviewCount) : undefined}
                     tone={kpiLast && kpiLast.parErrorCount > 0 ? 'var(--red)' : 'var(--green)'}
+                  />
+                  <ExecStat
+                    label="อัตราขาดสต็อกจริงล่าสุด"
+                    value={kpiStockoutRatePct != null ? kpiStockoutRatePct.toFixed(1) + '%' : '—'}
+                    note={kpiLast ? nf(kpiLast.stockoutCount) + '/' + nf(kpiLast.usedMedCount) + ' รายการที่มีการใช้จริง' : undefined}
+                    tone={kpiStockoutRatePct != null && kpiStockoutRatePct > 0 ? 'var(--red)' : 'var(--green)'}
+                  />
+                  <ExecStat
+                    label="เวลารอเบิกยาเฉลี่ย"
+                    value={kpiLeadTimeWeightedHours != null ? kpiLeadTimeWeightedHours.toFixed(1) + ' ชม.' : '—'}
+                    note={kpiLeadTimeWeightedHours != null ? nf(kpiSum((r) => r.receiveApprovedCount)) + ' รายการที่อนุมัติในช่วงนี้' : 'ไม่มีรายการเบิกที่อนุมัติในช่วงนี้'}
                   />
                 </div>
 
