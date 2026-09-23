@@ -10,6 +10,15 @@ export interface Med {
   dosageForm: string;
   price: number;
   had: boolean;
+  // Real-world request: "เพิ่มประเภทยาตู้เย็น" — needs refrigerated storage. Deliberately its own
+  // boolean flag, NOT another entry in DRUG_CATEGORIES (data/categories.ts) — cold-chain storage
+  // is a cross-cutting handling requirement any drug can carry regardless of its therapeutic
+  // group (insulin under "เบาหวาน", a vaccine under "ฉุกเฉิน", an injectable antibiotic under
+  // "ต้านจุลชีพ" can all need a fridge at once), same reasoning as `had` (high-alert) being its
+  // own flag rather than a category. Optional — every med added before this feature existed has
+  // none, defaults falsy everywhere (never carried a fridge requirement) rather than needing a
+  // migration write.
+  fridge?: boolean;
   active: boolean; // false = not carried by this hospital (from CSV "ไม่มียาในรพ.กรงปินัง" notes)
   parSub: number;
   parFloor: number; // shelf capacity target — "Max": เติมขึ้นไปถึงจุดนี้
@@ -191,7 +200,7 @@ export type Screen =
   | 'report' | 'labels' | 'settings' | 'more' | 'count' | 'reconcile' | 'admin' | 'meds' | 'wardmove' | 'substockcard';
 
 export type AdjType = 'adjust' | 'return' | 'damaged' | 'expired';
-export type ReportTab = 'aging' | 'turn' | 'disc' | 'insights' | 'category';
+export type ReportTab = 'aging' | 'turn' | 'disc' | 'insights' | 'category' | 'exec';
 export type LabelType = 'med' | 'lot' | 'loc';
 
 /** How a HOSxP file's drug name resolved against the formulary — see matchHosxpMed().
@@ -206,7 +215,7 @@ export type HosxpMatch =
 
 export type AdminTab = 'users' | 'audit';
 export type AuditFilter = 'all' | 'users' | 'stock';
-export type TransferFilter = 'low' | 'all' | 'had' | 'urgent';
+export type TransferFilter = 'low' | 'all' | 'had' | 'urgent' | 'fridge';
 
 export interface AppState {
   meds: Med[];
@@ -273,10 +282,11 @@ export interface AppState {
   reportTab: ReportTab;
   labelType: LabelType;
   // Which shelf-code namespace the "ฉลากชั้นวาง" tab is printing/previewing — floor (LOCS,
-  // the original) or substock (SUB_LOCS, its own separate room/grid — see Med.binSub). Kept
+  // the original), substock (SUB_LOCS, its own separate room/grid — see Med.binSub), or
+  // fridge (FRIDGE_LOCS — the pharmacy's own cold-chain storage, see data/locations.ts). Kept
   // as state (not a local component var) because printLabels() in AppContext.tsx needs it
   // too, same reason labelType itself is state and not local to LabelsScreen.
-  locScope: 'floor' | 'sub';
+  locScope: 'floor' | 'sub' | 'fridge';
   // Which physical shelf side the "ฉลากตัวยา" tab prints — 'all' (the original: a shared med
   // prints BOTH its OPD and IPD shelf-strip labels in the same batch) or scoped to just one
   // ward's labels. Real need: someone restocking only the OPD shelf run shouldn't have to sort
@@ -348,6 +358,13 @@ export interface AppState {
   // render under the identical audit-log label despite being two different screens/meanings.
   historyResults: { type: string; by: string; ts: number; note: string; loc?: string }[] | null;
   historyLoading: boolean;
+  // Bug fix: AdminScreen's persistent "showing only 300" note used to infer truncation purely
+  // from `filtered.length === 300` — but that's the count AFTER auditFilter narrows the type,
+  // while searchHistory's own 1500-record cap (see AppContext.tsx) applies BEFORE that filter.
+  // A search that hit the 1500 cap could easily filter down to under 300 of one type, silently
+  // showing no truncation warning at all even though up to 500 more of that exact type might be
+  // sitting past the cutoff. Tracked here, set once per search, independent of any filter.
+  historyTruncated: boolean;
 
   expiryWarnDays: number;
   parFloorCoverDays: number;

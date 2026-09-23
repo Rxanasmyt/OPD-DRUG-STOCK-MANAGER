@@ -68,7 +68,9 @@ export default function LoginScreen() {
         <div style={{ position: 'relative', width: 62, height: 62, borderRadius: '50%', background: 'rgba(242,245,239,.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, margin: '0 auto 18px' }}>⏳</div>
         <div style={{ position: 'relative', fontSize: 19, fontWeight: 700, marginBottom: 6 }}>รอ Admin อนุมัติบัญชี</div>
         <div style={{ position: 'relative', fontSize: 13.5, opacity: 0.78, lineHeight: 1.6, marginBottom: 4 }}>
-          บัญชี <b>{myProfile?.name}</b> (@{myProfile?.username}) สมัครสำเร็จแล้ว
+          {myProfile?.username
+            ? <>บัญชี <b>{myProfile.name}</b> (@{myProfile.username}) สมัครสำเร็จแล้ว</>
+            : 'บัญชีสมัครสำเร็จแล้ว'}
         </div>
         <div style={{ position: 'relative', fontSize: 13, opacity: 0.65, lineHeight: 1.6, marginBottom: 26 }}>
           รอเภสัชกรหรือ Admin กดอนุมัติและกำหนดบทบาทให้ก่อน จึงจะเข้าใช้งานได้ — ลองเข้าสู่ระบบใหม่อีกครั้งภายหลัง

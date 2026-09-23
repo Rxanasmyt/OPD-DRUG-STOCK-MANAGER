@@ -60,18 +60,27 @@ export function binDisplayAll(m: Med): string {
   return isSharedMed(m) && m.binIpd && m.binIpd !== m.bin ? m.bin + '/' + m.binIpd : m.bin;
 }
 
-/** Real min-max par: `parFloor` is the shelf's capacity ("Max" — fill up TO this), `floorMin`
- * is the separate reorder point ("Min" — BELOW this is when it actually needs refilling).
- * Every med added before Min-Max existed has no floorMin — default it to 30% of Max, a
- * conventional reorder-point ratio, rather than requiring a one-time migration write. */
-export function floorMinOf(m: Med): number {
-  if (typeof m.floorMin === 'number') return m.floorMin;
-  // ปัดค่า default ให้เป็นเลขลงตัว (หลักเดียว/หลักสิบ/หลักร้อยตามขนาด) เหมือน roundStep ที่ใช้กับ
-  // Max — กัน Min โผล่มาเป็นเลขเศษแปลกๆ เช่น 27, 13 จาก Math.round(parFloor*0.3) ตรงๆ
-  const raw = m.parFloor * 0.3;
+/** 50% of `parFloor` ("Max"), rounded to a nice step (1/5/10/100 depending on size) the same
+ * way roundStep() rounds Max itself — a naive Math.round(parFloor*0.5) alone would give an
+ * odd-looking number like 43 instead of a clean 45. Pulled out of floorMinOf() below so
+ * AppContext.tsx's bulk "ตั้ง Min ทั้งหมดเป็น 50% ของ Max" admin action can compute this same
+ * default EXPLICITLY for a med that already has its own hand-set floorMin — floorMinOf() itself
+ * always prefers that hand-set value and would just hand it back unchanged. */
+export function halfOfMaxRounded(parFloor: number): number {
+  const raw = parFloor * 0.5;
   if (raw <= 0) return 0;
   const step = raw >= 500 ? 100 : raw >= 100 ? 10 : raw >= 10 ? 5 : 1;
   return Math.round(raw / step) * step;
+}
+
+/** Real min-max par: `parFloor` is the shelf's capacity ("Max" — fill up TO this), `floorMin`
+ * is the separate reorder point ("Min" — BELOW this is when it actually needs refilling).
+ * Every med added before Min-Max existed has no floorMin — default it to 50% of Max (real-
+ * world request: raised from the original 30%, a more conservative reorder point that flags a
+ * refill sooner) rather than requiring a one-time migration write. */
+export function floorMinOf(m: Med): number {
+  if (typeof m.floorMin === 'number') return m.floorMin;
+  return halfOfMaxRounded(m.parFloor);
 }
 
 /** A shelf already at/below half of its own reorder point (Min) — not just "below Min" in
@@ -135,6 +144,70 @@ export function usageAnomalies(meds: Med[], threshold = 0.4): UsageAnomaly[] {
     .filter((x) => Math.abs(x.changePct) >= threshold)
     .map((x) => ({ med: x.med, changePct: x.changePct, direction: (x.changePct > 0 ? 'up' : 'down') as 'up' | 'down' }))
     .sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct));
+}
+
+/** One thing wrong with a med's own Min/Max/par substock numbers — not a stock LEVEL problem
+ * (that's isUrgentLow/needsWarehouseRequest, which compare a number against its par), but the
+ * par NUMBERS THEMSELVES not making internal sense, almost always a typo (an extra/missing
+ * zero, Min and Max swapped, par substock left at 0 for a drug that's actually dispensed
+ * every day). `severity: 'error'` is an internal contradiction — always wrong, no judgment
+ * call. `severity: 'review'` is a real number that just looks implausible next to this med's
+ * own real usage rate — worth a human glance, not necessarily wrong (a genuinely new drug with
+ * a deliberately generous starting par is a legitimate reason for a big gap). */
+export interface ParAnomaly { med: Med; code: string; severity: 'error' | 'review'; note: string }
+
+export function parAnomaliesFor(m: Med, floorCoverDays: number, subCoverDays: number): ParAnomaly[] {
+  if (!m.active) return [];
+  const out: ParAnomaly[] = [];
+  const min = floorMinOf(m);
+  // Min (reorder point) at or above Max (shelf capacity) — the shelf can never sit anywhere
+  // between "needs refilling" and "full" as designed; a fresh top-up already reads as at/below
+  // its own reorder point, so it re-triggers every single day regardless of real usage.
+  if (m.parFloor > 0 && min >= m.parFloor) {
+    out.push({ med: m, code: 'min_ge_max', severity: 'error', note: 'Min (' + nf0(min) + ') ≥ Max (' + nf0(m.parFloor) + ') — ตั้งจุดเติม (Min) เท่ากับหรือสูงกว่าความจุชั้น (Max)' });
+  }
+  // A substock-backed med whose substock par can't even refill its own shelf to Max once —
+  // structurally under-provisioned: substock exists specifically to top the shelf back up (see
+  // suggestPar()'s doc comment on why subCoverDays > floorCoverDays), so this almost always
+  // means the two fields got mixed up when they were typed in.
+  if (usesSubstock(m) && m.parFloor > 0 && m.parSub > 0 && m.parSub < m.parFloor) {
+    out.push({ med: m, code: 'sub_lt_floor', severity: 'error', note: 'par substock (' + nf0(m.parSub) + ') < par หน้างาน (' + nf0(m.parFloor) + ') — substock เติมชั้นให้เต็ม Max ไม่ได้แม้แต่ครั้งเดียว' });
+  }
+  // Actively dispensed (real usage on record) but Max was never set at all — every stock-level
+  // check this app makes (isUrgentLow, needsWarehouseRequest, transfer suggestions) silently
+  // reads as "never low" against a par of 0, so this drug quietly gets skipped by every
+  // refill/reorder prompt in the app despite genuinely being in active use.
+  if (m.used30 > 0 && m.parFloor === 0) {
+    out.push({ med: m, code: 'no_par_floor', severity: 'error', note: 'มีการจ่ายจริง (' + nf0(m.used30) + ' หน่วย/30 วัน) แต่ยังไม่ได้ตั้ง par หน้างาน (Max) — ระบบจะไม่แจ้งเตือนต่ำกว่า Min ให้เลย' });
+  }
+  if (usesSubstock(m) && m.used30 > 0 && m.parSub === 0) {
+    out.push({ med: m, code: 'no_par_sub', severity: 'error', note: 'มีการจ่ายจริง (' + nf0(m.used30) + ' หน่วย/30 วัน) แต่ยังไม่ได้ตั้ง par substock — ระบบจะไม่แจ้งเตือนให้เบิกจากคลังใหญ่' });
+  }
+  // A real, current usage-rate baseline exists — compare the CURRENT par against what that
+  // rate would suggest today. A wide gap either direction is worth a look: a par several times
+  // smaller than what real usage needs will chronically run out; one several times larger ties
+  // up shelf/substock space (and expiry risk) for stock that just sits there. 'review' (not
+  // 'error') — a deliberately generous starting par or a recent real change in prescribing
+  // habits (see usageAnomalies() above) are both legitimate reasons real usage and the
+  // currently-set par could genuinely disagree this much.
+  const suggested = suggestPar(m, floorCoverDays, subCoverDays);
+  if (suggested) {
+    if (m.parFloor > 0 && (suggested.floor >= m.parFloor * 3 || suggested.floor * 3 <= m.parFloor)) {
+      out.push({ med: m, code: 'floor_far_from_suggested', severity: 'review', note: 'par หน้างานปัจจุบัน ' + nf0(m.parFloor) + ' ต่างจากค่าแนะนำจากอัตราการใช้จริง (' + nf0(suggested.floor) + ') มาก — ควรตรวจสอบ' });
+    }
+    if (usesSubstock(m) && m.parSub > 0 && (suggested.sub >= m.parSub * 3 || suggested.sub * 3 <= m.parSub)) {
+      out.push({ med: m, code: 'sub_far_from_suggested', severity: 'review', note: 'par substock ปัจจุบัน ' + nf0(m.parSub) + ' ต่างจากค่าแนะนำจากอัตราการใช้จริง (' + nf0(suggested.sub) + ') มาก — ควรตรวจสอบ' });
+    }
+  }
+  return out;
+}
+
+export function parAnomalies(meds: Med[], floorCoverDays: number, subCoverDays: number): ParAnomaly[] {
+  return meds.flatMap((m) => parAnomaliesFor(m, floorCoverDays, subCoverDays));
+}
+
+function nf0(n: number): string {
+  return Math.round(n).toLocaleString('en-US');
 }
 
 /** One row of the "แยกตามหมวด" report — everything that matters about a therapeutic group at

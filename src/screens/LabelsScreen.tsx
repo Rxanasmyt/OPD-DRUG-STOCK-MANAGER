@@ -1,14 +1,15 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
-import { daysUntil, wardOf, binFor, isSharedMed } from '../store/selectors';
+import { daysUntil, wardOf, binFor, binDisplayAll, isSharedMed } from '../store/selectors';
+import { parseBinRange, binInRange, binSortKey } from '../utils/binRange';
 import { thDate } from '../utils/format';
 import { QrCode } from '../components/QrCode';
 import { encodeQr } from '../utils/qr';
 import { shortLabelName, fitSingleLineFontSizePx, splitTitleForDisplay } from '../utils/labelName';
 import { SearchInput } from '../components/SearchInput';
 import { MedDot } from '../components/MedDot';
-import { LOCS } from '../data/locations';
-import type { LabelType, Ward } from '../types';
+import { LOCS, FRIDGE_LOCS } from '../data/locations';
+import type { LabelType, Med, Ward } from '../types';
 
 // Mirrors print.ts's MAX_TITLE_PT/MIN_TITLE_PT (its pt values, here in px since the preview
 // card isn't a fixed physical size — it stretches to whatever width mobile/tablet gives it).
@@ -91,6 +92,12 @@ function AutoFitTitle({ text, color }: { text: string; color: string }) {
 
 const TABS: [LabelType, string][] = [['med', 'ฉลากตัวยา'], ['lot', 'ฉลาก lot'], ['loc', 'ฉลากชั้นวาง']];
 
+// Mirrors AppContext.tsx's printLabels() own printTag() exactly — this preview has to show the
+// same combined "HIGH ALERT · 🧊 ตู้เย็น" line the real printout will, not just one or the other.
+function printTag(m: Med): string {
+  return [m.had ? 'HIGH ALERT' : '', m.fridge ? '🧊 ตู้เย็น' : ''].filter(Boolean).join(' · ');
+}
+
 // These preview cards are deliberately styled with literal colors (white background, #999
 // borders) since they represent actual printed paper, not themed app chrome — this badge
 // matches that same literal palette (and the literal ink colors print.ts uses for the same
@@ -122,8 +129,37 @@ export default function LabelsScreen() {
   const selectedSet = new Set(selectedIds);
   const meds = selectedSet.size === 0 ? activeMeds : activeMeds.filter((m) => selectedSet.has(m.id));
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
-  const pickerMatches = pickerQuery.trim()
-    ? activeMeds.filter((m) => m.name.toLowerCase().indexOf(pickerQuery.trim().toLowerCase()) >= 0).slice(0, 20)
+  // Real-world request: "อยากเลือกยาที่ปริ้นตามรหัสชั้นวางยาได้" — printing a whole shelf/bin's
+  // worth of QR labels in one batch (e.g. re-organizing shelf "J4", or printing every code for
+  // one aisle) needs picking meds by shelf code, not just by name. The bin code shown here
+  // matches whichever code this screen is actually about to print: `binSub` on the substock
+  // shelf-strip tab (ฉลากชั้นวาง → substock), `binDisplayAll` (both OPD/IPD sides, e.g. "A1/B2")
+  // everywhere else — so typing a bin code here selects exactly what a person standing at that
+  // physical shelf would expect, never a code some OTHER tab happens to use for the same med.
+  const binOf = (m: (typeof activeMeds)[number]) => state.labelType === 'loc' && state.locScope === 'sub' ? (m.binSub || '') : binDisplayAll(m);
+  // Every individual real bin code `m` sits in, kept SEPARATE (unlike binOf()'s combined
+  // "A1/B2" display string) — a range check needs to test each side on its own, since a shared
+  // med's OPD/IPD codes are two unrelated shelf positions that just happen to print on one row.
+  const binCodesOf = (m: (typeof activeMeds)[number]): string[] =>
+    state.labelType === 'loc' && state.locScope === 'sub'
+      ? (m.binSub ? [m.binSub] : [])
+      : [m.bin, ...(m.binIpd ? [m.binIpd] : [])].filter(Boolean);
+  const pickerQ = pickerQuery.trim().toLowerCase();
+  // Real-world request: "อยากให้เลือกเป็นชุดชั้นวางยาได้ครับ เช่น A1-A7" — picking a whole run of
+  // numbered bins to print in one batch, not just one bin code at a time. When the typed query
+  // parses as a range (see binRange.ts — "A1-A7" or the "A1-7" shorthand), switch from plain
+  // substring search to matching every med with a bin code inside that range, sorted by shelf
+  // number so the list reads in physical shelf order instead of formulary order. A much higher
+  // cap than the name-search default: the whole point of a range is bulk-selecting everything
+  // in it, which can easily be more than the "browsing to find one drug" cap makes sense for.
+  const pickerRange = parseBinRange(pickerQuery);
+  const pickerMatches = pickerRange
+    ? activeMeds
+        .filter((m) => binCodesOf(m).some((c) => binInRange(c, pickerRange)))
+        .sort((a, b) => Math.min(...binCodesOf(a).map(binSortKey)) - Math.min(...binCodesOf(b).map(binSortKey)))
+        .slice(0, 200)
+    : pickerQ
+    ? activeMeds.filter((m) => m.name.toLowerCase().indexOf(pickerQ) >= 0 || binOf(m).toLowerCase().indexOf(pickerQ) >= 0).slice(0, 20)
     : [];
 
   // The substock shelf-strip labels (labelType 'loc' + locScope 'sub') are per-med shelf-strip
@@ -158,14 +194,16 @@ export default function LabelsScreen() {
   // always show it, which also happens to be exactly what tells two sides of the same drug
   // apart when labelWardScope is 'all' and both are mixed into the same preview.
   const rows = state.labelType === 'med'
-    ? meds.flatMap((m) => medSides(m).map((s) => ({ code: m.code, bin: s.bin, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + s.bin, tag: m.had ? 'HIGH ALERT' : '', tagColor: 'var(--had)', ward: s.ward as Ward | undefined }))).slice(0, 8)
+    ? meds.flatMap((m) => medSides(m).map((s) => ({ code: m.code, bin: s.bin, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + s.bin, tag: printTag(m), tagColor: m.had ? 'var(--had)' : 'var(--fridge)', ward: s.ward as Ward | undefined }))).slice(0, 8)
     : state.labelType === 'lot'
     ? wardLots.slice(0, 8).map((l) => {
         const m = meds.find((x) => x.id === l.medId);
         return { code: l.code, bin: undefined as string | undefined, payload: encodeQr('lot', l.code), title: m ? m.name : '—', sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: daysUntil(l.exp) < warn() ? 'ใกล้หมดอายุ' : '', tagColor: 'var(--amber)', ward: m && !isSharedMed(m) ? wardOf(m) : undefined };
       })
     : state.locScope === 'sub'
-    ? subMeds.slice(0, 8).map((m) => ({ code: m.code, bin: m.binSub, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · substock ' + m.binSub, tag: m.had ? 'HIGH ALERT' : '', tagColor: 'var(--had)', ward: undefined as Ward | undefined }))
+    ? subMeds.slice(0, 8).map((m) => ({ code: m.code, bin: m.binSub, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · substock ' + m.binSub, tag: printTag(m), tagColor: m.had ? 'var(--had)' : 'var(--fridge)', ward: undefined as Ward | undefined }))
+    : state.locScope === 'fridge'
+    ? FRIDGE_LOCS.map(([code, name]) => ({ code: 'LOC-' + code, bin: undefined as string | undefined, payload: encodeQr('loc', 'LOC-' + code), title: '🧊 ' + name, sub: 'สแกนเพื่อเปิดรายการยาในตู้นี้', tag: '', tagColor: 'var(--fridge)', ward: undefined as Ward | undefined }))
     : LOCS.map((b) => ({ code: 'LOC-' + b, bin: undefined as string | undefined, payload: encodeQr('loc', 'LOC-' + b), title: 'ชั้นจ่ายยา ' + b, sub: 'หน้างาน OPD · สแกนเพื่อเปิดรายการในชั้นนี้', tag: '', tagColor: 'var(--muted)', ward: undefined as Ward | undefined }));
 
   // Bug fix: printLabels() (AppContext.tsx) emits TWO label rows for a shared med that has a
@@ -176,7 +214,7 @@ export default function LabelsScreen() {
   // Now routed through medSides() so a ward-scoped print (labelWardScope !== 'all') counts
   // correctly too — a shared med scoped to one ward contributes exactly 1, not 2.
   const medLabelCount = meds.reduce((n, m) => n + medSides(m).length, 0);
-  const labelCount = state.labelType === 'lot' ? wardLots.length : state.labelType === 'med' ? medLabelCount : state.locScope === 'sub' ? subMeds.length : LOCS.length;
+  const labelCount = state.labelType === 'lot' ? wardLots.length : state.labelType === 'med' ? medLabelCount : state.locScope === 'sub' ? subMeds.length : state.locScope === 'fridge' ? FRIDGE_LOCS.length : LOCS.length;
 
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
@@ -205,11 +243,19 @@ export default function LabelsScreen() {
           <div style={{ display: 'flex', gap: 7, marginBottom: 8 }}>
             <button className="chip" style={{ ...chip(state.locScope === 'floor'), flex: 1, minHeight: 40 }} onClick={() => setLocScope('floor')}>ชั้นวางหน้างาน (floor)</button>
             <button className="chip" style={{ ...chip(state.locScope === 'sub'), flex: 1, minHeight: 40 }} onClick={() => setLocScope('sub')}>ชั้นวาง substock</button>
+            <button className="chip" style={{ ...chip(state.locScope === 'fridge'), flex: 1, minHeight: 40 }} onClick={() => setLocScope('fridge')}>🧊 ตู้เย็น</button>
           </div>
           {state.locScope === 'sub' && (
             <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.5, marginBottom: 12 }}>
               แสดงเฉพาะยาที่กำหนด "ชั้นวาง substock" ไว้แล้ว (ตั้งได้ที่หน้าจัดการยา) — แต่ละดวงมี
               QR + ชื่อยา + ขนาดยา เหมือนฉลากตัวยาหน้างาน แค่โชว์รหัสชั้น substock แทน
+            </div>
+          )}
+          {state.locScope === 'fridge' && (
+            <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.5, marginBottom: 12 }}>
+              ฉลากตำแหน่งตู้เย็นของห้องยา 4 ตู้ (คลังวัคซีน/คลังยา/บริการ 1/บริการ 2) — พิมพ์ติดตัวตู้ได้ทันที
+              ก่อนจะผูกยาเข้ากับตู้ไหนก็ได้ กรอกรหัสตู้ (เช่น FR-VAC1) ลงช่อง "ชั้นวาง"/"ชั้นวาง substock"
+              ของยานั้นที่หน้าจัดการยา เพื่อให้สแกนแล้วเจอยาถูกตัว
             </div>
           )}
         </>
@@ -223,9 +269,9 @@ export default function LabelsScreen() {
           <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.5, marginBottom: 8 }}>
             {selectedSet.size > 0
               ? `เลือกไว้ ${selectedSet.size} รายการ — ปุ่มพิมพ์ด้านล่างจะพิมพ์เฉพาะที่เลือกเท่านั้น`
-              : 'ไม่เลือกเลย = พิมพ์ทั้งหมด (ค่าเริ่มต้น) — ค้นหาแล้วติ๊กเพื่อพิมพ์เฉพาะบางตัว'}
+              : 'ไม่เลือกเลย = พิมพ์ทั้งหมด (ค่าเริ่มต้น) — ค้นหาด้วยชื่อยา, รหัสชั้นวางเดียว (เช่น "J4") หรือทั้งชุด (เช่น "A1-A7") แล้วติ๊กหรือกด "เลือกทั้งหมดที่ค้นเจอ"'}
           </div>
-          <SearchInput value={pickerQuery} onChange={setPickerQuery} placeholder="ค้นหาชื่อยาเพื่อเลือก" style={{ marginBottom: pickerMatches.length || selectedSet.size ? 9 : 0 }} />
+          <SearchInput value={pickerQuery} onChange={setPickerQuery} placeholder="ชื่อยา, รหัสชั้น (J4) หรือช่วงชั้น (A1-A7)" style={{ marginBottom: pickerMatches.length || selectedSet.size ? 9 : 0 }} />
           {pickerMatches.length > 0 && (
             <>
               <button
@@ -237,15 +283,31 @@ export default function LabelsScreen() {
               <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 240, overflowY: 'auto' }}>
                 {pickerMatches.map((m) => {
                   const on = !!state.labelSelected[m.id];
+                  const bin = binOf(m);
                   return (
                     <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 11px', borderBottom: '1px solid var(--border-soft)', cursor: 'pointer', background: on ? 'var(--green-tint)' : undefined }}>
                       <input type="checkbox" checked={on} onChange={() => toggleLabelSelected(m.id)} style={{ width: 17, height: 17, flex: 'none' }} />
                       <span style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}><MedDot code={m.code} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span></span>
+                      {bin && <span className="muted" style={{ fontSize: 11, fontWeight: 700, flex: 'none', background: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 6px' }}>{bin}</span>}
                     </label>
                   );
                 })}
               </div>
             </>
+          )}
+          {/* Bug fix (found reviewing the screen for clarity, not reported): a query that
+              matched nothing used to render nothing at all — indistinguishable from "still
+              typing" or, worse for the range syntax just added, from "did it even understand
+              this as a range?" A person typing "A1-A7" with a typo'd prefix or a shelf nobody's
+              assigned yet deserves to be told that, not silent blankness. Named differently for
+              a parsed-but-empty range vs an ordinary no-match, since those mean different things
+              to fix (wrong bin codes vs a genuine typo). */}
+          {pickerQuery.trim() && pickerMatches.length === 0 && (
+            <div className="muted" style={{ fontSize: 12, textAlign: 'center', padding: '10px 4px' }}>
+              {pickerRange
+                ? `ช่วง ${pickerRange.prefix}${pickerRange.from}-${pickerRange.prefix}${pickerRange.to} — ไม่พบยาที่มีรหัสชั้นวางอยู่ในช่วงนี้`
+                : 'ไม่พบยาที่ตรงกับ "' + pickerQuery.trim() + '"'}
+            </div>
           )}
           {selectedSet.size > 0 && (
             <button

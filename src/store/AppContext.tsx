@@ -5,21 +5,21 @@ import {
 } from 'firebase/auth';
 import {
   collection, doc, onSnapshot, query, orderBy, limit, where, writeBatch, addDoc, updateDoc, setDoc,
-  runTransaction, getDocs, getDoc, increment, deleteField, type Transaction,
+  runTransaction, getDocs, getDoc, getCountFromServer, increment, deleteField, serverTimestamp, type Transaction,
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
 import { shortLabelName } from '../utils/labelName';
-import { printLabelSheet, printPickListSheet, type PrintLabel } from '../utils/print';
+import { printLabelSheet, printPickListSheet, printExecutiveSummarySheet, type PrintLabel, type ExecSummaryStat, type ExecSummaryRow } from '../utils/print';
 import { parseHosxpUsageWorkbook, parseUsageCsvText, type RawUsageRow } from '../utils/usageImport';
-import { LOCS } from '../data/locations';
+import { LOCS, FRIDGE_LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
 import { withTimeout, TimeoutError } from '../utils/timeout';
 import { readNotifyEnabled, writeNotifyEnabled, readLowStockNotifyEnabled, writeLowStockNotifyEnabled, requestPermission, currentPermission, maybeNotifyExpiring, maybeNotifyLowStock } from '../utils/notify';
@@ -117,7 +117,7 @@ function freshState(): AppState {
     substockFocusId: null,
 
     adminTab: 'users', auditFilter: 'all',
-    historyFrom: '', historyTo: '', historyResults: null, historyLoading: false,
+    historyFrom: '', historyTo: '', historyResults: null, historyLoading: false, historyTruncated: false,
 
     // Bug fix (real-world safety margin): parSubCoverDays was a flat 21 days — exactly the
     // worst-case gap between two central-warehouse deliveries (this hospital's real cycle is
@@ -212,7 +212,6 @@ export interface AppCtx {
   fillUrgent: () => void;
   printPickList: () => void;
   printTodayReplenishList: () => void;
-  printUrgentReplenishList: () => void;
   printWarehouseRequestList: () => void;
   removeFromCart: (id: string) => void;
   /** Empties the whole fill cart in one action — the only way out of a mis-built cart used
@@ -257,6 +256,7 @@ export interface AppCtx {
   setReportTab: (t: AppState['reportTab']) => void;
   exportReportCsv: () => void;
   exportAllReports: () => void;
+  printExecutiveSummary: () => void;
 
   // labels
   setLabelType: (t: AppState['labelType']) => void;
@@ -277,6 +277,7 @@ export interface AppCtx {
   // settings / par
   applyOnePar: (medId: string, which: 'sub' | 'floor') => void;
   applyAllSuggested: () => void;
+  setAllMinHalfOfMax: () => void;
   setParSub: (medId: string, v: string) => void;
   setParFloor: (medId: string, v: string) => void;
   setMedBin: (medId: string, v: string) => void;
@@ -284,8 +285,8 @@ export interface AppCtx {
   updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => void;
 
   // meds (formulary) management
-  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string }) => void;
-  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string }) => void;
+  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string }) => void;
+  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string }) => void;
   /** Merges an existing OPD/IPD ward-pair (same name, one 'opd' one 'ipd' record) into a
    * single pooled record — see Med.binIpd. Survives as the OPD-ward record with the IPD
    * record's bin code carried over as `binIpd`; floor/used30/usedPrev30 are summed (not
@@ -322,6 +323,7 @@ export interface AppCtx {
 
   // count
   fetchSubstockLedger: (medId: string) => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
+  fetchFloorLedger: (medId: string) => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
   setCountInput: (medId: string, v: string) => void;
   commitCount: (medId: string) => void;
   /** Commits every count typed on the นับสต็อก screen in one action — same per-med
@@ -381,6 +383,7 @@ export interface AppCtx {
   setHistoryTo: (v: string) => void;
   searchHistory: () => void;
   clearHistorySearch: () => void;
+  fetchExecTxsThisMonth: () => Promise<number | null>;
 }
 
 const Ctx = createContext<AppCtx | null>(null);
@@ -594,6 +597,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         const profile = { id: snap.id, ...snap.data() } as User;
+        // Bug fix (observed live): under a badly unstable connection, a reconnecting listen
+        // stream can deliver a snapshot where exists() is true but the document fields are
+        // still incomplete/not yet hydrated (the profile write itself mid-sync) — treated the
+        // same as !exists() before this, it went straight through as a real "pending approval"
+        // profile with empty name/username, rendering the broken "บัญชี (@) สมัครสำเร็จแล้ว".
+        // A real profile (however written) always has a username; treat one without it exactly
+        // like a not-yet-existing doc — wait for a snapshot that actually has real data, rather
+        // than committing to a state built from a half-synced read.
+        if (!profile.username) {
+          clearDowngrade();
+          downgradeTimer = window.setTimeout(() => patch({ authStatus: 'signedOut' }), downgradeDelay);
+          return;
+        }
         if (profile.active) {
           clearDowngrade();
           setMyProfile(profile);
@@ -858,14 +874,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return { ...st, screen: prev || 'more', navStack: stack };
   }), []);
 
+  // Bug fix: this used a bare (unwrapped) addDoc() — unlike every write that goes through
+  // runTx (which wraps runTransaction in withTimeout right at its own definition, above). On a
+  // hung connection (the exact hospital-wifi-captive-portal case withTimeout's own doc comment
+  // describes) that await would never resolve OR reject, so this function would never reach its
+  // catch block, and since logAudit() is called by several commit actions, the calling
+  // guardOnce-protected function's busy state would stay stuck forever with no error shown,
+  // even though the real stock write moments earlier (via the properly-timed-out runTx)
+  // already succeeded. Wrapped in withTimeout so this fails fast with a message instead.
+  //
+  // Note: every stock-mutating commit function used to also have a standalone logTx() twin of
+  // this, called right after its own runTx() resolved — two separate network round trips for
+  // what's really one logical write. That left a real gap: a dropped connection between the two
+  // could change stock with no matching txs history row (or vice versa). Every such call site
+  // has since been folded into the SAME transaction as its stock write (trx.set(doc(collection
+  // (db, 'txs')), {...}) inline — see commitTransfer/commitAdjust/commitCount/commitSubCount/
+  // commitReconcile/scrapLot/commitWardMove/approvePendingReceive), so logTx() no longer has a
+  // reason to exist — audit trail entries (a human-readable note, not a stock-affecting ledger
+  // row) are the only thing still logged outside a transaction, via logAudit() below.
   const logAudit = useCallback(async (entry: { type: AuditType; note: string }) => {
-    try { await addDoc(collection(db, 'auditLog'), { ...entry, by: userName(), ts: Date.now() }); }
+    try { await withTimeout(addDoc(collection(db, 'auditLog'), { ...entry, by: userName(), ts: Date.now() })); }
     catch (e) { console.error('audit log write failed:', e); toast('บันทึกลง audit log ไม่สำเร็จ — รายการหลักบันทึกแล้ว แต่ประวัตินี้อาจหายไป'); }
-  }, [userName, toast]);
-
-  const logTx = useCallback(async (tx: Omit<import('../types').Tx, 'id' | 'ts' | 'by'>) => {
-    try { await addDoc(collection(db, 'txs'), { ...tx, by: userName(), ts: Date.now() }); }
-    catch (e) { console.error('tx log write failed:', e); toast('บันทึกประวัติธุรกรรมไม่สำเร็จ — ยอดสต็อกอัปเดตแล้ว แต่ไม่มีบันทึกรายการนี้ในประวัติ'); }
   }, [userName, toast]);
 
   // Shared tail for every commit-style catch block below — logs the real error, but shows
@@ -897,8 +926,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // persistence signs out the moment the tab/browser closes, for a shared/kiosk device
       // where staying logged in would hand the next person someone else's session.
       await setPersistence(auth, state.authRemember ? browserLocalPersistence : browserSessionPersistence);
-      const cred = await signInWithEmailAndPassword(auth, usernameToEmail(username), password);
-      await setDoc(doc(db, 'users', cred.user.uid), { lastLogin: Date.now() }, { merge: true });
+      // Bug fix: this call itself used to be unwrapped — the very thing it warns about two
+      // lines down (a hung connection that never resolves or rejects, leaving `authBusy` stuck
+      // forever with no error) applied just as much to signInWithEmailAndPassword itself as to
+      // the setDoc that follows it, and this IS the highest-frequency network call in the whole
+      // app — every sign-in, every device, every day. Confirmed live: on a badly unstable
+      // connection the button spun on "กำลังดำเนินการ" indefinitely with nothing to tell the
+      // person to retry or walk away.
+      const cred = await withTimeout(signInWithEmailAndPassword(auth, usernameToEmail(username), password));
+      await withTimeout(setDoc(doc(db, 'users', cred.user.uid), { lastLogin: Date.now() }, { merge: true }));
     } catch (e) {
       patch({ authError: authErrorMessage(e) });
     } finally {
@@ -916,10 +952,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (password.length < 6) { patch({ authError: 'รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร' }); return; }
     patch({ authBusy: true, authError: null });
     try {
-      const takenSnap = await getDoc(doc(db, 'usernames', username));
+      const takenSnap = await withTimeout(getDoc(doc(db, 'usernames', username)));
       if (takenSnap.exists()) { patch({ authError: 'ชื่อผู้ใช้นี้มีคนใช้แล้ว' }); return; }
 
-      const cred = await createUserWithEmailAndPassword(auth, usernameToEmail(username), password);
+      // Same fix as signIn(): unwrapped, this could hang forever on a stuck connection with
+      // authBusy never clearing and no error shown — the account-creation counterpart of the
+      // sign-in bug above.
+      const cred = await withTimeout(createUserWithEmailAndPassword(auth, usernameToEmail(username), password));
       try {
         const profile: Omit<User, 'id'> = { username, name, role: 'tech', dept, active: false, createdAt: Date.now(), lastLogin: null };
         const batch = writeBatch(db);
@@ -1052,7 +1091,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .map((id) => state.meds.find((m) => m.id === id))
       .filter((m): m is Med => !!m)
       .map((m) => ({ bin: binDisplayAll(m), name: m.name, qty: state.cart[m.id], unit: m.unit }));
-    const ok = printPickListSheet(rows, 'ใบจัดยาเติมชั้น', 'ตามรายการที่เลือกในตะกร้าเติมหน้างาน', undefined, { printedBy: userName() });
+    const ok = printPickListSheet(rows, 'ใบจัดยาเติมชั้น', 'จัดทำตามรายการที่คัดเลือกไว้ในระบบเติมหน้างาน', undefined, { printedBy: userName() });
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state.cart, state.meds, toast, userName]);
 
@@ -1081,29 +1120,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
       .filter((r) => r.qty > 0);
     if (!rows.length) { toast('รายการที่ต่ำกว่า Min ไม่มีของเหลือใน substock ให้เติมเลยสักรายการ — ต้องเบิกจากคลังใหญ่ก่อน'); return; }
-    const ok = printPickListSheet(rows, 'ใบเติมหน้างานประจำวัน', 'รายการที่ต่ำกว่าจุดต้องเติม (Min) ประจำวันนี้', undefined, { printedBy: userName() });
-    toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
-  }, [state, toast, userName]);
-
-  // Same sheet as printTodayReplenishList above, scoped to just isUrgentLow() items — the
-  // paper counterpart of TransferScreen's "🔴 เร่งด่วนวันนี้" filter/fillUrgent(), for handing
-  // to someone else to walk the shelf with when there's no time (or no second phone) for the
-  // full below-Min list today. A short, separate function rather than a parameter on
-  // printTodayReplenishList — that one's wired straight to a plain onClick, and a boolean
-  // parameter there would collide with the MouseEvent React passes as the first argument.
-  const printUrgentReplenishList = useCallback(() => {
-    const items = state.meds.filter((m) => m.active && usesSubstock(m) && isUrgentLow(m));
-    if (!items.length) { toast('วันนี้ไม่มีรายการเร่งด่วน (ต่ำกว่าครึ่งหนึ่งของ Min)'); return; }
-    const rows = items
-      .map((m) => {
-        const need = Math.max(0, m.parFloor - m.floor);
-        const qty = suggestTransferQty(state, m);
-        const note = qty < need ? 'substock เหลือไม่พอเติมเต็ม par (ขาดอีก ' + nf(need - qty) + ' ' + m.unit + ')' : undefined;
-        return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note };
-      })
-      .filter((r) => r.qty > 0);
-    if (!rows.length) { toast('รายการเร่งด่วนไม่มีของเหลือใน substock ให้เติมเลยสักรายการ — ต้องเบิกจากคลังใหญ่ก่อน'); return; }
-    const ok = printPickListSheet(rows, 'ใบเติมหน้างานเร่งด่วนวันนี้', 'รายการต่ำกว่าครึ่งหนึ่งของ Min — เร่งด่วนที่สุดของวันนี้', undefined, { printedBy: userName() });
+    const ok = printPickListSheet(rows, 'ใบเติมหน้างานประจำวัน', 'รายการยาที่มีปริมาณต่ำกว่าจุดสั่งเติมขั้นต่ำ (Min) ประจำวันที่จัดพิมพ์เอกสาร', undefined, { printedBy: userName() });
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state, toast, userName]);
 
@@ -1138,7 +1155,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const qty = Math.max(0, (short ? m.parSub - subQty(state, m.id) : m.parFloor - m.floor));
       return { bin: m.code, name: m.name + (short ? '' : ' (ไม่มี substock)'), qty, unit: m.unit };
     });
-    const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการที่ต่ำกว่า par ทั้งระบบ (รวมยาที่ไม่มี substock)', { bin: 'รหัสยา', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() });
+    const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการยาที่มีปริมาณคงคลังต่ำกว่าเกณฑ์มาตรฐาน (Par) ทั้งระบบ รวมถึงรายการยาที่ไม่มีการสำรองคลังย่อย (Substock)', { bin: 'รหัสยา', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() });
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state, toast, userName]);
 
@@ -1476,22 +1493,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // real applied delta, not the raw typed amount.
     let before = 0, after = 0;
     try {
+      // Bug fix (data integrity): the stock write and its tx-log entry used to be two separate
+      // network operations (runTx here, then a standalone logTx() after it resolved) — same
+      // "ledger drift" gap commitTransfer's own fix comment describes: a dropped connection
+      // between the two left floor changed with no matching history row. Folded the tx-log
+      // write into the same transaction (trx.set, not logTx()) so both commit atomically.
       await runTx(async (trx) => {
         const ref = doc(db, 'meds', m.id);
         const snap = await trx.get(ref);
         before = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
         after = Math.max(0, before + sign * q);
         trx.update(ref, { floor: after });
+        trx.set(doc(collection(db, 'txs')), {
+          type: t, name: m.name, medId: m.id, qty: after - before, unit: m.unit,
+          reason: state.adjReason, note: state.adjNote || '—', loc: 'floor', by: userName(), ts: Date.now(),
+        } satisfies Omit<import('../types').Tx, 'id'>);
       });
       const appliedQty = after - before;
-      await logTx({ type: t, name: m.name, medId: m.id, qty: appliedQty, unit: m.unit, reason: state.adjReason, note: state.adjNote || '—', loc: 'floor' });
       patch({ adjQty: '', adjReason: '', adjNote: '', adjMed: null, adjSearch: '' });
       hapticSuccess();
       toast('บันทึกแล้ว · ' + m.name + ' ' + (appliedQty > 0 ? '+' : appliedQty < 0 ? '−' : '') + nf(Math.abs(appliedQty)) + ' ' + m.unit);
     } catch (e) {
       toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [state, logTx, toast, toastErr, patch, guardOnce]);
+  }), [state, userName, toast, toastErr, patch, guardOnce]);
 
   const scrapLot = useCallback(guardOnce('scrapLot', async (lotId: string) => {
     const l = state.lots.find((x) => x.id === lotId);
@@ -1499,22 +1524,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const m = state.meds.find((x) => x.id === l.medId);
     if (!m) return;
     try {
-      await updateDoc(doc(db, 'lots', lotId), { qty: 0 });
-      await logTx({ type: 'expired', name: m.name, medId: m.id, qty: -l.qty, unit: m.unit, reason: 'หมดอายุ / ใกล้หมดอายุ', note: 'lot ' + l.lotNo + ' exp ' + thDate(l.exp) + ' · มูลค่า ' + nf(l.qty * m.price) + ' บาท', loc: 'substock' });
+      // Bug fix (data integrity): re-read the lot's real qty inside the same transaction that
+      // zeroes it and logs the write-off — the old plain updateDoc + separate logTx() could
+      // both use a stale local l.qty (understating/overstating the logged write-off value if
+      // someone else's transfer/count had already changed this lot) AND leave the two writes
+      // non-atomic (see commitAdjust's note on this exact class of gap).
+      let realQty = l.qty;
+      await runTx(async (trx) => {
+        const ref = doc(db, 'lots', lotId);
+        const snap = await trx.get(ref);
+        realQty = (snap.data() as { qty?: number } | undefined)?.qty ?? l.qty;
+        trx.update(ref, { qty: 0 });
+        trx.set(doc(collection(db, 'txs')), {
+          type: 'expired', name: m.name, medId: m.id, qty: -realQty, unit: m.unit,
+          reason: 'หมดอายุ / ใกล้หมดอายุ', note: 'lot ' + l.lotNo + ' exp ' + thDate(l.exp) + ' · มูลค่า ' + nf(realQty * m.price) + ' บาท',
+          loc: 'substock', by: userName(), ts: Date.now(),
+        } satisfies Omit<import('../types').Tx, 'id'>);
+      });
       hapticSuccess();
       toast('ตัด lot ' + l.lotNo + ' ออกจาก substock แล้ว · บันทึกลง discrepancy log');
     } catch (e) {
       console.error(e);
       toast('ตัด lot ไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [state.lots, state.meds, logTx, toast, guardOnce]);
+  }), [state.lots, state.meds, userName, toast, guardOnce]);
 
   // ---------- report ----------
   const setReportTab = useCallback((t: AppState['reportTab']) => patch({ reportTab: t }), [patch]);
 
   const exportReportCsv = useCallback(async () => {
     const st = state;
-    const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv' };
+    const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', exec: 'executive_summary.csv' };
     // Matches whatever ward tab is open on screen — exporting "everything" while the screen
     // shows only OPD (or vice versa) would be a silently misleading report.
     const wardMeds = st.meds.filter((m) => matchesWard(m, st.wardFilter));
@@ -1560,6 +1600,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         daysOfStockLeft(st, a.med) ?? '',
       ]);
       outcome = await downloadCsv([['medication', 'used_30d', 'used_prev_30d', 'change_pct', 'days_of_stock_left'], ...rows], names.insights);
+    } else if (st.reportTab === 'exec') {
+      const rows = wardMeds.filter((m) => m.active).map((m) => {
+        const oh = m.floor + subQty(st, m.id);
+        return [m.name, m.unit, oh, Math.round(oh * m.price), m.used30];
+      }).sort((a, b) => (b[3] as number) - (a[3] as number));
+      outcome = await downloadCsv([['medication', 'unit', 'on_hand', 'value_thb', 'used_30d'], ...rows], names.exec);
     } else {
       // The live txs subscription is capped at the most recent 300 (kept small on purpose —
       // it only backs the "recent activity" UI). A compliance report can't silently drop
@@ -1584,6 +1630,63 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (outcome === 'saved') toast('ดาวน์โหลด ' + names[state.reportTab] + ' แล้ว');
     else if (outcome === 'unavailable') toast('ดาวน์โหลดไฟล์ไม่ได้ในเบราว์เซอร์นี้');
   }, [state, toast, toastErr]);
+
+  // "Dashboard สรุปภาพรวมสำหรับผู้บริหาร/หัวหน้าเภสัชกรรม" — same underlying numbers the aging/
+  // category/turnover tabs already compute on screen, rolled into one headline-first printout
+  // meant for someone who wants the whole-formulary picture in one glance, not to operate the
+  // app. Deliberately its own function (not routed through exportReportCsv's per-tab branches)
+  // since a PTC-meeting printout and a spreadsheet export serve different readers.
+  const printExecutiveSummary = useCallback(async () => {
+    const meds = state.meds.filter((m) => m.active);
+    const totalValue = meds.reduce((s, m) => s + (m.floor + subQty(state, m.id)) * m.price, 0);
+    const healthy = meds.filter((m) => toneFor(m) === 'var(--green)').length;
+    const warn = meds.filter((m) => toneFor(m) === 'var(--amber)').length;
+    const critical = meds.length - healthy - warn;
+    const healthyPct = meds.length ? Math.round((healthy / meds.length) * 100) : 100;
+    const riskValue = state.lots.reduce((s, l) => {
+      const m = meds.find((x) => x.id === l.medId);
+      return m && l.qty > 0 && daysUntil(l.exp) <= state.expiryWarnDays ? s + l.qty * m.price : s;
+    }, 0);
+    const monthAgo = Date.now() - 30 * DAY;
+    // state.txs is the realtime cache capped to the 300 most-recent rows across ALL types — a
+    // busy month can blow past that cap long before 30 days are covered. A printed PTC document
+    // needs the real count, so fetch it server-side and only fall back to the capped estimate
+    // (which can only ever under-count, never over-count) if that fetch fails.
+    let txsThisMonth: number;
+    try {
+      const snap = await withTimeout(getCountFromServer(query(collection(db, 'txs'), where('ts', '>=', monthAgo))));
+      txsThisMonth = snap.data().count;
+    } catch {
+      txsThisMonth = state.txs.filter((x) => x.ts >= monthAgo).length;
+    }
+
+    const stats: ExecSummaryStat[] = [
+      { label: 'มูลค่าคงคลังยาคงเหลือรวมทั้งหมด (หน้างานและสำรองคลังย่อย)', value: nf(Math.round(totalValue)) + ' บาท' },
+      { label: 'สถานภาพคลังยาโดยรวม', value: healthyPct + '% ปกติ', note: `ระดับวิกฤต ${nf(critical)} รายการ · ระดับเริ่มต่ำ ${nf(warn)} รายการ`, tone: healthyPct >= 80 ? 'green' : healthyPct >= 50 ? 'amber' : 'red' },
+      { label: `มูลค่ายาที่มีความเสี่ยงหมดอายุภายใน ${state.expiryWarnDays} วัน`, value: nf(Math.round(riskValue)) + ' บาท', tone: riskValue > 0 ? 'amber' : 'green' },
+      { label: 'จำนวนธุรกรรมในรอบ 30 วันที่ผ่านมา', value: nf(txsThisMonth) + ' รายการ', note: 'จำนวนรายการยาที่เปิดใช้งาน ' + nf(meds.length) + ' รายการ' },
+    ];
+
+    const byValue = meds
+      .map((m) => ({ m, oh: m.floor + subQty(state, m.id), value: (m.floor + subQty(state, m.id)) * m.price }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10)
+      .map((r): ExecSummaryRow => ({ name: r.m.name, unit: r.m.unit, a: nf(r.oh), b: nf(Math.round(r.value)) }));
+
+    const byUsage = meds
+      .filter((m) => m.used30 > 0)
+      .map((m) => {
+        const oh = m.floor + subQty(state, m.id);
+        const doh = Math.round(oh / dailyUsageRate(m));
+        return { m, doh };
+      })
+      .sort((a, b) => b.m.used30 - a.m.used30)
+      .slice(0, 10)
+      .map((r): ExecSummaryRow => ({ name: r.m.name, unit: r.m.unit, a: nf(r.m.used30), b: isFinite(r.doh) ? nf(r.doh) : '—' }));
+
+    const ok = printExecutiveSummarySheet(stats, byValue, byUsage, { printedBy: userName(), periodLabel: 'ข้อมูล ณ วันที่ ' + thDate(Date.now()) });
+    toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
+  }, [state, toast, userName]);
 
   // "ดึงข้อมูลได้ทุกอย่างที่เกี่ยวข้องกับข้อมูลในแอพ" — ก่อนหน้านี้ (v2.89.0) รวมแค่รายงานสำเร็จรูป
   // 4 ชุด + master data ยา/lot; รอบนี้ขยายให้ครบทุกคอลเลกชันจริงใน Firestore ที่แอพนี้เก็บ ไม่ใช่แค่
@@ -1746,6 +1849,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const selectedSet = new Set(selectedIds);
     const meds = state.meds.filter((m) => m.active && (selectedSet.size === 0 || selectedSet.has(m.id)));
     let labels: PrintLabel[] = [];
+    // One combined tag line (labels have room for exactly one) — a med can be high-alert AND
+    // need refrigeration at once, so both show rather than one silently winning.
+    const printTag = (m: Med) => [m.had ? 'HIGH ALERT' : '', m.fridge ? '🧊 ตู้เย็น' : ''].filter(Boolean).join(' · ') || undefined;
     let heading = 'ฉลากตัวยา';
     if (state.labelType === 'med') {
       if (state.labelWardScope !== 'all') heading = 'ฉลากตัวยา (' + (state.labelWardScope === 'ipd' ? 'IPD' : 'OPD') + ')';
@@ -1760,7 +1866,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const scoped = state.labelWardScope === 'all' ? sides : sides.filter((s) => s.ward === state.labelWardScope);
         return scoped.map((s) => ({
           payload: encodeQr('med', m.code), id: m.code, title: shortLabelName(m.name),
-          sub: 'หน่วย ' + m.unit + ' · ชั้น ' + s.bin, tag: m.had ? 'HIGH ALERT' : undefined, bin: s.bin, ward: s.ward,
+          sub: 'หน่วย ' + m.unit + ' · ชั้น ' + s.bin, tag: printTag(m), bin: s.bin, ward: s.ward,
         }));
       });
     } else if (state.labelType === 'lot') {
@@ -1787,8 +1893,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       heading = 'ฉลากชั้นวาง substock';
       labels = meds.filter((m) => !m.noSubstock && m.binSub).map((m) => ({
         payload: encodeQr('med', m.code), id: m.code, title: shortLabelName(m.name),
-        sub: 'หน่วย ' + m.unit + ' · substock ' + m.binSub, tag: m.had ? 'HIGH ALERT' : undefined, bin: m.binSub,
+        sub: 'หน่วย ' + m.unit + ' · substock ' + m.binSub, tag: printTag(m), bin: m.binSub,
       }));
+    } else if (state.locScope === 'fridge') {
+      // Real-world request: the pharmacy's own cold-chain fridges (vaccine/cold-drug storage,
+      // 2 shared OPD+IPD service fridges — see FRIDGE_LOCS' own doc comment) need their
+      // positions labeled just like LOCS does for floor shelves, printed ahead of any med
+      // actually being assigned there yet — a generic location sheet, not per-med.
+      heading = 'ฉลากตู้เย็น';
+      labels = FRIDGE_LOCS.map(([code, name]) => ({ payload: encodeQr('loc', 'LOC-' + code), id: 'LOC-' + code, title: '🧊 ' + name, sub: 'สแกนเพื่อเปิดรายการยาในตู้นี้' }));
     } else {
       heading = 'ฉลากชั้นวาง';
       labels = LOCS.map((b) => ({ payload: encodeQr('loc', 'LOC-' + b), id: 'LOC-' + b, title: 'ชั้นจ่ายยา ' + b, sub: 'หน้างาน OPD · สแกนเพื่อเปิดรายการในชั้นนี้' }));
@@ -1806,7 +1919,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const sug = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
     if (!sug) { toast(m.name + ' ยังไม่มีสถิติการใช้ ไม่สามารถแนะนำ par ได้'); return; }
     try {
-      await updateDoc(doc(db, 'meds', medId), which === 'sub' ? { parSub: sug.sub } : { parFloor: sug.floor });
+      await withTimeout(updateDoc(doc(db, 'meds', medId), which === 'sub' ? { parSub: sug.sub } : { parFloor: sug.floor }));
       logAudit({ type: 'par_updated', note: 'ปรับ par' + (which === 'sub' ? 'substock' : 'หน้างาน') + ' ' + m.name + ' เป็น ' + nf(which === 'sub' ? sug.sub : sug.floor) + ' ตามค่าแนะนำจากสถิติ' });
     } catch (e) { console.error(e); toast('ปรับ par ไม่สำเร็จ'); }
   }, [canEditPar, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast]);
@@ -1832,6 +1945,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast('ปรับ par ตามค่าแนะนำแล้ว ' + targets.length + ' รายการ');
     } catch (e) { toastErr(e, 'ปรับ par ไม่สำเร็จ'); }
   }), [canEditPar, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast, toastErr, guardOnce]);
+
+  // Real-world request: "ปรับยาหน้างานทั้งหมดในแอพ min เป็น 50% ของ max" — a one-time bulk
+  // normalization that writes floorMin EXPLICITLY onto every active med, not just the default-
+  // fallback ratio floorMinOf() already uses for any med without a hand-set floorMin (see that
+  // function and halfOfMaxRounded() above, both in selectors.ts). Unlike that fallback, this
+  // OVERWRITES any custom Min a pharmacist may have hand-set for a specific drug — genuinely
+  // different from "leave custom values alone, only fill in the unset ones", so it needs its
+  // own explicit, confirmed action rather than happening silently as a side effect.
+  const setAllMinHalfOfMax = useCallback(guardOnce('setAllMinHalfOfMax', async () => {
+    if (!canEditPar) return;
+    const targets = state.meds.filter((m) => m.active && halfOfMaxRounded(m.parFloor) !== floorMinOf(m));
+    if (!targets.length) { toast('ยาทุกตัวมี Min = 50% ของ Max อยู่แล้ว ไม่มีอะไรต้องเปลี่ยน'); return; }
+    if (!(await confirmAsync(
+      'ตั้งค่า Min ของยาทุกตัวเป็น 50% ของ Max?\n\n'
+      + 'จะเขียนทับค่า Min ปัจจุบันของยา ' + nf(targets.length) + ' รายการ (รวมถึงตัวที่เคยตั้งเองไว้ไม่เท่ากับ 50%) '
+      + 'ให้เป็น 50% ของ Max ทั้งหมด — ยาที่ Min เท่ากับ 50% ของ Max อยู่แล้วจะไม่ถูกแตะต้อง\n\n'
+      + 'แก้กลับเป็นรายตัวได้ภายหลังที่หน้าจัดการรายการยา ยืนยันหรือไม่?',
+    ))) return;
+    try {
+      for (let i = 0; i < targets.length; i += 400) {
+        const batch = writeBatch(db);
+        targets.slice(i, i + 400).forEach((m) => {
+          batch.update(doc(db, 'meds', m.id), { floorMin: halfOfMaxRounded(m.parFloor) });
+        });
+        await withTimeout(batch.commit());
+      }
+      logAudit({ type: 'par_updated', note: 'ตั้งค่า Min ยาทุกตัวเป็น 50% ของ Max (' + nf(targets.length) + ' รายการเปลี่ยนแปลง)' });
+      toast('ตั้งค่า Min เป็น 50% ของ Max แล้ว ' + nf(targets.length) + ' รายการ');
+    } catch (e) { toastErr(e, 'ตั้งค่า Min ไม่สำเร็จ'); }
+  }), [canEditPar, state.meds, confirmAsync, logAudit, toast, toastErr, guardOnce]);
 
   const debouncedParWrite = useCallback((medId: string, field: 'parSub' | 'parFloor', val: number) => {
     const key = 'par:' + medId + field;
@@ -1938,14 +2081,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateGlobalSettings = useCallback(async (patchFields: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => {
     if (!canEditPar) return;
     try {
-      await setDoc(doc(db, 'meta', 'settings'), patchFields, { merge: true });
+      await withTimeout(setDoc(doc(db, 'meta', 'settings'), patchFields, { merge: true }));
       logAudit({ type: 'par_updated', note: 'แก้ไขการตั้งค่า: ' + Object.entries(patchFields).map(([k, v]) => k + '=' + v).join(', ') });
       toast('บันทึกการตั้งค่าแล้ว');
     } catch (e) { console.error(e); toast('บันทึกการตั้งค่าไม่สำเร็จ'); }
   }, [canEditPar, logAudit, toast]);
 
   // ---------- meds (formulary) management ----------
-  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string }) => {
+  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string }) => {
     if (!canEditPar) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
@@ -1984,6 +2127,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         trx.set(doc(collection(db, 'meds')), {
           code: c, name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
           price: input.price || 0, had: input.had, active: true,
+          ...(input.fridge ? { fridge: true } : {}),
           parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0), floor: 0,
           floorMin: Math.max(0, input.floorMin || 0),
           bin: normBin(input.bin),
@@ -2006,7 +2150,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // price, high-alert flag, shelf/bin, and both par levels — instead of hunting across
   // separate screens. `code` (the QR/label identifier) is deliberately never touched here —
   // labels already printed with it must keep resolving to this med.
-  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string }) => {
+  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string }) => {
     if (!canEditPar) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
@@ -2015,6 +2159,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const patch = {
       name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
       price: input.price || 0, had: input.had,
+      fridge: input.fridge ? true : deleteField(),
       bin: normBin(input.bin),
       parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0),
       floorMin: Math.max(0, input.floorMin || 0),
@@ -2029,7 +2174,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       category: input.category ? input.category : deleteField(),
     };
     try {
-      await updateDoc(doc(db, 'meds', medId), patch);
+      await withTimeout(updateDoc(doc(db, 'meds', medId), patch));
       logAudit({ type: 'med_edited', note: 'แก้ไขข้อมูลยา ' + name });
       toast('บันทึกข้อมูล ' + name + ' แล้ว');
     } catch (e) { console.error(e); toast('บันทึกไม่สำเร็จ'); }
@@ -2219,7 +2364,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!m) return;
     const next = !m.active;
     try {
-      await updateDoc(doc(db, 'meds', medId), { active: next });
+      await withTimeout(updateDoc(doc(db, 'meds', medId), { active: next }));
       logAudit({ type: 'med_status_changed', note: (next ? 'เปิดใช้งานยา ' : 'ปิดใช้งานยา (ตัดออกจากบัญชี) ') + m.name });
       toast((next ? 'เปิดใช้งาน ' : 'ปิดใช้งาน ') + m.name + ' แล้ว');
     } catch (e) { console.error(e); toast('เปลี่ยนสถานะไม่สำเร็จ'); }
@@ -2291,6 +2436,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setMedsFocusId = useCallback((id: string | null) => patch({ medsFocusId: id }), [patch]);
 
+  // ---------- pre-delete safety snapshot ----------
+  // Extra recovery layer specifically for the two go-live reset buttons below, on top of (not
+  // instead of) the daily external GitHub Actions backup (scripts/backup-firestore.mjs) — that
+  // backup can be up to ~24h stale, so an admin who reaches for one of these buttons an hour
+  // before the next scheduled run would otherwise lose that hour's data even though everything
+  // "worked as designed". This writes the exact documents about to be destroyed into a separate
+  // `_preResetSnapshots` collection FIRST, chunked to stay well under Firestore's per-doc size
+  // limit, so a mis-click can be undone by an admin (via scripts/restore-preresetsnapshot.mjs)
+  // without waiting on — or even needing — that day's external backup.
+  //
+  // `_preResetSnapshots` is admin-only in firestore.rules (read AND write) — this collection
+  // holds a full copy of whatever it's guarding, so it needs the same trust level as the data
+  // itself. Deliberately fails CLOSED: if this write throws (most likely because the updated
+  // firestore.rules exception for this collection hasn't been published to Firebase Console
+  // yet), the caller must NOT proceed with the destructive delete — better to block the go-live
+  // reset with a clear error than to silently perform an unrecoverable action with no safety
+  // net at all.
+  const snapshotBeforeDelete = useCallback(async (label: string, rows: { id: string; data: Record<string, unknown> }[]) => {
+    const stamp = Date.now();
+    const CHUNK = 300; // keeps each snapshot doc comfortably under Firestore's 1 MiB/doc limit
+    const totalChunks = Math.max(1, Math.ceil(rows.length / CHUNK));
+    const writes: Promise<void>[] = [];
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      // Each chunk is its own document with no ordering dependency on the others, so fire them
+      // all at once instead of awaiting one round trip at a time — with thousands of txs this
+      // can be dozens of chunks, and the destructive delete right after this only starts once
+      // ALL of them resolve, so doing this serially would multiply both the wait and the chance
+      // any single chunk's withTimeout trips on a slow connection.
+      writes.push(withTimeout(setDoc(doc(db, '_preResetSnapshots', `${label}-${stamp}-${i}`), {
+        createdAt: serverTimestamp(),
+        createdBy: userName(),
+        label,
+        chunkIndex: i / CHUNK,
+        totalChunks,
+        totalDocs: rows.length,
+        docs: rows.slice(i, i + CHUNK),
+      })));
+    }
+    await Promise.all(writes);
+  }, [userName]);
+
   // ---------- reset all stock ledgers (go-live) ----------
   // Real-world request: a hospital going live for real (after a testing/pilot period) wants a
   // clean starting point — every drug's substock card currently shows a noisy, incomplete
@@ -2323,19 +2509,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (typed !== 'RESET') { toast('ยกเลิก — ไม่ได้พิมพ์ยืนยันตรงตามที่กำหนด ไม่มีอะไรถูกลบ'); return; }
     try {
       const snap = await withTimeout(getDocs(collection(db, 'txs')));
-      const refs = snap.docs.map((d) => d.ref);
-      for (let i = 0; i < refs.length; i += 450) {
+      const rows = snap.docs.map((d) => ({ id: d.id, data: d.data() }));
+      try {
+        await snapshotBeforeDelete('txs', rows);
+      } catch (e) {
+        toastErr(e, 'ยกเลิก — สำรองข้อมูลก่อนลบไม่สำเร็จ (อาจยังไม่ได้ publish กฎ Firestore ล่าสุด) ยังไม่มีอะไรถูกลบ');
+        return;
+      }
+      for (let i = 0; i < rows.length; i += 450) {
         const batch = writeBatch(db);
-        refs.slice(i, i + 450).forEach((ref) => batch.delete(ref));
+        rows.slice(i, i + 450).forEach((r) => batch.delete(doc(db, 'txs', r.id)));
         await withTimeout(batch.commit());
       }
-      await logAudit({ type: 'stock_ledger_reset', note: 'รีเซ็ตบัตรสต็อกยาทุกตัว — ลบประวัติธุรกรรมทั้งหมด ' + nf(refs.length) + ' รายการ เพื่อเริ่มต้นใช้งานระบบจริง โดย ' + userName() });
+      await logAudit({ type: 'stock_ledger_reset', note: 'รีเซ็ตบัตรสต็อกยาทุกตัว — ลบประวัติธุรกรรมทั้งหมด ' + nf(rows.length) + ' รายการ (สำรองไว้ล่วงหน้าใน _preResetSnapshots แล้ว) เพื่อเริ่มต้นใช้งานระบบจริง โดย ' + userName() });
       hapticSuccess();
-      toast('รีเซ็ตบัตรสต็อกแล้ว — ลบประวัติธุรกรรม ' + nf(refs.length) + ' รายการ ยอดคงเหลือปัจจุบันไม่เปลี่ยนแปลง');
+      toast('รีเซ็ตบัตรสต็อกแล้ว — ลบประวัติธุรกรรม ' + nf(rows.length) + ' รายการ (สำรองไว้ก่อนลบแล้ว) ยอดคงเหลือปัจจุบันไม่เปลี่ยนแปลง');
     } catch (e) {
       toastErr(e, 'รีเซ็ตไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [myProfile, confirmAsync, promptAsync, toast, toastErr, logAudit, userName, guardOnce]);
+  }), [myProfile, confirmAsync, promptAsync, toast, toastErr, logAudit, userName, guardOnce, snapshotBeforeDelete]);
 
   // Real-world request: the current deployment's floor/substock numbers are sample data (the
   // drug NAMES/codes/pars/bins are real — only the quantities aren't) left over from setting
@@ -2358,11 +2550,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const typed = await promptAsync('พิมพ์ RESET (ตัวพิมพ์ใหญ่) เพื่อยืนยันการล้างจำนวนยาทุกตัวเป็น 0 ถาวร — พิมพ์อย่างอื่นหรือกดยกเลิกเพื่อไม่ทำอะไรเลย');
     if (typed !== 'RESET') { toast('ยกเลิก — ไม่ได้พิมพ์ยืนยันตรงตามที่กำหนด ไม่มีอะไรถูกเปลี่ยน'); return; }
     try {
-      const lotSnap = await withTimeout(getDocs(collection(db, 'lots')));
-      const medCount = state.meds.length;
+      // Fresh reads, not the client's cached state.meds — that cache can be a moment stale
+      // (another device's onSnapshot update not applied here yet), and the snapshot below must
+      // record the actual value about to be overwritten in Firestore, not whatever this tab
+      // last saw, or an undo via restore-preresetsnapshot.mjs would restore the wrong floor.
+      const [medSnap, lotSnap] = await Promise.all([
+        withTimeout(getDocs(collection(db, 'meds'))),
+        withTimeout(getDocs(collection(db, 'lots'))),
+      ]);
+      const medCount = medSnap.docs.length;
       const lotCount = lotSnap.docs.length;
+      try {
+        // Snapshot the OLD floor value per med (not the whole med doc — name/code/par/bin etc.
+        // never change here, only `floor`) plus every lot about to be deleted, before either
+        // write happens.
+        await snapshotBeforeDelete('meds-floor', medSnap.docs.map((d) => ({ id: d.id, data: { floor: d.data().floor ?? 0, lastCountTs: d.data().lastCountTs ?? null, lastSubCountTs: d.data().lastSubCountTs ?? null } })));
+        await snapshotBeforeDelete('lots', lotSnap.docs.map((d) => ({ id: d.id, data: d.data() })));
+      } catch (e) {
+        toastErr(e, 'ยกเลิก — สำรองข้อมูลก่อนลบไม่สำเร็จ (อาจยังไม่ได้ publish กฎ Firestore ล่าสุด) ยังไม่มีอะไรถูกเปลี่ยน');
+        return;
+      }
       const ops: { ref: ReturnType<typeof doc>; kind: 'update' | 'delete' }[] = [
-        ...state.meds.map((m) => ({ ref: doc(db, 'meds', m.id), kind: 'update' as const })),
+        ...medSnap.docs.map((d) => ({ ref: d.ref, kind: 'update' as const })),
         ...lotSnap.docs.map((d) => ({ ref: d.ref, kind: 'delete' as const })),
       ];
       for (let i = 0; i < ops.length; i += 450) {
@@ -2373,13 +2582,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
         await withTimeout(batch.commit());
       }
-      await logAudit({ type: 'quantity_reset', note: 'รีเซ็ตจำนวนยาทุกตัวเป็น 0 — ยอดหน้างาน ' + nf(medCount) + ' รายการ, ลบ lot substock ' + nf(lotCount) + ' รายการ เพื่อเริ่มต้นใช้งานระบบจริง โดย ' + userName() });
+      await logAudit({ type: 'quantity_reset', note: 'รีเซ็ตจำนวนยาทุกตัวเป็น 0 — ยอดหน้างาน ' + nf(medCount) + ' รายการ, ลบ lot substock ' + nf(lotCount) + ' รายการ (สำรองไว้ล่วงหน้าใน _preResetSnapshots แล้ว) เพื่อเริ่มต้นใช้งานระบบจริง โดย ' + userName() });
       hapticSuccess();
-      toast('รีเซ็ตจำนวนยาแล้ว — ยอดหน้างานและ substock ของยาทุกตัวเป็น 0 แล้ว ชื่อยา/par/ชั้นวางยังอยู่ครบ');
+      toast('รีเซ็ตจำนวนยาแล้ว — ยอดหน้างานและ substock ของยาทุกตัวเป็น 0 แล้ว (สำรองไว้ก่อนลบแล้ว) ชื่อยา/par/ชั้นวางยังอยู่ครบ');
     } catch (e) {
       toastErr(e, 'รีเซ็ตไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [myProfile, state.meds, confirmAsync, promptAsync, toast, toastErr, logAudit, userName, guardOnce]);
+  }), [myProfile, confirmAsync, promptAsync, toast, toastErr, logAudit, userName, guardOnce, snapshotBeforeDelete]);
 
   // Jump straight into บัตรสต็อก substock for one med, already open — used from เสร็จสิ้น
   // (DoneScreen) so "รับเข้า/เติมหน้างานสำเร็จ แล้วอยากดูบัตรตอนนี้เลย" is one tap instead of
@@ -2405,6 +2614,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const fetchSubstockLedger = useCallback(async (medId: string) => {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return [];
+    // Bug fix: a noSubstock med (liquids/inhalers/sprays — see usesSubstock()) never has a
+    // substock stage at all; commitReceive credits its floor directly (to:'floor', no lot ever
+    // created) instead of creating a substock lot. Nothing gated this screen from being opened
+    // for one anyway (SubstockCardScreen's search has no usesSubstock filter), so its real
+    // receive_from_central history — which the comment below assumed was always a substock
+    // credit — would get counted as substock "received" here, while subQty() (real lots, none
+    // exist) correctly reads 0. That produced a permanent false "mismatch" warning on any
+    // noSubstock med with receive history, and a running balance for a stock stage that was
+    // never real. Nothing to show for a med with no substock stage — return empty up front.
+    if (!usesSubstock(m)) return [];
     // A name query alone would merge two drugs' history the moment OPD and IPD versions of
     // the same drug share a name (see wardOf/Ward) — every tx write now also tags `medId`
     // (see the Tx type), so when this med has a same-name "twin" in the other ward, trust
@@ -2412,7 +2631,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Older tx rows written before medId existed have none, so this narrows to nothing older
     // than that migration for a name-duplicated drug — showing an incomplete-but-correct
     // ledger beats a complete-but-wrong one that silently mixes in the other ward's stock.
-    const hasNameTwin = state.meds.some((x) => x.id !== m.id && x.name === m.name);
+    // Active twins only: after "รวมสต็อก OPD+IPD" (mergeWardMeds/mergeAllWardPairs) the losing
+    // side is deactivated and zeroed, not a live ambiguity anymore, so it must not still trigger
+    // this narrowing (SubstockCardScreen's own hasNameTwin already excludes inactive twins —
+    // this needs to match or the two disagree about whether a twin exists).
+    const hasNameTwin = state.meds.some((x) => x.id !== m.id && x.active && x.name === m.name);
     const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('name', '==', m.name))));
     const rows = snap.docs
       .map((d) => d.data() as { type: string; ts: number; qty: number; note?: string; by: string; loc?: string; medId?: string })
@@ -2429,6 +2652,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return rows.map((r) => { bal += r.qty; return { ...r, balance: bal }; });
   }, [state.meds]);
 
+  // Real-world request: a noSubstock med (liquid/inhaler/spray/injectable — see usesSubstock())
+  // has no substock ledger to show (fetchSubstockLedger above returns empty for one), but staff
+  // still need the SAME picture for it: how much came in from the central warehouse, how much
+  // the daily HOSxP usage-cut took out, what's left — floor plays the role substock plays for
+  // every other drug. Every type here already only ever touches floor (see the comment on
+  // fetchSubstockLedger above) and every one is already stored with the correct sign for a
+  // floor-inflow/outflow reading — unlike transfer_to_floor's flip in the substock ledger (an
+  // outflow there), it's the same number read as an INFLOW here, so no sign massaging needed.
+  const FLOOR_LEDGER_TYPES = new Set(['receive_from_central', 'transfer_to_floor', 'reconcile_hosxp', 'adjust', 'return', 'damaged', 'ward_move_in', 'ward_move_out', 'count']);
+  const fetchFloorLedger = useCallback(async (medId: string) => {
+    const m = state.meds.find((x) => x.id === medId);
+    if (!m) return [];
+    // Same OPD/IPD name-twin hazard as fetchSubstockLedger — trust only rows tagged for THIS
+    // med once a live (active) same-name twin exists.
+    const hasNameTwin = state.meds.some((x) => x.id !== m.id && x.active && x.name === m.name);
+    const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('name', '==', m.name))));
+    const rows = snap.docs
+      .map((d) => d.data() as { type: string; ts: number; qty: number; note?: string; by: string; loc?: string; to?: string; medId?: string })
+      // receive_from_central needs its own guard unlike the rest: a med WITH substock has this
+      // type land at substock (to:'substock'), not floor — only the noSubstock case (to:'floor')
+      // belongs here. Every other type in FLOOR_LEDGER_TYPES is only ever logged against floor
+      // in the first place (see fetchSubstockLedger's comment), so no further guard needed.
+      .filter((x) => FLOOR_LEDGER_TYPES.has(x.type) && (x.type !== 'receive_from_central' || x.to === 'floor') && (x.type !== 'count' || x.loc === 'floor'))
+      .filter((x) => !hasNameTwin || x.medId === m.id)
+      .map((x) => ({ ts: x.ts, type: x.type, qty: x.qty, note: x.note || '', by: x.by }))
+      .sort((a, b) => a.ts - b.ts);
+    let bal = 0;
+    return rows.map((r) => { bal += r.qty; return { ...r, balance: bal }; });
+  }, [state.meds]);
+
+  // The exec-summary "ธุรกรรมใน 30 วันล่าสุด" stat needs a true 30-day count, but state.txs is
+  // the realtime cache capped to the 300 most-recent rows across ALL types — a busy month can
+  // blow past that cap long before 30 days are covered, silently under-reporting. A server-side
+  // count avoids downloading every row just to show one number.
+  const fetchExecTxsThisMonth = useCallback(async (): Promise<number | null> => {
+    try {
+      const from = Date.now() - 30 * 86400000;
+      const snap = await withTimeout(getCountFromServer(query(collection(db, 'txs'), where('ts', '>=', from))));
+      return snap.data().count;
+    } catch {
+      return null;
+    }
+  }, []);
+
   // ---------- count ----------
   const setCountInput = useCallback((medId: string, v: string) => patch((st) => ({ countInputs: { ...st.countInputs, [medId]: digitsOnly(v) } })), [patch]);
 
@@ -2440,21 +2707,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!m) return;
     try {
       let delta = 0;
+      let note = '';
+      // Bug fix (data integrity): tx-log write folded into the same transaction as the floor
+      // write (was a separate logTx() call after commit) — see commitAdjust's note on this
+      // exact class of gap.
       await runTx(async (trx) => {
         const ref = doc(db, 'meds', medId);
         const snap = await trx.get(ref);
         const curFloor = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
         delta = q - curFloor;
+        note = delta < 0
+          ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — คาดว่าจ่ายผ่าน HOSxP แต่ยังไม่ reconcile'
+          : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ควรตรวจสอบย้อนหลัง' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
         trx.update(ref, { floor: q, lastCountTs: Date.now() });
+        trx.set(doc(collection(db, 'txs')), {
+          type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit,
+          reason: 'นับสต็อกหน้างานประจำรอบ', note, loc: 'floor', by: userName(), ts: Date.now(),
+        } satisfies Omit<import('../types').Tx, 'id'>);
       });
       patch((st) => { const ci = { ...st.countInputs }; delete ci[medId]; return { countInputs: ci }; });
-      const note = delta < 0
-        ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — คาดว่าจ่ายผ่าน HOSxP แต่ยังไม่ reconcile'
-        : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ควรตรวจสอบย้อนหลัง' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
-      await logTx({ type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit, reason: 'นับสต็อกหน้างานประจำรอบ', note, loc: 'floor' });
       toast(m.name + ' — ' + note);
     } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }), [state.countInputs, state.meds, logTx, toast, toastErr, patch, guardOnce]);
+  }), [state.countInputs, state.meds, userName, toast, toastErr, patch, guardOnce]);
 
   // Batch version of commitCount() for a real cycle count: someone walks the shelf typing
   // numbers into 20-40 rows, then commits the lot in one tap. Deliberately NOT one big
@@ -2478,18 +2752,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!m) continue;
       try {
         let delta = 0;
+        // Bug fix (data integrity): tx-log write folded into the same per-med transaction —
+        // see commitCount's note on this exact class of gap.
         await runTx(async (trx) => {
           const ref = doc(db, 'meds', medId);
           const snap = await trx.get(ref);
           const curFloor = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
           delta = q - curFloor;
+          const note = delta < 0
+            ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — คาดว่าจ่ายผ่าน HOSxP แต่ยังไม่ reconcile'
+            : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ควรตรวจสอบย้อนหลัง' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
           trx.update(ref, { floor: q, lastCountTs: Date.now() });
+          trx.set(doc(collection(db, 'txs')), {
+            type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit,
+            reason: 'นับสต็อกหน้างานประจำรอบ (บันทึกทั้งชุด)', note, loc: 'floor', by: userName(), ts: Date.now(),
+          } satisfies Omit<import('../types').Tx, 'id'>);
         });
         patch((st) => { const ci = { ...st.countInputs }; delete ci[medId]; return { countInputs: ci }; });
-        const note = delta < 0
-          ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — คาดว่าจ่ายผ่าน HOSxP แต่ยังไม่ reconcile'
-          : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ควรตรวจสอบย้อนหลัง' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
-        await logTx({ type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit, reason: 'นับสต็อกหน้างานประจำรอบ (บันทึกทั้งชุด)', note, loc: 'floor' });
         ok++;
         if (delta !== 0) diffs++;
       } catch (e) { console.error(e); failed++; }
@@ -2499,7 +2778,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toast(failed > 0
       ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
       : 'บันทึกครบ ' + ok + ' รายการ' + (diffs > 0 ? ' · มีส่วนต่าง ' + diffs + ' รายการ (ดูได้ใน Discrepancy log)' : ' · ตรงกับระบบทุกรายการ'));
-  }), [state.countInputs, state.meds, logTx, toast, patch, guardOnce]);
+  }), [state.countInputs, state.meds, toast, patch, guardOnce]);
 
   // ---------- substock count ----------
   const setSubCountInput = useCallback((medId: string, v: string) => patch((st) => ({ subCountInputs: { ...st.subCountInputs, [medId]: digitsOnly(v) } })), [patch]);
@@ -2526,7 +2805,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!m) return;
     try {
       let delta = 0;
+      let note = '';
       const lotIds = state.lots.filter((l) => l.medId === medId).map((l) => l.id);
+      // Bug fix (data integrity): tx-log write folded into the same transaction as the lot
+      // writes — see commitCount's note on this exact class of gap.
       await runTx(async (trx) => {
         const liveLots: { id: string; qty: number; exp: number }[] = [];
         for (const lotId of lotIds) {
@@ -2552,15 +2834,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           });
         }
         trx.update(doc(db, 'meds', medId), { lastSubCountTs: Date.now() });
+        note = delta < 0
+          ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — ตัดออกจาก lot ที่ใกล้หมดอายุที่สุดก่อน'
+          : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ลงเป็น lot ปรับยอด ยังไม่ทราบวันหมดอายุจริง ควรแก้ไขเมื่อทราบ' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
+        trx.set(doc(collection(db, 'txs')), {
+          type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit,
+          reason: 'นับสต็อก substock ประจำรอบ', note, loc: 'substock', by: userName(), ts: Date.now(),
+        } satisfies Omit<import('../types').Tx, 'id'>);
       });
       patch((st) => { const ci = { ...st.subCountInputs }; delete ci[medId]; return { subCountInputs: ci }; });
-      const note = delta < 0
-        ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — ตัดออกจาก lot ที่ใกล้หมดอายุที่สุดก่อน'
-        : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ลงเป็น lot ปรับยอด ยังไม่ทราบวันหมดอายุจริง ควรแก้ไขเมื่อทราบ' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
-      await logTx({ type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit, reason: 'นับสต็อก substock ประจำรอบ', note, loc: 'substock' });
       toast(m.name + ' — ' + note);
     } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }), [state.subCountInputs, state.meds, state.lots, logTx, toast, toastErr, patch, guardOnce]);
+  }), [state.subCountInputs, state.meds, state.lots, userName, toast, toastErr, patch, guardOnce]);
 
   /** Batch version of commitSubCount(), mirroring commitAllCounts() — sequential per-med
    * transactions (never one lumped write) for the same reason: each has to re-read its own
@@ -2580,6 +2865,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         let delta = 0;
         const lotIds = state.lots.filter((l) => l.medId === medId).map((l) => l.id);
+        // Bug fix (data integrity): tx-log write folded into the same transaction — see
+        // commitCount's note on this exact class of gap.
         await runTx(async (trx) => {
           const liveLots: { id: string; qty: number; exp: number }[] = [];
           for (const lotId of lotIds) {
@@ -2605,12 +2892,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             });
           }
           trx.update(doc(db, 'meds', medId), { lastSubCountTs: Date.now() });
+          const note = delta < 0
+            ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — ตัดออกจาก lot ที่ใกล้หมดอายุที่สุดก่อน'
+            : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ลงเป็น lot ปรับยอด ยังไม่ทราบวันหมดอายุจริง ควรแก้ไขเมื่อทราบ' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
+          trx.set(doc(collection(db, 'txs')), {
+            type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit,
+            reason: 'นับสต็อก substock ประจำรอบ (บันทึกทั้งชุด)', note, loc: 'substock', by: userName(), ts: Date.now(),
+          } satisfies Omit<import('../types').Tx, 'id'>);
         });
         patch((st) => { const ci = { ...st.subCountInputs }; delete ci[medId]; return { subCountInputs: ci }; });
-        const note = delta < 0
-          ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — ตัดออกจาก lot ที่ใกล้หมดอายุที่สุดก่อน'
-          : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ลงเป็น lot ปรับยอด ยังไม่ทราบวันหมดอายุจริง ควรแก้ไขเมื่อทราบ' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
-        await logTx({ type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit, reason: 'นับสต็อก substock ประจำรอบ (บันทึกทั้งชุด)', note, loc: 'substock' });
         ok++;
         if (delta !== 0) diffs++;
       } catch (e) { console.error(e); failed++; }
@@ -2618,7 +2908,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toast(failed > 0
       ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
       : 'บันทึกครบ ' + ok + ' รายการ' + (diffs > 0 ? ' · มีส่วนต่าง ' + diffs + ' รายการ (ดูได้ใน Discrepancy log)' : ' · ตรงกับระบบทุกรายการ'));
-  }), [state.subCountInputs, state.meds, state.lots, logTx, toast, patch, guardOnce]);
+  }), [state.subCountInputs, state.meds, state.lots, userName, toast, patch, guardOnce]);
 
   // ---------- hosxp reconcile ----------
   const setHosxpText = useCallback((v: string) => patch({ hosxpText: v }), [patch]);
@@ -2694,14 +2984,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const m = medId ? meds.find((x) => x.id === medId) : null;
         if (!m) { skipped++; skippedNames.push(r.name); continue; }
         let after = 0, before = 0;
+        // Bug fix (data integrity): tx-log write folded into the same transaction as the floor
+        // deduction — was a separate logTx() call after runTx() resolved, the exact "stock
+        // changed but no matching history row if the second call drops" gap commitTransfer's
+        // own fix comment describes. This is the daily real-dispense deduction path — the one
+        // number this whole app exists to keep trustworthy — so it gets the same atomic
+        // treatment every other stock-mutating flow already has.
         await runTx(async (trx) => {
           const ref = doc(db, 'meds', m.id);
           const snap = await trx.get(ref);
           before = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
           after = Math.max(0, before - r.qty);
           trx.update(ref, { floor: after });
+          trx.set(doc(collection(db, 'txs')), {
+            type: 'reconcile_hosxp', name: m.name, medId: m.id, qty: -(before - after), unit: m.unit,
+            reason: 'นำเข้าจากไฟล์ HOSxP',
+            note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP' + (r.match.kind === 'fuzzy' ? ' (จับคู่ชื่อแบบไม่ตรงเป๊ะ — ยืนยันโดยผู้ใช้แล้ว)' : ''),
+            loc: 'floor', by: userName(), ts: Date.now(),
+          } satisfies Omit<import('../types').Tx, 'id'>);
         });
-        await logTx({ type: 'reconcile_hosxp', name: m.name, medId: m.id, qty: -(before - after), unit: m.unit, reason: 'นำเข้าจากไฟล์ HOSxP', note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP' + (r.match.kind === 'fuzzy' ? ' (จับคู่ชื่อแบบไม่ตรงเป๊ะ — ยืนยันโดยผู้ใช้แล้ว)' : ''), loc: 'floor' });
         applied++;
       }
       // Bug fix (efficiency): a name that fails to match keeps failing every single day until
@@ -2734,7 +3035,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // rows actually landed, worth telling the person rather than implying nothing happened.
       toastErr(e, 'ประมวลผลไม่สำเร็จ' + (applied > 0 ? ' — ตัดยอดไปแล้ว ' + applied + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง'));
     }
-  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpConfirmSingleDay, state.meds, logTx, logAudit, toast, toastErr, patch, guardOnce]);
+  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpConfirmSingleDay, state.meds, userName, logAudit, toast, toastErr, patch, guardOnce]);
 
   // ---------- usage-rate import (par) ----------
   // Lets a site whose formulary is too new to have 60 days of in-app HOSxP reconcile history
@@ -2843,9 +3144,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const bin = payload.id.replace(/^LOC-/, '');
         // A shared med (see isSharedMed) has TWO shelf codes — bin (OPD) and binIpd (IPD) —
         // so scanning the physical shelf label on the IPD side must still resolve it, not
-        // just the OPD one it happens to be stored under.
-        const pool = state.meds.filter((m) => m.active && (m.bin === bin || m.binIpd === bin));
-        med = pool.find((m) => (purpose === 'receive' ? subQty(state, m.id) < m.parSub : m.floor < floorMinOf(m))) || pool[0] || null;
+        // just the OPD one it happens to be stored under. A receive scan also needs to match
+        // binSub: the new "ฉลากตู้เย็น" location labels (printLabels' locScope 'fridge'
+        // branch) print bare location QRs for the pharmacy's own cold-storage fridges ahead of
+        // any med being assigned yet — same pre-print-the-position idea as the floor LOCS
+        // sheet — and a vaccine/cold-drug's storage position lives in binSub, not bin/binIpd
+        // (their รับเข้า credits substock/storage, same as any other drug's binSub rack).
+        // Transfer purpose stays bin/binIpd-only: it's always resolving a FLOOR position.
+        const pool = state.meds.filter((m) => m.active && (m.bin === bin || m.binIpd === bin || (purpose === 'receive' && m.binSub === bin)));
+        // Bug fix: the "which one's actually running low" tie-breaker for a shared bin code
+        // used subQty<parSub unconditionally for a receive scan — always false for a noSubstock
+        // med (no lots, subQty always 0), so two noSubstock meds sharing one fridge binSub code
+        // (e.g. two vaccines both stored in FR-VAC1) could never be told apart by need; it fell
+        // through to pool[0], an arbitrary first match that might not be the drug actually being
+        // received. A noSubstock med's real "running low" signal is its floor level, same check
+        // transfer purpose already uses.
+        med = pool.find((m) => {
+          if (purpose !== 'receive') return m.floor < floorMinOf(m);
+          return usesSubstock(m) ? subQty(state, m.id) < m.parSub : m.floor < floorMinOf(m);
+        }) || pool[0] || null;
         if (!med) { toast('ไม่พบยาที่ผูกกับชั้น ' + bin + ' ในระบบ'); return; }
       } else {
         // A substock shelf-strip label (bin set to binSub — see printLabels' locScope 'sub'
@@ -2936,7 +3253,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     if (id === state.myUid && !(await confirmAsync('คุณกำลังจะเปลี่ยนบทบาทของตัวเอง จาก ' + roleLabelFor(u.role) + ' เป็น ' + roleLabelFor(role) + ' — ยืนยันหรือไม่?'))) return;
     try {
-      await updateDoc(doc(db, 'users', id), { role });
+      await withTimeout(updateDoc(doc(db, 'users', id), { role }));
       logAudit({ type: 'user_role_changed', note: 'เปลี่ยนบทบาท ' + u.name + ' จาก ' + roleLabelFor(u.role) + ' เป็น ' + roleLabelFor(role) });
     } catch (e) { console.error(e); toast('เปลี่ยนบทบาทไม่สำเร็จ'); }
   }, [state.users, state.myUid, logAudit, toast, confirmAsync]);
@@ -2960,7 +3277,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // that has logged in before is being reinstated, not approved for the first time.
     const isFirstApproval = next && !u.lastLogin;
     try {
-      await updateDoc(doc(db, 'users', id), { active: next });
+      await withTimeout(updateDoc(doc(db, 'users', id), { active: next }));
       logAudit({ type: isFirstApproval ? 'user_approved' : 'user_status_changed', note: (next ? (isFirstApproval ? 'อนุมัติบัญชี ' : 'เปิดใช้งานบัญชี ') : 'ปิดใช้งานบัญชี ') + u.name });
       toast((next ? 'เปิดใช้งาน' : 'ปิดใช้งาน') + 'บัญชี ' + u.name + ' แล้ว');
     } catch (e) { console.error(e); toast('เปลี่ยนสถานะไม่สำเร็จ'); }
@@ -2990,7 +3307,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---------- audit/tx history search (browse any date range, not just the live 300-cap) ----------
   const setHistoryFrom = useCallback((v: string) => patch({ historyFrom: v }), [patch]);
   const setHistoryTo = useCallback((v: string) => patch({ historyTo: v }), [patch]);
-  const clearHistorySearch = useCallback(() => patch({ historyResults: null }), [patch]);
+  const clearHistorySearch = useCallback(() => patch({ historyResults: null, historyTruncated: false }), [patch]);
 
   const searchHistory = useCallback(async () => {
     if (!state.historyFrom || !state.historyTo) { toast('เลือกช่วงวันที่ให้ครบทั้งจากและถึงก่อนค้นหา'); return; }
@@ -3010,7 +3327,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           .map((d) => d.data() as { type: string; by: string; ts: number; name?: string; note?: string; qty?: number; unit?: string; loc?: string })
           .map((x) => ({ type: x.type, by: x.by, ts: x.ts, loc: x.loc, note: (x.name ? x.name + ' — ' : '') + (x.note || '') + (x.qty != null ? ' (' + (x.qty > 0 ? '+' : '') + x.qty + ' ' + (x.unit || '') + ')' : '') })),
       ].sort((a, b) => b.ts - a.ts);
-      patch({ historyResults: all.slice(0, CAP), historyLoading: false });
+      patch({ historyResults: all.slice(0, CAP), historyLoading: false, historyTruncated: all.length > CAP });
       toast(
         all.length > CAP
           ? 'พบ ' + all.length + ' รายการ — แสดง ' + CAP + ' รายการล่าสุดในช่วงนี้ ลองย่อช่วงวันที่ให้แคบลง'
@@ -3027,23 +3344,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify,
     lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify, go, back,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
-    setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, fillUrgent, printPickList, printTodayReplenishList, printUrgentReplenishList, removeFromCart, clearCart, commitTransfer,
+    setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, fillUrgent, printPickList, printTodayReplenishList, removeFromCart, clearCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, printWarehouseRequestList,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
-    setReportTab, exportReportCsv, exportAllReports,
+    setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
-    applyOnePar, applyAllSuggested, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
+    applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
-    fetchSubstockLedger, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
+    fetchSubstockLedger, fetchFloorLedger, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
     setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     doneAgain,
     setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit,
-    setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch,
+    setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, fetchExecTxsThisMonth,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [state, myProfile, theme, toggleTheme]);
 

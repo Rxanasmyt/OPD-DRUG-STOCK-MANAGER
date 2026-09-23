@@ -10,12 +10,27 @@ export default function ReconcileScreen() {
 
   const medById = (id: string) => state.meds.find((x) => x.id === id);
 
-  const reconcileRows = (state.hosxpRows || []).map((r) => {
-    const med = r.match.kind === 'exact' || r.match.kind === 'fuzzy' ? medById(r.match.medId) : undefined;
-    const before = med ? med.floor : 0;
-    const after = med ? Math.max(0, before - r.qty) : 0;
-    return { fileText: r.name, qty: r.qty, match: r.match, med, before, after };
-  });
+  // Bug fix: `before` used to read `med.floor` fresh off live app state for every row
+  // independently — correct for the common case (one line per drug), but commitReconcile()
+  // below processes rows SEQUENTIALLY, each via its own transaction that re-reads whatever the
+  // PRECEDING row in this same batch just wrote. A HOSxP export with two lines that both match
+  // the same drug (two package-size rows fuzzy-matching one med, or a genuine duplicate line)
+  // used to show both rows against the same original floor — e.g. floor 100, two rows of
+  // qty 10 and 5 both previewed as "100 → 90" — silently under-stating the real combined effect
+  // (100 → 90 → 85) a pharmacist is about to confirm. Track a running per-med floor across this
+  // preview's own rows, mirroring commitReconcile()'s real sequential behavior exactly, so the
+  // second (and any later) row for the same med previews against what the first row actually
+  // left behind.
+  const reconcileRows = (() => {
+    const running = new Map<string, number>();
+    return (state.hosxpRows || []).map((r) => {
+      const med = r.match.kind === 'exact' || r.match.kind === 'fuzzy' ? medById(r.match.medId) : undefined;
+      const before = med ? (running.has(med.id) ? running.get(med.id)! : med.floor) : 0;
+      const after = med ? Math.max(0, before - r.qty) : 0;
+      if (med) running.set(med.id, after);
+      return { fileText: r.name, qty: r.qty, match: r.match, med, before, after };
+    });
+  })();
 
   const fuzzyCount = reconcileRows.filter((r) => r.match.kind === 'fuzzy').length;
   const skippedCount = reconcileRows.filter((r) => r.match.kind === 'ambiguous' || r.match.kind === 'none').length;

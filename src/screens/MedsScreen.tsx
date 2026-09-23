@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly } from '../utils/format';
 import { wardOf, wardLabel, floorMinOf, toneFor, isSharedMed, categoryOf } from '../store/selectors';
@@ -8,6 +8,7 @@ import type { Med, Ward } from '../types';
 import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
 import { DRUG_CATEGORIES, categoryLabel } from '../data/categories';
+import { FRIDGE_LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
 
 type Filter = 'active' | 'inactive' | 'all' | 'parOne';
@@ -41,6 +42,42 @@ function sanitizeBin(v: string): string {
   return v.toUpperCase().replace(/[^A-Z0-9\u0E00-\u0E7F-]/g, '').slice(0, 10);
 }
 const WARD_COLOR: Record<Ward, string> = { opd: 'var(--green)', ipd: 'var(--ipd)' };
+// Fridge-code options for a fridge med's shelf fields, split from FRIDGE_LOCS (data/locations.ts)
+// so the codes offered here can never drift out of sync with what the printed ฉลากตู้เย็น sheet
+// (LabelsScreen) actually generates — 'บริการ' (service) codes for the floor/dispensing fields,
+// 'คลัง'/'วัคซีน' (storage) codes for the substock field.
+const FRIDGE_SVC_OPTS = FRIDGE_LOCS.filter(([c]) => c.includes('SVC'));
+const FRIDGE_STORE_OPTS = FRIDGE_LOCS.filter(([c]) => !c.includes('SVC'));
+
+/** Real-world request: typing a fridge code by hand every time invites typos that then silently
+ * fail to match the printed ฉลากตู้เย็น QR labels — a dropdown of the actual known codes next to
+ * the free-text input (kept, in case a 5th fridge or a one-off code is ever needed) makes the
+ * common case a single tap. Both stay in sync: picking from the dropdown fills the text input,
+ * typing in the input still works and the dropdown just shows no match for anything outside the
+ * fixed list. */
+function FridgeCodeField({ value, onChange, options, style, disabled }: { value: string; onChange: (v: string) => void; options: [string, string][]; style?: CSSProperties; disabled?: boolean }) {
+  return (
+    <div style={{ display: 'flex', gap: 6 }}>
+      <input
+        value={value}
+        onChange={(e) => onChange(sanitizeBin(e.target.value))}
+        placeholder={'เช่น ' + options.map(([c]) => c).join(' หรือ ')}
+        disabled={disabled}
+        style={{ ...inputStyle, textTransform: 'uppercase' as const, flex: 1, ...(disabled ? { background: 'var(--bg-subtle)', color: 'var(--muted)' } : {}), ...style }}
+      />
+      <select
+        value={value}
+        onChange={(e) => { if (e.target.value) onChange(e.target.value); }}
+        disabled={disabled}
+        aria-label="เลือกรหัสตู้เย็น"
+        style={{ flex: 'none', width: 92, border: '1px solid var(--border)', borderRadius: 10, background: disabled ? 'var(--bg-subtle)' : 'var(--bg-card)', color: disabled ? 'var(--muted)' : 'var(--ink)', fontSize: 12.5, padding: '0 4px' }}
+      >
+        <option value="">— เลือก —</option>
+        {options.map(([code, name]) => <option key={code} value={code}>{code} · {name}</option>)}
+      </select>
+    </div>
+  );
+}
 const WARD_BG: Record<Ward, string> = { opd: 'var(--green-tint)', ipd: 'var(--ipd-bg)' };
 
 interface MedFormValues {
@@ -49,6 +86,7 @@ interface MedFormValues {
   unit: string;
   price: string;
   had: boolean;
+  fridge: boolean;
   bin: string;
   parSub: string;
   parFloor: string;
@@ -74,13 +112,13 @@ function blankForm(): MedFormValues {
   // one-day-dose pulls straight off the OPD shelf), so a brand-new med should start there and
   // let someone opt OUT (untick "เลิกใช้ร่วมกัน") for the minority that genuinely need separate
   // stock, rather than opting in every single time.
-  return { name: '', dosageForm: '', unit: '', price: '', had: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: true, binIpd: '', binSub: '', category: '' };
+  return { name: '', dosageForm: '', unit: '', price: '', had: false, fridge: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: true, binIpd: '', binSub: '', category: '' };
 }
 
 function formFromMed(m: Med): MedFormValues {
   return {
     name: m.name, dosageForm: m.dosageForm, unit: m.unit, price: m.price ? String(m.price) : '',
-    had: m.had, bin: m.bin, parSub: String(m.parSub), parFloor: String(m.parFloor), floorMin: String(floorMinOf(m)),
+    had: m.had, fridge: !!m.fridge, bin: m.bin, parSub: String(m.parSub), parFloor: String(m.parFloor), floorMin: String(floorMinOf(m)),
     ward: wardOf(m), noSubstock: !!m.noSubstock, volatility: m.volatility.toFixed(2),
     shared: isSharedMed(m), binIpd: m.binIpd || '', binSub: m.binSub || '', category: m.category || '',
   };
@@ -160,17 +198,13 @@ export default function MedsScreen() {
   // can show how many meds are in that group under the current status/ward/search filters,
   // which is the whole point ("บางกลุ่มจ่ายออกเยอะ บางกลุ่มใช้น้อย"): the counts are what let
   // someone spot a high-volume group vs. a rarely-touched one at a glance, before even tapping.
-  // "Max=Min=1" diagnostic: floorMinOf()'s own default-fallback (30% of Max, rounded to a nice
-  // step) computes 0 whenever Max is 1 — Math.round(1*0.3/1)*1 = 0 — so the ONLY way a med ever
-  // actually shows Min=1 alongside Max=1 is a real, explicit `floorMin: 1` stored on it (never
-  // the auto-default). That in turn only happens two ways: someone typed "1" into the "จุดต่ำสุด
-  // ต้องเติม (Min)" field by hand (this form, below), or a still-active med that legitimately
-  // has almost no daily usage got "ใช้ค่าแนะนำ" applied — suggestPar()'s roundStep() has a hard
-  // floor of 1 (`Math.max(step, ...)`, selectors.ts) so a near-zero-but-nonzero used30 can
-  // legitimately round Max down to 1, and if Min had already been hand-set to 1 earlier (or to
-  // match Max) it stays there. Either way this is real par data, not a bug in itself — but a Min
-  // that equals Max leaves genuinely zero warning room before a shelf reads "ต้องเติมด่วน", so
-  // it's worth being able to find at a glance instead of opening each med's edit form one by one.
+  // "Max=Min=1" diagnostic: finds meds where the reorder point (Min) has caught all the way up
+  // to the shelf's own capacity (Max) — real par data either way (a hand-set floorMin, or since
+  // floorMinOf()'s default-fallback is now 50% of Max — real-world request, raised from the
+  // original 30% — Max=1 now defaults to Min=1 too, `Math.round(1*0.5/1)*1 = 1`), not a bug in
+  // itself. But a Min that equals Max leaves genuinely zero warning room before a shelf reads
+  // "ต้องเติมด่วน", so it's worth being able to find at a glance instead of opening each med's
+  // edit form one by one.
   const parOneOnly = filter === 'parOne';
   const parOneCount = useMemo(
     () => state.meds.filter((m) => m.active && m.parFloor === 1 && floorMinOf(m) === 1).length,
@@ -256,7 +290,7 @@ export default function MedsScreen() {
           submitLabel="บันทึก"
           onCancel={() => setAddOpen(false)}
           onSubmit={(v) => {
-            addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined });
+            addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined });
             setAddOpen(false);
           }}
         />
@@ -372,6 +406,7 @@ export default function MedsScreen() {
                       <MedDot code={m.code} />
                       <span>{m.name}</span>
                       {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
+                      {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
                     </div>
                     <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
                       {m.code} · ชั้น {isSharedMed(m) ? ('OPD ' + (m.bin || '—') + ' / IPD ' + (m.binIpd || '—')) : (m.bin || '—')}{!m.noSubstock && m.binSub ? ' · substock ' + m.binSub : ''} · {m.unit} · {nf(m.price)} บาท
@@ -421,7 +456,7 @@ export default function MedsScreen() {
                     submitLabel="บันทึกการแก้ไข"
                     onCancel={() => setEditingId(null)}
                     onSubmit={(v) => {
-                      updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined });
+                      updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined });
                       setEditingId(null);
                     }}
                     // ยาชื่อเดียวกันที่แยกรายการไว้คนละ ward (คนละ Firestore doc ตามหลักการออกแบบ
@@ -471,6 +506,15 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
   const [v, setV] = useState<MedFormValues>(initial);
   const set = <K extends keyof MedFormValues>(k: K, val: MedFormValues[K]) => setV((s) => ({ ...s, [k]: val }));
   const suggestedCategory = suggestCategoryId(v.name);
+  // Bug fix: nothing stopped Min (floorMin) from being saved higher than Max (parFloor) — a
+  // typo or a copy-paste mixup produces a shelf that's flagged "must refill" while ALSO already
+  // over its own refill target, and every "suggested qty to add" computation downstream
+  // (HomeScreen's quick-add button, TransferScreen's bump()) turns negative for it. Block the
+  // save instead of letting a bad pair reach Firestore — cheap to catch here, expensive to
+  // debug later as "the app shows a weird negative number".
+  const parFloorNum = parseInt(v.parFloor, 10) || 0;
+  const floorMinTyped = v.floorMin.trim() !== '' ? parseInt(v.floorMin, 10) || 0 : null;
+  const minExceedsMax = floorMinTyped !== null && parFloorNum > 0 && floorMinTyped > parFloorNum;
   const setShared = (on: boolean) => setV((s) => ({ ...s, shared: on, binIpd: on ? s.binIpd : '' }));
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
 
@@ -517,8 +561,21 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
           <input value={v.price} onChange={(e) => set('price', e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" style={inputStyle} />
         </label>
         <label>
-          <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{v.shared ? 'ชั้นวาง (OPD)' : v.ward === 'ipd' ? 'ชั้นวาง (IPD)' : 'ชั้นวาง (OPD)'}</span>
-          <input value={v.bin} onChange={(e) => set('bin', sanitizeBin(e.target.value))} placeholder="เช่น J4 หรือ ตู้ยา-1" style={{ ...inputStyle, textTransform: 'uppercase' as const, ...(!v.shared && v.ward === 'ipd' ? { borderColor: WARD_COLOR.ipd } : {}) }} />
+          <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>
+            {v.fridge
+              ? (v.noSubstock ? '🧊 ตำแหน่งตู้เย็น (ตำแหน่งเดียว — ไม่มี substock)' : '🧊 ตำแหน่งตู้เย็น (บริการ)')
+              : v.shared ? 'ชั้นวาง (OPD)' : v.ward === 'ipd' ? 'ชั้นวาง (IPD)' : 'ชั้นวาง (OPD)'}
+          </span>
+          {v.fridge ? (
+            // A noSubstock fridge med (e.g. OPV — lives ONLY in a service fridge, or a
+            // rarely-used vaccine dispensed straight out of the storage fridge, never moved to
+            // a service position) has just ONE real position, and it could be either kind of
+            // fridge — offer the full FRIDGE_LOCS list here instead of assuming it's always a
+            // service code the way the normal 2-stage (คลัง→บริการ) case does.
+            <FridgeCodeField value={v.bin} onChange={(val) => set('bin', val)} options={v.noSubstock ? FRIDGE_LOCS : FRIDGE_SVC_OPTS} style={!v.shared && v.ward === 'ipd' ? { borderColor: WARD_COLOR.ipd } : {}} />
+          ) : (
+            <input value={v.bin} onChange={(e) => set('bin', sanitizeBin(e.target.value))} placeholder="เช่น J4 หรือ ตู้ยา-1" style={{ ...inputStyle, textTransform: 'uppercase' as const, ...(!v.shared && v.ward === 'ipd' ? { borderColor: WARD_COLOR.ipd } : {}) }} />
+          )}
         </label>
       </div>
       {/* Bug fix (usability): "เฉพาะ IPD" used to only be reachable by first unticking "ใช้ยอด
@@ -538,8 +595,12 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
         {v.shared ? (
           <div style={{ marginTop: 7 }}>
             <label style={{ display: 'block', marginBottom: 7 }}>
-              <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>ชั้นวาง (IPD)</span>
-              <input value={v.binIpd} onChange={(e) => set('binIpd', sanitizeBin(e.target.value))} placeholder="เช่น J4 หรือ ตู้ยา-1" style={{ ...inputStyle, textTransform: 'uppercase' as const, borderColor: WARD_COLOR.ipd }} />
+              <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{v.fridge ? '🧊 ตำแหน่งตู้เย็น (OPD — IPD)' : 'ชั้นวาง (IPD)'}</span>
+              {v.fridge ? (
+                <FridgeCodeField value={v.binIpd} onChange={(val) => set('binIpd', val)} options={v.noSubstock ? FRIDGE_LOCS : FRIDGE_SVC_OPTS} style={{ borderColor: WARD_COLOR.ipd }} />
+              ) : (
+                <input value={v.binIpd} onChange={(e) => set('binIpd', sanitizeBin(e.target.value))} placeholder="เช่น J4 หรือ ตู้ยา-1" style={{ ...inputStyle, textTransform: 'uppercase' as const, borderColor: WARD_COLOR.ipd }} />
+              )}
             </label>
             <div style={{ fontSize: 10.5, lineHeight: 1.5, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 9, padding: '8px 10px' }}>
               ใช้สต็อกร่วมกันทั้ง OPD และ IPD — หน้างาน/par/substock เป็นยอดเดียวกันหมด ต่างกันแค่รหัสชั้นวางที่แสดงตามฝั่งที่ดู (IPD หยิบยาจากชั้น OPD ตรง ๆ)
@@ -583,15 +644,23 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
         </div>
       )}
       <label style={{ display: 'block', marginBottom: 9 }}>
-        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>ชั้นวาง substock (คลังย่อย)</span>
-        <input
-          value={v.binSub}
-          onChange={(e) => set('binSub', sanitizeBin(e.target.value))}
-          placeholder="เช่น A1 หรือ ชั้น-1 — ว่างไว้ถ้ายังไม่ได้กำหนด"
-          disabled={v.noSubstock}
-          style={{ ...inputStyle, textTransform: 'uppercase' as const, ...(v.noSubstock ? { background: 'var(--bg-subtle)', color: 'var(--muted)' } : {}) }}
-        />
-        <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>รหัสชั้น/ตู้ในคลังย่อย substock — คนละรหัสกับชั้นวางหน้างานด้านบน (คนละห้อง คนละ QR) ใช้พิมพ์ฉลากชั้นวาง substock ในหน้าฉลาก QR ได้</div>
+        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{v.fridge ? '🧊 ตำแหน่งตู้เย็น (คลังวัคซีน/คลังยาเย็น)' : 'ชั้นวาง substock (คลังย่อย)'}</span>
+        {v.fridge ? (
+          <FridgeCodeField value={v.binSub} onChange={(val) => set('binSub', val)} options={FRIDGE_STORE_OPTS} disabled={v.noSubstock} />
+        ) : (
+          <input
+            value={v.binSub}
+            onChange={(e) => set('binSub', sanitizeBin(e.target.value))}
+            placeholder="เช่น A1 หรือ ชั้น-1 — ว่างไว้ถ้ายังไม่ได้กำหนด"
+            disabled={v.noSubstock}
+            style={{ ...inputStyle, textTransform: 'uppercase' as const, ...(v.noSubstock ? { background: 'var(--bg-subtle)', color: 'var(--muted)' } : {}) }}
+          />
+        )}
+        <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>
+          {v.fridge
+            ? 'ตำแหน่งจัดเก็บในตู้เย็นคลังวัคซีน/คลังยา — คนละตู้กับตำแหน่งบริการด้านบน พิมพ์ฉลากตู้เย็นได้ในหน้าฉลาก QR'
+            : 'รหัสชั้น/ตู้ในคลังย่อย substock — คนละรหัสกับชั้นวางหน้างานด้านบน (คนละห้อง คนละ QR) ใช้พิมพ์ฉลากชั้นวาง substock ในหน้าฉลาก QR ได้'}
+        </div>
       </label>
       <div className="grid-2" style={{ marginBottom: 9 }}>
         <label>
@@ -605,8 +674,13 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
       </div>
       <label style={{ display: 'block', marginBottom: 9 }}>
         <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>จุดต่ำสุดต้องเติม (Min)</span>
-        <input value={v.floorMin} onChange={(e) => set('floorMin', digitsOnly(e.target.value))} placeholder={'ว่างไว้ = ' + nf(floorMinOf({ parFloor: parseInt(v.parFloor, 10) || 0 } as Med)) + ' (30% ของ Max ปัดเป็นเลขลงตัว)'} inputMode="numeric" style={inputStyle} />
+        <input value={v.floorMin} onChange={(e) => set('floorMin', digitsOnly(e.target.value))} placeholder={'ว่างไว้ = ' + nf(floorMinOf({ parFloor: parseInt(v.parFloor, 10) || 0 } as Med)) + ' (50% ของ Max ปัดเป็นเลขลงตัว)'} inputMode="numeric" style={inputStyle} />
         <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>ต่ำกว่าจุดนี้คือของจริงที่ต้องเติมตอนเช้า — คนละจุดกับ Max เพราะอัตราการใช้ OPD/IPD ไม่เท่ากัน แม้ยารหัสเดียวกันก็ตั้ง Min-Max ต่างกันได้ตามชั้นวางจริง</div>
+        {minExceedsMax && (
+          <div style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--red)', background: 'var(--red-bg)', borderRadius: 9, padding: '8px 10px', marginTop: 6 }}>
+            Min ({nf(floorMinTyped)}) สูงกว่า Max ({nf(parFloorNum)}) — ต้องตั้ง Min ไม่เกิน Max แก้ตัวเลขก่อนบันทึก
+          </div>
+        )}
       </label>
       <label style={{ display: 'block', marginBottom: 9 }}>
         <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>ตัวคูณกันชน (volatility) — ใช้ตอนคำนวณ "ค่าแนะนำ"</span>
@@ -622,16 +696,29 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
       </label>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <button onClick={() => set('had', !v.had)} className="chip" style={{ ...chip(v.had), flex: 1, textAlign: 'center' }}>{v.had ? '✓ ยา high alert' : 'ยา high alert?'}</button>
+        <button
+          onClick={() => set('fridge', !v.fridge)}
+          className="chip"
+          style={{ border: v.fridge ? '1px solid var(--fridge)' : '1px solid var(--border)', background: v.fridge ? 'var(--fridge)' : 'var(--bg-card)', color: v.fridge ? '#fff' : 'var(--ink)', flex: 1, textAlign: 'center' }}
+        >
+          {v.fridge ? '✓ 🧊 ยาตู้เย็น' : '🧊 ยาตู้เย็น?'}
+        </button>
         <button onClick={() => set('noSubstock', !v.noSubstock)} className="chip" style={{ ...chip(v.noSubstock), flex: 1, textAlign: 'center' }}>{v.noSubstock ? '✓ ไม่มี substock' : 'ไม่มี substock?'}</button>
       </div>
-      {v.noSubstock && (
+      {v.noSubstock && !v.fridge && (
         <div style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 9, padding: '8px 10px', marginTop: -6, marginBottom: 12 }}>
           เช่น ยาน้ำ/ยาพ่น — รับยาเข้าแล้วขึ้นหน้างานทันที ไม่ต้องเติมจาก substock อีกขั้น (par substock ปิดใช้งานให้อัตโนมัติ)
         </div>
       )}
+      {v.noSubstock && v.fridge && (
+        <div style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 9, padding: '8px 10px', marginTop: -6, marginBottom: 12 }}>
+          ยาตู้เย็นที่มีตำแหน่งเดียว (ไม่ผ่าน 2 ขั้น คลัง→บริการ) — เช่น อยู่แค่ตู้เย็นบริการ (OPV) หรืออยู่แค่ตู้เย็นคลังแล้วหยิบใช้จากตรงนั้นเลย
+          กรอกรหัสตู้จริงที่ช่อง "ตำแหน่งตู้เย็น" ด้านบน (เลือกจาก dropdown ได้ทั้งรหัสคลังและรหัสบริการ) รับยาเข้าแล้วขึ้นตำแหน่งนั้นทันที
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={onCancel} className="btn-outline" style={{ flex: 1, padding: 12, borderRadius: 10, fontSize: 13.5, minHeight: 46 }}>ยกเลิก</button>
-        <button onClick={() => onSubmit(v)} disabled={!v.name.trim()} className="btn-primary" style={{ flex: 1, padding: 12, borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 46, opacity: v.name.trim() ? 1 : 0.5 }}>{submitLabel}</button>
+        <button onClick={() => onSubmit(v)} disabled={!v.name.trim() || minExceedsMax} className="btn-primary" style={{ flex: 1, padding: 12, borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 46, opacity: v.name.trim() && !minExceedsMax ? 1 : 0.5 }}>{submitLabel}</button>
       </div>
     </div>
   );

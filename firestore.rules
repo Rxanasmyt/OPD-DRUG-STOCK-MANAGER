@@ -55,15 +55,17 @@ service cloud.firestore {
     }
 
     // ---- master drug data: any approved staff can read. Any approved staff can also
-    // update just `floor`/`lastCountTs` (day-to-day stock movement — transfer, adjust,
-    // count, HOSxP reconcile all touch only these). Everything else about a drug's
-    // record — creating one, deleting one, par/bin/price/name/active/high-alert — is
-    // pharm/admin only. ----
+    // update just `floor`/`lastCountTs`/`lastSubCountTs` (day-to-day stock movement —
+    // transfer, adjust, count, HOSxP reconcile all touch only these; lastSubCountTs is its
+    // own field, separate from lastCountTs, because floor and substock cycle counts are
+    // tracked on independent staleness clocks — see CountScreen.tsx/commitSubCount in
+    // AppContext.tsx). Everything else about a drug's record — creating one, deleting one,
+    // par/bin/price/name/active/high-alert — is pharm/admin only. ----
     match /meds/{medId} {
       allow read: if isActive();
       allow create, delete: if isPharmOrAdmin();
       allow update: if isPharmOrAdmin()
-                    || (isActive() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['floor', 'lastCountTs']));
+                    || (isActive() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['floor', 'lastCountTs', 'lastSubCountTs']));
     }
     // ---- lots: any approved staff can read/write (receiving, FEFO transfer, scrap
     // all touch lots as part of normal day-to-day work, not just pharm/admin) ----
@@ -110,6 +112,16 @@ service cloud.firestore {
     match /meta/{doc} {
       allow read: if isActive();
       allow write: if isPharmOrAdmin();
+    }
+
+    // ---- pre-delete safety snapshots (AppContext.tsx: snapshotBeforeDelete()) ----
+    // Before resetAllStockLedgers()/resetAllQuantities() delete anything, they first copy every
+    // document about to be destroyed in here — an in-app undo layer that doesn't depend on
+    // waiting for that day's external GitHub Actions backup (scripts/backup-firestore.mjs),
+    // which can be up to ~24h stale. Holds a full copy of whatever it's protecting, so it needs
+    // the same admin-only trust level as the real data — never readable/writable by pharm/tech.
+    match /_preResetSnapshots/{id} {
+      allow read, write: if isAdmin();
     }
   }
 }

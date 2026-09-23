@@ -50,7 +50,7 @@ const TITLES: Record<Screen, [string, string]> = {
   admin: ['จัดการผู้ใช้งาน', 'Audit log ทั้งระบบ'],
   meds: ['จัดการรายการยา', 'เพิ่ม / ปิดใช้งาน / ลบ'],
   wardmove: ['ย้ายยาระหว่างชั้นวาง', 'เช่น ลิ้นชักฉีดยา IPD → stat OPD'],
-  substockcard: ['บัตรสต็อก substock', 'รับ-จ่าย-คงเหลือ real-time'],
+  substockcard: ['บัตรคุมยา', 'รับ-จ่าย-คงเหลือ real-time'],
 };
 
 const CAN_BACK: Screen[] = ['tconfirm', 'adjust', 'report', 'labels', 'settings', 'count', 'reconcile', 'admin', 'meds', 'wardmove', 'substockcard'];
@@ -63,7 +63,7 @@ const NAV_DEF: [Screen, string, string][] = [
 ];
 
 export default function App() {
-  const { state, roleLabel, go, back, theme, toggleTheme } = useApp();
+  const { state, roleLabel, go, back, theme, toggleTheme, openScanSearch } = useApp();
 
   // Direction-aware screen transition — every screen already fades itself in on mount, but
   // that read identical whether you'd just drilled into a screen or backed out of one. Nav
@@ -118,6 +118,20 @@ export default function App() {
           <div style={{ fontSize: 16.5, fontWeight: 600, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
           <div style={{ fontSize: 11.5, opacity: 0.65, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{headerSub}</div>
         </div>
+        {/* Real request: "ค้นหายาแบบสแกนบาร์โค้ด/QR ได้ทุกหน้าจอ" — scan-to-find-a-drug used to
+            live only as one icon button on จัดการรายการยา (MedsScreen), even though the
+            underlying capability (openScanSearch('viewMed') → AppContext.tsx's qrDecoded,
+            'viewMed' branch) was already fully general: scan any med/lot QR anywhere, jump
+            straight to that drug's record. Promoted into the header itself (QrModal is already
+            mounted globally, see below) so it's one tap from every single screen, not just one. */}
+        <button
+          onClick={() => openScanSearch('viewMed')}
+          style={{ position: 'relative', border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 32, height: 32, borderRadius: 9, fontSize: 15, flex: 'none' }}
+          title="สแกน QR ค้นหายา"
+          aria-label="สแกน QR ค้นหายา"
+        >
+          ▣
+        </button>
         <button
           onClick={toggleTheme}
           className="theme-toggle press-spring"

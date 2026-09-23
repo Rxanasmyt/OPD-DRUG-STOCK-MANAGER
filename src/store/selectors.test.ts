@@ -4,7 +4,7 @@ import {
   wardOf, matchesWard, binFor, binDisplayAll, floorMinOf, isUrgentLow, needsWarehouseRequest,
   lastReconcileDateIso, subQty, usageAnomalies,
   daysOfStockLeft, fefoLot, toneFor, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
-  categoryOf, categoryStats,
+  categoryOf, categoryStats, parAnomaliesFor,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
 
@@ -134,11 +134,11 @@ describe('floorMinOf', () => {
     expect(floorMinOf(med({ floorMin: 12, parFloor: 100 }))).toBe(12);
   });
 
-  it('defaults to a rounded ~30% of parFloor when floorMin is unset', () => {
+  it('defaults to a rounded ~50% of parFloor when floorMin is unset', () => {
     // Regression guard for the bug this function's own comment describes: a naive
-    // Math.round(parFloor*0.3) would give an odd-looking 27 here — roundStep-style
-    // rounding should land on a clean 25.
-    expect(floorMinOf(med({ parFloor: 90 }))).toBe(25);
+    // Math.round(parFloor*0.5) would give an odd-looking 43 here — roundStep-style
+    // rounding should land on a clean 45.
+    expect(floorMinOf(med({ parFloor: 86 }))).toBe(45);
     expect(floorMinOf(med({ parFloor: 0 }))).toBe(0);
   });
 });
@@ -225,7 +225,8 @@ describe('toneFor', () => {
 
 describe('isUrgentLow', () => {
   it('flags a shelf at/below half its own Min, not just below Min', () => {
-    // Min defaults to 30% of Max when floorMin is unset (floorMinOf()) — parFloor 100 -> Min 30.
+    // floorMin set explicitly here (30) — this test is about isUrgentLow()'s own "half of
+    // whatever Min is" rule, independent of floorMinOf()'s default-fallback ratio.
     expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 14 }))).toBe(true); // 14 < 15 (half of 30)
     expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 15 }))).toBe(false); // exactly half — not urgent yet
     expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 29 }))).toBe(false); // below Min but not urgent
@@ -337,5 +338,55 @@ describe('matchHosxpMed', () => {
 
   it('empty input is never a match', () => {
     expect(matchHosxpMed(meds, '   ')).toEqual({ kind: 'none' });
+  });
+});
+
+describe('parAnomaliesFor', () => {
+  it('flags Min at or above Max', () => {
+    const m = med({ parFloor: 50, floorMin: 60 });
+    const codes = parAnomaliesFor(m, 4, 28).map((a) => a.code);
+    expect(codes).toContain('min_ge_max');
+    const m2 = med({ parFloor: 50, floorMin: 50 });
+    expect(parAnomaliesFor(m2, 4, 28).map((a) => a.code)).toContain('min_ge_max');
+  });
+
+  it('does not flag Min genuinely below Max', () => {
+    const m = med({ parFloor: 50, floorMin: 25 });
+    expect(parAnomaliesFor(m, 4, 28).map((a) => a.code)).not.toContain('min_ge_max');
+  });
+
+  it('flags par substock smaller than par หน้างาน for a substock-using med', () => {
+    const m = med({ parFloor: 100, parSub: 50, floorMin: 20, noSubstock: false });
+    expect(parAnomaliesFor(m, 4, 28).map((a) => a.code)).toContain('sub_lt_floor');
+  });
+
+  it('does not flag par substock < par floor for a noSubstock med (the field is meaningless there)', () => {
+    const m = med({ parFloor: 100, parSub: 50, floorMin: 20, noSubstock: true });
+    expect(parAnomaliesFor(m, 4, 28).map((a) => a.code)).not.toContain('sub_lt_floor');
+  });
+
+  it('flags real usage with no par หน้างาน/par substock set at all', () => {
+    const m = med({ parFloor: 0, parSub: 0, floorMin: 0, used30: 300, noSubstock: false });
+    const codes = parAnomaliesFor(m, 4, 28).map((a) => a.code);
+    expect(codes).toContain('no_par_floor');
+    expect(codes).toContain('no_par_sub');
+  });
+
+  it('a clean, internally-consistent med with no usage stats has no anomalies', () => {
+    const m = med({ parFloor: 50, parSub: 100, floorMin: 25, used30: 0, usedPrev30: 0 });
+    expect(parAnomaliesFor(m, 4, 28)).toEqual([]);
+  });
+
+  it('flags a par far off from what real usage suggests, as a review (not error)', () => {
+    // daily = used30/30 = 10/day; suggested floor ≈ roundStep(10*4*1) = 40 — current par of
+    // 2000 is 50x that, well past the 3x threshold.
+    const m = med({ parFloor: 2000, parSub: 3000, floorMin: 1000, used30: 300, volatility: 1 });
+    const anomaly = parAnomaliesFor(m, 4, 28).find((a) => a.code === 'floor_far_from_suggested');
+    expect(anomaly?.severity).toBe('review');
+  });
+
+  it('ignores an inactive med entirely', () => {
+    const m = med({ active: false, parFloor: 50, floorMin: 60 });
+    expect(parAnomaliesFor(m, 4, 28)).toEqual([]);
   });
 });

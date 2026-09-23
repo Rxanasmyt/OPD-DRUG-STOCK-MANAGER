@@ -17,7 +17,7 @@
 
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, appendFile } from 'node:fs/promises';
 
 // Every top-level collection this app reads/writes — see firestore.rules for the same list.
 const COLLECTIONS = ['meds', 'lots', 'txs', 'auditLog', 'users', 'usernames', 'pendingReceives', 'meta'];
@@ -60,6 +60,12 @@ async function main() {
   const file = `backups/firestore-backup-${stamp}.json`;
   await writeFile(file, JSON.stringify(out, null, 2), 'utf8');
   console.log(`\nWrote ${file} (${totalDocs} docs total).`);
+
+  // Lets the calling workflow step reference this exact file without guessing/globbing the
+  // timestamp back apart (see .github/workflows/firestore-backup.yml's "verify" step).
+  if (process.env.GITHUB_OUTPUT) {
+    await appendFile(process.env.GITHUB_OUTPUT, `file=${file}\n`, 'utf8');
+  }
 }
 
 main().catch((err) => {

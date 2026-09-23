@@ -7,6 +7,457 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.65.0] - 2026-09-23
+
+### Fixed
+- **บั๊กความถูกต้องข้อมูล (data integrity) — สำคัญ:** 7 จุดที่มีการตัด/ปรับจำนวนยา (ปรับยอด,
+  ตัด lot หมดอายุ, นับสต็อกหน้างานทีละตัว/ทั้งชุด, นับสต็อก substock ทีละตัว/ทั้งชุด, ตัดยอดจากไฟล์
+  HOSxP) เคยเขียนยอดคงเหลือ (floor/lot) กับบันทึกประวัติธุรกรรม (txs) เป็น**คนละการเชื่อมต่อเครือข่าย
+  แยกกัน** — ถ้าการเขียนที่สองหลุดกลางทาง (เน็ตกระตุก/หลุด) ยอดคงเหลือจะเปลี่ยนไปแล้วแต่**ไม่มีบันทึก
+  ประวัติ** ทำให้บัตรคุมยา/บัตรคุมสต็อกไม่ตรงกับยอดจริงแบบหาสาเหตุไม่ได้ (เคยแก้จุดนี้ไปแล้วครั้งหนึ่งที่
+  "เติมหน้างาน"/"รับเข้า"/"ย้ายชั้น" — แต่อีก 7 จุดยังเป็นแบบเดิม) แก้โดยรวมการเขียนบันทึกประวัติเข้าไป
+  เป็น**ธุรกรรมเดียวกัน (atomic transaction)** กับการเขียนยอดคงเหลือทุกจุด ไม่มีทางเกิดกรณี "ยอดเปลี่ยน
+  แต่ไม่มีประวัติ" อีกต่อไป — ตรงตามที่ขอให้ตรวจสอบว่าข้อมูลจำนวนยาเรียลไทม์และไม่เพี้ยน
+- **ตัด lot หมดอายุ (scrapLot):** อ่านจำนวนจริงของ lot จากฐานข้อมูล ณ ขณะตัด (ในธุรกรรมเดียวกัน) แทน
+  การใช้ค่าที่ค้างอยู่บนหน้าจอ ป้องกันบันทึกมูลค่าตัดจำหน่ายผิดถ้ามีคนอื่นแก้ lot เดียวกันพร้อมกัน
+
+### Added
+- **ระบบแจ้งเตือน par Min/Max/substock ที่ผิดปกติ** (หน้า "ตั้งค่า"): ตรวจทุกยาที่ยัง active
+  อัตโนมัติ แจ้งเป็น 2 ระดับ — **"ผิดพลาด"** (ขัดแย้งในตัวเอง ไม่ใช่ดุลพินิจ): Min ≥ Max, par substock
+  น้อยกว่า par หน้างานทั้งที่ต้องใช้เติมชั้นให้เต็ม, มีการจ่ายจริงแต่ยังไม่ได้ตั้ง par หน้างาน/par
+  substock เลย — และ **"ควรทบทวน"**: par ปัจจุบันต่างจากค่าที่คำนวณจากอัตราการใช้จริงเกิน 3 เท่า (ทั้ง
+  สูงกว่าหรือต่ำกว่า) แต่ละรายการมีคำอธิบายและปุ่มลิงก์ไปหน้าจัดการรายการยาเพื่อแก้ไข
+
+## [3.64.0] - 2026-09-23
+
+### Fixed — ยาตู้เย็นที่มีตำแหน่งเดียว (ไม่ใช่ 2 ขั้นคลัง→บริการ) เช่น OPV
+บริบทหน้างาน: ยาบางตัวอยู่แค่ตู้เย็นบริการ (ไม่เคยผ่านตู้เย็นคลัง เช่น OPV) และยาบางตัวอยู่แค่ตู้เย็นคลัง
+วัคซีน/คลังยาเย็น (หยิบใช้ตรงจากตู้นั้นเลย ไม่เคยย้ายมาตู้บริการ) — ทั้งสองแบบควรตั้งเป็น "ไม่มี substock"
+(ตำแหน่งเดียว รับเข้าแล้วขึ้นตำแหน่งนั้นทันที ไม่ต้องเติมหน้างานอีกขั้น) พร้อมกรอกรหัสตู้จริงที่ยาอยู่
+- **แก้บัคที่พบจากคำถามนี้**: dropdown ช่อง "ตำแหน่งตู้เย็น" หลัก (และช่อง OPD—IPD ของยา shared) เดิม
+  เสนอให้เลือกได้แค่รหัสตู้บริการ (FR-SVC1/FR-SVC2) เท่านั้น — ถ้ายาตู้เย็นตัวไหนติ๊ก "ไม่มี substock"
+  ไว้ (มีตำแหน่งเดียว อาจเป็นตู้คลังก็ได้) จะเลือกรหัสตู้คลัง (FR-VAC1/FR-DRG1) จาก dropdown ไม่ได้เลย
+  ต้องพิมพ์เองเท่านั้น — แก้ให้ dropdown เสนอรหัสตู้ครบทั้ง 4 ตู้เมื่อติ๊ก "ไม่มี substock" ไว้ พร้อมป้าย
+  ชื่อช่องและคำอธิบายเพิ่มเติมอธิบายกรณีนี้ให้ชัดเจน
+
+## [3.63.0] - 2026-09-23
+
+### Changed — ปรับหน้าเพิ่ม/แก้ไขยาตามคำขอ: dropdown เลือกรหัสตู้เย็น
+- ช่อง "🧊 ตำแหน่งตู้เย็น" ทั้ง 3 จุด (บริการ, บริการ — IPD, คลัง) ตอนนี้มี dropdown เลือกรหัสจาก
+  FRIDGE_LOCS ต่อท้ายช่องกรอกข้อความ — พิมพ์เองก็ได้เหมือนเดิม หรือกดเลือกจากรายการแทนก็ได้ ลดโอกาส
+  พิมพ์รหัสผิดจนไม่ตรงกับฉลาก QR ที่พิมพ์ติดตัวตู้จริง
+- ป้ายชื่อช่อง "🧊 ตำแหน่งตู้เย็น (บริการ — IPD)" เปลี่ยนเป็น "🧊 ตำแหน่งตู้เย็น (OPD — IPD)"
+- ป้ายชื่อช่อง "🧊 ตำแหน่งตู้เย็น (คลัง/สต็อกสำรอง)" เปลี่ยนเป็น "🧊 ตำแหน่งตู้เย็น (คลังวัคซีน/คลังยาเย็น)"
+
+## [3.62.0] - 2026-09-23
+
+### Added — บัตรคุมยาสำหรับยาที่ไม่มี substock + ระบบตำแหน่งตู้เย็น
+รองรับบริบทหน้างานจริงที่แจ้งมา: มีตู้เย็นคลังวัคซีน/ตู้เย็นคลังยาที่ห้องยา (ไม่ใช่คลังใหญ่) และตู้เย็น
+บริการ 2 ตู้ใช้ร่วมกันทั้ง OPD/IPD, ยาฉีดไม่มี substock (floor ทำหน้าที่แทน substock ในทางข้อมูล),
+และยาที่ไม่มี substock ไม่เคยมีบัตรคุมยาให้ดูว่าเบิกมาเท่าไร/ใช้ไปเท่าไร/เหลือเท่าไร
+
+- **บัตรคุมยาแบบ real-time สำหรับยาที่ไม่มี substock (ยาฉีด/ยาน้ำ/ยาพ่น)** — เดิมยากลุ่มนี้ถูกตัดออก
+  จากหน้า "บัตรสต็อก substock" ไปเลย (v3.57.0) เพราะไม่มี substock จริงให้แสดง ตอนนี้เพิ่ม
+  `fetchFloorLedger()` ที่รวบรวมประวัติจาก `floor` แทน — รับจากคลังใหญ่ (`receive_from_central` ที่
+  ลง floor ตรง), ตัดยอดจาก HOSxP รายวัน (`reconcile_hosxp`), ปรับยอด/คืนยา/ยาเสีย, ย้ายชั้น, นับสต็อก —
+  ครบเหมือนบัตร substock เดิมทุกอย่าง (real-time refresh, พิมพ์, export CSV, เตือนยอดไม่ตรง) แค่
+  อ้างอิง floor แทน substock หน้าค้นหาไม่กรองยากลุ่มนี้ออกอีกต่อไป และ "เพิ่มเติม" เปลี่ยนชื่อเมนูจาก
+  "บัตรสต็อก substock" เป็น "บัตรคุมยา" ให้ตรงกับขอบเขตใหม่
+- **ระบบตำแหน่งตู้เย็น (FRIDGE_LOCS)** — เพิ่มรหัสตู้เย็นมาตรฐาน 4 ตู้ (FR-VAC1 คลังวัคซีน, FR-DRG1
+  คลังยา, FR-SVC1/FR-SVC2 บริการ 1-2) พิมพ์เป็นฉลาก QR ติดตัวตู้ได้ทันทีจากหน้าฉลาก QR (แท็บใหม่
+  "🧊 ตู้เย็น" ในฉลากชั้นวาง) — ยาที่แช่ตู้เย็นยังใช้ช่อง `bin`/`binSub` เดิม (ไม่มีฟิลด์ใหม่ในฐานข้อมูล)
+  แค่หน้าฟอร์มเพิ่ม/แก้ไขยาเปลี่ยนป้ายชื่อช่องเป็น "ตำแหน่งตู้เย็น" พร้อมตัวอย่างรหัสที่ถูกต้องเมื่อติ๊ก
+  "ยาตู้เย็น" — ใช้ flow รับเข้า(คลัง)→เติมหน้างาน(บริการ) 2 ขั้นเหมือนยารับประทานทั่วไปตามที่ต้องการ
+- **แก้ไปพร้อมกัน**: สแกน QR ตำแหน่งระหว่าง "รับเข้า" เดิมเช็คแค่ `bin`/`binIpd` (ตำแหน่งหน้างาน) ไม่เคย
+  เช็ค `binSub` (ตำแหน่งคลัง/สต็อกสำรอง) เลย — แปลว่าสแกนฉลากตู้เย็นคลัง (FR-VAC1/FR-DRG1) ตอนรับยา
+  จะหาไม่เจอ แก้ให้ตอนรับเข้าเช็ค `binSub` ด้วย และแก้บัคที่พบจากการตรวจทานเพิ่มเติม: ตัวเช็ค "ยาตัวไหน
+  ใกล้หมดก่อน" เมื่อมีหลายยาใช้รหัสตู้เย็นเดียวกัน เดิมเช็คแต่ยอด substock (เป็น 0 เสมอสำหรับยาที่ไม่มี
+  substock) ทำให้เลือกยาผิดตัวได้ถ้าวัคซีน 2 ชนิดอยู่ตู้เดียวกัน — แก้ให้เช็คยอดหน้างานแทนสำหรับยากลุ่มนี้
+
+## [3.61.0] - 2026-09-23
+
+### Fixed — critical: sign-in/sign-up could hang forever with no error on a bad connection
+- **⚠️ พบจากการทดสอบ flow จริง — ปุ่ม "เข้าสู่ระบบ"/"สมัครสมาชิก" อาจค้างเป็น "กำลังดำเนินการ..."
+  ตลอดไป ไม่มีข้อความ error ใดๆ เลย บนการเชื่อมต่อที่แย่**: v3.47.0 เคยแก้บัคนี้ไปแล้วสำหรับ `setDoc`
+  ที่รันหลังล็อกอินสำเร็จ (เขียน `lastLogin`) แต่พลาดจุดที่สำคัญที่สุด — ตัวเรียก
+  `signInWithEmailAndPassword()`/`createUserWithEmailAndPassword()` เอง (การเรียกเครือข่ายที่มี
+  ความถี่สูงที่สุดในทั้งแอพ ทุกคน ทุกวัน) ไม่เคยถูกห่อด้วย `withTimeout()` เลย — ทดสอบจริงบนการ
+  เชื่อมต่อที่หลุดๆ ถี่ๆ พบว่าปุ่มค้างเป็น spinner นานกว่า 60 วินาทีโดยไม่มีทางรู้ว่าควรรอหรือลองใหม่
+  เพราะไม่มี timeout ใดๆ คอยดักไว้เลย แก้โดยห่อทั้งสองจุดด้วย `withTimeout()` เหมือนจุดอื่นๆ ในแอพ
+  ให้ล้มเหลวแบบชัดเจนพร้อมข้อความแนะนำให้ลองใหม่ แทนที่จะค้างเงียบๆ ไม่มีกำหนด
+
+## [3.60.0] - 2026-09-23
+
+### Fixed — live E2E test found a real broken message on the pending-approval screen
+- **ทดสอบ flow จริงกับระบบ production**: สมัครบัญชีทดสอบและ login จริงผ่านหน้าแอพ ตรวจพบว่า
+  ภายใต้การเชื่อมต่อที่แย่มาก (connection ตัดสลับถี่ระหว่างล็อกอินสมัคร) หน้าจอ "รอ Admin อนุมัติบัญชี"
+  อาจแสดงข้อความ **"บัญชี (@) สมัครสำเร็จแล้ว"** — ชื่อและ username หายไปหมด เพราะ Firestore ส่ง
+  snapshot ที่ exists()=true แต่ข้อมูลยังไม่ครบ (mid-sync) ระหว่างที่ connection กำลัง reconnect ซ้ำๆ
+  ระบบเดิมปฏิบัติกับ snapshot แบบนี้เหมือนเป็นโปรไฟล์จริงที่รอ approve ทั้งที่ข้อมูลยังไม่สมบูรณ์ —
+  แก้ 2 ชั้น: (1) AppContext.tsx เพิ่มการเช็คว่า snapshot ต้องมี `username` จริงก่อนถือว่าเป็นโปรไฟล์
+  ที่ใช้ได้ ถ้ายังไม่มีให้รอ snapshot ถัดไปแทนที่จะฟันธงว่า "รออนุมัติ" จากข้อมูลครึ่งเดียว (2)
+  LoginScreen.tsx ป้องกันชั้นที่สอง — ถ้า `myProfile.username` ยังว่างอยู่จริงๆ จะโชว์ข้อความทั่วไป
+  "บัญชีสมัครสำเร็จแล้ว" แทนวงเล็บว่างเปล่า ไม่มีทางเห็นข้อความพังแบบนี้อีก
+- ตรวจสอบ flow อื่นๆ ที่ทดสอบจริงแล้วไม่พบปัญหา: ข้อความ error เมื่อ username/password ผิด
+  ("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"), ข้อความ error เมื่อเชื่อมต่อไม่ได้ ("เชื่อมต่อเครือข่ายไม่ได้
+  ลองใหม่อีกครั้ง"), ฟอร์มสมัครสมาชิก validate ครบ, username ซ้ำเช็คถูกต้อง ("ชื่อผู้ใช้นี้มีคนใช้แล้ว")
+
+## [3.59.0] - 2026-09-23
+
+### Fixed — pre-production bug sweep (critical: substock count broken for non-pharm/admin staff)
+- **⚠️ สำคัญมาก ต้อง publish firestore.rules ใหม่ด้วย (ไม่ใช่แค่ deploy โค้ด)**: การนับสต็อก
+  substock (CountScreen.tsx โหมด "substock") ไม่มีการจำกัดสิทธิ์ตาม role เลย — ผู้ช่วยเภสัชกร (tech)
+  เข้าถึงและกดบันทึกได้ปกติ แต่ `commitSubCount`/`commitAllSubCounts` (AppContext.tsx) เขียนฟิลด์
+  `lastSubCountTs` ลงเอกสาร meds ซึ่ง **ไม่เคยถูกเพิ่มเข้า firestore.rules'** รายการฟิลด์ที่พนักงาน
+  ทั่วไปเขียนได้ (`floor`, `lastCountTs` เท่านั้น) — ตอน field นี้ถูกเพิ่มเข้าแอพ (แยก clock การนับ
+  substock ออกจากการนับหน้างาน) ไม่ได้แก้ rules ตามไปด้วย ผลคือถ้า จพ.เภสัชกรรม (tech) พยายามบันทึก
+  ผลนับสต็อก substock ระบบจะถูก Firestore Security Rules ปฏิเสธการเขียนทันที (permission-denied)
+  ทำให้ transaction ทั้งก้อนล้มเหลว — **ไม่บันทึกอะไรเลยแม้แต่ตัวเลข lot ที่ปรับ** ต่อให้กดซ้ำกี่ครั้งก็
+  ยังพังเหมือนเดิมเพราะเป็นปัญหาสิทธิ์ ไม่ใช่ปัญหาเชื่อมต่อ — แก้โดยเพิ่ม `lastSubCountTs` เข้ารายการ
+  ฟิลด์ที่พนักงานทุกคนเขียนได้ใน firestore.rules **ต้อง copy ไฟล์ firestore.rules ทั้งไฟล์ไป paste
+  ใน Firebase Console → Firestore Database → Rules → Publish ใหม่ก่อนใช้งานจริง มิฉะนั้นบัคนี้จะยัง
+  อยู่ต่อไปแม้โค้ดแอพจะ deploy แล้วก็ตาม**
+- **หน้าเพิ่ม/แก้ไขยาไม่ป้องกันการตั้ง Min สูงกว่า Max**: ไม่มีการ validate เลยว่า floorMin ≤ parFloor
+  ตอนกรอกฟอร์ม — ถ้ากรอกผิดโดยไม่ตั้งใจ (เช่น สลับช่อง) จะได้ยาที่ถูกตั้งว่า "ต่ำกว่า Min ต้องเติม" ทั้งที่
+  เกิน Max ไปแล้ว และทุกจุดที่คำนวณ "จำนวนที่ควรเติม" (ปุ่มด่วนหน้าแรก, ตะกร้าเติมหน้างาน) จะกลายเป็น
+  ค่าติดลบ — เพิ่มคำเตือนสีแดงและบล็อกการบันทึกจนกว่าจะแก้ Min ให้ไม่เกิน Max
+
+## [3.58.0] - 2026-09-23
+
+### Fixed — pre-production bug sweep, HomeScreen
+- **แถบความคืบหน้า "ต้องเติมหน้างาน" พังเป็น NaN% สำหรับยาที่เพิ่งเพิ่มแล้วยังไม่ตั้ง Max**:
+  `m.floor / m.parFloor` ไม่มีการกันหารด้วย 0 — ยาที่เพิ่งรับเข้าก่อนตั้งค่า par (parFloor ยังเป็น 0)
+  จะได้ Infinity แล้ว Math.round(...) กลายเป็น NaN ทำให้แถบพังทันที ทั้งที่จุดอื่นในแอพเดียวกัน
+  (TransferScreen.tsx, selectors.ts's toneFor) มีการกัน `Math.max(1, m.parFloor)` อยู่แล้ว —
+  เพิ่มการกันแบบเดียวกันที่นี่ด้วย
+- **ปุ่มแนะนำจำนวนเติมบนหน้าแรกอาจแสดงจำนวนติดลบ**: ถ้า Min ถูกตั้งสูงกว่า Max ด้วยมือ (ไม่มีการ
+  validate Min ≤ Max ตอนกรอก) ยาที่ floor อยู่ระหว่าง Max กับ Min จะคำนวณ `m.parFloor - m.floor`
+  ติดลบ แล้วปุ่มจะขึ้น "+ -5" ซึ่งไม่มีความหมายกับหน้างาน — เพิ่ม `Math.max(0, ...)` กันไว้
+
+## [3.57.0] - 2026-09-23
+
+### Fixed — verified receive + same-day fill quantity correctness
+- **บัตรสต็อก substock ของยาที่ไม่มี substock (noSubstock — น้ำเชื่อม/ยาพ่น/สเปรย์) แสดงยอด "รับเข้า"
+  ผิดและขึ้นเตือนผิดตลอด**: การรับยาประเภทนี้เข้าคลัง (`commitReceive`) ให้เข้าชั้นจ่ายยาโดยตรงเสมอ
+  (`to: 'floor'`) ไม่เคยสร้าง lot ใน substock เลย แต่หน้าค้นหาบัตรสต็อกไม่ได้กรองยาประเภทนี้ออก และ
+  `fetchSubstockLedger` เดิมนับรายการ receive_from_central ทุกตัวว่าเป็นยอดรับเข้า substock โดยไม่
+  เช็คว่าจริงๆ ไปที่ไหน ผลคือถ้าเปิดบัตรสต็อกของยาแบบนี้ที่เคยมีประวัติรับเข้า จะเห็นยอด "คงเหลือตามบัตร"
+  เป็นบวกทั้งที่ของจริงใน substock (subQty จาก lots) เป็น 0 เสมอ แล้วขึ้นเตือน "อาจมีการปรับยอดนอก
+  ช่องทางปกติ" ทุกครั้งที่เปิด ทั้งที่ไม่มีอะไรผิดปกติ — แก้โดยให้ `fetchSubstockLedger` คืนค่าว่างทันที
+  สำหรับยาที่ไม่มี substock stage และตัดยาประเภทนี้ออกจากตัวเลือกค้นหาบนหน้าบัตรสต็อกด้วย
+- **ตรวจสอบเส้นทางรับเข้า substock + เติมหน้างานในวันเดียวกันทั้งหมดแล้ว ไม่พบข้อผิดพลาดด้านจำนวน**:
+  `subQty()` รวมยอดจาก lots สดทุกครั้ง ไม่มีการ cache ข้ามวัน; `bump()`/`setCartQty()` จำกัดจำนวนใน
+  ตะกร้าด้วยยอด substock ล่าสุดเสมอ (ผ่าน state updater ไม่ใช่ closure เก่า); `commitTransfer` เช็ค
+  ยอดคงเหลือจริงซ้ำอีกครั้งภายใน transaction ก่อนตัดสต็อก (กันกรณีมีคนอื่นรับ/เบิกพร้อมกัน) — ถ้าไม่พอ
+  จะแจ้งเตือนและไม่ตัดยอดเลย ไม่มีทางเขียนยอดผิดลง Firestore ได้; แต่ละ lot ที่รับเข้าใหม่ได้รหัสไม่ซ้ำ
+  กันเสมอ (auto-ID ของ Firestore) ต่อให้รับยาตัวเดียวกันหลายรอบในวันเดียว.
+
+## [3.56.0] - 2026-09-23
+
+### Fixed — QR code flow verification (receive→substock, substock→floor, real-time card)
+- **บัตรสต็อก substock (SubstockCardScreen) ไม่อัปเดตแบบเรียลไทม์**: ledger rows were fetched
+  exactly once when the card opened (`fetchSubstockLedger`, a one-shot `getDocs`) and never
+  refreshed again while the screen stayed open — but the top-line "คงเหลือ" balance right above
+  it IS reactive (`subQty`, backed by the live `lots` listener). Leave a substock card open on a
+  tablet at the shelf while another device receives stock in or transfers stock out for that
+  same drug, and the live balance would update instantly while the ledger table underneath it
+  sat frozen on the old data — worse, the "mismatch" warning banner (compares live balance
+  against the ledger's own running total) would then fire on a perfectly normal, just-happened
+  transaction, not a real discrepancy. The screen now watches the live `txs` listener for a new
+  row belonging to the open med (receive_from_central / transfer_to_floor / expired / count) and
+  silently re-pulls the ledger the moment one lands — no spinner, no reset of the search box or
+  fiscal-year filter, the rows just update the way the balance already did.
+- Verified end-to-end and found no other defects: `meds`/`lots` real-time listeners keep QR
+  resolution (`resolveMed`, shelf-location fallback for shared OPD/IPD meds) fresh; the
+  receive→substock path (`commitReceive`/`approvePendingReceive`) and substock→floor path
+  (`commitTransfer`) are both atomic (transaction/batch — stock update and tx-log write commit
+  or fail together, so the ledger can never silently drift from real stock movement); the camera
+  scanner (`QrScanner.tsx`, jsQR) has correct secure-context/permission/no-camera error handling
+  and continuous autofocus. Ready to print and stick labels on real shelves.
+
+## [3.55.0] - 2026-09-22
+
+### Fixed — overnight bug sweep, round 2
+- **SubstockCardScreen's "name-twin" (OPD/IPD same-drug) detection disagreed with the ledger
+  fetch it's supposed to explain**: `fetchSubstockLedger()` (AppContext.tsx) narrows the ledger
+  to only `medId`-tagged rows whenever ANY other med shares this drug's name — including an
+  inactive twin left behind by "รวมสต็อก OPD+IPD" (mergeWardMeds/mergeAllWardPairs), which is no
+  longer a live ambiguity, just merge history. SubstockCardScreen's own `hasNameTwin` correctly
+  excludes inactive twins already, so after a merge the two disagreed: the ledger still silently
+  dropped pre-merge untagged rows, but the UI's twin check said "no twin" and showed the generic
+  "อาจมีการปรับยอดนอกช่องทางปกติ — ตรวจสอบใน Audit log" mismatch banner instead of the accurate
+  merge-explanation message, sending pharmacists to chase a discrepancy that isn't real.
+  `fetchSubstockLedger`'s `hasNameTwin` now also excludes inactive twins, matching the screen.
+- **PTC executive summary's "ธุรกรรมใน 30 วันล่าสุด" (transactions in the last 30 days) could
+  silently under-count on a busy month**: both the on-screen exec stat and the printed executive
+  summary sheet computed it by filtering `state.txs`, the realtime cache capped to the 300
+  most-recent transactions across every type — a hospital doing more than 300 receive/transfer/
+  adjust/dispense/count transactions inside 30 days exhausts that cap before the window is
+  covered, understating real activity on an official PTC document. Both now fetch a true
+  server-side count (`getCountFromServer`, uncapped) and only fall back to the old capped
+  estimate — which can only ever under-count, never over-count — if that fetch fails.
+
+## [3.54.0] - 2026-09-22
+
+### Fixed — overnight bug sweep, round 1
+- **ReconcileScreen preview under-stated the real deduction for a drug matched by more than one
+  file row**: `before`/`after` for each row read the med's live floor independently, but
+  `commitReconcile()` processes rows sequentially, each re-reading whatever the previous row in
+  the same run just wrote. A HOSxP export with two lines matching the same drug (two package-
+  size rows, or a genuine duplicate) previewed both against the same original floor instead of
+  the real cumulative effect — e.g. floor 100, rows of qty 10 and 5 both showed "100 → 90"
+  instead of the true "100 → 90 → 85". Preview now tracks a running per-med floor across its own
+  rows, mirroring the real commit exactly.
+- **AdminScreen's "showing only 300" truncation warning could silently miss real data loss**: it
+  was inferred from `filtered.length === 300` — the count AFTER the audit-type filter narrows
+  the list — but `searchHistory()`'s own 1,500-record cap on the raw date-range query happens
+  BEFORE that filter. A search that hit the 1,500 cap could filter down to well under 300 of one
+  type, showing no warning at all even though older records of that exact type may have been
+  silently dropped from the search results. New `historyTruncated` state flag set once per
+  search (independent of the type filter/tab), with its own persistent banner that survives
+  switching between filter tabs.
+
+## [3.53.1] - 2026-09-22
+
+### Changed
+- **ปรับถ้อยคำในเอกสารที่พิมพ์ได้ทุกใบให้เป็นทางการมากขึ้น** — real-world request: elevate the
+  register of every printed document (ใบจัดยาเติมชั้น, ใบเติมหน้างานประจำวัน, ใบขอเบิกจากคลังใหญ่,
+  บัตรสต็อก substock, ภาพรวมผู้บริหาร) without adding new sections — wording/tone only. Examples:
+  "พิมพ์เมื่อ" → "วันที่จัดพิมพ์เอกสาร", "โดย" (table header) → "ผู้บันทึก", "พิมพ์จากระบบ" →
+  "จัดพิมพ์จากระบบเมื่อวันที่", the ⚠-prefixed inline notes → "หมายเหตุ: ..." phrasing, "10 อันดับ
+  มูลค่าคงคลังสูงสุด" → "รายการยาที่มีมูลค่าคงคลังสูงสุด 10 อันดับแรก", "สุขภาพคลังยาโดยรวม" →
+  "สถานภาพคลังยาโดยรวม", "ธุรกรรมใน 30 วันล่าสุด" → "จำนวนธุรกรรมในรอบ 30 วันที่ผ่านมา", and every
+  pick-list subheading rewritten in fuller administrative-document phrasing. `printPickListSheet`'s
+  own header already used the mixed-Thai-English shorthand "#"/"✓" — "#" widened to "ลำดับ" to
+  match the substock card sheet's own convention (kept "✓" as-is since it's an iconographic column
+  header, not prose). Deliberately did NOT touch app-internal UI text (buttons, toasts, on-screen
+  labels) — the request was specifically about printed documents; on-screen wording stays in its
+  existing, more conversational register. Also left `par substock`'s mixed-English field label on
+  the substock card sheet alone — its 24mm-wide field box has no room for a longer Thai phrase
+  without wrapping, and it's an established app-specific term (same category as Min/Max/Par
+  elsewhere), not really "casual tone".
+
+## [3.53.0] - 2026-09-22
+
+### Added
+- **ยาตู้เย็น (cold-chain / needs refrigerated storage)** — new `Med.fridge` boolean flag,
+  deliberately its OWN flag rather than another entry in `DRUG_CATEGORIES` (data/categories.ts):
+  cold-chain is a cross-cutting handling requirement any drug can carry regardless of its
+  therapeutic group or ward (insulin under เบาหวาน, a vaccine under ฉุกเฉิน, an injectable
+  antibiotic under ต้านจุลชีพ can all need a fridge at once) — same reasoning `had` (high-alert)
+  is its own flag instead of a category. Set it from จัดการรายการยา's add/edit form (🧊 chip
+  next to "ยา high alert?"). Shows as a 🧊 badge on MedsScreen, TransferScreen, TConfirmScreen,
+  and HomeScreen's low-stock lists; TConfirmScreen also gets an explicit "รีบนำเข้าตู้เย็นทันที
+  หลังเติมหน้างาน" reminder on the confirm step. New "🧊 ตู้เย็น" filter chip on TransferScreen
+  (เร่งด่วนวันนี้/ต่ำกว่า Min/ทั้งหมด/High alert row). Printed shelf-strip labels
+  (LabelsScreen/printLabels) show a combined "HIGH ALERT · 🧊 ตู้เย็น" tag line when a drug is
+  both. New `--fridge`/`--fridge-bg` theme tokens (light + dark) — a distinct cool blue, kept
+  apart from `--had`'s pink/magenta and `--ipd`'s purple so all three read as different kinds of
+  flag at a glance.
+
+## [3.52.1] - 2026-09-22
+
+### Fixed
+- **Usability review** (checked every screen for "ใช้งานง่าย ดูข้อมูลง่าย สะดวกรวดเร็ว"): the
+  LabelsScreen med picker showed nothing at all when a search/shelf-code query matched zero
+  meds — indistinguishable from "still typing", and worse for the range syntax just added in
+  v3.52.0 (no way to tell whether "A1-A7" was even understood as a range or just didn't match).
+  Added an explicit empty-state message, worded differently for a parsed-but-empty range
+  ("ช่วง A1-A7 — ไม่พบยาที่มีรหัสชั้นวางอยู่ในช่วงนี้") vs an ordinary no-match, since those point
+  at different real causes (wrong/unassigned bin codes vs a plain typo). Rest of the app's
+  screens (ReceiveScreen, MedsScreen's 150-row cap, HomeScreen, ReportScreen's new exec tab,
+  etc.) checked and already handle this correctly — no other gaps found.
+
+## [3.52.0] - 2026-09-22
+
+### Added
+- **เลือกยาพิมพ์ QR เป็นช่วงรหัสชั้นวางได้ (เช่น "A1-A7")** — follow-up to v3.51.0's single-bin-
+  code search. The "เลือกยาเฉพาะบางตัว" picker now recognizes a shelf-code range in the search
+  box (`A1-A7`, or the shorthand `A1-7` reusing the first side's prefix) and selects every med
+  whose bin/binIpd/binSub code falls inside it — a whole run of numbered shelves in one batch
+  instead of hunting one code at a time. Matches sort by shelf number (A1, A2, … A7) instead of
+  formulary order, and the picker's usual 20-result cap is raised to 200 for a range match,
+  since bulk-selecting a whole run is the entire point. New `utils/binRange.ts`
+  (`parseBinRange`/`binInRange`/`binSortKey`) with 16 unit tests.
+
+## [3.51.0] - 2026-09-22
+
+### Added
+- **เลือกยาที่จะพิมพ์ QR ตามรหัสชั้นวางได้** (หน้าระบบฉลาก QR) — real-world request: printing a
+  whole shelf/bin's worth of labels in one batch (re-organizing shelf "J4", or one aisle at a
+  time) needs picking meds by shelf code, not just by name. The existing "เลือกยาเฉพาะบางตัว"
+  search box now also matches against the med's real shelf code — `binSub` on the substock
+  shelf-strip tab, both OPD/IPD sides (e.g. "A1/B2") everywhere else — so typing a bin code
+  (e.g. "J4") surfaces every med in that shelf, select-all-matched still works as before. Each
+  picker row now also shows the med's bin code next to its name so it's clear what's being
+  selected. Placeholder/helper text updated to mention the shelf-code search.
+
+## [3.50.1] - 2026-09-22
+
+### Fixed
+- **HOSxP usage-import header detection missed a real export variant**: found testing an
+  actual hospital "รายงานการใช้ยา" file — its quantity/order-count columns were labeled plainly
+  "จำนวน"/"รายการ" instead of the documented "จำนวนที่ใช้"/"จำนวนใบสั่งยา". Header detection
+  matched neither, silently fell through to the hardcoded fallback column layout, and only
+  produced correct results because that particular file's column order happened to agree with
+  the fallback by coincidence — a differently-ordered export using this same "จำนวน" style
+  would have silently read the wrong column with no error at all. `parseHosxpUsageWorkbook()`
+  (`utils/usageImport.ts`) now also accepts a column whose header text is EXACTLY "จำนวน" (not
+  a substring match, so it can never also match "จำนวนใบสั่งยา") as a fallback when the more
+  specific "จำนวนที่ใช้" isn't present. Added 5 new tests locking in both header styles plus the
+  existing fallback behavior.
+
+### Verified
+- Full parse-and-match dry run against the actual uploaded file (425 usable rows): 420 matched
+  the current formulary exactly, 0 fuzzy, 0 ambiguous. Of the 5 unmatched: 2 are genuinely not
+  in the hospital's formulary (the source report's own "ไม่มียานี้ในบัญชียา รพ."/"ไม่มียาใน
+  รพ.กรงปินัง" annotations), and 3 have a stray mid-word space in the HOSxP export's own strength/
+  unit cell text (e.g. "LEVONORGESTRE L" instead of "LEVONORGESTREL") that breaks the name match
+  — a data-entry quirk in that report, not something this app's parser can safely guess-correct.
+  No parse exceptions on this file either before or after the fix.
+
+## [3.50.0] - 2026-09-22
+
+### Added
+- **"ตั้ง Min ทั้งหมด = 50% ของ Max" bulk admin action** (หน้าตั้งค่า → par) — real-world request:
+  the default-ratio change in v3.49.0 only affects a med that has never had `floorMin` hand-set;
+  this actually WRITES `floorMin = 50% of parFloor` explicitly onto every active med, including
+  ones with a custom Min already set to something else. Pharm/admin only, double-confirmed
+  (explains it overwrites custom values, names how many meds will change), chunked batch write,
+  logged to Audit log. New `halfOfMaxRounded()` in `store/selectors.ts` (the rounding-to-a-clean-
+  step math, pulled out of `floorMinOf()` so this action can compute the same default explicitly
+  even for a med `floorMinOf()` itself would otherwise just hand the custom value straight back
+  for).
+
+## [3.49.0] - 2026-09-22
+
+### Removed
+- "🖨 พิมพ์เฉพาะเร่งด่วนวันนี้" button + `printUrgentReplenishList()` (AppContext.tsx) removed
+  per request — the plain "🖨 พิมพ์ใบเติมหน้างานวันนี้" (below-Min, not just below-half-Min) stays.
+  The "🔴 เร่งด่วนวันนี้" filter chip and "เติมเฉพาะเร่งด่วนวันนี้" (add-to-cart) button are
+  untouched — only the print action for that subset was removed.
+
+### Changed
+- **Default Min (reorder point) raised from 30% to 50% of Max**, for every med that hasn't had
+  `floorMin` set by hand — `floorMinOf()` in `store/selectors.ts` (and its hand-synced duplicate
+  in `scripts/notify-low-stock.mjs`, which can't import the TS selector directly — see that
+  file's own comment). Flags a refill sooner/more conservatively across the whole formulary
+  without a migration write. A med with Max already set to 1 now also defaults its Min to 1
+  (previously defaulted to 0) — updated the "Max=Min=1" diagnostic filter's own comment on
+  MedsScreen to reflect this rather than leave it describing the old (now-wrong) math.
+
+## [3.48.0] - 2026-09-22
+
+### Added — 3 requested capabilities
+- **สแกน QR ค้นหายาได้ทุกหน้าจอ**: scan-to-find-a-drug (`openScanSearch('viewMed')` — decode any
+  printed med/lot QR, jump straight to that drug's record) used to live only as one icon button
+  on จัดการรายการยา. Promoted into the app header itself (▣ button, next to the theme toggle) —
+  one tap from every single screen now, not just one, using the exact same underlying logic.
+- **Dashboard ภาพรวมผู้บริหาร** — new lead tab on the รายงาน screen (📊 ภาพรวมผู้บริหาร):
+  headline stat cards (มูลค่าคงคลังรวม, สุขภาพคลังยาโดยรวม %, มูลค่าเสี่ยงหมดอายุ, ธุรกรรม 30 วัน
+  ล่าสุด), 10 อันดับมูลค่าคงคลังสูงสุด, และ 10 อันดับใช้เร็วที่สุด — a one-minute-scan summary for
+  a pharmacy head or PTC meeting instead of piecing the same picture together from 4 separate
+  report tabs. Includes a one-tap "🖨 พิมพ์สรุปสำหรับ PTC" printable A4 sheet
+  (`printExecutiveSummarySheet` in `utils/print.ts`) with the hospital letterhead, plus its own
+  CSV export.
+- **แจ้งเตือนผ่าน LINE เมื่อยาต่ำกว่า par** — `scripts/notify-low-stock.mjs` +
+  `.github/workflows/low-stock-notify.yml`: runs weekday mornings (07:00 Asia/Bangkok), reads
+  today's real stock via the Firebase Admin SDK, and broadcasts a LINE message (via the LINE
+  Messaging API's Broadcast endpoint — sent to every account that added the hospital's LINE
+  Official Account as a friend, no per-user/group ID management needed) listing every drug below
+  its Min or substock par. Sends nothing on a day where nothing is actually low. Same free-tier,
+  no-backend architecture as the existing Firestore backup workflow — GitHub Actions is the
+  "server". New `npm run notify-low-stock` (`--dry-run` to preview without sending).
+
+### ⚠️ ต้องตั้งค่าเองก่อนใช้งานฟีเจอร์แจ้งเตือน LINE ได้จริง
+ต้องสร้าง **LINE Official Account** ฟรี (ให้พนักงานทุกคนเพิ่มเป็นเพื่อนครั้งเดียว — นั่นคือรายชื่อ
+ผู้รับแจ้งเตือนทั้งหมด ไม่ต้องจัดการ ID รายคน) แล้วออก **Channel Access Token** จาก LINE Developers
+Console นำไปวางเป็น GitHub secret ชื่อ `LINE_CHANNEL_ACCESS_TOKEN` — ดูขั้นตอนละเอียดทั้งหมดใน
+`.github/workflows/low-stock-notify.yml`'s header comment ก่อนตั้งค่า workflow จะ fail ทุกรันด้วย
+error ที่ชัดเจน (ไม่ใช่ทำงานเงียบๆ โดยไม่ส่งจริง)
+
+## [3.47.0] - 2026-09-22
+
+### Fixed — pre-go-live flow review
+Full walkthrough of every screen ahead of real deployment, checking that every day-to-day flow
+is fast, reliable, and has no dead ends. Found and fixed:
+
+- **A hung/flaky connection could freeze the app with no error message — including on the login
+  screen itself.** Every write that goes through a Firestore transaction (`runTx`) has always
+  raced against a 15s timeout (see `utils/timeout.ts`) so a stuck "hospital wifi captive portal"
+  connection fails fast with a clear message instead of spinning forever. That protection was
+  missing from **10 direct (non-transaction) Firestore calls**, the most serious being:
+  - **`signIn()`** — the very first action every single user takes every single day. A hung
+    connection here left the login button spinning indefinitely with zero feedback.
+  - **`logAudit()`/`logTx()`** — called by literally every daily commit (เติมหน้างาน, รับเข้า,
+    ปรับยอด, นับสต็อก, reconcile, ตัด lot หมดอายุ...). A hang here meant the on-screen action
+    looked frozen even though the real stock change moments earlier had already succeeded.
+  - `scrapLot()` (ตัด lot หมดอายุ), plus 6 lower-frequency admin-only writes (par apply, global
+    settings, edit/toggle a med, change a user's role/active state) — fixed for the same reason
+    and for consistency.
+  All 10 now go through the same `withTimeout()` wrapper every other write in the app already
+  uses.
+- **`TConfirmScreen`'s destination label** ("ชั้นจ่ายยา OPD/IPD") for a shared med still read
+  `state.wardFilter`, which has been permanently stuck at `'all'` since the OPD/IPD ward-tab UI
+  was removed (the same dead-code class already fixed in `printPickList`/`printLabels` in
+  `AppContext.tsx`) — always showed "OPD" for a shared med regardless of its real shelf
+  location(s). Now checks the med's actual `binIpd` (a genuine second physical shelf spot)
+  instead of the dead filter.
+
+### Also reviewed, no change needed
+`CountScreen`'s ปรับยอด quantity input was checked for a possible negative-number path
+(`floor`/`lots` with no clamp) — confirmed `setCountInput`/`setSubCountInput` already sanitize
+every keystroke through `digitsOnly()`, so a negative value can never actually reach the input
+state; not a real bug. `WardMoveScreen`'s med-search dropdowns not excluding each other's
+already-picked med were also checked — harmless, since `canSubmit` already blocks picking the
+same med on both sides before commit.
+
+## [3.46.1] - 2026-09-21
+
+### Fixed
+- **`resetAllQuantities`'s pre-delete safety snapshot could record the wrong "old" floor
+  value**: it built the `meds-floor` snapshot from the client's cached `state.meds` instead of a
+  fresh Firestore read, unlike the `txs`/`lots` snapshots (both already read fresh via
+  `getDocs()`). If another device's stock-count update hadn't reached this browser's
+  `onSnapshot` listener yet when an admin hit "รีเซ็ตจำนวนยาทุกตัวเป็น 0", the snapshot recorded
+  a stale floor — so restoring it via `scripts/restore-preresetsnapshot.mjs` after a mistaken
+  reset would put back the wrong number, defeating the safety net's whole purpose. Both
+  `resetAllQuantities` and its `meds` update batch now read a fresh `getDocs(collection(db,
+  'meds'))` snapshot instead of `state.meds`.
+- **`snapshotBeforeDelete` wrote its chunks one at a time**: each `_preResetSnapshots` chunk is
+  an independent document with no ordering dependency on the others, so awaiting them serially
+  (dozens of round trips for a hospital with thousands of `txs`) needlessly multiplied both the
+  wait before the destructive delete could start and the chance any single chunk's timeout
+  tripped on a slow connection. Now fired with `Promise.all` instead.
+
+## [3.46.0] - 2026-09-14
+
+### Added
+- **Automated restore self-test on every backup run**: `.github/workflows/firestore-backup.yml`
+  now runs `scripts/verify-backup.mjs` right after every backup — it writes a copy of one real
+  document into a scratch collection (`_backupSelfTest`, never touched by the app), reads it
+  back, and deep-compares every field. If a restore write ever silently stopped working (wrong
+  permission, corrupted export, etc.) the whole workflow run now fails and GitHub emails the
+  repo owner by default — instead of that only being discovered the day someone actually needs
+  to restore.
+- **Automatic pre-delete safety snapshot** for the two go-live "reset" admin tools
+  (`resetAllStockLedgers`, `resetAllQuantities` in `AppContext.tsx`): before either one deletes
+  anything, it now copies every document about to be destroyed into a new `_preResetSnapshots`
+  Firestore collection first. This is an extra recovery layer on top of (not instead of) the
+  daily external backup — that backup can be up to ~24h stale, so an admin who mis-clicks an
+  hour before the next scheduled run would otherwise lose that hour's data even though nothing
+  else went wrong. **Fails closed**: if the safety snapshot itself can't be written (most likely
+  because the `firestore.rules` exception below hasn't been published yet), the reset now stops
+  with a clear error instead of proceeding without a safety net.
+- `scripts/restore-preresetsnapshot.mjs` — restores from that in-app safety snapshot (`--list`
+  to see what's available, `--label=... --confirm` to restore one). New `npm run restore-preset`
+  / `npm run verify-backup` scripts.
+
+### ⚠️ ต้อง publish กฎ Firestore ใหม่เองใน Firebase Console
+`firestore.rules` มีการเพิ่ม collection ใหม่ `_preResetSnapshots` (admin อ่าน/เขียนได้เท่านั้น) —
+**ต้อง publish กฎไฟล์นี้ใหม่ก่อน** ปุ่มรีเซ็ตทั้งสองปุ่มถึงจะทำงานได้ตามปกติ (ถ้ายังไม่ publish
+ปุ่มจะหยุดทำงานเองพร้อมข้อความแจ้งเตือน แทนที่จะลบข้อมูลโดยไม่มีการสำรองไว้ก่อน — เป็นไปตามที่ตั้งใจ)
+
 ## [3.45.1] - 2026-09-14
 
 ### Fixed
