@@ -17,7 +17,10 @@ interface MenuGroup { title: string; items: MenuItem[] }
  */
 export default function MoreScreen() {
   const { state, go, userName, roleLabel, logout } = useApp();
-  const canEditPar = state.role !== 'tech';
+  // Real-world request: editing the master drug record is Admin-only now (was pharm+admin) —
+  // hide the menu item entirely for anyone else, same as MedsScreen's own full-page block for
+  // a non-admin who reaches it some other way (e.g. a bookmarked/QR deep link).
+  const canEditMeds = state.role === 'admin';
   // Same count the bottom nav's "เพิ่มเติม" tab badges now (see App.tsx) — repeated right on
   // the row itself so it still reads clearly once someone's actually inside this screen and
   // the nav's own badge is out of view.
@@ -34,7 +37,7 @@ export default function MoreScreen() {
     {
       title: 'จัดการยาและชั้นวาง',
       items: [
-        ...(canEditPar ? [{ icon: '💊', label: 'จัดการรายการยา', sub: 'ชื่อ ขนาด หน่วย ราคา par ชั้นวาง — แก้ทุกอย่างของยาที่นี่', screen: 'meds' as Screen }] : []),
+        ...(canEditMeds ? [{ icon: '💊', label: 'จัดการรายการยา', sub: 'ชื่อ ขนาด หน่วย ราคา par ชั้นวาง — แก้ทุกอย่างของยาที่นี่', screen: 'meds' as Screen }] : []),
         { icon: '↔️', label: 'ย้ายยาระหว่างชั้นวาง', sub: 'เช่น แบ่งยาฉีดจากลิ้นชักล็อก IPD มาวาง stat OPD', screen: 'wardmove' },
         { icon: '📈', label: 'par อัตโนมัติ & เกณฑ์แจ้งเตือน', sub: 'คำนวณ par แนะนำจากสถิติการใช้ · ตั้งวันแจ้งเตือนหมดอายุ', screen: 'settings' },
       ],

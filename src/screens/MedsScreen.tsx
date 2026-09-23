@@ -126,7 +126,8 @@ function formFromMed(m: Med): MedFormValues {
 
 export default function MedsScreen() {
   const { state, sub, addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, setMedBin, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId, openScanSearch } = useApp();
-  const canEdit = state.role !== 'tech';
+  // Real-world request: editing the master drug record is Admin-only now (was pharm+admin).
+  const canEdit = state.role === 'admin';
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('active');
   const [wardTab, setWardTab] = useState<'all' | 'shared' | Ward>('all');
@@ -267,7 +268,7 @@ export default function MedsScreen() {
   if (!canEdit) {
     return (
       <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
-        <div style={{ fontSize: 12.5, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 10, padding: '10px 12px' }}>บทบาทจพ.เภสัชกรรมเข้าหน้านี้ไม่ได้ — การเพิ่ม/แก้ไข/ปิดใช้งาน/ลบยาสงวนไว้สำหรับเภสัชกรและ Admin</div>
+        <div style={{ fontSize: 12.5, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 10, padding: '10px 12px' }}>เข้าหน้านี้ไม่ได้ — การเพิ่ม/แก้ไข/ปิดใช้งาน/ลบยาสงวนไว้สำหรับ Admin เท่านั้น</div>
       </div>
     );
   }

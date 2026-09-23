@@ -60,11 +60,13 @@ service cloud.firestore {
     // own field, separate from lastCountTs, because floor and substock cycle counts are
     // tracked on independent staleness clocks — see CountScreen.tsx/commitSubCount in
     // AppContext.tsx). Everything else about a drug's record — creating one, deleting one,
-    // par/bin/price/name/active/high-alert — is pharm/admin only. ----
+    // par/bin/price/name/active/high-alert — real-world request: Admin only now (was
+    // pharm/admin) — a pharmacist still edits day-to-day floor/count via the isActive()
+    // branch below same as tech, just not the master record itself. ----
     match /meds/{medId} {
       allow read: if isActive();
-      allow create, delete: if isPharmOrAdmin();
-      allow update: if isPharmOrAdmin()
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
                     || (isActive() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['floor', 'lastCountTs', 'lastSubCountTs']));
     }
     // ---- lots: any approved staff can read/write (receiving, FEFO transfer, scrap
@@ -108,10 +110,11 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // ---- shared settings (expiry warning days, par cover days) ----
+    // ---- shared settings (expiry warning days, par cover days) — real-world request:
+    // Admin only now (was pharm/admin) ----
     match /meta/{doc} {
       allow read: if isActive();
-      allow write: if isPharmOrAdmin();
+      allow write: if isAdmin();
     }
 
     // ---- daily KPI snapshots (scripts/collect-daily-metrics.mjs, see types.ts:DailyMetrics)

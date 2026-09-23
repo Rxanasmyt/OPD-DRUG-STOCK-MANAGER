@@ -11,7 +11,10 @@ export default function SettingsScreen() {
     notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify,
     lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify,
   } = useApp();
-  const canEdit = state.role !== 'tech';
+  // Real-world request: editing par-auto settings / alert thresholds is Admin-only now (was
+  // pharm+admin) — everyone else still sees this screen read-only (see the !canEdit branches
+  // below), same treatment as before, just a narrower editor set.
+  const canEdit = state.role === 'admin';
   const meds = state.meds.filter((m) => m.active);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -84,7 +87,7 @@ export default function SettingsScreen() {
       </div>
 
       {!canEdit && (
-        <div style={{ fontSize: 12, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>บทบาทจพ.เภสัชกรรมดูค่าได้แต่แก้ไม่ได้ — การแก้ par level และชั้นวางสงวนไว้สำหรับเภสัชกรและ Admin</div>
+        <div style={{ fontSize: 12, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>ดูค่าได้แต่แก้ไม่ได้ — การแก้ par level, ชั้นวาง และค่าตั้งค่าระบบสงวนไว้สำหรับ Admin เท่านั้น</div>
       )}
 
       {/* Per-device opt-in, not a par setting — visible/settable to every role since it's just

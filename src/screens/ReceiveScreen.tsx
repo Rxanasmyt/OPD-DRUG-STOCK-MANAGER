@@ -299,18 +299,14 @@ export default function ReceiveScreen() {
               );
             })}
           </div>
-          {canApprove ? (
-            <button onClick={commitReceive} disabled={!!state.busy['receive']} className="btn-primary" style={{ width: '100%', padding: 16, borderRadius: 12, fontSize: 16, minHeight: 54, opacity: state.busy['receive'] ? 0.7 : 1 }}>
-              {state.busy['receive'] ? 'กำลังบันทึก…' : 'อนุมัติรับเข้า substock'}
-            </button>
-          ) : (
-            <>
-              <button onClick={commitReceive} disabled={!!state.busy['receive']} style={{ width: '100%', border: '1px solid var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', padding: 16, borderRadius: 12, fontSize: 15.5, fontWeight: 600, minHeight: 54, opacity: state.busy['receive'] ? 0.7 : 1 }}>
-                {state.busy['receive'] ? 'กำลังบันทึก…' : 'ส่งให้เภสัชกรอนุมัติ'}
-              </button>
-              <div className="muted" style={{ fontSize: 11.5, textAlign: 'center', marginTop: 7 }}>สิทธิ์จพ.เภสัชกรรมบันทึกใบรับได้ แต่ยอดจะเข้าสต็อกเมื่อเภสัชกรอนุมัติ</div>
-            </>
-          )}
+          {/* Real-world request: every role now receives directly (short-staffed right now —
+              see commitReceive's `approve` in AppContext.tsx, always true) — the tech-specific
+              "ส่งให้เภสัชกรอนุมัติ" branch this used to have is gone; canApprove above still
+              gates the "รออนุมัติ" list further up this screen, for any request left over from
+              before this change. */}
+          <button onClick={commitReceive} disabled={!!state.busy['receive']} className="btn-primary" style={{ width: '100%', padding: 16, borderRadius: 12, fontSize: 16, minHeight: 54, opacity: state.busy['receive'] ? 0.7 : 1 }}>
+            {state.busy['receive'] ? 'กำลังบันทึก…' : 'รับเข้า substock'}
+          </button>
         </>
       )}
       </div>

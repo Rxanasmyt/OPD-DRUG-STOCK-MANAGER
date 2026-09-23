@@ -638,7 +638,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const sub = useCallback((medId: string) => subQty(state, medId), [state]);
   const fefo = useCallback((medId: string) => fefoLot(state, medId), [state]);
   const userName = useCallback(() => myProfile?.name || '', [myProfile]);
-  const canEditPar = myProfile?.role !== 'tech';
+  // Real-world request: editing the master drug record (name/price/par/bin/active) and system
+  // settings (par cover days, expiry warning threshold) is Admin-only now — pharm keeps every
+  // day-to-day action (floor/count/transfer/adjust/reconcile, approving a tech's receive
+  // request) but no longer the formulary/settings edit surface itself. Separate from
+  // canApproveReceive below (approving a เบิก request is unrelated and unchanged — still
+  // pharm+admin) even though both used to be the same flag; splitting them means this change
+  // can't silently also take away pharm's receive-approval ability.
+  const canEditMeds = myProfile?.role === 'admin';
+  // Real-world request: จพ.เภสัชกรรม (tech) now receives directly from the central warehouse
+  // without waiting for approval (short-staffed right now — see commitReceive's `approve`
+  // below, now always true). This flag still gates approving/rejecting any already-pending
+  // request left over from before that change, or one a future role might submit.
+  const canApproveReceive = myProfile?.role !== 'tech';
   const roleLabel = useCallback(() => roleLabelFor(state.role), [state.role]);
   const roleLabelOf = useCallback((r: Role) => roleLabelFor(r), []);
   const warn = useCallback(() => state.expiryWarnDays, [state.expiryWarnDays]);
@@ -1285,7 +1297,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const removeRecvItem = useCallback((i: number) => patch((st) => ({ recvItems: st.recvItems.filter((_, j) => j !== i) })), [patch]);
 
   const commitReceive = useCallback(guardOnce('receive', async () => {
-    const approve = myProfile?.role !== 'tech';
+    // Real-world request: every role (including tech) now receives from the central
+    // warehouse directly — short-staffed right now, no one to wait on for approval. The
+    // pending-approval path below (and approvePendingReceive/rejectPendingReceive,
+    // canApproveReceive above) is left in place rather than deleted, so any request already
+    // sitting pending from before this change still gets a normal approve/reject flow, and
+    // the whole mechanism is there again with a one-line change if staffing recovers.
+    const approve = true;
     const items = state.recvItems;
     if (!items.length) return;
     try {
@@ -1344,14 +1362,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       toastErr(e, 'บันทึกใบรับไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [state.recvItems, state.recvNo, state.myUid, state.meds, myProfile, userName, toastErr, logAudit, guardOnce]);
+  }), [state.recvItems, state.recvNo, state.myUid, state.meds, userName, toastErr, logAudit, guardOnce]);
 
   // Approve a pending receive — creates the real lot + receive_from_central tx, exactly
   // what the immediate (pharm/admin) receive path does. Wrapped in a transaction so two
   // people approving the same request at once can't both create the stock twice: the
   // second one sees status is no longer 'pending' and aborts cleanly.
   const approvePendingReceive = useCallback(guardOnce('approveReceive', async (id: string) => {
-    if (!canEditPar) return;
+    if (!canApproveReceive) return;
     try {
       await runTx(async (trx) => {
         const ref = doc(db, 'pendingReceives', id);
@@ -1380,10 +1398,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if ((e as Error)?.message === 'already-resolved') { toast('รายการนี้ถูกอนุมัติหรือปฏิเสธไปแล้ว'); return; }
       toastErr(e, 'อนุมัติไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [canEditPar, state.meds, userName, toast, toastErr, guardOnce]);
+  }), [canApproveReceive, state.meds, userName, toast, toastErr, guardOnce]);
 
   const rejectPendingReceive = useCallback(guardOnce('rejectReceive', async (id: string, reason: string) => {
-    if (!canEditPar) return;
+    if (!canApproveReceive) return;
     const pr = state.pendingReceives.find((r) => r.id === id);
     if (!pr) return;
     try {
@@ -1400,7 +1418,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if ((e as Error)?.message === 'already-resolved') { toast('รายการนี้ถูกอนุมัติหรือปฏิเสธไปแล้ว'); return; }
       toastErr(e, 'ปฏิเสธไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [canEditPar, state.pendingReceives, userName, toast, toastErr, logAudit, guardOnce]);
+  }), [canApproveReceive, state.pendingReceives, userName, toast, toastErr, logAudit, guardOnce]);
 
   // ---------- ward move (shelf-to-shelf, e.g. IPD injectable locked drawer -> OPD stat
   // drawer subset) — since OPD and IPD versions of the same drug are separate med records
@@ -1920,7 +1938,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ---------- settings / par ----------
   const applyOnePar = useCallback(async (medId: string, which: 'sub' | 'floor') => {
-    if (!canEditPar) return;
+    if (!canEditMeds) return;
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
     const sug = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
@@ -1929,10 +1947,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await withTimeout(updateDoc(doc(db, 'meds', medId), which === 'sub' ? { parSub: sug.sub } : { parFloor: sug.floor }));
       logAudit({ type: 'par_updated', note: 'ปรับ par' + (which === 'sub' ? 'substock' : 'หน้างาน') + ' ' + m.name + ' เป็น ' + nf(which === 'sub' ? sug.sub : sug.floor) + ' ตามค่าแนะนำจากสถิติ' });
     } catch (e) { console.error(e); toast('ปรับ par ไม่สำเร็จ'); }
-  }, [canEditPar, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast]);
+  }, [canEditMeds, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast]);
 
   const applyAllSuggested = useCallback(guardOnce('applyAllSuggested', async () => {
-    if (!canEditPar) return;
+    if (!canEditMeds) return;
     const targets = state.meds.filter((m) => {
       if (!m.active) return false;
       const s = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
@@ -1951,7 +1969,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'par_updated', note: 'ใช้ค่า par แนะนำจากสถิติทั้งหมด (' + targets.length + ' รายการเปลี่ยนแปลง)' });
       toast('ปรับ par ตามค่าแนะนำแล้ว ' + targets.length + ' รายการ');
     } catch (e) { toastErr(e, 'ปรับ par ไม่สำเร็จ'); }
-  }), [canEditPar, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast, toastErr, guardOnce]);
+  }), [canEditMeds, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast, toastErr, guardOnce]);
 
   // Real-world request: "ปรับยาหน้างานทั้งหมดในแอพ min เป็น 50% ของ max" — a one-time bulk
   // normalization that writes floorMin EXPLICITLY onto every active med, not just the default-
@@ -1961,7 +1979,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // different from "leave custom values alone, only fill in the unset ones", so it needs its
   // own explicit, confirmed action rather than happening silently as a side effect.
   const setAllMinHalfOfMax = useCallback(guardOnce('setAllMinHalfOfMax', async () => {
-    if (!canEditPar) return;
+    if (!canEditMeds) return;
     const targets = state.meds.filter((m) => m.active && halfOfMaxRounded(m.parFloor) !== floorMinOf(m));
     if (!targets.length) { toast('ยาทุกตัวมี Min = 50% ของ Max อยู่แล้ว ไม่มีอะไรต้องเปลี่ยน'); return; }
     if (!(await confirmAsync(
@@ -1981,7 +1999,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'par_updated', note: 'ตั้งค่า Min ยาทุกตัวเป็น 50% ของ Max (' + nf(targets.length) + ' รายการเปลี่ยนแปลง)' });
       toast('ตั้งค่า Min เป็น 50% ของ Max แล้ว ' + nf(targets.length) + ' รายการ');
     } catch (e) { toastErr(e, 'ตั้งค่า Min ไม่สำเร็จ'); }
-  }), [canEditPar, state.meds, confirmAsync, logAudit, toast, toastErr, guardOnce]);
+  }), [canEditMeds, state.meds, confirmAsync, logAudit, toast, toastErr, guardOnce]);
 
   const debouncedParWrite = useCallback((medId: string, field: 'parSub' | 'parFloor', val: number) => {
     const key = 'par:' + medId + field;
@@ -1995,21 +2013,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [toast]);
 
   const setParSub = useCallback((medId: string, v: string) => {
-    if (!canEditPar) return;
+    if (!canEditMeds) return;
     const val = parseIntSafe(v);
     setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, parSub: val } : x)) }));
     debouncedParWrite(medId, 'parSub', val);
-  }, [canEditPar, debouncedParWrite]);
+  }, [canEditMeds, debouncedParWrite]);
 
   const setParFloor = useCallback((medId: string, v: string) => {
-    if (!canEditPar) return;
+    if (!canEditMeds) return;
     const val = parseIntSafe(v);
     setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, parFloor: val } : x)) }));
     debouncedParWrite(medId, 'parFloor', val);
-  }, [canEditPar, debouncedParWrite]);
+  }, [canEditMeds, debouncedParWrite]);
 
   const setMedBin = useCallback((medId: string, v: string) => {
-    if (!canEditPar) return;
+    if (!canEditMeds) return;
     // Same widened charset as normBin/sanitizeBin — see normBin's doc comment.
     const val = v.toUpperCase().replace(/[^A-Z0-9\u0E00-\u0E7F-]/g, '').slice(0, 10);
     setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, bin: val } : x)) }));
@@ -2021,7 +2039,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     pendingFlush.current[key] = fire;
     binDebounce.current[medId] = window.setTimeout(fire, 500);
-  }, [canEditPar, toast]);
+  }, [canEditMeds, toast]);
 
   /**
    * `used30`/`usedPrev30` (the daily-usage stats behind "แนะนำ par" and the turnover report)
@@ -2033,7 +2051,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * right after go-live, before HOSxP reconcile has been run daily for a while.
    */
   const recomputeUsageStats = useCallback(guardOnce('recomputeUsageStats', async () => {
-    if (!canEditPar) return;
+    if (!canEditMeds) return;
     toast('กำลังคำนวณสถิติการใช้ยาใหม่จากประวัติ HOSxP…');
     try {
       const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('type', '==', 'reconcile_hosxp'))));
@@ -2081,22 +2099,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'par_updated', note: 'คำนวณสถิติการใช้ยาใหม่จากประวัติ HOSxP 60 วันล่าสุด (' + targets.length + ' รายการ)' });
       toast('คำนวณสถิติใหม่แล้ว ' + targets.length + ' รายการ — กด "ใช้ค่าแนะนำทั้งหมด" ด้านบนอีกครั้งเพื่ออัปเดต par ตามสถิติใหม่');
     } catch (e) { toastErr(e, 'คำนวณสถิติไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }), [canEditPar, state.meds, logAudit, toast, toastErr, guardOnce]);
+  }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce]);
 
   // Persists to meta/settings (see the onSnapshot listener above) — a merge write so this
   // can be called with just the one field that changed without clobbering the other two.
   const updateGlobalSettings = useCallback(async (patchFields: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => {
-    if (!canEditPar) return;
+    if (!canEditMeds) return;
     try {
       await withTimeout(setDoc(doc(db, 'meta', 'settings'), patchFields, { merge: true }));
       logAudit({ type: 'par_updated', note: 'แก้ไขการตั้งค่า: ' + Object.entries(patchFields).map(([k, v]) => k + '=' + v).join(', ') });
       toast('บันทึกการตั้งค่าแล้ว');
     } catch (e) { console.error(e); toast('บันทึกการตั้งค่าไม่สำเร็จ'); }
-  }, [canEditPar, logAudit, toast]);
+  }, [canEditMeds, logAudit, toast]);
 
   // ---------- meds (formulary) management ----------
   const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string }) => {
-    if (!canEditPar) return;
+    if (!canEditMeds) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
     try {
@@ -2150,7 +2168,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'med_added', note: 'เพิ่มยาใหม่ ' + name + ' (' + code + ')' });
       toast('เพิ่ม ' + name + ' แล้ว');
     } catch (e) { toastErr(e, 'เพิ่มยาไม่สำเร็จ'); }
-  }), [canEditPar, state.meds, logAudit, toast, toastErr, guardOnce]);
+  }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce]);
 
   // One consolidated save for everything about a med someone would want to fix in one place
   // — name/strength (kept together in `name`, same as everywhere else), dosage form, unit,
@@ -2158,7 +2176,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // separate screens. `code` (the QR/label identifier) is deliberately never touched here —
   // labels already printed with it must keep resolving to this med.
   const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string }) => {
-    if (!canEditPar) return;
+    if (!canEditMeds) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
     const binIpd = input.binIpd ? normBin(input.binIpd) : '';
@@ -2185,7 +2203,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'med_edited', note: 'แก้ไขข้อมูลยา ' + name });
       toast('บันทึกข้อมูล ' + name + ' แล้ว');
     } catch (e) { console.error(e); toast('บันทึกไม่สำเร็จ'); }
-  }), [canEditPar, logAudit, toast, guardOnce]);
+  }), [canEditMeds, logAudit, toast, guardOnce]);
 
   // Merges a still-separate OPD/IPD ward pair (same name — see the "ยาตัวเดียวกันที่วางทั้งสอง
   // ชั้น" note in MedsScreen) into one pooled record, for the real workflow at this hospital:
@@ -2202,7 +2220,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // stock (e.g. IPD's locked injectable cabinet) simply never call this — WardMoveScreen still
   // covers moving stock between two still-separate records exactly as before.
   const mergeWardMeds = useCallback(guardOnce('mergeWardMeds', async (medIdA: string, medIdB: string) => {
-    if (!canEditPar) return;
+    if (!canEditMeds) return;
     const a = state.meds.find((x) => x.id === medIdA);
     const b = state.meds.find((x) => x.id === medIdB);
     if (!a || !b) { toast('ไม่พบยาที่จะรวม'); return; }
@@ -2236,7 +2254,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       toast('รวมสต็อก ' + opdMed.name + ' แล้ว — แนะนำให้นับสต็อกจริงเพื่อยืนยันยอด');
     } catch (e) { toastErr(e, 'รวมสต็อกไม่สำเร็จ'); }
-  }), [canEditPar, state.meds, logAudit, toast, toastErr, confirmAsync, guardOnce]);
+  }), [canEditMeds, state.meds, logAudit, toast, toastErr, confirmAsync, guardOnce]);
 
   // "รวมกันเลย" — do mergeWardMeds() for every still-separate OPD/IPD pair across the whole
   // formulary in one go, instead of clicking through each pair one at a time in MedsScreen.
@@ -2245,7 +2263,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // records (a real data-entry duplicate) is left alone rather than guessing which one to
   // pair, same caution matchHosxpMed() already takes with an ambiguous name.
   const mergeAllWardPairs = useCallback(guardOnce('mergeAllWardPairs', async () => {
-    if (!canEditPar) return;
+    if (!canEditMeds) return;
     const active = state.meds.filter((m) => m.active && !isSharedMed(m));
     const byName = new Map<string, Med[]>();
     active.forEach((m) => {
@@ -2305,7 +2323,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       toast('รวมสต็อกแล้ว ' + pairs.length + ' คู่ — แนะนำให้นับสต็อกจริงทุกตัวเพื่อยืนยันยอด');
     } catch (e) { toastErr(e, 'รวมสต็อกไม่สำเร็จ'); }
-  }), [canEditPar, state.meds, logAudit, toast, toastErr, guardOnce]);
+  }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce]);
 
   // The common real starting point: a formulary that has NO separate IPD records at all yet
   // (every med is a plain single 'opd'-ward record) — mergeAllWardPairs() finds nothing to
@@ -2316,7 +2334,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // pile of stock to begin with. `binIpd` is left unset, so binFor() shows the same one `bin`
   // for both wards until/unless someone gives a drug a distinct IPD shelf code later.
   const shareAllMeds = useCallback(guardOnce('shareAllMeds', async () => {
-    if (!canEditPar) return;
+    if (!canEditMeds) return;
     const targets = state.meds.filter((m) => m.active && !isSharedMed(m));
     if (!targets.length) { toast('ยาทุกตัวใช้ร่วมกันทั้ง OPD/IPD อยู่แล้ว'); return; }
     if (!(await confirmAsync(
@@ -2333,7 +2351,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'med_edited', note: 'ตั้งให้ยาใช้สต็อกร่วมกันทั้ง OPD/IPD ทั้งหมด ' + targets.length + ' รายการ' });
       toast('ตั้งค่าแล้ว ' + targets.length + ' รายการ — ยาทั้งหมดใช้ร่วมกันทั้ง OPD/IPD แล้ว');
     } catch (e) { toastErr(e, 'ตั้งค่าไม่สำเร็จ'); }
-  }), [canEditPar, state.meds, logAudit, toast, toastErr, guardOnce]);
+  }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce]);
 
   // One-tap bulk fill for Med.category — see data/categorySuggest.ts for the keyword engine
   // behind it. Deliberately narrow in what it's allowed to touch: only meds with NO category
@@ -2342,7 +2360,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // it can't match keeps falling back to "ยังไม่ระบุหมวด" via categoryOf() same as before —
   // never forced into a guessed bucket just to make the uncategorized count hit zero).
   const autoCategorizeAll = useCallback(guardOnce('autoCategorizeAll', async () => {
-    if (!canEditPar) return;
+    if (!canEditMeds) return;
     const candidates = state.meds
       .map((m) => ({ m, cat: m.category ? null : suggestCategoryId(m.name) }))
       .filter((x): x is { m: Med; cat: string } => !!x.cat);
@@ -2363,10 +2381,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'med_edited', note: 'จัดหมวดยาอัตโนมัติจากชื่อยา ' + candidates.length + ' รายการ' });
       toast('จัดหมวดให้แล้ว ' + candidates.length + ' รายการ' + (leftover > 0 ? ' — เหลืออีก ' + leftover + ' รายการที่ระบบไม่รู้จักชื่อ ต้องเลือกหมวดเอง' : ''));
     } catch (e) { toastErr(e, 'จัดหมวดอัตโนมัติไม่สำเร็จ'); }
-  }), [canEditPar, state.meds, logAudit, toast, toastErr, guardOnce]);
+  }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce]);
 
   const toggleMedActive = useCallback(async (medId: string) => {
-    if (!canEditPar) return;
+    if (!canEditMeds) return;
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
     const next = !m.active;
@@ -2375,10 +2393,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'med_status_changed', note: (next ? 'เปิดใช้งานยา ' : 'ปิดใช้งานยา (ตัดออกจากบัญชี) ') + m.name });
       toast((next ? 'เปิดใช้งาน ' : 'ปิดใช้งาน ') + m.name + ' แล้ว');
     } catch (e) { console.error(e); toast('เปลี่ยนสถานะไม่สำเร็จ'); }
-  }, [canEditPar, state.meds, logAudit, toast]);
+  }, [canEditMeds, state.meds, logAudit, toast]);
 
   const deleteMed = useCallback(async (medId: string) => {
-    if (!canEditPar) return;
+    if (!canEditMeds) return;
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
     if (m.floor > 0 || subQty(state, medId) > 0) { toast('ลบไม่ได้ — ยังมียอดคงเหลือที่หน้างานหรือ substock ต้องปรับยอด/ตัดออกให้เป็น 0 ก่อน'); return; }
@@ -2392,7 +2410,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'med_deleted', note: 'ลบยา ' + m.name + ' (' + m.code + ') ออกจากระบบถาวร' });
       toast('ลบ ' + m.name + ' แล้ว');
     } catch (e) { toastErr(e, 'ลบไม่สำเร็จ'); }
-  }, [canEditPar, state, logAudit, toast, toastErr, confirmAsync]);
+  }, [canEditMeds, state, logAudit, toast, toastErr, confirmAsync]);
 
   // One-shot cleanup for a formulary that's accumulated deactivated drugs the hospital
   // doesn't actually carry (e.g. leftover from the initial 585-item seed) — same safety rule
@@ -2404,7 +2422,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // count and its actual effect need to match, or a ward/search filter on screen would be
   // silently ignored by the delete itself.
   const deleteAllInactiveMeds = useCallback(guardOnce('deleteAllInactiveMeds', async (medIds?: string[]) => {
-    if (!canEditPar) return;
+    if (!canEditMeds) return;
     const scope = medIds ? new Set(medIds) : null;
     const inactive = state.meds.filter((m) => !m.active && (!scope || scope.has(m.id)));
     if (!inactive.length) { toast('ไม่มียาที่ปิดใช้งานอยู่'); return; }
@@ -2439,7 +2457,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'med_deleted', note: 'ลบยาที่ปิดใช้งานทั้งหมด ' + removable.length + ' รายการ (ยอดเป็น 0) ออกจากระบบถาวร: ' + removable.map((m) => m.name).join(', ') });
       toast('ลบยาที่ปิดใช้งานแล้ว ' + removable.length + ' รายการ' + (blocked.length ? ' · ข้าม ' + blocked.length + ' รายการที่ยังมียอดคงเหลือ' : ''));
     } catch (e) { toastErr(e, 'ลบไม่สำเร็จ'); }
-  }), [canEditPar, state, logAudit, toast, toastErr, confirmAsync, guardOnce]);
+  }), [canEditMeds, state, logAudit, toast, toastErr, confirmAsync, guardOnce]);
 
   const setMedsFocusId = useCallback((id: string | null) => patch({ medsFocusId: id }), [patch]);
 
