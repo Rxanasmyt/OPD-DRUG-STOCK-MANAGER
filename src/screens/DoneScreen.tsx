@@ -2,6 +2,7 @@ import { useApp } from '../store/AppContext';
 import { usesSubstock } from '../store/selectors';
 import { nf, fiscalYear } from '../utils/format';
 import { StepIndicator, TRANSFER_STEPS, RECEIVE_STEPS } from '../components/StepIndicator';
+import { MedMiniCard } from '../components/MedMiniCard';
 
 export default function DoneScreen() {
   const { state, sub, go, doneAgain, goSubstockCardFor } = useApp();
@@ -15,6 +16,14 @@ export default function DoneScreen() {
   // substock number — this is exactly what the paper บัตรคุมสต็อกยา tracks, kept per
   // ปีงบประมาณ. Show it live right here instead of making someone go check a separate screen.
   const showSubstock = state.doneKind !== 'recvPending';
+  // Real-world request: the real workflow scans/does ONE drug at a time (rather than batching
+  // several into one cart), so for the common single-item case, show the full recent-activity
+  // overview (same MedMiniCard panel TransferScreen already offers pre-transaction) right here
+  // automatically instead of making someone tap "ดูบัตร →" for it every single time. Left as an
+  // explicit tap-through for a genuinely multi-item transaction (below) — auto-expanding a full
+  // mini card per row for, say, 10 items in one cart would bury the "ทำรายการต่อ" button under a
+  // wall of ledger tails instead of helping.
+  const isSingleItem = state.doneRows.length === 1;
 
   return (
     <div style={{ animation: 'fade .24s var(--ease-out)' }}>
@@ -46,18 +55,23 @@ export default function DoneScreen() {
                 <span style={{ fontSize: 13.5, fontWeight: 700, flex: 'none' }}>{d.qty}</span>
               </div>
               {showRow && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 7, paddingTop: 7, borderTop: '1px dashed var(--border-soft)' }}>
-                  <span className="muted" style={{ fontSize: 11.5 }}>
-                    {hasSub ? 'substock ตอนนี้ (real-time) ' : 'หน้างานตอนนี้ (real-time) '}
-                    <b style={{ color: 'var(--ink)', fontSize: 13 }}>{nf(hasSub ? sub(d.medId!) : m!.floor)}</b>
-                  </span>
-                  <button
-                    onClick={() => goSubstockCardFor(d.medId!)}
-                    className="press-spring"
-                    style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--green)', fontSize: 12, fontWeight: 700, padding: 0 }}
-                  >
-                    ดูบัตร →
-                  </button>
+                <div style={{ marginTop: 7, paddingTop: 7, borderTop: '1px dashed var(--border-soft)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span className="muted" style={{ fontSize: 11.5 }}>
+                      {hasSub ? 'substock ตอนนี้ (real-time) ' : 'หน้างานตอนนี้ (real-time) '}
+                      <b style={{ color: 'var(--ink)', fontSize: 13 }}>{nf(hasSub ? sub(d.medId!) : m!.floor)}</b>
+                    </span>
+                    {!isSingleItem && (
+                      <button
+                        onClick={() => goSubstockCardFor(d.medId!)}
+                        className="press-spring"
+                        style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--green)', fontSize: 12, fontWeight: 700, padding: 0 }}
+                      >
+                        ดูบัตร →
+                      </button>
+                    )}
+                  </div>
+                  {isSingleItem && <MedMiniCard medId={d.medId!} unit={m!.unit} hasSub={hasSub} />}
                 </div>
               )}
             </div>
