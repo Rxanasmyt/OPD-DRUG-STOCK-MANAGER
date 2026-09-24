@@ -4,7 +4,7 @@ import {
   wardOf, matchesWard, binFor, binDisplayAll, floorMinOf, isUrgentLow, needsWarehouseRequest,
   lastReconcileDateIso, subQty, usageAnomalies,
   daysOfStockLeft, fefoLot, toneFor, subTone, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
-  categoryOf, categoryStats, parAnomaliesFor,
+  categoryOf, categoryStats, parAnomaliesFor, packStep,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
 
@@ -287,6 +287,35 @@ describe('suggestTransferQty', () => {
     // to the next step (80) rather than down — intentional, so a transfer never falls short
     // of reaching par by staying at the un-rounded deficit.
     expect(suggestTransferQty(st, med({ id: 'm1', parFloor: 100, floor: 25 }))).toBe(80);
+  });
+
+  it('rounds UP to a whole multiple of packSize for a box-only med, not the generic magnitude step', () => {
+    const st = { lots: [{ id: 'l1', code: 'L1', medId: 'm1', lotNo: '1', exp: 0, qty: 999, loc: 'x' }] } as unknown as AppState;
+    // Deficit is 75 (parFloor 100 - floor 25); packSize 30 means the generic 10-step is
+    // overridden — 75 rounds up to 90 (3 boxes of 30), never a fractional box.
+    expect(suggestTransferQty(st, med({ id: 'm1', parFloor: 100, floor: 25, packSize: 30 }))).toBe(90);
+  });
+
+  it('caps a box-only med at what substock actually has, same as any other med', () => {
+    const st = { lots: [{ id: 'l1', code: 'L1', medId: 'm1', lotNo: '1', exp: 0, qty: 40, loc: 'x' }] } as unknown as AppState;
+    expect(suggestTransferQty(st, med({ id: 'm1', parFloor: 100, floor: 25, packSize: 30 }))).toBe(40);
+  });
+});
+
+describe('packStep', () => {
+  it('uses the med\'s packSize when set and greater than 1', () => {
+    expect(packStep(med({ packSize: 50 }))).toBe(50);
+  });
+
+  it('ignores a packSize of 1 or 0 (not really a box requirement) and falls back to the generic magnitude step', () => {
+    expect(packStep(med({ parFloor: 25, packSize: 1 }))).toBe(1);
+    expect(packStep(med({ parFloor: 200, packSize: 0 }))).toBe(10);
+  });
+
+  it('falls back to the generic magnitude step (1/10/100) when packSize is unset', () => {
+    expect(packStep(med({ parFloor: 25 }))).toBe(1);
+    expect(packStep(med({ parFloor: 200 }))).toBe(10);
+    expect(packStep(med({ parFloor: 600 }))).toBe(100);
   });
 });
 

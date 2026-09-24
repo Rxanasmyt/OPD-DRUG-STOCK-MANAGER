@@ -107,6 +107,8 @@ interface MedFormValues {
   // only visually disabled while noSubstock is on, same treatment as par substock below it.
   binSub: string;
   category: string;
+  // จำนวนหน่วยต่อกล่อง — เว้นว่างไว้ถ้ายาตัวนี้เบิกเป็นเม็ด/ชิ้นเดี่ยวได้ตามปกติ ดู Med.packSize
+  packSize: string;
 }
 
 function blankForm(): MedFormValues {
@@ -114,7 +116,7 @@ function blankForm(): MedFormValues {
   // one-day-dose pulls straight off the OPD shelf), so a brand-new med should start there and
   // let someone opt OUT (untick "เลิกใช้ร่วมกัน") for the minority that genuinely need separate
   // stock, rather than opting in every single time.
-  return { name: '', dosageForm: '', unit: '', price: '', had: false, fridge: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: true, binIpd: '', binSub: '', category: '' };
+  return { name: '', dosageForm: '', unit: '', price: '', had: false, fridge: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: true, binIpd: '', binSub: '', category: '', packSize: '' };
 }
 
 function formFromMed(m: Med): MedFormValues {
@@ -123,6 +125,7 @@ function formFromMed(m: Med): MedFormValues {
     had: m.had, fridge: !!m.fridge, bin: m.bin, parSub: String(m.parSub), parFloor: String(m.parFloor), floorMin: String(floorMinOf(m)),
     ward: wardOf(m), noSubstock: !!m.noSubstock, volatility: m.volatility.toFixed(2),
     shared: isSharedMed(m), binIpd: m.binIpd || '', binSub: m.binSub || '', category: m.category || '',
+    packSize: m.packSize ? String(m.packSize) : '',
   };
 }
 
@@ -305,7 +308,7 @@ export default function MedsScreen() {
           submitLabel="บันทึก"
           onCancel={() => setAddOpen(false)}
           onSubmit={(v) => {
-            addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined });
+            addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined });
             setAddOpen(false);
           }}
         />
@@ -462,6 +465,7 @@ export default function MedsScreen() {
                         <Badge color={WARD_COLOR[wardOf(m)]} bg={WARD_BG[wardOf(m)]}>{wardOf(m) === 'opd' ? 'OPD' : 'IPD'}</Badge>
                       )}
                       {m.noSubstock && <Badge color="var(--amber-ink)" bg="var(--amber-bg)">ไม่มี substock</Badge>}
+                      {!!m.packSize && m.packSize > 1 && <Badge color="var(--ink)" bg="var(--bg-subtle)">เบิกเป็นกล่อง ×{nf(m.packSize)}</Badge>}
                     </div>
                   </div>
                   <Badge flexNone size={10.5} padding="4px 8px" color={m.active ? 'var(--green)' : 'var(--muted)'} bg={m.active ? 'var(--green-tint)' : 'var(--bg-subtle)'}>{m.active ? 'ใช้งานอยู่' : 'ปิดใช้งาน'}</Badge>
@@ -512,7 +516,7 @@ export default function MedsScreen() {
               submitLabel="บันทึกการแก้ไข"
               onCancel={() => setEditingId(null)}
               onSubmit={(v) => {
-                updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined });
+                updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined });
                 setEditingId(null);
               }}
               // ยาชื่อเดียวกันที่แยกรายการไว้คนละ ward (คนละ Firestore doc ตามหลักการออกแบบ
@@ -754,6 +758,19 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
         />
         <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>
           เวลากด "ใช้ค่าแนะนำ" ระบบคำนวณ Max = (การใช้เฉลี่ยต่อวัน) × (จำนวนวันสำรอง) × <b>ตัวเลขนี้</b> — ยิ่งสูง ยิ่งเผื่อของมากขึ้นสำหรับยาที่การใช้ไม่แน่นอน (ปกติ 1.00–1.40, ต่ำสุด 1.00 = ไม่เผื่อเลย)
+        </div>
+      </label>
+      <label style={{ display: 'block', marginBottom: 9 }}>
+        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>จำนวนต่อกล่อง (ถ้าเบิกเป็นกล่องเท่านั้น) — เว้นว่างถ้าเบิกเป็น{v.unit || 'หน่วย'}เดี่ยวได้</span>
+        <input
+          value={v.packSize}
+          onChange={(e) => set('packSize', digitsOnly(e.target.value))}
+          inputMode="numeric"
+          placeholder="เช่น 100 (เม็ด/กล่อง)"
+          style={inputStyle}
+        />
+        <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>
+          ตั้งไว้แล้วจำนวนที่ระบบแนะนำตอนเบิกเข้า substock หรือเติมหน้างานจะปัดขึ้นให้ลงตัวเป็นกล่องเสมอ (เบิกเป็นจำนวนเต็มกล่อง ไม่มีเศษ)
         </div>
       </label>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
