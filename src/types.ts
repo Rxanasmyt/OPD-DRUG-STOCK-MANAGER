@@ -311,6 +311,11 @@ export interface AppState {
   navStack: Screen[];
   role: Role | null;
   online: boolean;
+  /** True for a beat right after coming back online, while queued offline writes are still
+   * being flushed to Firestore — see AppContext.tsx's network-status effect. Lets the offline
+   * banner say "กำลังซิงค์..." instead of just flipping silently back to "ออนไลน์" with no
+   * signal that it's actually safe to close the app now. */
+  syncing: boolean;
   device: 'phone' | 'tablet';
   pending: number;
 

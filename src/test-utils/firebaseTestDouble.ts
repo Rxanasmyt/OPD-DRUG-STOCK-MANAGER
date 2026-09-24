@@ -131,4 +131,5 @@ vi.mock('firebase/firestore', () => ({
   increment: (n: number) => n,
   deleteField: () => undefined,
   serverTimestamp: () => new Date(),
+  waitForPendingWrites: vi.fn(async () => undefined),
 }));

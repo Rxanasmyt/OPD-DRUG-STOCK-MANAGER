@@ -145,11 +145,15 @@ export default function App() {
           <span key={theme} className="icon" style={{ transform: theme === 'dark' ? 'rotate(0deg)' : 'rotate(180deg)' }}>{theme === 'dark' ? '☾' : '☀'}</span>
         </button>
         <div
-          title={state.online ? 'เชื่อมต่ออินเทอร์เน็ตอยู่' : 'ออฟไลน์ — การเปลี่ยนแปลงจะ sync เมื่อกลับมาออนไลน์'}
-          style={{ position: 'relative', border: 0, background: state.online ? 'rgba(255,255,255,.14)' : 'var(--amber-bg)', color: state.online ? 'var(--ink-soft)' : 'var(--amber-ink)', padding: '6px 9px', borderRadius: 8, fontSize: 11.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flex: 'none' }}
+          title={
+            state.online && state.syncing ? 'กำลังส่งข้อมูลที่ค้างไว้ตอนออฟไลน์ขึ้น Firestore'
+            : state.online ? 'เชื่อมต่ออินเทอร์เน็ตอยู่'
+            : 'ออฟไลน์ — การเปลี่ยนแปลงจะ sync เมื่อกลับมาออนไลน์'
+          }
+          style={{ position: 'relative', border: 0, background: !state.online ? 'var(--amber-bg)' : state.syncing ? 'var(--green-tint)' : 'rgba(255,255,255,.14)', color: !state.online ? 'var(--amber-ink)' : state.syncing ? 'var(--green)' : 'var(--ink-soft)', padding: '6px 9px', borderRadius: 8, fontSize: 11.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flex: 'none' }}
         >
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: state.online ? '#5adc8c' : 'var(--amber)', display: 'inline-block', animation: state.online ? 'glowPulse 2.4s infinite' : 'none' }} />
-          {state.online ? 'ออนไลน์' : 'ออฟไลน์'}
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: !state.online ? 'var(--amber)' : state.syncing ? 'var(--green)' : '#5adc8c', display: 'inline-block', animation: state.online ? 'glowPulse 2.4s infinite' : 'none' }} />
+          {!state.online ? 'ออฟไลน์' : state.syncing ? 'กำลังซิงค์…' : 'ออนไลน์'}
         </div>
       </header>
 
@@ -159,6 +163,18 @@ export default function App() {
         <div style={{ flex: 'none', background: 'var(--amber-bg)', borderBottom: '1px solid var(--amber-border)', color: 'var(--amber-ink)', padding: '8px 16px', fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, animation: 'fade .22s var(--ease-out)' }}>
           <span style={{ animation: 'pulse 1.6s infinite' }}>◍</span>
           <span>ออฟไลน์ — การเปลี่ยนแปลงจะบันทึกอัตโนมัติเมื่อกลับมาออนไลน์</span>
+        </div>
+      )}
+
+      {/* Bug fix: coming back online used to flip silently straight back to a plain "ออนไลน์"
+          with no signal that anything saved while offline was still in flight — someone closing
+          the app in that window had no way to know whether it was actually safe to. Shown only
+          during the real flush (state.syncing, cleared once waitForPendingWrites() resolves —
+          see AppContext.tsx), not a fixed timer, so it never lies about being done early. */}
+      {state.online && state.syncing && (
+        <div style={{ flex: 'none', background: 'var(--green-tint)', borderBottom: '1px solid var(--border-soft)', color: 'var(--green)', padding: '8px 16px', fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, animation: 'fade .22s var(--ease-out)' }}>
+          <span style={{ animation: 'pulse 1.6s infinite' }}>◍</span>
+          <span>กำลังส่งข้อมูลที่ค้างไว้ตอนออฟไลน์ขึ้นระบบ…</span>
         </div>
       )}
 

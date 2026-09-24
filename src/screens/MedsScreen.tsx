@@ -395,19 +395,27 @@ export default function MedsScreen() {
         </button>
       )}
 
-      <SearchInput value={q} onChange={setQ} placeholder="ค้นหาชื่อยา" style={{ marginBottom: q.trim() || filter !== 'active' || wardTab !== 'all' || catTab !== 'all' ? 6 : 10 }} />
-      {/* Only shown once something's actually been changed from default — this screen has 4
-          independent filter dimensions (status/search/ward/category) with no single reset
-          before this, so clearing all of them meant tapping each one back to its own default
-          individually. */}
-      {(q.trim() || filter !== 'active' || wardTab !== 'all' || catTab !== 'all') && (
-        <button
-          onClick={() => { setQ(''); setFilter('active'); setWardTab('all'); setCatTab('all'); }}
-          style={{ display: 'block', marginLeft: 'auto', marginBottom: 10, border: 0, background: 'transparent', color: 'var(--green)', fontSize: 12, fontWeight: 600, padding: '4px 2px' }}
-        >
-          ✕ ล้างตัวกรองทั้งหมด
-        </button>
-      )}
+      {/* Sticky while scrolling the (potentially 150-row) list below — this screen's search box
+          used to scroll away with everything else, so finding several meds in a row meant
+          scrolling all the way back up to re-type each time. Bleeds to the screen's full edges
+          (negative margin matching the root padding) with an opaque background so it reads as
+          a real pinned toolbar, not text floating over other rows once something scrolls
+          under it. */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--bg-app)', margin: '0 -14px', padding: '10px 14px 4px' }}>
+        <SearchInput value={q} onChange={setQ} placeholder="ค้นหาชื่อยา" style={{ marginBottom: q.trim() || filter !== 'active' || wardTab !== 'all' || catTab !== 'all' ? 6 : 10 }} />
+        {/* Only shown once something's actually been changed from default — this screen has 4
+            independent filter dimensions (status/search/ward/category) with no single reset
+            before this, so clearing all of them meant tapping each one back to its own default
+            individually. */}
+        {(q.trim() || filter !== 'active' || wardTab !== 'all' || catTab !== 'all') && (
+          <button
+            onClick={() => { setQ(''); setFilter('active'); setWardTab('all'); setCatTab('all'); }}
+            style={{ display: 'block', marginLeft: 'auto', marginBottom: 10, border: 0, background: 'transparent', color: 'var(--green)', fontSize: 12, fontWeight: 600, padding: '4px 2px' }}
+          >
+            ✕ ล้างตัวกรองทั้งหมด
+          </button>
+        )}
+      </div>
 
       <div className="card stagger" style={{ overflow: 'hidden' }}>
         {/* Category headers only render in the "ทุกหมวด" view — picking one category tab

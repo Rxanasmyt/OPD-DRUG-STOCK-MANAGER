@@ -5,7 +5,7 @@ import {
 } from 'firebase/auth';
 import {
   collection, doc, onSnapshot, query, orderBy, limit, where, writeBatch, addDoc, updateDoc, setDoc,
-  runTransaction, getDocs, getDoc, getCountFromServer, increment, deleteField, serverTimestamp, type Transaction,
+  runTransaction, getDocs, getDoc, getCountFromServer, increment, deleteField, serverTimestamp, waitForPendingWrites, type Transaction,
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
@@ -92,7 +92,7 @@ function freshState(): AppState {
     authStatus: 'loading', authMode: 'login', myUid: null,
     authUsername: '', authPassword: '', authName: '', authDept: 'เภสัชกรรม', authError: null, authBusy: false, authRemember: true,
 
-    screen: 'login', navStack: [], role: null, online: navigator.onLine, device: 'phone', pending: 0,
+    screen: 'login', navStack: [], role: null, online: navigator.onLine, syncing: false, device: 'phone', pending: 0,
 
     cart: {}, search: '', filter: 'low', wardFilter: 'all',
 
@@ -523,8 +523,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ---------- network status (real, not simulated) ----------
   useEffect(() => {
-    const on = () => patch({ online: true });
-    const off = () => patch({ online: false });
+    const on = () => {
+      patch({ online: true, syncing: true });
+      // Bug fix: the offline banner used to flip straight back to a plain "ออนไลน์" the
+      // instant the browser's own online event fired — with no signal that any writes queued
+      // while offline (via persistentLocalCache — see firebase.ts) were still being flushed to
+      // Firestore in the background. waitForPendingWrites() resolves once that flush actually
+      // completes, so "กำลังซิงค์..." only clears once it's genuinely safe to close the app.
+      waitForPendingWrites(db).catch(() => {}).finally(() => patch({ syncing: false }));
+    };
+    const off = () => patch({ online: false, syncing: false });
     window.addEventListener('online', on);
     window.addEventListener('offline', off);
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
