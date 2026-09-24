@@ -1,4 +1,6 @@
 :root {
+  --header-pad-x: 16px;
+  --header-gap: 10px;
   --bg-page: #e7e6e0;
   --bg-app: #f7f6f2;
   --bg-card: #fff;
@@ -246,6 +248,19 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 
 @media (min-width: 720px) {
   .app-shell { max-width: 900px; }
+}
+
+/* Confirmed live at 320px (iPhone SE / budget-Android class width, the narrowest this PWA
+   still needs to support): the header's online/offline/syncing text label was the widest of
+   its 4 fixed-width controls and the header's screen title was truncating to lose real
+   information ("จัดการรายการยา" → "จัดการ…") because of it. The pill's own dot color + title
+   tooltip already carry the same status, so this is the one safe thing to drop first. Hiding
+   the label alone got it to "จัดการรายกา…" — still short by a couple characters — so the
+   header's own horizontal padding/gap (referenced via these vars in App.tsx) also tighten up
+   below this width, reclaiming the last bit of room the title needs. */
+@media (max-width: 340px) {
+  .status-label { display: none; }
+  :root { --header-pad-x: 10px; --header-gap: 6px; }
 }
 
 /* App-wide "elevated card" — every screen's list/section container uses this one class, so

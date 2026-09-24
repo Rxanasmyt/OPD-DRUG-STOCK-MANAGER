@@ -101,7 +101,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <header style={{ background: 'linear-gradient(155deg, #149c9a 0%, var(--green) 55%, var(--green-dark) 100%)', color: 'var(--ink-soft)', padding: 'calc(env(safe-area-inset-top, 0px) + 12px) 16px 13px', display: 'flex', alignItems: 'center', gap: 10, flex: 'none', boxShadow: '0 4px 14px -6px rgba(0,76,75,.5)', position: 'relative', overflow: 'hidden', zIndex: 3 }}>
+      <header style={{ background: 'linear-gradient(155deg, #149c9a 0%, var(--green) 55%, var(--green-dark) 100%)', color: 'var(--ink-soft)', padding: 'calc(env(safe-area-inset-top, 0px) + 12px) var(--header-pad-x) 13px', display: 'flex', alignItems: 'center', gap: 'var(--header-gap)', flex: 'none', boxShadow: '0 4px 14px -6px rgba(0,76,75,.5)', position: 'relative', overflow: 'hidden', zIndex: 3 }}>
         <div className="mesh-bg" aria-hidden="true" />
         {canBack ? (
           // Goes through the real browser history (see AppContext.tsx's popstate handler) rather
@@ -152,8 +152,15 @@ export default function App() {
           }
           style={{ position: 'relative', border: 0, background: !state.online ? 'var(--amber-bg)' : state.syncing ? 'var(--green-tint)' : 'rgba(255,255,255,.14)', color: !state.online ? 'var(--amber-ink)' : state.syncing ? 'var(--green)' : 'var(--ink-soft)', padding: '6px 9px', borderRadius: 8, fontSize: 11.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flex: 'none' }}
         >
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: !state.online ? 'var(--amber)' : state.syncing ? 'var(--green)' : '#5adc8c', display: 'inline-block', animation: state.online ? 'glowPulse 2.4s infinite' : 'none' }} />
-          {!state.online ? 'ออฟไลน์' : state.syncing ? 'กำลังซิงค์…' : 'ออนไลน์'}
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: !state.online ? 'var(--amber)' : state.syncing ? 'var(--green)' : '#5adc8c', display: 'inline-block', flex: 'none', animation: state.online ? 'glowPulse 2.4s infinite' : 'none' }} />
+          {/* Bug fix: confirmed live at a 320px viewport (the smallest phones this PWA still
+              needs to support) — four fixed-width header controls (back/crest, scan, theme,
+              this pill) left so little room for the title that it truncated to "จัดการ…"/
+              "รายงาน" losing the actual screen name. This label was the single widest of the
+              fixed elements and the least essential (the dot's color + this element's own
+              `title` tooltip already carry the same information) — hide it below 340px and
+              give that space back to the title instead. */}
+          <span className="status-label">{!state.online ? 'ออฟไลน์' : state.syncing ? 'กำลังซิงค์…' : 'ออนไลน์'}</span>
         </div>
       </header>
 
