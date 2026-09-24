@@ -8,11 +8,25 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
  *
  * Same "closes gracefully, not just vanishes mid-frame" fix as ConfirmDialog/Toast: keeps
  * rendering one more beat with an exit animation instead of hard-unmounting the instant `open`
- * flips false. `position: absolute; inset: 0` — same trick ConfirmDialog uses to cover the
- * WHOLE app shell (header + bottom nav too) despite being rendered deep inside a screen
- * component nested in <main>: with no `position` set on <main> itself, this element's
- * containing block resolves up to .app-shell's `position: relative`, so <main>'s own
- * `overflow-y: auto` never clips it.
+ * flips false.
+ *
+ * Bug fix (reported live: "จะแก้ไขรายการยาแต่ขึ้นแบบนี้ใช้ยากมาก" — a screenshot showed the sheet
+ * rendering as a small box overlapping the list instead of covering the screen). `position:
+ * absolute; inset: 0` is correct for reaching .app-shell's `position: relative` — the real fault
+ * was upstream: App.tsx wraps every screen's content in a `.nav-slide-fwd`/`.nav-slide-back` div
+ * for the slide transition (see styles.css), and that class's animation used to carry fill-mode
+ * `both`. The `forwards` half of `both` keeps an animation "applicable" to its element forever
+ * after it finishes playing, not just during its 220ms run — and per the CSS Transforms spec,
+ * any element an animation is still applying a `transform` to (even one whose value has settled
+ * on a harmless identity matrix, exactly what the `to` keyframe's `transform: none` produces)
+ * establishes a new containing block for `position: fixed`/`absolute` descendants. That silently
+ * intercepted `inset: 0` here — sized against the SCREEN's own full unscrolled content height
+ * (tens of thousands of pixels for a long list like MedsScreen's) instead of the viewport-sized
+ * .app-shell, stretching the backdrop to match and pushing the sheet card (bottom-aligned within
+ * it) far below the visible viewport. Fixed at the source (styles.css's `.nav-slide-fwd`/`-back`
+ * dropped the now-needless `both`) rather than here, since it silently broke `position: fixed`
+ * exactly the same way and would have broken any future absolutely/fixed-positioned element
+ * added to any screen, not just this component.
  *
  * Deliberately does NOT close automatically on outside-tap/✕ without going through `onClose` —
  * every real caller wires that to AppContext's confirmLeaveIfDirty() so a sheet holding unsaved

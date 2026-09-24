@@ -483,34 +483,52 @@ export default function MedsScreen() {
                   </button>
                 </div>
               </div>
-              <BottomSheet open={isEditing} onClose={async () => { if (await confirmLeaveIfDirty()) setEditingId(null); }} title={'แก้ไขข้อมูล: ' + m.name}>
-                <MedForm
-                  heading={null}
-                  initial={formFromMed(m)}
-                  submitLabel="บันทึกการแก้ไข"
-                  onCancel={() => setEditingId(null)}
-                  onSubmit={(v) => {
-                    updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined });
-                    setEditingId(null);
-                  }}
-                  // ยาชื่อเดียวกันที่แยกรายการไว้คนละ ward (คนละ Firestore doc ตามหลักการออกแบบ
-                  // เดิม) มักมีชั้นวางคนละที่ ให้แก้ชั้นวางของอีกฝั่งได้จากฟอร์มนี้เลยเพื่อความ
-                  // สะดวก โดยยังเป็นคนละ field ที่บันทึกแยก (setMedBin เขียนทันทีแบบ debounce
-                  // เหมือนช่องอื่นๆ) — ใช้ได้เฉพาะยาที่ "ยังไม่รวมสต็อก" เท่านั้น (ถ้ารวมแล้ว
-                  // isSharedMed(m) เป็น true ฟอร์มจะโชว์ชั้นวางสองรหัสของ record เดียวแทน ไม่ต้อง
-                  // หา sibling อีก — และ record คู่เดิมที่ปิดใช้งานไปหลังรวม ก็ไม่ควรโผล่มาให้แก้)
-                  sibling={isSharedMed(m) ? undefined : state.meds.find((x) => x.id !== m.id && x.active && x.name === m.name && wardOf(x) !== wardOf(m))}
-                  onSiblingBinChange={(siblingId, val) => setMedBin(siblingId, val)}
-                  onMerge={(siblingId) => mergeWardMeds(m.id, siblingId)}
-                  mergeBusy={!!state.busy['mergeWardMeds:' + m.id]}
-                />
-              </BottomSheet>
             </div>
           );
         })}
         {meds.length === 0 && <EmptyState icon="💊" title="ไม่พบยาที่ค้นหา" sub="ลองเปลี่ยนคำค้นหา หรือสลับตัวกรองสถานะ/หอผู้ป่วยด้านบน" />}
       </div>
       {meds.length > 150 && <div className="muted" style={{ fontSize: 11.5, textAlign: 'center', marginTop: 10 }}>แสดง 150 รายการแรก — ค้นหาชื่อยาเพื่อหารายการอื่น</div>}
+
+      {/* Bug fix (reported live: "จะแก้ไขรายการยาแต่ขึ้นแบบนี้ใช้ยากมาก" — screenshot showed the
+          edit sheet rendering as a small clipped box overlapping the list instead of a real
+          full-screen sheet). This one instance used to live INSIDE each row, inside the
+          `overflow: hidden` list card above — every other BottomSheet in this file/app (see
+          "เพิ่มยาใหม่" above) renders at the screen's top level instead, which is exactly what
+          makes BottomSheet's own position:absolute;inset:0 trick reach all the way up to
+          .app-shell (see its doc comment). Nested inside overflow:hidden, that trick still finds
+          the same faraway containing block, but the intervening overflow:hidden ancestor clips
+          the rendered box down to the list card's own small bounds — one instance shared across
+          rows, keyed by editingId, fixes it the same way addOpen's sheet already works right. */}
+      {(() => {
+        const editingMed = editingId ? state.meds.find((x) => x.id === editingId) : null;
+        if (!editingMed) return null;
+        const m = editingMed;
+        return (
+          <BottomSheet open={true} onClose={async () => { if (await confirmLeaveIfDirty()) setEditingId(null); }} title={'แก้ไขข้อมูล: ' + m.name}>
+            <MedForm
+              heading={null}
+              initial={formFromMed(m)}
+              submitLabel="บันทึกการแก้ไข"
+              onCancel={() => setEditingId(null)}
+              onSubmit={(v) => {
+                updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined });
+                setEditingId(null);
+              }}
+              // ยาชื่อเดียวกันที่แยกรายการไว้คนละ ward (คนละ Firestore doc ตามหลักการออกแบบ
+              // เดิม) มักมีชั้นวางคนละที่ ให้แก้ชั้นวางของอีกฝั่งได้จากฟอร์มนี้เลยเพื่อความ
+              // สะดวก โดยยังเป็นคนละ field ที่บันทึกแยก (setMedBin เขียนทันทีแบบ debounce
+              // เหมือนช่องอื่นๆ) — ใช้ได้เฉพาะยาที่ "ยังไม่รวมสต็อก" เท่านั้น (ถ้ารวมแล้ว
+              // isSharedMed(m) เป็น true ฟอร์มจะโชว์ชั้นวางสองรหัสของ record เดียวแทน ไม่ต้อง
+              // หา sibling อีก — และ record คู่เดิมที่ปิดใช้งานไปหลังรวม ก็ไม่ควรโผล่มาให้แก้)
+              sibling={isSharedMed(m) ? undefined : state.meds.find((x) => x.id !== m.id && x.active && x.name === m.name && wardOf(x) !== wardOf(m))}
+              onSiblingBinChange={(siblingId, val) => setMedBin(siblingId, val)}
+              onMerge={(siblingId) => mergeWardMeds(m.id, siblingId)}
+              mergeBusy={!!state.busy['mergeWardMeds:' + m.id]}
+            />
+          </BottomSheet>
+        );
+      })()}
     </div>
   );
 }
