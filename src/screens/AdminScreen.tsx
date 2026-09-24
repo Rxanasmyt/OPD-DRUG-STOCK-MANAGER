@@ -85,6 +85,21 @@ export default function AdminScreen() {
     .sort((a, b) => b.ts - a.ts)
     .slice(0, isHistory ? 300 : 80);
 
+  // Bug fix: this whole screen (user approval/role management + audit log) is admin-only by
+  // design — MoreScreen only ever shows its nav entry to an admin — but unlike MedsScreen/
+  // SettingsScreen (both similarly admin-gated features) it had no equivalent guard of its own,
+  // relying entirely on that nav entry staying hidden. Firestore rules still block the actual
+  // writes server-side, but a non-admin who reached this screen some other way (a stale bookmark,
+  // a future deep link) would see a fully interactive-looking user-management UI where every
+  // button click just silently round-trips and fails — same fix pattern as MedsScreen's !canEdit.
+  if (state.role !== 'admin') {
+    return (
+      <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
+        <div style={{ fontSize: 12.5, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 10, padding: '10px 12px' }}>เข้าหน้านี้ไม่ได้ — การจัดการผู้ใช้และ Audit log สงวนไว้สำหรับ Admin เท่านั้น</div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ animation: 'fade .18s' }}>
       <div style={{ display: 'flex', gap: 7, padding: '12px 14px 10px', overflowX: 'auto', position: 'sticky', top: 0, zIndex: 2 }} className="sticky-bar">

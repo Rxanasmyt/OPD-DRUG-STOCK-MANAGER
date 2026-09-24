@@ -52,7 +52,7 @@ export default function HomeScreen() {
           {myProfile?.role === 'admin' ? (
             <>
               <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 18 }}>กดเพื่อโหลดข้อมูลตั้งต้น — บัญชีเวชภัณฑ์ยา รพ.กรงปินัง 585 รายการ</div>
-              <button onClick={seedDatabase} className="btn-primary press-spring" style={{ padding: '13px 22px', borderRadius: 13, fontSize: 14, fontWeight: 700 }}>โหลดข้อมูลตั้งต้น</button>
+              <button onClick={seedDatabase} disabled={!!state.busy['seedDatabase']} className="btn-primary press-spring" style={{ padding: '13px 22px', borderRadius: 13, fontSize: 14, fontWeight: 700, opacity: state.busy['seedDatabase'] ? 0.7 : 1 }}>{state.busy['seedDatabase'] ? 'กำลังโหลด…' : 'โหลดข้อมูลตั้งต้น'}</button>
             </>
           ) : (
             <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6 }}>รอ Admin โหลดข้อมูลตั้งต้นเข้าระบบก่อนใช้งาน</div>
