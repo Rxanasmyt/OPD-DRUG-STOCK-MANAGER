@@ -4,6 +4,7 @@ import { nf, digitsOnly } from '../utils/format';
 import { wardOf, wardLabel, floorMinOf, toneFor, isSharedMed, categoryOf } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
 import { Badge } from '../components/Badge';
+import { BottomSheet } from '../components/BottomSheet';
 import { Qty } from '../components/Qty';
 import type { Med, Ward } from '../types';
 import { EmptyState } from '../components/EmptyState';
@@ -126,7 +127,7 @@ function formFromMed(m: Med): MedFormValues {
 }
 
 export default function MedsScreen() {
-  const { state, sub, addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, setMedBin, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId, openScanSearch } = useApp();
+  const { state, sub, addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, setMedBin, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId, openScanSearch, confirmLeaveIfDirty } = useApp();
   // Real-world request: editing the master drug record is Admin-only now (was pharm+admin).
   const canEdit = state.role === 'admin';
   const [q, setQ] = useState('');
@@ -281,13 +282,25 @@ export default function MedsScreen() {
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <button onClick={() => { setAddOpen((v) => !v); setEditingId(null); }} className="btn-primary" style={{ flex: 1, padding: 13, borderRadius: 11, fontSize: 14, fontWeight: 600, minHeight: 48 }}>+ เพิ่มยาใหม่</button>
+        <button
+          onClick={async () => {
+            // Closing an already-open add form, or switching away from an open (possibly
+            // dirty) edit form, both go through the same confirm gate as everywhere else.
+            if (!(await confirmLeaveIfDirty())) return;
+            setAddOpen((v) => !v);
+            setEditingId(null);
+          }}
+          className="btn-primary"
+          style={{ flex: 1, padding: 13, borderRadius: 11, fontSize: 14, fontWeight: 600, minHeight: 48 }}
+        >
+          + เพิ่มยาใหม่
+        </button>
         <button onClick={() => openScanSearch('viewMed')} className="btn-outline" style={{ flex: 'none', padding: '13px 16px', borderRadius: 11, fontSize: 17, minHeight: 48 }} title="สแกน QR ดูข้อมูลยา" aria-label="สแกน QR ดูข้อมูลยา">▣</button>
       </div>
 
-      {addOpen && (
+      <BottomSheet open={addOpen} onClose={async () => { if (await confirmLeaveIfDirty()) setAddOpen(false); }} title="เพิ่มยาใหม่">
         <MedForm
-          heading="เพิ่มยาใหม่"
+          heading={null}
           initial={blankForm()}
           submitLabel="บันทึก"
           onCancel={() => setAddOpen(false)}
@@ -296,7 +309,7 @@ export default function MedsScreen() {
             setAddOpen(false);
           }}
         />
-      )}
+      </BottomSheet>
 
       {/* Bug fix (clarity): "OPD"/"IPD" used to each silently include every shared med too (see
           wardCounts's doc comment above) — split into 4 non-overlapping groups so each tab's
@@ -427,7 +440,7 @@ export default function MedsScreen() {
                     </div>
                     {m.active && (
                       <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                        หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={11} /> · substock {nf(sub(m.id))} {m.unit}
+                        หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={11} /> · substock <Qty value={sub(m.id)} unit={m.unit} size={11} />
                         {/* Only surfaced under the Max=Min=1 diagnostic filter above — showing
                             the actual numbers right on the row is the whole point of that
                             filter (spot them without opening each edit form one by one). */}
@@ -462,30 +475,28 @@ export default function MedsScreen() {
                   </button>
                 </div>
               </div>
-              {isEditing && (
-                <div style={{ padding: '0 13px 14px' }}>
-                  <MedForm
-                    heading={null}
-                    initial={formFromMed(m)}
-                    submitLabel="บันทึกการแก้ไข"
-                    onCancel={() => setEditingId(null)}
-                    onSubmit={(v) => {
-                      updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined });
-                      setEditingId(null);
-                    }}
-                    // ยาชื่อเดียวกันที่แยกรายการไว้คนละ ward (คนละ Firestore doc ตามหลักการออกแบบ
-                    // เดิม) มักมีชั้นวางคนละที่ ให้แก้ชั้นวางของอีกฝั่งได้จากฟอร์มนี้เลยเพื่อความ
-                    // สะดวก โดยยังเป็นคนละ field ที่บันทึกแยก (setMedBin เขียนทันทีแบบ debounce
-                    // เหมือนช่องอื่นๆ) — ใช้ได้เฉพาะยาที่ "ยังไม่รวมสต็อก" เท่านั้น (ถ้ารวมแล้ว
-                    // isSharedMed(m) เป็น true ฟอร์มจะโชว์ชั้นวางสองรหัสของ record เดียวแทน ไม่ต้อง
-                    // หา sibling อีก — และ record คู่เดิมที่ปิดใช้งานไปหลังรวม ก็ไม่ควรโผล่มาให้แก้)
-                    sibling={isSharedMed(m) ? undefined : state.meds.find((x) => x.id !== m.id && x.active && x.name === m.name && wardOf(x) !== wardOf(m))}
-                    onSiblingBinChange={(siblingId, val) => setMedBin(siblingId, val)}
-                    onMerge={(siblingId) => mergeWardMeds(m.id, siblingId)}
-                    mergeBusy={!!state.busy['mergeWardMeds:' + m.id]}
-                  />
-                </div>
-              )}
+              <BottomSheet open={isEditing} onClose={async () => { if (await confirmLeaveIfDirty()) setEditingId(null); }} title={'แก้ไขข้อมูล: ' + m.name}>
+                <MedForm
+                  heading={null}
+                  initial={formFromMed(m)}
+                  submitLabel="บันทึกการแก้ไข"
+                  onCancel={() => setEditingId(null)}
+                  onSubmit={(v) => {
+                    updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined });
+                    setEditingId(null);
+                  }}
+                  // ยาชื่อเดียวกันที่แยกรายการไว้คนละ ward (คนละ Firestore doc ตามหลักการออกแบบ
+                  // เดิม) มักมีชั้นวางคนละที่ ให้แก้ชั้นวางของอีกฝั่งได้จากฟอร์มนี้เลยเพื่อความ
+                  // สะดวก โดยยังเป็นคนละ field ที่บันทึกแยก (setMedBin เขียนทันทีแบบ debounce
+                  // เหมือนช่องอื่นๆ) — ใช้ได้เฉพาะยาที่ "ยังไม่รวมสต็อก" เท่านั้น (ถ้ารวมแล้ว
+                  // isSharedMed(m) เป็น true ฟอร์มจะโชว์ชั้นวางสองรหัสของ record เดียวแทน ไม่ต้อง
+                  // หา sibling อีก — และ record คู่เดิมที่ปิดใช้งานไปหลังรวม ก็ไม่ควรโผล่มาให้แก้)
+                  sibling={isSharedMed(m) ? undefined : state.meds.find((x) => x.id !== m.id && x.active && x.name === m.name && wardOf(x) !== wardOf(m))}
+                  onSiblingBinChange={(siblingId, val) => setMedBin(siblingId, val)}
+                  onMerge={(siblingId) => mergeWardMeds(m.id, siblingId)}
+                  mergeBusy={!!state.busy['mergeWardMeds:' + m.id]}
+                />
+              </BottomSheet>
             </div>
           );
         })}

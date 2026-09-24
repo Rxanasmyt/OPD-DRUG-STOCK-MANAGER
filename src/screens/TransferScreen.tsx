@@ -202,7 +202,7 @@ export default function TransferScreen() {
                     {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
                   </div>
                   <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>
-                    หน้างาน <Qty value={m.floor} unit={m.unit} tone={toneFor(m)} size={12.5} /> · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock {nf(sub(m.id))} / par {nf(m.parSub)} {m.unit}
+                    หน้างาน <Qty value={m.floor} unit={m.unit} tone={toneFor(m)} size={12.5} /> · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock <Qty value={sub(m.id)} size={12.5} /> / par {nf(m.parSub)} {m.unit}
                   </div>
                   {/* Same at-a-glance floor-vs-par bar HomeScreen's low-stock list already uses
                       — brought here too so the screen someone actually works from all day shows

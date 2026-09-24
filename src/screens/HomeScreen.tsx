@@ -217,7 +217,7 @@ export default function HomeScreen() {
                 {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
               </div>
               <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
-                หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={12.5} /> · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock {nf(sub(m.id))} {m.unit}
+                หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={12.5} /> · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock <Qty value={sub(m.id)} unit={m.unit} size={12.5} />
               </div>
               <div className="bar-track" style={{ height: 4, background: 'var(--border-soft)', borderRadius: 2, marginTop: 6 }}>
                 <div className="bar-fill" style={{ height: '100%', transform: 'scaleX(' + Math.max(3, Math.min(100, Math.round((m.floor / Math.max(1, m.parFloor)) * 100))) / 100 + ')', background: toneFor(m), borderRadius: 2 }} />

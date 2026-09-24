@@ -6,6 +6,7 @@ import { Qty } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
 import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
+import { NumberStepper } from '../components/NumberStepper';
 import type { AdjType } from '../types';
 
 const TYPES: [AdjType, string, string][] = [
@@ -136,7 +137,7 @@ export default function AdjustScreen() {
               )}
               <label style={{ display: 'block', marginBottom: 9 }}>
                 <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{QTY_LABEL[state.adjType]} ({adjMed.unit})</span>
-                <input value={state.adjQty} onChange={(e) => setAdjQty(e.target.value)} inputMode="numeric" style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 10, padding: 12, fontSize: 17, fontWeight: 600, minHeight: 48 }} />
+                <NumberStepper value={state.adjQty} onChange={setAdjQty} unit={adjMed.unit} />
               </label>
               <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>เหตุผล (บังคับ)</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 9 }}>

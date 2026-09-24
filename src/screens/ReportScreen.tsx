@@ -4,6 +4,7 @@ import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dail
 import { nf, thDate, isoDate, DAY } from '../utils/format';
 import type { ReportTab, DailyMetrics } from '../types';
 import { EmptyState } from '../components/EmptyState';
+import { SkeletonList } from '../components/Skeleton';
 import { SearchInput } from '../components/SearchInput';
 import { printKpiReportSheet } from '../utils/print';
 
@@ -443,12 +444,21 @@ export default function ReportScreen() {
             </div>
             {kpiFrom > kpiTo && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>"จากวันที่" ต้องไม่มากกว่า "ถึงวันที่"</div>}
 
+            {/* First-ever fetch (no stale rows to fall back on yet) — a shape that already
+                looks like the report loading beats a blank gap under the button's own
+                "กำลังโหลด…" label. */}
+            {kpiLoading && !kpiLoaded && <SkeletonList rows={6} />}
+
             {kpiLoaded && !kpiLoading && kpiRows.length === 0 && (
               <EmptyState icon="📅" title="ยังไม่มีข้อมูลในช่วงนี้" sub="ระบบเก็บ snapshot วันละ 1 ครั้งอัตโนมัติ — ถ้าเพิ่งเริ่มใช้ระบบนี้ ให้รอสักวันหรือลองเลือกช่วงวันที่ใหม่กว่านี้" />
             )}
 
             {kpiRows.length > 0 && (
-              <>
+              // Bug fix: picking a new date range and re-fetching used to leave the PREVIOUS
+              // range's numbers sitting there looking perfectly fresh while a new request was
+              // actually in flight — dim + disable interaction so a stale table never reads as
+              // current.
+              <div style={{ opacity: kpiLoading ? 0.45 : 1, pointerEvents: kpiLoading ? 'none' : undefined, transition: 'opacity .15s var(--ease-out)' }}>
                 <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
                   <button
                     onClick={() => exportDailyMetricsCsv(kpiRows)}
@@ -515,7 +525,7 @@ export default function ReportScreen() {
                   "มูลค่าคงคลัง" ของแต่ละวันบันทึกจากยอดจริง ณ ตอนที่ระบบเก็บ snapshot (หลังเที่ยงคืนของวันนั้น) —
                   ส่วน "จ่ายจริง/par ผิด/ผู้ใช้" อ้างอิงประวัติธุรกรรมจริงของวันนั้นเสมอ ถูกต้องไม่ว่าจะดูย้อนหลังไปนานแค่ไหน
                 </div>
-              </>
+              </div>
             )}
           </>
         )}
