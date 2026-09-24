@@ -317,6 +317,15 @@ export function printPickListSheet(
   subheading: string,
   colLabels: { bin: string; qty: string } = { bin: 'ชั้น', qty: 'จำนวนที่ต้องหยิบ' },
   meta: { printedBy?: string } = {},
+  // Bug fix: all three callers (ใบจัดยาเติมชั้น, ใบเติมหน้างานประจำวัน, ใบขอเบิกจากคลังใหญ่) used
+  // to share the same hardcoded 3-signature block ("ผู้จัดทำรายการ" / "ผู้ตรวจสอบ / ผู้รับของ" /
+  // "ผู้อนุมัติ") — correct for the two floor-fill checklists (someone picks off the substock
+  // shelf, someone confirms the shelf now holds it, a supervisor signs off — all done here, same
+  // day), but wrong for the warehouse requisition: that document leaves this pharmacy and goes TO
+  // the central warehouse, whose own staff release the stock — "ผู้รับของ" reads as if receiving
+  // already happened, when this sheet is only the outgoing request. Made overridable per document
+  // type instead of a one-size label set that doesn't fit its own use.
+  signoffLabels: [string, string, string] = ['ผู้จัดทำรายการ', 'ผู้ตรวจสอบ / ผู้รับของ', 'ผู้อนุมัติ'],
 ): boolean {
   const sorted = rows.slice().sort((a, b) => a.bin.localeCompare(b.bin));
   const now = Date.now();
@@ -397,9 +406,9 @@ export function printPickListSheet(
       <tbody>${body}</tbody>
     </table>
     <div class="signoff">
-      <div class="sig"><div class="line"></div><div class="lbl">ผู้จัดทำรายการ</div><div class="date">วันที่ ____ /____ /______</div></div>
-      <div class="sig"><div class="line"></div><div class="lbl">ผู้ตรวจสอบ / ผู้รับของ</div><div class="date">วันที่ ____ /____ /______</div></div>
-      <div class="sig"><div class="line"></div><div class="lbl">ผู้อนุมัติ</div><div class="date">วันที่ ____ /____ /______</div></div>
+      <div class="sig"><div class="line"></div><div class="lbl">${escapeHtml(signoffLabels[0])}</div><div class="date">วันที่ ____ /____ /______</div></div>
+      <div class="sig"><div class="line"></div><div class="lbl">${escapeHtml(signoffLabels[1])}</div><div class="date">วันที่ ____ /____ /______</div></div>
+      <div class="sig"><div class="line"></div><div class="lbl">${escapeHtml(signoffLabels[2])}</div><div class="date">วันที่ ____ /____ /______</div></div>
     </div>
   </div>
   <script>window.onload = function () { window.print(); };</script>
@@ -442,7 +451,12 @@ export function printSubstockCardSheet(
   // row) gives the ledger a starting point the way a real ยอดยกมา line does, and `liveBalance`
   // — when it disagrees with the ledger's own last balance — lets the sheet say so itself
   // instead of only the on-screen mismatch banner knowing.
-  meta: { totals?: { received: number; dispensed: number }; openingBalance?: number; liveBalance?: number } = {},
+  // Bug fix (accountability/consistency): every other official sheet in this file
+  // (printPickListSheet/printExecutiveSummarySheet/printKpiReportSheet) names who printed it —
+  // this one, the actual replacement for the hand-written stock card someone can be asked to
+  // produce for an audit, never did. Optional so every existing call site (no meta.printedBy
+  // passed) still prints exactly as before, just showing "—" where the name would go.
+  meta: { totals?: { received: number; dispensed: number }; openingBalance?: number; liveBalance?: number; printedBy?: string } = {},
 ): boolean {
   const now = new Date();
   // Defaults to today's fiscal year (the original single-year behavior), but the substock
@@ -592,7 +606,7 @@ export function printSubstockCardSheet(
         </div>${!tie ? '<div class="note">หมายเหตุ: ยอดคงเหลือทั้งสองรายการข้างต้นไม่สอดคล้องกัน โปรดตรวจสอบรายละเอียดเพิ่มเติมในระบบบันทึกการตรวจสอบ (Audit Log)</div>' : ''}`;
       })() : ''}
       ${hasNegative ? '<div class="note">หมายเหตุ: ยอดคงเหลือในรายการนี้คำนวณจากประวัติการทำธุรกรรมภายในระบบเท่านั้น ปรากฏเป็นจำนวนติดลบเนื่องจากมีสต็อกยกยอดเริ่มต้นหรือรายการก่อนการบันทึกข้อมูลในระบบซึ่งไม่ปรากฏในประวัตินี้ มิใช่ยอดคงเหลือที่แท้จริงบนชั้นวาง โปรดตรวจสอบยอดคงเหลือที่แท้จริงผ่านหน้าจอ "บัตรสต็อก substock" เท่านั้น</div>' : ''}
-      <div class="foot"><span>ห้องยา ${med.ward === 'ipd' ? 'IPD' : 'OPD'} · รพ.กรงปินัง</span><span>จัดพิมพ์จากระบบเมื่อวันที่ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
+      <div class="foot"><span>ห้องยา ${med.ward === 'ipd' ? 'IPD' : 'OPD'} · รพ.กรงปินัง · จัดพิมพ์โดย: ${escapeHtml(meta.printedBy || '—')}</span><span>จัดพิมพ์จากระบบเมื่อวันที่ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
     </div>
   </div>
   <script>window.onload = function () { window.print(); };</script>

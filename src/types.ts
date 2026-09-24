@@ -50,6 +50,11 @@ export interface Med {
   // ยาน้ำ/ยาพ่นบางตัวไม่มีขั้น substock เลย — เบิกจากคลังใหญ่มาลงชั้นวางหน้างานตรง ๆ. Toggled
   // per med (see MedsScreen), not a whole drug-class rule, since it varies item by item.
   noSubstock?: boolean;
+  // จำนวนหน่วยต่อกล่อง/แพ็ค สำหรับยาที่ต้องเบิกเป็นกล่องเท่านั้น (เบิกเข้า substock จากคลังใหญ่,
+  // หรือเติมยาหน้างานจาก substock) — เมื่อตั้งค่านี้ไว้ จำนวนที่ระบบแนะนำ/บวกลบทีละขั้นจะปัดขึ้นให้
+  // ลงตัวเป็นกล่องเสมอ (ดู packStep()/suggestTransferQty() ใน selectors.ts) แทนขั้นทั่วไปแบบ
+  // 1/10/100 ตามขนาดตัวเลข. Optional — ยาส่วนใหญ่เบิกเป็นเม็ด/ชิ้นเดี่ยว ไม่มีขนาดกล่องบังคับ.
+  packSize?: number;
   // `shared: true` = OPD and IPD draw on the SAME physical pool for this drug (the real
   // workflow for most one-day-dose meds: IPD pulls straight off the OPD shelf) — one
   // floor/par/lots/used30 serves both, and it shows up under both ward tabs. Set either by

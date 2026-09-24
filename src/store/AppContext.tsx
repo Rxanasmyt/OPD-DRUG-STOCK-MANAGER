@@ -12,7 +12,7 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -297,8 +297,8 @@ export interface AppCtx {
   updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => void;
 
   // meds (formulary) management
-  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string }) => void;
-  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string }) => void;
+  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }) => void;
+  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }) => void;
   /** Merges an existing OPD/IPD ward-pair (same name, one 'opd' one 'ipd' record) into a
    * single pooled record — see Med.binIpd. Survives as the OPD-ward record with the IPD
    * record's bin code carried over as `binIpd`; floor/used30/usedPrev30 are summed (not
@@ -1127,7 +1127,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const m = st.meds.find((x) => x.id === id);
       if (!m) return st;
       const cap = subQty(st, id);
-      const step = m.parFloor >= 500 ? 100 : m.parFloor >= 100 ? 10 : 1;
+      const step = packStep(m);
       const cur = st.cart[id] || 0;
       let v = cur === 0 && d > 0 ? suggestTransferQty(st, m) : cur + d * step;
       v = Math.max(0, Math.min(cap, v));
@@ -1237,7 +1237,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // itself when that cap bit, so picking every row here still won't quietly leave the
         // shelf under par; the person carrying this sheet should know to also flag it for
         // the next "เบิกจากคลังใหญ่" run instead of assuming the job's done.
-        const note = qty < need ? 'substock เหลือไม่พอเติมเต็ม par (ขาดอีก ' + nf(need - qty) + ' ' + m.unit + ')' : undefined;
+        const shortNote = qty < need ? 'substock เหลือไม่พอเติมเต็ม par (ขาดอีก ' + nf(need - qty) + ' ' + m.unit + ')' : undefined;
+        const boxNote = m.packSize && m.packSize > 1 ? 'เบิกเป็นกล่อง กล่องละ ' + nf(m.packSize) + ' ' + m.unit + ' (' + nf(qty / m.packSize) + ' กล่อง)' : undefined;
+        const note = [boxNote, shortNote].filter(Boolean).join(' · ') || undefined;
         return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note };
       })
       .filter((r) => r.qty > 0);
@@ -1274,10 +1276,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!items.length) { toast('ทุกรายการยังสูงกว่า par — ยังไม่ต้องเบิกเพิ่ม'); return; }
     const rows = items.map((m) => {
       const short = usesSubstock(m);
-      const qty = Math.max(0, (short ? m.parSub - subQty(state, m.id) : m.parFloor - m.floor));
-      return { bin: m.code, name: m.name + (short ? '' : ' (ไม่มี substock)'), qty, unit: m.unit };
+      const need = Math.max(0, (short ? m.parSub - subQty(state, m.id) : m.parFloor - m.floor));
+      // Round the raw shortfall up to a whole multiple of this med's requisition step — for a
+      // box-only med (Med.packSize set) that's real box count, never a fractional box; for
+      // everything else it's the same generic magnitude step packStep() already falls back to.
+      const step = packStep(m);
+      const qty = Math.ceil(need / step) * step;
+      const note = m.packSize && m.packSize > 1 ? 'เบิกเป็นกล่อง กล่องละ ' + nf(m.packSize) + ' ' + m.unit + ' (' + nf(qty / m.packSize) + ' กล่อง)' : undefined;
+      return { bin: m.code, name: m.name + (short ? '' : ' (ไม่มี substock)'), qty, unit: m.unit, note };
     });
-    const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการยาที่มีปริมาณคงคลังต่ำกว่าเกณฑ์มาตรฐาน (Par) ทั้งระบบ รวมถึงรายการยาที่ไม่มีการสำรองคลังย่อย (Substock)', { bin: 'รหัสยา', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() });
+    const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการยาที่มีปริมาณคงคลังต่ำกว่าเกณฑ์มาตรฐาน (Par) ทั้งระบบ รวมถึงรายการยาที่ไม่มีการสำรองคลังย่อย (Substock)', { bin: 'รหัสยา', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() }, ['ผู้จัดทำคำขอ (ห้องยา)', 'ผู้อนุมัติคำขอ (ห้องยา)', 'ผู้จ่ายยา (คลังใหญ่)']);
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state, toast, userName]);
 
@@ -2237,7 +2245,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [canEditMeds, logAudit, toast]);
 
   // ---------- meds (formulary) management ----------
-  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string }) => {
+  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }) => {
     if (!canEditMeds) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
@@ -2286,6 +2294,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ...(binIpd ? { binIpd } : {}),
           ...(binSub ? { binSub } : {}),
           ...(input.category ? { category: input.category } : {}),
+          ...(input.packSize && input.packSize > 1 ? { packSize: Math.round(input.packSize) } : {}),
         });
         return c;
       });
@@ -2299,7 +2308,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // price, high-alert flag, shelf/bin, and both par levels — instead of hunting across
   // separate screens. `code` (the QR/label identifier) is deliberately never touched here —
   // labels already printed with it must keep resolving to this med.
-  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string }) => {
+  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }) => {
     if (!canEditMeds) return;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return; }
@@ -2321,6 +2330,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       binIpd: binIpd ? binIpd : deleteField(),
       binSub: binSub ? binSub : deleteField(),
       category: input.category ? input.category : deleteField(),
+      packSize: input.packSize && input.packSize > 1 ? Math.round(input.packSize) : deleteField(),
     };
     try {
       await withTimeout(updateDoc(doc(db, 'meds', medId), patch));

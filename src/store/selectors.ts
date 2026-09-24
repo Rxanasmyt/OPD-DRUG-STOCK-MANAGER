@@ -345,9 +345,20 @@ export function roundStep(v: number): number {
   return Math.max(step, Math.ceil(v / step) * step);
 }
 
+/** The whole-number step any requisition quantity for this med must land on — either its real
+ * box/pack size (Med.packSize, when the drug can only be ordered/received in whole boxes) or,
+ * for everything else, the same generic magnitude-based step roundStep() already uses (1/10/100
+ * depending on how big Max is). Shared by suggestTransferQty() below (เติมยาหน้างาน) and the
+ * central-warehouse requisition list (printWarehouseRequestList, AppContext.tsx) so a product's
+ * box size is honored everywhere a quantity gets suggested, not just one screen. */
+export function packStep(m: Med): number {
+  if (m.packSize && m.packSize > 1) return m.packSize;
+  return m.parFloor >= 500 ? 100 : m.parFloor >= 100 ? 10 : 1;
+}
+
 export function suggestTransferQty(state: AppState, m: Med): number {
   const need = Math.max(0, m.parFloor - m.floor);
-  const step = m.parFloor >= 500 ? 100 : m.parFloor >= 100 ? 10 : 1;
+  const step = packStep(m);
   return Math.min(subQty(state, m.id), Math.ceil(need / step) * step);
 }
 
