@@ -317,6 +317,15 @@ export function printPickListSheet(
   subheading: string,
   colLabels: { bin: string; qty: string } = { bin: 'ชั้น', qty: 'จำนวนที่ต้องหยิบ' },
   meta: { printedBy?: string } = {},
+  // Bug fix: all three callers (ใบจัดยาเติมชั้น, ใบเติมหน้างานประจำวัน, ใบขอเบิกจากคลังใหญ่) used
+  // to share the same hardcoded 3-signature block ("ผู้จัดทำรายการ" / "ผู้ตรวจสอบ / ผู้รับของ" /
+  // "ผู้อนุมัติ") — correct for the two floor-fill checklists (someone picks off the substock
+  // shelf, someone confirms the shelf now holds it, a supervisor signs off — all done here, same
+  // day), but wrong for the warehouse requisition: that document leaves this pharmacy and goes TO
+  // the central warehouse, whose own staff release the stock — "ผู้รับของ" reads as if receiving
+  // already happened, when this sheet is only the outgoing request. Made overridable per document
+  // type instead of a one-size label set that doesn't fit its own use.
+  signoffLabels: [string, string, string] = ['ผู้จัดทำรายการ', 'ผู้ตรวจสอบ / ผู้รับของ', 'ผู้อนุมัติ'],
 ): boolean {
   const sorted = rows.slice().sort((a, b) => a.bin.localeCompare(b.bin));
   const now = Date.now();
@@ -397,9 +406,9 @@ export function printPickListSheet(
       <tbody>${body}</tbody>
     </table>
     <div class="signoff">
-      <div class="sig"><div class="line"></div><div class="lbl">ผู้จัดทำรายการ</div><div class="date">วันที่ ____ /____ /______</div></div>
-      <div class="sig"><div class="line"></div><div class="lbl">ผู้ตรวจสอบ / ผู้รับของ</div><div class="date">วันที่ ____ /____ /______</div></div>
-      <div class="sig"><div class="line"></div><div class="lbl">ผู้อนุมัติ</div><div class="date">วันที่ ____ /____ /______</div></div>
+      <div class="sig"><div class="line"></div><div class="lbl">${escapeHtml(signoffLabels[0])}</div><div class="date">วันที่ ____ /____ /______</div></div>
+      <div class="sig"><div class="line"></div><div class="lbl">${escapeHtml(signoffLabels[1])}</div><div class="date">วันที่ ____ /____ /______</div></div>
+      <div class="sig"><div class="line"></div><div class="lbl">${escapeHtml(signoffLabels[2])}</div><div class="date">วันที่ ____ /____ /______</div></div>
     </div>
   </div>
   <script>window.onload = function () { window.print(); };</script>
