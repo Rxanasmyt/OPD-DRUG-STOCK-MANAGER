@@ -50,6 +50,28 @@ const LEADING_PUNCT = /^[.,;:\-–]+\s*/;
 // Latin (mg/mcg/g/ml/iu) and Thai (มก./มล./มคก.) unit spellings via the ก-๙ range.
 const DOSE_DUP = /(\d+(?:\.\d+)?\s*[a-zA-Zก-๙]+)\.?\s+\1\.?\b/gi;
 
+// Bug fix (reported live, still happening after the DOSE_DUP fix above): a different but
+// related real pattern in this formulary's data types the strength TWICE, but not adjacently —
+// once glued to the FRONT of the name (before the generic name even starts) and once in its
+// normal trailing position — e.g. "25 mg CARVEDILOL - PL 25 mg. เม็ด", "10 mg. AMLODIPINE 10
+// mg. เม็ด", "500 mg. FUROSEMIDE tab (Lasix) - PL 500 mg. เม็ด" (see med_list.csv — 5+ real
+// rows). DOSE_DUP alone can't catch these: the two occurrences aren't adjacent, they're
+// separated by the whole generic name (and sometimes a "- PL" list-code and/or a parenthetical
+// brand name too) — by design DOSE_DUP only ever collapses an immediately-repeated run, since a
+// genuinely non-adjacent repeat (two independent mentions) must NOT be touched in general. This
+// is narrower and safe specifically BECAUSE it only fires when the string starts with a dose —
+// a generic drug name is never itself a bare number (see splitTitleForDisplay's own doc comment
+// on that same invariant), so a leading "<number> <unit>" is never part of the actual name; it's
+// always noise. Strip it whenever the identical dose also appears later in the string (its real,
+// canonical position, matching every other formulary entry) — leaves a differently-valued
+// leading number/dose (a legitimately different case, if one ever exists) untouched.
+// Number and unit captured separately (not as one \s*-joined group) so the lookahead's \1\s*\2
+// re-joins them with its OWN flexible \s* — this formulary has at least one real row with a
+// stray double space in the leading dose ("40  mg PROPRANOLOL...") that isn't repeated verbatim
+// in the trailing "40 mg.", which a single combined capture+backreference would (and initially
+// did, when this was first written) fail to match.
+const LEADING_DOSE_DUP = /^(\d+(?:\.\d+)?)\s*([a-zA-Zก-๙]+)\.?\s+(?=.*\b\1\s*\2\.?\b)/i;
+
 /** ALL-CAPS Latin text (common in this formulary, e.g. "MAGNESIUM SULFATE") runs noticeably
  * wider per character than mixed case — weight the length estimate up when a name has no
  * lowercase letter at all, so it doesn't get sized as if it were narrower than it renders. */
@@ -156,10 +178,14 @@ export function fitSingleLineFontSizePx(
 export function shortLabelName(raw: string): string {
   const trimmedRaw = raw.trim();
   if (!trimmedRaw) return trimmedRaw;
-  // Every parenthetical aside first — a brand name ("(Levophed)"), a packaging note
+  // Strip a leading dose that's also duplicated later in the string (see LEADING_DOSE_DUP's doc
+  // comment) before anything else — has to run on the untouched raw string so its lookahead
+  // still sees the later occurrence exactly as typed.
+  let s = trimmedRaw.replace(LEADING_DOSE_DUP, '');
+  // Every parenthetical aside next — a brand name ("(Levophed)"), a packaging note
   // ("(2 mL.)"), whatever's inside — replaced with a space (not deleted outright) so
   // "Name(Brand) 5 mg" doesn't glue into "Name5 mg" once it's gone.
-  let s = trimmedRaw.replace(/\s*\([^()]*\)\s*/g, ' ');
+  s = s.replace(/\s*\([^()]*\)\s*/g, ' ');
   // Collapse a strength typed twice in the source name (see DOSE_DUP's doc comment) before the
   // noise-word pass — run it twice since two adjacent dupes only ever overlap pairwise (a global
   // regex can't match two overlapping occurrences in one pass).

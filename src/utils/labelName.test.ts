@@ -51,7 +51,10 @@ describe('shortLabelName — noise-word/paren stripping (name+strength only)', (
     // Real formulary pattern: "<name> - PL <strength>" — a HIGH ALERT drug in this exact shape
     // prompted the request ("MORPHINE - PL 10 mg./ml" reads far worse than "MORPHINE 10 mg./ml").
     expect(shortLabelName('MORPHINE - PL 10 mg./ml')).toBe('MORPHINE 10 mg./ml');
-    expect(shortLabelName('25 mg CARVEDILOL - PL 25 mg. เม็ด')).toBe('25 mg CARVEDILOL 25 mg');
+    // Real printed-label report: the leading "25 mg" here is a duplicate of the trailing one —
+    // see LEADING_DOSE_DUP's doc comment — so both the PL marker AND the leading dose go, only
+    // the canonical trailing strength survives.
+    expect(shortLabelName('25 mg CARVEDILOL - PL 25 mg. เม็ด')).toBe('CARVEDILOL 25 mg');
   });
 
   it('strips a non-trailing parenthetical (brand name), not just a trailing one', () => {
@@ -113,9 +116,25 @@ describe('shortLabelName — noise-word/paren stripping (name+strength only)', (
     expect(shortLabelName('Depakine 200 mg 200 mg. เม็ด')).toBe('Depakine 200 mg');
     expect(shortLabelName('Utrogestan 100 mg 100 mg เม็ด')).toBe('Utrogestan 100 mg');
     expect(shortLabelName('Clotrimazole VAGINAL 500 mg 500 mg เม็ด (VG)')).toBe('Clotrimazole VAGINAL 500 mg');
-    // Not adjacent — e.g. a "PL" list-code sitting between the two — must NOT be collapsed;
-    // only an immediately-repeated run is a real duplicate, not two independent mentions.
-    expect(shortLabelName('25 mg CARVEDILOL - PL 25 mg. เม็ด')).toBe('25 mg CARVEDILOL 25 mg');
+    // A non-adjacent repeat where the FIRST occurrence isn't a leading prefix (something real
+    // sits before it) is a different case — see LEADING_DOSE_DUP below for the one that is.
+  });
+
+  it('strips a dose duplicated as a leading prefix, not just an adjacent repeat (found in real formulary data, printed as-is on shelf labels)', () => {
+    // Real printed-label report, distinct from the adjacent-repeat case above: the SAME dose is
+    // typed once glued to the front of the name (before the generic name even starts) and once
+    // in its normal trailing position, with the generic name — and sometimes a "PL" list-code or
+    // a parenthetical brand name too — sitting in between. DOSE_DUP (adjacent-only, above) can't
+    // reach these; only a leading occurrence that repeats later is safe to strip on its own.
+    expect(shortLabelName('25 mg CARVEDILOL - PL 25 mg. เม็ด')).toBe('CARVEDILOL 25 mg');
+    expect(shortLabelName('10 mg. AMLODIPINE 10 mg. เม็ด')).toBe('AMLODIPINE 10 mg');
+    // Real row has a stray double space between the leading number and unit ("40  mg") that
+    // isn't repeated verbatim in the trailing "40 mg." — must still match.
+    expect(shortLabelName('40  mg PROPRANOLOL - PL 40 mg. เม็ด')).toBe('PROPRANOLOL 40 mg');
+    expect(shortLabelName('500 mg. FUROSEMIDE tab (Lasix) - PL 500 mg. เม็ด')).toBe('FUROSEMIDE 500 mg');
+    // A leading dose with no later repeat is a different case (nothing to prove it's a
+    // duplicate rather than a genuinely unusual name) — must NOT be touched.
+    expect(shortLabelName('25 mg CARVEDILOL only once')).toBe('25 mg CARVEDILOL only once');
   });
 });
 
