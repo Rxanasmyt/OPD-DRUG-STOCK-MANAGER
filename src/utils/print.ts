@@ -451,7 +451,12 @@ export function printSubstockCardSheet(
   // row) gives the ledger a starting point the way a real ยอดยกมา line does, and `liveBalance`
   // — when it disagrees with the ledger's own last balance — lets the sheet say so itself
   // instead of only the on-screen mismatch banner knowing.
-  meta: { totals?: { received: number; dispensed: number }; openingBalance?: number; liveBalance?: number } = {},
+  // Bug fix (accountability/consistency): every other official sheet in this file
+  // (printPickListSheet/printExecutiveSummarySheet/printKpiReportSheet) names who printed it —
+  // this one, the actual replacement for the hand-written stock card someone can be asked to
+  // produce for an audit, never did. Optional so every existing call site (no meta.printedBy
+  // passed) still prints exactly as before, just showing "—" where the name would go.
+  meta: { totals?: { received: number; dispensed: number }; openingBalance?: number; liveBalance?: number; printedBy?: string } = {},
 ): boolean {
   const now = new Date();
   // Defaults to today's fiscal year (the original single-year behavior), but the substock
@@ -601,7 +606,7 @@ export function printSubstockCardSheet(
         </div>${!tie ? '<div class="note">หมายเหตุ: ยอดคงเหลือทั้งสองรายการข้างต้นไม่สอดคล้องกัน โปรดตรวจสอบรายละเอียดเพิ่มเติมในระบบบันทึกการตรวจสอบ (Audit Log)</div>' : ''}`;
       })() : ''}
       ${hasNegative ? '<div class="note">หมายเหตุ: ยอดคงเหลือในรายการนี้คำนวณจากประวัติการทำธุรกรรมภายในระบบเท่านั้น ปรากฏเป็นจำนวนติดลบเนื่องจากมีสต็อกยกยอดเริ่มต้นหรือรายการก่อนการบันทึกข้อมูลในระบบซึ่งไม่ปรากฏในประวัตินี้ มิใช่ยอดคงเหลือที่แท้จริงบนชั้นวาง โปรดตรวจสอบยอดคงเหลือที่แท้จริงผ่านหน้าจอ "บัตรสต็อก substock" เท่านั้น</div>' : ''}
-      <div class="foot"><span>ห้องยา ${med.ward === 'ipd' ? 'IPD' : 'OPD'} · รพ.กรงปินัง</span><span>จัดพิมพ์จากระบบเมื่อวันที่ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
+      <div class="foot"><span>ห้องยา ${med.ward === 'ipd' ? 'IPD' : 'OPD'} · รพ.กรงปินัง · จัดพิมพ์โดย: ${escapeHtml(meta.printedBy || '—')}</span><span>จัดพิมพ์จากระบบเมื่อวันที่ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
     </div>
   </div>
   <script>window.onload = function () { window.print(); };</script>

@@ -48,7 +48,7 @@ const FLOOR_LEDGER_TYPES = new Set(['receive_from_central', 'transfer_to_floor',
  * live, or print an A4 sheet in the same shape as the card for anyone who still wants a
  * physical printout on file. */
 export default function SubstockCardScreen() {
-  const { state, fetchSubstockLedger, fetchFloorLedger, toast, setSubstockFocusId, go, setAdminTab, setAuditFilter } = useApp();
+  const { state, fetchSubstockLedger, fetchFloorLedger, toast, setSubstockFocusId, go, setAdminTab, setAuditFilter, userName } = useApp();
   const [search, setSearch] = useState('');
   const [medId, setMedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -207,7 +207,7 @@ export default function SubstockCardScreen() {
         : { code: med.code, name: med.name, parSub: med.parFloor, unit: med.unit, ward: wardOf(med), parLabel: 'par หน้างาน (Max)', heading: 'บัตรคุมยา (ไม่มี substock)' },
       cardRows,
       year,
-      { totals: yearTotals ? { received: yearTotals.received, dispensed: yearTotals.dispensed } : undefined, openingBalance, liveBalance },
+      { totals: yearTotals ? { received: yearTotals.received, dispensed: yearTotals.dispensed } : undefined, openingBalance, liveBalance, printedBy: userName() },
     );
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   };
