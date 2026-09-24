@@ -19,7 +19,10 @@ function MiniCardSkeleton() {
 }
 
 // Same type→icon/label map as SubstockCardScreen.tsx (kept in sync there) — รับจากคลังใหญ่ /
-// เติมหน้างาน / ตัดหมดอายุ are the only three tx types that ever touch substock.
+// เติมหน้างาน / ตัดหมดอายุ are the only three tx types that ever touch substock. A floor
+// ledger (noSubstock med, hasSub=false below) can also carry the other types SubstockCardScreen
+// maps (reconcile_hosxp/adjust/return/damaged/ward_move_*/count) — unmapped ones just fall back
+// to the raw type string via the `meta ? ... : r.type` title/icon fallback already in place.
 const TYPE_META: Record<string, { icon: string; label: string }> = {
   receive_from_central: { icon: '📥', label: 'รับจากคลังใหญ่' },
   transfer_to_floor: { icon: '🚚', label: 'เติมหน้างาน' },
@@ -39,20 +42,22 @@ const TYPE_META: Record<string, { icon: string; label: string }> = {
  * receive/transfer action it's sitting inside. This is read-only decoration, not a dependency
  * of the surrounding workflow.
  */
-export function MedMiniCard({ medId, unit, tailCount = 4 }: { medId: string; unit: string; tailCount?: number }) {
-  const { fetchSubstockLedger, goSubstockCardFor } = useApp();
+export function MedMiniCard({ medId, unit, tailCount = 4, hasSub = true }: { medId: string; unit: string; tailCount?: number; hasSub?: boolean }) {
+  const { fetchSubstockLedger, fetchFloorLedger, goSubstockCardFor } = useApp();
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [tail, setTail] = useState<{ ts: number; type: string; qty: number; balance: number }[]>([]);
 
-  // fetchSubstockLedger is recreated on every realtime meds snapshot (its useCallback depends
-  // on state.meds, which gets a brand-new array identity on every sync regardless of whether
-  // THIS drug changed — normal in a busy pharmacy with several terminals active at once). A
-  // ref sidesteps that: the effect below only re-runs when the drug being shown actually
-  // changes, not on every unrelated stock update happening anywhere else in the building —
-  // otherwise this panel would flicker/reload constantly while someone's mid-transaction.
-  const fetchRef = useRef(fetchSubstockLedger);
-  fetchRef.current = fetchSubstockLedger;
+  // fetchSubstockLedger/fetchFloorLedger are recreated on every realtime meds snapshot (their
+  // useCallback depends on state.meds, which gets a brand-new array identity on every sync
+  // regardless of whether THIS drug changed — normal in a busy pharmacy with several terminals
+  // active at once). A ref sidesteps that: the effect below only re-runs when the drug being
+  // shown (or which ledger it reads) actually changes, not on every unrelated stock update
+  // happening anywhere else in the building — otherwise this panel would flicker/reload
+  // constantly while someone's mid-transaction.
+  const fetch = hasSub ? fetchSubstockLedger : fetchFloorLedger;
+  const fetchRef = useRef(fetch);
+  fetchRef.current = fetch;
 
   useEffect(() => {
     let alive = true;
@@ -65,7 +70,7 @@ export function MedMiniCard({ medId, unit, tailCount = 4 }: { medId: string; uni
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [medId, tailCount]);
+  }, [medId, tailCount, hasSub]);
 
   if (loading) {
     return <MiniCardSkeleton />;
@@ -75,7 +80,7 @@ export function MedMiniCard({ medId, unit, tailCount = 4 }: { medId: string; uni
   // a proper retry-able error message for when someone actually goes looking for history.
   if (failed) return null;
   if (tail.length === 0) {
-    return <div className="muted" style={{ fontSize: 11.5, padding: '7px 2px' }}>ยานี้ยังไม่มีประวัติ substock</div>;
+    return <div className="muted" style={{ fontSize: 11.5, padding: '7px 2px' }}>ยานี้ยังไม่มีประวัติ{hasSub ? ' substock' : 'หน้างาน'}</div>;
   }
 
   return (
