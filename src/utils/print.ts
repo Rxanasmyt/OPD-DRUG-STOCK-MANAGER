@@ -240,21 +240,33 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
      eat the dose (see splitTitleForDisplay()'s doc comment: this used to print something like
      "150 iu./m…" with the unit cut off). .tname is the only part allowed to shrink/truncate;
      .tdose is a flex-none sibling after it, always rendered in full. */
+  /* Real-world request: printed labels read the name+dose as one undifferentiated run of text
+     ("Manidipine 20 mg" all one color/weight) — hard to tell at a glance where the drug name
+     ends and its strength begins. justify-content: center (new) centers the name+dose group as
+     a unit within the row instead of pinning it to the left edge — .tname's flex-grow dropped
+     from 1 to 0 so it stops force-filling the row's leftover width, which is what let it sit
+     flush left before; flex-shrink stays on (still the one span allowed to ellipsis, per the
+     safety fix below), and the row itself is still full-width via .meta's column-stretch, so the
+     ellipsis-triggering width constraint is unchanged for a name too dense to fit. */
   .strip .title {
     font-size: 17pt; font-weight: 800; margin-top: 0; line-height: 1.15; color: #14231a;
-    display: flex; align-items: baseline; min-width: 0;
+    display: flex; align-items: baseline; justify-content: center; min-width: 0;
   }
-  .strip .title .tname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 auto; }
-  /* margin-left (not a literal space character in the markup) for the gap before the dose — a
-     space character sitting right at the .tname ellipsis boundary can visually collapse away
-     depending on the engine, since it's the last/first character across an element boundary;
-     a real margin always renders. */
-  .strip .title .tdose { flex: none; white-space: nowrap; margin-left: .35mm; }
+  .strip .title .tname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
+  /* Dose now gets its own bold teal (matches this file's existing #245a59 accent — see
+     .metabox .k) instead of the name's near-black, so the two read as two distinct label
+     components ("what" vs "how much") instead of one continuous phrase. margin-left widened
+     .35mm -> .8mm for a clearer gap — kept modest (not a bordered divider box) since this extra
+     chrome isn't counted by fitSingleLineFontSizePx's width measurement (it only measures the
+     text itself): titleFontSizePt()'s 97%-of-box fit already leaves ~1.9mm of slack for exactly
+     this kind of unaccounted decoration, and .8mm safely fits inside that with real margin to
+     spare, where a bordered box would have eaten most of it. */
+  .strip .title .tdose { flex: none; white-space: nowrap; margin-left: .8mm; color: #245a59; }
   .tag { font-size: 6pt; font-weight: 700; color: #b3261e; margin-top: .5mm; }
   /* Bumped from 8.5pt now that the row it used to share the strip with (med code + ward badge)
      is gone — a HIGH ALERT drug is exactly the case where this line needs to read as loudly
-     as the name itself, not smaller than it. */
-  .strip .tag { font-size: 11pt; margin-top: .8mm; letter-spacing: .02em; }
+     as the name itself, not smaller than it. Centered to match the now-centered title above it. */
+  .strip .tag { font-size: 11pt; margin-top: .8mm; letter-spacing: .02em; text-align: center; }
 
   @media screen {
     body { background: #eee; padding: 10mm; }
