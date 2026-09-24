@@ -56,6 +56,35 @@ export default function ReconcileScreen() {
     return Array.from(counts.entries()).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.count - a.count || b.lastTs - a.lastTs).slice(0, 10);
   }, [state.authLog]);
 
+  // Real-world request: "ตรวจสอบว่าไหนที่ยังไม่ถูกตัดจำนวนยาที่ใช้ เนื่องจากอาจเกิดจากความผิดพลาด
+  // ของไฟล์ที่ดึงข้อมูลมาไม่หมด หรือจำนวนยาที่ใช้เป็น 0 จริง" — the "ยาที่หลุดบ่อย" panel above only
+  // covers a row that WAS in a HOSxP file but failed to match a med by name; it says nothing
+  // about a drug that's genuinely regularly dispensed but missing from the file ENTIRELY (no row
+  // at all — the exact "file didn't pull complete data" risk being asked about), which no
+  // existing view surfaces. Finds the most recent calendar day any reconcile_hosxp tx landed
+  // (state.txs, same capped-300-newest window every other audit-derived view here already
+  // works from — see unmatchedFreq above), collects which meds got a deduction that day, and
+  // diffs that against every active med with a real, regular usage history (used30 > 0) — a
+  // formulary has plenty of genuinely-rare drugs that go days without being dispensed at all,
+  // so limiting to used30 > 0 keeps this focused on "this one normally moves and didn't" instead
+  // of listing half the formulary every single day.
+  const notDeductedLatestDay = useMemo(() => {
+    let latestTs = 0;
+    for (const t of state.txs) {
+      if (t.type === 'reconcile_hosxp' && t.ts > latestTs) latestTs = t.ts;
+    }
+    if (!latestTs) return null;
+    const latestDayKey = new Date(latestTs).toDateString();
+    const deductedIds = new Set<string>();
+    for (const t of state.txs) {
+      if (t.type === 'reconcile_hosxp' && t.medId && new Date(t.ts).toDateString() === latestDayKey) deductedIds.add(t.medId);
+    }
+    const missing = state.meds
+      .filter((m) => m.active && m.used30 > 0 && !deductedIds.has(m.id))
+      .sort((a, b) => b.used30 - a.used30);
+    return { dayLabel: thDate(latestTs), missing };
+  }, [state.txs, state.meds]);
+
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
       <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 12 }}>
@@ -146,6 +175,28 @@ export default function ReconcileScreen() {
             ))}
           </div>
           <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 6 }}>ชื่อพวกนี้ไม่ตรงกับชื่อยาในระบบ — ถ้าเจอซ้ำบ่อย ลองแก้ชื่อยาในระบบ (หน้าจัดการรายการยา) ให้ตรงกับที่ไฟล์ HOSxP ใช้</div>
+        </div>
+      )}
+
+      {notDeductedLatestDay && notDeductedLatestDay.missing.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div className="muted" style={{ fontSize: 12, fontWeight: 600, margin: '0 2px 8px' }}>
+            ยาที่ปกติมีการจ่ายแต่ยังไม่ถูกตัดยอดจากไฟล์วันที่ {notDeductedLatestDay.dayLabel} ({notDeductedLatestDay.missing.length} รายการ)
+          </div>
+          <div className="card stagger" style={{ overflow: 'hidden' }}>
+            {notDeductedLatestDay.missing.map((m) => (
+              <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 13px', borderBottom: '1px solid var(--border-soft)' }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.3 }}>{m.name}</span>
+                <span className="muted" style={{ flex: 'none', fontSize: 11 }}>ปกติ {nf(m.used30)} {m.unit}/30 วัน</span>
+              </div>
+            ))}
+          </div>
+          <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 6 }}>
+            ยาพวกนี้ปกติมีอัตราการจ่ายจริง (used30 &gt; 0) แต่ไม่มีรายการตัดยอดจากไฟล์ HOSxP ล่าสุดเลย —
+            อาจเป็นเพราะ (1) วันนั้นไม่มีคนไข้มาใช้ยาตัวนี้จริงๆ (ปกติ ไม่ต้องทำอะไร) หรือ (2) ไฟล์ที่ดึง
+            จาก HOSxP ดึงข้อมูลมาไม่ครบ (เช่น ตัดหน้า/ตัดช่วงวันที่ผิด) — ควรกลับไปเช็คไฟล์ต้นฉบับหรือ
+            รายงานจาก HOSxP อีกครั้งถ้ายาตัวไหนในนี้ปกติจ่ายทุกวัน
+          </div>
         </div>
       )}
     </div>
