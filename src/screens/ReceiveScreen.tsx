@@ -1,14 +1,11 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import { useApp } from '../store/AppContext';
 import { usesSubstock, needsWarehouseRequest, subTone } from '../store/selectors';
 import { nf, thDate, thTime } from '../utils/format';
-import { recognizeLotLabel } from '../utils/ocr';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
-import { MedMiniCard } from '../components/MedMiniCard';
 import { StepIndicator, RECEIVE_STEPS } from '../components/StepIndicator';
-import { NumberStepper } from '../components/NumberStepper';
 import { SearchInput } from '../components/SearchInput';
 import type { Med } from '../types';
 
@@ -20,34 +17,11 @@ function needsReceiveRatio(m: Med, curSub: number): number {
 
 export default function ReceiveScreen() {
   const {
-    state, sub, setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty,
-    addRecv, removeRecvItem, commitReceive, approvePendingReceive, rejectPendingReceive, openScanSearch,
-    printWarehouseRequestList, promptAsync, toast,
+    state, sub, setRecvNo, setRecvSearch, pickRecvMed,
+    removeRecvItem, commitReceive, approvePendingReceive, rejectPendingReceive, openScanSearch,
+    printWarehouseRequestList, promptAsync,
   } = useApp();
-  const [ocrBusy, setOcrBusy] = useState(false);
-  const ocrInputRef = useRef<HTMLInputElement>(null);
 
-  // Camera-assisted lot/exp entry (on-device OCR, no API key/server — see utils/ocr.ts). An
-  // ASSIST only: never commits anything on its own, just pre-fills the two fields right below
-  // so a person still reviews/corrects them before "เพิ่มลงใบรับ" — drug packaging print is
-  // small and inconsistent enough that trusting this blindly would be a real safety risk.
-  const handleOcrPhoto = async (file: File) => {
-    setOcrBusy(true);
-    try {
-      const { lotNo, expIso } = await recognizeLotLabel(file);
-      if (lotNo) setRecvLot(lotNo);
-      if (expIso) setRecvExp(expIso);
-      if (!lotNo && !expIso) toast('อ่านฉลากไม่พบ lot หรือวันหมดอายุที่ชัดเจน — กรอกเองด้านล่าง');
-      else toast('อ่านฉลากแล้ว — ตรวจสอบให้ตรงกับฉลากจริงก่อนบันทึกเสมอ' + (!lotNo ? ' (ไม่พบ lot — กรอกเอง)' : '') + (!expIso ? ' (ไม่พบวันหมดอายุ — กรอกเอง)' : ''));
-    } catch (e) {
-      console.error('OCR read failed:', e);
-      toast('อ่านฉลากไม่สำเร็จ — กรอกเองแทน');
-    } finally {
-      setOcrBusy(false);
-    }
-  };
-
-  const recvMed = state.recvMed ? state.meds.find((m) => m.id === state.recvMed) : null;
   // OPD/IPD ward tabs removed — one combined picker across the whole formulary.
   const options = !state.recvMed && state.recvSearch.trim()
     ? state.meds.filter((m) => { const s = state.recvSearch.trim().toLowerCase(); return m.active && (m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0); }).slice(0, 12)
@@ -226,62 +200,6 @@ export default function ReceiveScreen() {
           </div>
         )}
 
-        {recvMed && (
-          <>
-            <div style={{ background: 'var(--green-tint)', borderRadius: 10, padding: '9px 11px', fontSize: 13.5, fontWeight: 600, marginBottom: 9 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={recvMed.code} /> {recvMed.name} <WardBadge med={recvMed} size="md" /></span>
-              {!usesSubstock(recvMed) && (
-                <span style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--amber-ink)', marginTop: 3 }}>ไม่มี substock — รับเข้าแล้วขึ้นหน้างานทันที ไม่ต้องเติมอีกขั้น</span>
-              )}
-            </div>
-            {/* ภาพรวมยานี้ก่อนกรอก lot/exp/จำนวน — เห็นเคลื่อนไหวล่าสุดของ substock ตัวนี้โดยไม่
-                ต้องออกจากฟอร์มไปหาที่บัตรสต็อกแยก (ซึ่งจะทำให้เสียสิ่งที่กำลังกรอกอยู่). เฉพาะยาที่
-                มี substock จริง — usesSubstock ที่ปิดใช้ ledger ก็ว่างเปล่าอยู่แล้ว ไม่มีประโยชน์โชว์ */}
-            {usesSubstock(recvMed) && (
-              <div style={{ marginBottom: 9 }}>
-                <MedMiniCard medId={recvMed.id} unit={recvMed.unit} />
-              </div>
-            )}
-            <input
-              ref={ocrInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              style={{ display: 'none' }}
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleOcrPhoto(f); e.target.value = ''; }}
-            />
-            {/* Violet/cyan "smart feature" treatment (see .ai-* in styles.css) — this is the
-                one button on this screen actually inferring something (OCR) rather than just
-                taking typed input, so it gets a visually distinct, gently glowing border
-                instead of blending in with the amber receive-flow chrome around it. */}
-            <button
-              type="button"
-              onClick={() => ocrInputRef.current?.click()}
-              disabled={ocrBusy}
-              className={'press-spring' + (ocrBusy ? '' : ' ai-glow')}
-              style={{ width: '100%', border: '1.5px solid var(--ai-1)', background: 'var(--bg-card)', padding: '10px 12px', borderRadius: 10, fontSize: 12.5, fontWeight: 700, minHeight: 42, marginBottom: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: ocrBusy ? 0.7 : 1 }}
-            >
-              <span className={ocrBusy ? undefined : 'ai-text'} style={{ color: ocrBusy ? 'var(--muted)' : undefined }}>
-                {ocrBusy ? '⏳ กำลังอ่านฉลาก…' : '📷 ถ่ายรูปฉลากเพื่ออ่าน lot/วันหมดอายุอัตโนมัติ'}
-              </span>
-            </button>
-            <div className="grid-2" style={{ marginBottom: 9 }}>
-              <label>
-                <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Lot no.</span>
-                <input value={state.recvLot} onChange={(e) => setRecvLot(e.target.value)} placeholder="เช่น A2609" style={inputStyle} />
-              </label>
-              <label>
-                <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>วันหมดอายุ</span>
-                <input value={state.recvExp} onChange={(e) => setRecvExp(e.target.value)} type="date" style={inputStyle} />
-              </label>
-            </div>
-            <label style={{ display: 'block', marginBottom: 10 }}>
-              <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>จำนวนที่รับ ({recvMed.unit})</span>
-              <NumberStepper value={state.recvQty} onChange={setRecvQty} unit={recvMed.unit} />
-            </label>
-            <button onClick={addRecv} className="btn-outline" style={{ width: '100%', padding: 12, borderRadius: 10, fontSize: 14.5, fontWeight: 600, minHeight: 46 }}>เพิ่มลงใบรับ</button>
-          </>
-        )}
       </div>
 
       {state.recvItems.length > 0 && (

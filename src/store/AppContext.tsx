@@ -234,7 +234,11 @@ export interface AppCtx {
   setRecvLot: (v: string) => void;
   setRecvExp: (v: string) => void;
   setRecvQty: (v: string) => void;
-  addRecv: () => void;
+  /** `scanNext: true` adds the item then reopens the camera for the next receive scan — see
+   * ReceiveConfirmSheet.tsx (same "one scan, one confirm" request as ScanConfirmSheet). */
+  addRecv: (opts?: { scanNext?: boolean }) => void;
+  /** Closes ReceiveConfirmSheet without adding — resets the in-progress pick/lot/exp/qty. */
+  cancelReceivePick: () => void;
   removeRecvItem: (i: number) => void;
   commitReceive: () => void;
   approvePendingReceive: (id: string) => void;
@@ -1368,13 +1372,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setRecvExp = useCallback((v: string) => patch({ recvExp: v }), [patch]);
   const setRecvQty = useCallback((v: string) => patch({ recvQty: digitsOnly(v) }), [patch]);
 
-  const addRecv = useCallback(() => {
+  const addRecv = useCallback((opts?: { scanNext?: boolean }) => {
     const m = state.meds.find((x) => x.id === state.recvMed);
     const q = parseIntSafe(state.recvQty);
     if (!m || !q || !state.recvLot || !state.recvExp) { toast('กรอก lot, วันหมดอายุ และจำนวนให้ครบก่อนเพิ่มรายการ'); return; }
     const item: RecvItem = { medId: m.id, name: m.name, unit: m.unit, lotNo: state.recvLot, exp: new Date(state.recvExp).getTime(), qty: q };
-    patch((st) => ({ recvItems: [...st.recvItems, item], recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvSearch: '' }));
+    patch((st) => ({
+      recvItems: [...st.recvItems, item], recvLot: '', recvExp: '', recvQty: '', recvSearch: '',
+      // scanNext: real-world request, same reasoning as ScanConfirmSheet's "ยืนยัน · สแกนตัวต่อไป"
+      // — receiving a whole delivery is naturally a run of items, so going straight back into the
+      // camera after confirming this one saves reopening it by hand for every item in the box.
+      ...(opts?.scanNext
+        ? { recvMed: null, qrOpen: true, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: 'receive' }
+        : { recvMed: null }),
+    }));
   }, [state, patch, toast]);
+
+  const cancelReceivePick = useCallback(() => {
+    patch({ recvMed: null, recvSearch: '', recvLot: '', recvExp: '', recvQty: '' });
+  }, [patch]);
 
   const removeRecvItem = useCallback((i: number) => patch((st) => ({ recvItems: st.recvItems.filter((_, j) => j !== i) })), [patch]);
 
@@ -3505,7 +3521,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify, go, back, setFormDirty, confirmLeaveIfDirty,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
     setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, fillUrgent, printPickList, printTodayReplenishList, removeFromCart, clearCart, commitTransfer,
-    setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, removeRecvItem, commitReceive, printWarehouseRequestList,
+    setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, cancelReceivePick, removeRecvItem, commitReceive, printWarehouseRequestList,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
