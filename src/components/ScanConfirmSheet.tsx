@@ -26,8 +26,15 @@ export default function ScanConfirmSheet() {
     <BottomSheet open={!!med} onClose={onClose} title={med ? med.name : undefined}>
       {med && (
         <div style={{ paddingBottom: 4 }}>
-          <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>
-            เติมจาก substock (มี {nf(sub(med.id))} {med.unit}) เข้าชั้นจ่ายยา {med.bin ? '· ชั้น ' + med.bin : ''}
+          {/* Bug fix (reported live): when substock is genuinely 0, the NumberStepper's +
+              button is disabled (max=0) — but that was only explained by this line reading as
+              ordinary muted helper text above it, easy to miss, so pressing + and having
+              nothing happen read as broken rather than "nothing to transfer". Flips to a red
+              warning line in that case so the reason is impossible to miss. */}
+          <div className={sub(med.id) <= 0 ? undefined : 'muted'} style={{ fontSize: 12, marginBottom: 14, color: sub(med.id) <= 0 ? 'var(--red)' : undefined, fontWeight: sub(med.id) <= 0 ? 700 : undefined }}>
+            {sub(med.id) <= 0
+              ? '⚠ substock ไม่มี ' + med.unit + 'เหลือให้เติม — ต้องรับเข้า substock ก่อนถึงจะเติมหน้างานได้'
+              : 'เติมจาก substock (มี ' + nf(sub(med.id)) + ' ' + med.unit + ') เข้าชั้นจ่ายยา ' + (med.bin ? '· ชั้น ' + med.bin : '')}
           </div>
           <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>จำนวนที่จะเติม ({med.unit})</div>
           <NumberStepper

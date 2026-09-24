@@ -441,6 +441,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // lingering repeat of the exact same drug is ignored; scanning it again after actually
   // moving on and coming back (the real "I need more of this" case) still works normally.
   const lastScanBump = useRef<{ medId: string; ts: number } | null>(null);
+  // Bug fix: cancelScanConfirm() used to zero the med's WHOLE cart quantity, not just undo this
+  // one scan's increment — scanning the same med twice (e.g. split across two bins), confirming
+  // the first 20, then scanning again and cancelling THAT second scan wiped the already-confirmed
+  // 20 along with it, silently shipping 0 of that drug instead of the intended amount. This
+  // tracks what the med's cart quantity was right before the scan that's currently pending
+  // confirmation, so cancelling restores exactly that (a no-op if this was a debounced repeat
+  // that never bumped anything) instead of always zeroing.
+  const lastScanConfirm = useRef<{ medId: string; prevQty: number } | null>(null);
   const parDebounce = useRef<Record<string, number>>({});
   const binDebounce = useRef<Record<string, number>>({});
   // par/bin edits are debounced 500ms so typing a new number doesn't fire a write per
@@ -937,7 +945,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const back = useCallback(() => setState((st) => {
     const stack = st.navStack.slice();
     const prev = stack.pop();
-    return { ...st, screen: prev || 'more', navStack: stack };
+    return {
+      ...st, screen: prev || 'more', navStack: stack,
+      // Bug fix: a real back-navigation (hardware/browser back button, swipe-back gesture, or
+      // the in-app ← chevron — all funnel through here, see the popstate handler below) used to
+      // leave ScanConfirmSheet/ReceiveConfirmSheet open and covering whatever screen this landed
+      // on, since neither is tied to st.screen. Close them the same way their own ✕/backdrop-tap
+      // already does: scanConfirmMedId just clears (same as "ยืนยัน · กลับไปหน้ารายการ" — keeps
+      // the cart qty already confirmed), recvMed resets the whole in-progress pick (same as
+      // ReceiveConfirmSheet's onClose -> cancelReceivePick, since an in-progress lot/exp/qty
+      // draft for a med you're now navigating away from isn't safe to leave half-filled).
+      scanConfirmMedId: null,
+      recvMed: null, recvSearch: '', recvLot: '', recvExp: '', recvQty: '',
+    };
   }), []);
 
   // Bug fix: navStack (above) is a purely in-memory "came from" stack — it never touched the
@@ -3292,7 +3312,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     patch({ scanConfirmMedId: null });
   }, [patch]);
   const cancelScanConfirm = useCallback((medId: string) => {
-    setCartQty(medId, '0');
+    // Restore the cart quantity to what it was right before THIS scan, not always 0 — see
+    // lastScanConfirm's doc comment. Falls back to 0 only if the ref doesn't match (shouldn't
+    // happen in practice — cancelScanConfirm only ever fires for the med the sheet is currently
+    // showing, which is always the med lastScanConfirm was just set for).
+    const prev = lastScanConfirm.current;
+    setCartQty(medId, String(prev && prev.medId === medId ? prev.prevQty : 0));
     patch({ scanConfirmMedId: null });
   }, [patch, setCartQty]);
 
@@ -3365,12 +3390,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // added yet, and what quantity landed on it. Closing the camera and showing exactly
         // what's about to go in the cart, with an editable quantity and an explicit "ยืนยัน",
         // removes that ambiguity — slower per item, but that's the actual trade-off asked for.
-        // Debounce window shortened from the old 4s to 1.5s: it only needs to absorb a stray
-        // duplicate decode from the same frame right as the camera closes, not "still holding
-        // the phone on this label" (the camera isn't continuously scanning anymore).
+        // Debounce window shortened from the old 4s to 3s: still needs to absorb a stray
+        // duplicate decode right as the camera closes and reopens for "สแกนตัวต่อไป" (a slower
+        // device's camera can take a couple seconds to reinitialize and get its first decode
+        // while still pointed at the same label), just not the full 4s "still holding the phone
+        // on this label" window from when the camera stayed open continuously.
         const now = Date.now();
-        const isRepeat = lastScanBump.current?.medId === med.id && now - lastScanBump.current.ts < 1500;
+        const isRepeat = lastScanBump.current?.medId === med.id && now - lastScanBump.current.ts < 3000;
         lastScanBump.current = { medId: med.id, ts: now };
+        // Snapshot the cart quantity as it stood right before this scan — see lastScanConfirm's
+        // doc comment — so cancelScanConfirm() can undo exactly this scan's effect (nothing, if
+        // debounced) instead of always zeroing the whole med.
+        lastScanConfirm.current = { medId: med.id, prevQty: state.cart[med.id] || 0 };
         if (!isRepeat) bump(med.id, 1);
         hapticSuccess();
         patch({ qrOpen: false, qrCode: '', qrManualOpen: false, qrManualReason: '', scanConfirmMedId: med.id });
