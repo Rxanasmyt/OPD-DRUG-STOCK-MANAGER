@@ -174,7 +174,20 @@ export default function ReconcileScreen() {
               </div>
             ))}
           </div>
-          <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 6 }}>ชื่อพวกนี้ไม่ตรงกับชื่อยาในระบบ — ถ้าเจอซ้ำบ่อย ลองแก้ชื่อยาในระบบ (หน้าจัดการรายการยา) ให้ตรงกับที่ไฟล์ HOSxP ใช้</div>
+          {/* Real-world clarification: the HOSxP export naturally lists more drugs than this
+              app carries at all (drugs this hospital never stocks, or carried once but cut
+              from the formulary since) — a name showing up here over and over is very often
+              exactly that, not a mistake needing a fix. Said plainly so this list doesn't read
+              as N alarms every morning; see notDeductedLatestDay below for the panel that
+              actually catches a real missed deduction (checked from this app's own med list,
+              not the file's). */}
+          <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 6 }}>
+            ส่วนใหญ่เป็นเรื่องปกติ — ไฟล์ HOSxP มียามากกว่าที่ รพ. นี้มีจริงในระบบ (ยาที่ไม่มีใช้ที่ รพ.
+            หรือยาที่เคยมีแต่ตัดออกจากบัญชีไปแล้ว) ชื่อพวกนี้จึง "จับคู่ไม่ได้" โดยธรรมชาติ ไม่ต้องแก้ไข
+            อะไร — เช็คเฉพาะตัวที่รู้อยู่แล้วว่า รพ. มีใช้จริง ถ้าชื่อนั้นสะกดไม่ตรงกับในไฟล์ ลองแก้ชื่อยา
+            ในระบบ (หน้าจัดการรายการยา) ให้ตรงกัน — ถ้าอยากรู้ว่ายาที่ รพ. มีจริงตัวไหนน่าจะยังไม่ถูกตัด
+            ยอด ดูหัวข้อถัดไปด้านล่างแทน
+          </div>
         </div>
       )}
 
