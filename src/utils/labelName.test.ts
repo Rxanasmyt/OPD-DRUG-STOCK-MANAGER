@@ -106,6 +106,17 @@ describe('shortLabelName — noise-word/paren stripping (name+strength only)', (
     expect(shortLabelName('TLD ยาโครงการ 50 mg')).toBe('TLD 50 mg');
     expect(shortLabelName('Folic acid ยาสนับสนุน 400 mcg')).toBe('Folic acid 400 mcg');
   });
+
+  it('collapses a strength typed twice in a row (found in real formulary data, printed as-is on shelf labels)', () => {
+    expect(shortLabelName('Manidipine 20 mg 20 mg. เม็ด')).toBe('Manidipine 20 mg');
+    expect(shortLabelName('Clonazepam 2 mg 2 mg. เม็ด')).toBe('Clonazepam 2 mg');
+    expect(shortLabelName('Depakine 200 mg 200 mg. เม็ด')).toBe('Depakine 200 mg');
+    expect(shortLabelName('Utrogestan 100 mg 100 mg เม็ด')).toBe('Utrogestan 100 mg');
+    expect(shortLabelName('Clotrimazole VAGINAL 500 mg 500 mg เม็ด (VG)')).toBe('Clotrimazole VAGINAL 500 mg');
+    // Not adjacent — e.g. a "PL" list-code sitting between the two — must NOT be collapsed;
+    // only an immediately-repeated run is a real duplicate, not two independent mentions.
+    expect(shortLabelName('25 mg CARVEDILOL - PL 25 mg. เม็ด')).toBe('25 mg CARVEDILOL 25 mg');
+  });
 });
 
 describe('splitTitleForDisplay', () => {

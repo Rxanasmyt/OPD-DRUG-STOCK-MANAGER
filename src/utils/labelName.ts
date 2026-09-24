@@ -39,6 +39,17 @@ const NOISE_WORDS_TH =
 const TRAILING_PUNCT = /[.,;:\-–]+\s*$/;
 const LEADING_PUNCT = /^[.,;:\-–]+\s*/;
 
+// Bug fix (real printed labels, reported): a real chunk of this formulary's master data has the
+// strength typed twice in the name itself — e.g. "Manidipine 20 mg 20 mg. เม็ด", "Depakine 200 mg
+// 200 mg. เม็ด", "Clonazepam 2 mg 2 mg. เม็ด" (not a one-off — see med_list.csv) — which printed
+// on the shelf label exactly as entered, "Manidipine 20 mg 20 mg", reading as if it were a wider/
+// different name than "20 mg". Collapses an immediately-repeated "<number> <unit>" run down to
+// one: group 1 captures the number+unit without a trailing period (so the same run written with
+// vs without one, e.g. "20 mg" then "20 mg.", still counts as a match on the backreference), the
+// two independent `\.?`s each allow (but don't require) a period on either occurrence. Covers
+// Latin (mg/mcg/g/ml/iu) and Thai (มก./มล./มคก.) unit spellings via the ก-๙ range.
+const DOSE_DUP = /(\d+(?:\.\d+)?\s*[a-zA-Zก-๙]+)\.?\s+\1\.?\b/gi;
+
 /** ALL-CAPS Latin text (common in this formulary, e.g. "MAGNESIUM SULFATE") runs noticeably
  * wider per character than mixed case — weight the length estimate up when a name has no
  * lowercase letter at all, so it doesn't get sized as if it were narrower than it renders. */
@@ -149,6 +160,10 @@ export function shortLabelName(raw: string): string {
   // ("(2 mL.)"), whatever's inside — replaced with a space (not deleted outright) so
   // "Name(Brand) 5 mg" doesn't glue into "Name5 mg" once it's gone.
   let s = trimmedRaw.replace(/\s*\([^()]*\)\s*/g, ' ');
+  // Collapse a strength typed twice in the source name (see DOSE_DUP's doc comment) before the
+  // noise-word pass — run it twice since two adjacent dupes only ever overlap pairwise (a global
+  // regex can't match two overlapping occurrences in one pass).
+  s = s.replace(DOSE_DUP, '$1').replace(DOSE_DUP, '$1');
   // Then every dosage-form/route/packaging/admin-code noise word, wherever it falls, plus
   // dash/whitespace/punctuation cleanup.
   s = stripNoiseAndClean(s);

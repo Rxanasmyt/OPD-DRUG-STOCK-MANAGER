@@ -44,7 +44,11 @@ function escapeHtml(s: string): string {
 // `text-overflow: ellipsis` as a hard backstop so an extreme outlier (past MIN_TITLE_PT, where
 // shrinking further would be unreadable rather than useful) still visibly ends in one line
 // instead of overflowing the box, it just loses its tail.
-const MAX_TITLE_PT = 19;
+// Real-world request: printed shelf labels read a bit small, wanted "ขนาดใหญ่กว่านี้อีกนิด" —
+// nudged from 19pt to 21pt. Titles are already auto-fit to the strip's real available width
+// (fitSingleLineFontSizePx), so this only raises the ceiling for names short enough to hit it;
+// anything longer still scales down from there same as before.
+const MAX_TITLE_PT = 21;
 const MIN_TITLE_PT = 7;
 const PT_TO_PX = 96 / 72; // same CSS reference-px basis this stylesheet's mm/pt units resolve to
 const MM_TO_PX = 96 / 25.4;
