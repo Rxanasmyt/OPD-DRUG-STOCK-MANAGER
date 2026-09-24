@@ -248,6 +248,15 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
   .app-shell { max-width: 900px; }
 }
 
+/* Confirmed live at 320px (iPhone SE / budget-Android class width, the narrowest this PWA
+   still needs to support): the header's online/offline/syncing text label was the widest of
+   its 4 fixed-width controls and the header's screen title was truncating to lose real
+   information ("จัดการรายการยา" → "จัดการ…") because of it. The pill's own dot color + title
+   tooltip already carry the same status, so this is the one safe thing to drop first. */
+@media (max-width: 340px) {
+  .status-label { display: none; }
+}
+
 /* App-wide "elevated card" — every screen's list/section container uses this one class, so
    this single definition is what actually delivers "ปรับ UI ใหม่ให้หมด" (redesign the whole
    UI) everywhere at once rather than one screen at a time. Same shift HomeScreen's dashboard
