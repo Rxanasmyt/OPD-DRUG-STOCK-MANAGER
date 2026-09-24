@@ -32,6 +32,7 @@ const WardMoveScreen = lazy(() => import('./screens/WardMoveScreen'));
 const SubstockCardScreen = lazy(() => import('./screens/SubstockCardScreen'));
 // jsqr (camera decode) only matters once someone actually opens the scanner
 const QrModal = lazy(() => import('./components/QrModal'));
+const ScanConfirmSheet = lazy(() => import('./components/ScanConfirmSheet'));
 
 const TITLES: Record<Screen, [string, string]> = {
   login: ['', ''],
@@ -232,6 +233,7 @@ export default function App() {
 
       <Suspense fallback={null}>
         <QrModal />
+        <ScanConfirmSheet />
       </Suspense>
       <ConfirmDialog />
       <PromptDialog />

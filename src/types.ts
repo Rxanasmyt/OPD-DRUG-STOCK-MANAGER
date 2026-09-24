@@ -375,6 +375,12 @@ export interface AppState {
   qrCode: string;
   qrManualReason: string;
   qrPurpose: string | null;
+  /** Set right after a successful เติมหน้างาน (transfer) scan — the camera closes and
+   * ScanConfirmSheet shows this one med's cart quantity for explicit review/confirm before
+   * either scanning the next item or returning to the list. Real-world request: the previous
+   * "camera stays open, silently keeps adding" flow left genuine doubt about whether an item
+   * had actually been added, and what quantity landed — see qrDecodedImpl's transfer branch. */
+  scanConfirmMedId: string | null;
   hadOk: Record<string, boolean>;
 
   doneKind: 'transfer' | 'receive' | 'recvPending' | null;

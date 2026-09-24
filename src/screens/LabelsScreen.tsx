@@ -13,7 +13,7 @@ import type { LabelType, Med, Ward } from '../types';
 
 // Mirrors print.ts's MAX_TITLE_PT/MIN_TITLE_PT (its pt values, here in px since the preview
 // card isn't a fixed physical size — it stretches to whatever width mobile/tablet gives it).
-const TITLE_MAX_PX = 19;
+const TITLE_MAX_PX = 21;
 const TITLE_MIN_PX = 7;
 // Bin/shelf code — mirrors print.ts's MAX_BINCODE_PT/MIN_BINCODE_PT. A long code (e.g. a HAD
 // sub-shelf code like "HAD1-1") used to sit at a fixed 12.5px and wrap onto a second line,

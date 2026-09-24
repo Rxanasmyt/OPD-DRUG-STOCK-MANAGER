@@ -105,7 +105,7 @@ function freshState(): AppState {
 
     reportTab: 'aging', labelType: 'med', labelSelected: {}, locScope: 'floor', labelWardScope: 'all',
 
-    qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: null, hadOk: {},
+    qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: null, scanConfirmMedId: null, hadOk: {},
 
     doneKind: null, doneRows: [], toast: null,
 
@@ -381,6 +381,11 @@ export interface AppCtx {
   setQrCode: (v: string) => void;
   setQrManualReason: (v: string) => void;
   startHadScan: (medId: string) => void;
+  /** ScanConfirmSheet's three actions — see qrDecodedImpl's transfer branch for how
+   * scanConfirmMedId gets set in the first place. */
+  confirmScanAndNext: () => void;
+  confirmScanAndStop: () => void;
+  cancelScanConfirm: (medId: string) => void;
 
   // done
   doneAgain: () => void;
@@ -3261,6 +3266,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setQrCode = useCallback((v: string) => patch({ qrCode: v }), [patch]);
   const setQrManualReason = useCallback((v: string) => patch({ qrManualReason: v }), [patch]);
 
+  // ---------- one-scan-at-a-time transfer confirm (ScanConfirmSheet.tsx) ----------
+  // The cart quantity itself is already live via setCartQty while this sheet is open — these
+  // two just decide what happens to it, and whether the camera reopens for the next item.
+  const confirmScanAndNext = useCallback(() => {
+    patch({ scanConfirmMedId: null, qrOpen: true, qrCode: '', qrManualOpen: false, qrManualReason: '', qrPurpose: 'transfer' });
+  }, [patch]);
+  const confirmScanAndStop = useCallback(() => {
+    patch({ scanConfirmMedId: null });
+  }, [patch]);
+  const cancelScanConfirm = useCallback((medId: string) => {
+    setCartQty(medId, '0');
+    patch({ scanConfirmMedId: null });
+  }, [patch, setCartQty]);
+
   /** Resolves a scanned/typed code against a specific med/lot label — the label a real
    * printed QR encodes must exist in the current data, or this reports "not found" instead
    * of pretending. Location labels (loc) don't map to one med, so they're resolved by the
@@ -3323,22 +3342,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         toast('สแกนพบ ' + med.name + ' ที่ substock — กรอก lot วันหมดอายุ และจำนวนที่รับ');
         patch({ qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '' });
       } else {
-        // Bug fix (speed): เติมหน้างาน needs no form per item — bump() already adds the full
-        // suggested quantity in one shot — so closing the scanner after every single scan was
-        // pure friction: walk the shelf, scan low drug, camera closes, tap ▣ again, scan next,
-        // repeat. Now it stays open so a whole round of restocking scans in one continuous
-        // pass; ✕ (or tapping the backdrop) exits to review the cart when done.
-        // Bug fix: guard against the same label lingering in frame re-triggering bump() and
-        // silently stacking another step on top of the cart entry it just set — see
-        // lastScanBump's doc comment above. 4s comfortably covers "still holding the phone on
-        // this label", short enough that a genuine rescan later (moved on, came back) is
-        // never blocked.
+        // Real-world request: reverted from "camera stays open, silently keeps bumping every
+        // scan" (this branch's own prior speed-focused fix) back to one-scan-at-a-time with an
+        // explicit confirm step — see ScanConfirmSheet.tsx. Scanning a whole shelf run with no
+        // per-item confirmation left genuine doubt about whether an item had actually been
+        // added yet, and what quantity landed on it. Closing the camera and showing exactly
+        // what's about to go in the cart, with an editable quantity and an explicit "ยืนยัน",
+        // removes that ambiguity — slower per item, but that's the actual trade-off asked for.
+        // Debounce window shortened from the old 4s to 1.5s: it only needs to absorb a stray
+        // duplicate decode from the same frame right as the camera closes, not "still holding
+        // the phone on this label" (the camera isn't continuously scanning anymore).
         const now = Date.now();
-        const isRepeat = lastScanBump.current?.medId === med.id && now - lastScanBump.current.ts < 4000;
+        const isRepeat = lastScanBump.current?.medId === med.id && now - lastScanBump.current.ts < 1500;
         lastScanBump.current = { medId: med.id, ts: now };
-        if (!isRepeat) { bump(med.id, 1); hapticSuccess(); }
-        toast(isRepeat ? med.name + ' — เพิ่มไปแล้ว ขยับกล้องไปยาตัวต่อไปได้เลย' : 'สแกนพบ ' + med.name + ' — เพิ่มเข้าตะกร้าแล้ว · สแกนตัวต่อไปได้เลย');
-        patch({ qrCode: '', qrManualOpen: false, qrManualReason: '' });
+        if (!isRepeat) bump(med.id, 1);
+        hapticSuccess();
+        patch({ qrOpen: false, qrCode: '', qrManualOpen: false, qrManualReason: '', scanConfirmMedId: med.id });
       }
       return;
     }
@@ -3499,6 +3518,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
+    confirmScanAndNext, confirmScanAndStop, cancelScanConfirm,
     doneAgain,
     setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit,
     setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, fetchExecTxsThisMonth,
