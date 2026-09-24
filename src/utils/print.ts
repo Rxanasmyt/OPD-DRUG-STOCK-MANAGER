@@ -167,10 +167,23 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
 
   const html = `<!doctype html>
 <html lang="th"><head><meta charset="utf-8"><title>${escapeHtml(heading)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   @page { size: A4; margin: ${isStrip ? '8.5mm 5mm' : '10mm'}; }
   * { box-sizing: border-box; }
-  body { font-family: 'Noto Sans Thai', system-ui, -apple-system, sans-serif; margin: 0; }
+  /* Bug fix: this sheet listed 'Noto Sans Thai' as its primary font but — unlike every other
+     print sheet in this file (pick list, executive summary, substock card, KPI report), all of
+     which load it from Google Fonts — never actually loaded it from anywhere, so it silently
+     fell through to whatever generic system-ui/sans-serif font happens to be installed on the
+     printing device: inconsistent with the rest of the app's deliberately-chosen official
+     typeface, and on some setups noticeably worse Thai glyph rendering at the small sizes this
+     sheet uses. Sarabun (the closest freely-loadable match to TH Sarabun New, the Thai
+     government's 2015-mandated official-document typeface — see printPickListSheet's own doc
+     comment) is now loaded the same way as every other sheet, with 'Noto Sans Thai'/system-ui
+     kept as the fallback if a label gets printed before the web font finishes loading. */
+  body { font-family: 'Sarabun', 'Noto Sans Thai', system-ui, -apple-system, sans-serif; margin: 0; }
   .sheet {
     display: grid;
     ${isStrip
