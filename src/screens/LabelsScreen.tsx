@@ -82,10 +82,15 @@ function AutoFitTitle({ text, color }: { text: string; color: string }) {
   }, [text]);
 
   const { name, dose } = splitTitleForDisplay(text);
+  // Mirrors print.ts's .strip .title/.tname/.tdose CSS exactly (see its doc comments for why):
+  // justify-content: center + tname's flex-grow dropped to 0 centers the name+dose group as a
+  // unit instead of pinning it to the left edge; tdose gets its own bold teal (#245a59, matches
+  // print.ts's accent) instead of the name's ink color, so the two visually read as separate
+  // label components — a real request, not just a look-alike tweak, so it has to match 1:1.
   return (
-    <div ref={ref} style={{ fontSize, fontWeight: 800, lineHeight: 1.2, color, display: 'flex', alignItems: 'baseline', minWidth: 0 }}>
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: '1 1 auto' }}>{name}</span>
-      {dose && <span style={{ flex: 'none', whiteSpace: 'nowrap', marginLeft: 3 }}>{dose}</span>}
+    <div ref={ref} style={{ fontSize, fontWeight: 800, lineHeight: 1.2, color, display: 'flex', alignItems: 'baseline', justifyContent: 'center', minWidth: 0 }}>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: '0 1 auto' }}>{name}</span>
+      {dose && <span style={{ flex: 'none', whiteSpace: 'nowrap', marginLeft: 3, color: '#245a59' }}>{dose}</span>}
     </div>
   );
 }
@@ -345,9 +350,16 @@ export default function LabelsScreen() {
                 <QrCode value={r.payload} size={41} />
                 <span style={{ fontSize: 8, color: '#777', fontWeight: 600, letterSpacing: '.02em', marginTop: 2 }}>{r.code}</span>
               </div>
-              <div style={{ minWidth: 0, padding: '4px 10px', display: 'flex', flexDirection: 'column', justifyContent: 'center', borderLeft: '1px solid #e5e5e0' }}>
+              {/* Bug fix: this div never actually had `flex: 1` — unlike print.ts's real
+                  `.strip .meta { flex: 1; ... }` it was supposed to mirror — so it only ever
+                  hugged its own content width instead of filling the row's remaining space.
+                  Harmless while the title was left-aligned (nothing visibly needed the extra
+                  width), but it meant AutoFitTitle's centering had no actual room to center
+                  within, and its clientWidth-based font measurement wasn't matching the real
+                  print box width either. */}
+              <div style={{ flex: 1, minWidth: 0, padding: '4px 10px', display: 'flex', flexDirection: 'column', justifyContent: 'center', borderLeft: '1px solid #e5e5e0' }}>
                 <AutoFitTitle text={r.title} color="#14231a" />
-                {r.tag && <div style={{ fontSize: 13, color: r.tagColor, fontWeight: 800, marginTop: 2 }}>{r.tag}</div>}
+                {r.tag && <div style={{ fontSize: 13, color: r.tagColor, fontWeight: 800, marginTop: 2, textAlign: 'center' }}>{r.tag}</div>}
               </div>
             </div>
           ))}

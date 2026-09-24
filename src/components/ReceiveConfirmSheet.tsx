@@ -22,11 +22,24 @@ export default function ReceiveConfirmSheet() {
   const recvMed = state.recvMed ? state.meds.find((m) => m.id === state.recvMed) : null;
   const [ocrBusy, setOcrBusy] = useState(false);
   const ocrInputRef = useRef<HTMLInputElement>(null);
+  // Bug fix: recognizeLotLabel() is async and this sheet stays mounted across meds (only
+  // state.recvMed changes) — if the user doesn't wait for a photo to resolve and instead types
+  // lot/exp by hand and taps "สแกนตัวต่อไป" for the NEXT med, the still-pending OCR result used
+  // to land in setRecvLot/setRecvExp regardless of which med was active by the time it resolved,
+  // silently writing med A's lot/expiry onto med B's form — a real traceability risk. Track which
+  // med a photo was actually taken for and compare against the CURRENT med (via ref, so the async
+  // continuation reads live state, not a stale closure) before applying the result.
+  const recvMedIdRef = useRef<string | null>(null);
+  recvMedIdRef.current = recvMed?.id ?? null;
 
-  const handleOcrPhoto = async (file: File) => {
+  const handleOcrPhoto = async (file: File, forMedId: string) => {
     setOcrBusy(true);
     try {
       const { lotNo, expIso } = await recognizeLotLabel(file);
+      if (recvMedIdRef.current !== forMedId) {
+        toast('อ่านฉลากเสร็จช้าไป (เปลี่ยนไปยาตัวอื่นแล้ว) — ข้าม ไม่กรอกอัตโนมัติ');
+        return;
+      }
       if (lotNo) setRecvLot(lotNo);
       if (expIso) setRecvExp(expIso);
       if (!lotNo && !expIso) toast('อ่านฉลากไม่พบ lot หรือวันหมดอายุที่ชัดเจน — กรอกเองด้านล่าง');
@@ -62,7 +75,7 @@ export default function ReceiveConfirmSheet() {
             accept="image/*"
             capture="environment"
             style={{ display: 'none' }}
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleOcrPhoto(f); e.target.value = ''; }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f && recvMed) handleOcrPhoto(f, recvMed.id); e.target.value = ''; }}
           />
           <button
             type="button"

@@ -43,6 +43,16 @@ export function NumberStepper({ value, onChange, unit, step = 1, min = 0, max, i
     if (next !== cur) { onChange(String(next)); hapticTick(); }
   };
 
+  // Bug fix (reported live): pressing + while already clamped at `max` (e.g. substock genuinely
+  // has 0 left to transfer — see ScanConfirmSheet, TransferScreen's own bump()'s subQty cap)
+  // silently did nothing at all — no shake, no toast, no visual change — which read as the
+  // button being broken rather than "there's nothing more to add," especially since the person
+  // has no other control on this sheet to check with. Disabling the button at its bound gives an
+  // immediate, honest "this is why" instead of a tap that appears to do nothing.
+  const curNum = parseInt(value, 10) || 0;
+  const atMax = max != null && curNum >= max;
+  const atMin = curNum <= min;
+
   const startHold = (dir: 1 | -1) => {
     bump(dir);
     // First repeat after a real pause (so a normal tap never double-fires), then speeds up —
@@ -63,18 +73,20 @@ export function NumberStepper({ value, onChange, unit, step = 1, min = 0, max, i
   // navigates away mid-hold) or the finger drags off-button without a pointerup ever landing.
   useEffect(() => stopHold, []);
 
-  const btnStyle: React.CSSProperties = {
+  const btnStyle = (disabled: boolean): React.CSSProperties => ({
     flex: 'none', width: 48, minHeight: 48, border: '1px solid var(--border)', background: 'var(--bg-card)',
     color: 'var(--green)', fontSize: 22, fontWeight: 700, borderRadius: 10, display: 'flex',
     alignItems: 'center', justifyContent: 'center', touchAction: 'manipulation', userSelect: 'none',
-  };
+    opacity: disabled ? 0.35 : 1,
+  });
 
   return (
     <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
       <button
         type="button"
         aria-label={'ลด' + (unit ? ' ' + unit : '') + ' ' + step}
-        style={btnStyle}
+        disabled={atMin}
+        style={btnStyle(atMin)}
         onPointerDown={(e) => { e.preventDefault(); startHold(-1); }}
         onPointerUp={stopHold}
         onPointerLeave={stopHold}
@@ -91,7 +103,8 @@ export function NumberStepper({ value, onChange, unit, step = 1, min = 0, max, i
       <button
         type="button"
         aria-label={'เพิ่ม' + (unit ? ' ' + unit : '') + ' ' + step}
-        style={btnStyle}
+        disabled={atMax}
+        style={btnStyle(atMax)}
         onPointerDown={(e) => { e.preventDefault(); startHold(1); }}
         onPointerUp={stopHold}
         onPointerLeave={stopHold}

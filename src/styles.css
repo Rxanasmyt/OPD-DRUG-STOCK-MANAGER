@@ -215,8 +215,23 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
    on, e.g. tapping a nav tab or drilling into a detail) slides in from the right like most
    mobile app navigation; "ย้อนกลับ" (back()) slides in from the left, so backing out reads as
    genuinely different from moving forward instead of every screen change looking identical. */
-.nav-slide-fwd { animation: navSlideFwd .22s var(--ease-out) both; }
-.nav-slide-back { animation: navSlideBack .22s var(--ease-out) both; }
+/* Bug fix (reported live — MedsScreen's edit sheet rendered as a small box overlapping the list
+   instead of covering the screen; traced to here): fill-mode was `both`, but `forwards` (the
+   half of `both` that matters once the animation reaches its end) keeps this animation
+   "applicable" to the element forever after it finishes, not just during its 220ms run — and
+   per the CSS Transforms spec, any element an animation is still applying a `transform` to
+   establishes a new containing block for its `position: fixed`/`absolute` descendants, even
+   though the final `transform: none` keyframe is visually a no-op. Every screen's own content
+   sits inside one of these wrappers, so this silently broke BottomSheet's "cover the real
+   viewport" positioning (both `absolute` against .app-shell AND `fixed` against the viewport
+   itself — this same wrapper defeats both) on every screen, the whole time a person stayed on
+   it. `forwards` isn't actually needed here: the `to` keyframe's `opacity: 1; transform: none`
+   already match the element's normal resting styles (nothing else sets them), so dropping fill
+   back to the default (`none` — no backwards either, but there's no animation-delay for that to
+   matter) looks pixel-identical once the animation ends, just without leaving that invisible
+   containing-block trap behind. */
+.nav-slide-fwd { animation: navSlideFwd .22s var(--ease-out); }
+.nav-slide-back { animation: navSlideBack .22s var(--ease-out); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
