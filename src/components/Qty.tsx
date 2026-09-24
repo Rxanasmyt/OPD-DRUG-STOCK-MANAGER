@@ -16,6 +16,19 @@ import { nf } from '../utils/format';
  * other field of the same doc — see the effect's own guard) makes a real-time update actually
  * register as one, instead of reading identically to the number just happening to be that.
  */
+// Bug fix (accessibility): every severity signal in the app (toneFor/subTone in selectors.ts)
+// is color ONLY — a red/amber/green traffic light with nothing else distinguishing the bands.
+// For someone with red-green color blindness (the most common form, ~5-8% of men), a "ปกติ"
+// shelf and an "ต่ำมาก" one can look the same at a glance. toneFor()/subTone() only ever return
+// one of these three exact CSS variable strings, so map them back to a shape as well — color
+// stays the primary/fast read for everyone else, the glyph is what makes it not color-only.
+function severityIcon(tone: string): string | null {
+  if (tone === 'var(--red)') return '●';
+  if (tone === 'var(--amber)') return '◆';
+  if (tone === 'var(--green)') return '✓';
+  return null;
+}
+
 export function Qty({ value, unit, tone, size = 13 }: { value: number; unit?: string; tone?: string; size?: number }) {
   const prevRef = useRef(value);
   const [pulsing, setPulsing] = useState(false);
@@ -26,6 +39,7 @@ export function Qty({ value, unit, tone, size = 13 }: { value: number; unit?: st
     const t = window.setTimeout(() => setPulsing(false), 550);
     return () => window.clearTimeout(t);
   }, [value]);
+  const icon = tone ? severityIcon(tone) : null;
   return (
     <>
       <span
@@ -34,6 +48,7 @@ export function Qty({ value, unit, tone, size = 13 }: { value: number; unit?: st
           animation: pulsing ? 'qtyPulse .55s var(--ease-spring)' : undefined,
         }}
       >
+        {icon && <span style={{ fontSize: Math.max(9, size * 0.6), marginRight: 2, verticalAlign: 'middle' }} aria-hidden="true">{icon}</span>}
         {nf(value)}
       </span>
       {unit && <span className="muted" style={{ fontSize: size - 1.5 }}> {unit}</span>}
