@@ -2627,7 +2627,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (m.floor > 0 || subQty(state, medId) > 0) { toast('ลบไม่ได้ — ยังมียอดคงเหลือที่หน้างานหรือ substock ต้องปรับยอด/ตัดออกให้เป็น 0 ก่อน'); return; }
     if (!(await confirmAsync('ลบ "' + m.name + '" ออกจากระบบถาวร? ย้อนกลับไม่ได้ — ถ้าแค่เลิกใช้ชั่วคราวแนะนำให้ "ปิดใช้งาน" แทน'))) return;
     try {
-      const lotSnap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', '==', medId))));
+      // Bug fix (real stock deletion risk): the floor/subQty check above ran on the CACHED
+      // state, before the confirm dialog — nothing stopped a receive from landing on this med
+      // while the dialog sat open (or just in the round trip after "ยืนยัน"), which would mean
+      // deleting real, just-arrived stock lots along with the med doc. Re-check live floor +
+      // live lot quantities right before actually deleting, using the same lot docs about to
+      // be deleted, so this can't silently discard stock that arrived after the check above.
+      const [medSnap, lotSnap] = await withTimeout(Promise.all([
+        getDoc(doc(db, 'meds', medId)),
+        getDocs(query(collection(db, 'lots'), where('medId', '==', medId))),
+      ]));
+      const liveFloor = (medSnap.data() as { floor?: number } | undefined)?.floor ?? 0;
+      const liveLotQty = lotSnap.docs.reduce((s, d) => s + ((d.data() as { qty?: number }).qty ?? 0), 0);
+      if (liveFloor > 0 || liveLotQty > 0) { toast('ลบไม่ได้ — มียอดคงเหลือเข้ามาระหว่างนี้ (หน้างานหรือ substock) ต้องปรับยอด/ตัดออกให้เป็น 0 ก่อน'); return; }
       const batch = writeBatch(db);
       lotSnap.docs.forEach((d) => batch.delete(d.ref));
       batch.delete(doc(db, 'meds', medId));
@@ -2661,26 +2673,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       + (blocked.length ? ' (อีก ' + blocked.length + ' รายการยังมียอดคงเหลือ จะไม่ถูกลบ)' : '');
     if (!(await confirmAsync(confirmMsg))) return;
     try {
-      const lotSnap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', 'in', removable.slice(0, 30).map((m) => m.id)))));
-      // 'in' queries cap at 30 values — for a formulary-sized cleanup, fetch each remaining
-      // med's lots in its own chunk instead of one query that would silently miss the rest.
-      const lotDocs = lotSnap.docs.slice();
-      for (let i = 30; i < removable.length; i += 30) {
-        const chunkIds = removable.slice(i, i + 30).map((m) => m.id);
-        const snap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', 'in', chunkIds))));
-        lotDocs.push(...snap.docs);
+      const idChunks: string[][] = [];
+      for (let i = 0; i < removable.length; i += 30) idChunks.push(removable.slice(i, i + 30).map((m) => m.id));
+      const lotDocs: { ref: ReturnType<typeof doc>; medId: string; qty: number }[] = [];
+      // Bug fix (real stock deletion risk): lots were fetched live (good — catches a lot that
+      // arrived after `removable` was computed from cached state), but their quantities were
+      // never actually checked before deleting them — any lot doc found for a removable med
+      // got deleted unconditionally, live qty or not. Also nothing re-checked each med's live
+      // FLOOR at all; the confirm dialog can sit open for a while, and a receive/adjustment
+      // landing in that window on a med judged "empty" from stale state would have its real
+      // stock silently deleted along with the med doc. Re-fetch both live right before
+      // deciding what's actually safe to delete.
+      const liveFloorById = new Map<string, number>();
+      for (const chunkIds of idChunks) {
+        const [lotSnap, medSnaps] = await withTimeout(Promise.all([
+          getDocs(query(collection(db, 'lots'), where('medId', 'in', chunkIds))),
+          Promise.all(chunkIds.map((id) => getDoc(doc(db, 'meds', id)))),
+        ]));
+        lotSnap.docs.forEach((d) => lotDocs.push({ ref: d.ref, medId: (d.data() as { medId?: string }).medId ?? '', qty: (d.data() as { qty?: number }).qty ?? 0 }));
+        medSnaps.forEach((s) => liveFloorById.set(s.id, (s.data() as { floor?: number } | undefined)?.floor ?? 0));
       }
+      const liveLotQtyByMed = new Map<string, number>();
+      for (const l of lotDocs) liveLotQtyByMed.set(l.medId, (liveLotQtyByMed.get(l.medId) ?? 0) + l.qty);
+      const stillEmpty = removable.filter((m) => (liveFloorById.get(m.id) ?? 0) === 0 && (liveLotQtyByMed.get(m.id) ?? 0) === 0);
+      const gainedStock = removable.filter((m) => (liveFloorById.get(m.id) ?? 0) > 0 || (liveLotQtyByMed.get(m.id) ?? 0) > 0);
+      if (!stillEmpty.length) { toast('ลบไม่ได้ — มียอดคงเหลือเข้ามาระหว่างนี้ในทุกรายการที่เลือก'); return; }
+      const stillEmptyIds = new Set(stillEmpty.map((m) => m.id));
       // Combine into one flat list of refs before chunking — chunking meds and lots
       // separately at 400 each could put up to 800 deletes in one batch, over Firestore's
       // hard 500-per-commit limit.
-      const allRefs = [...removable.map((m) => doc(db, 'meds', m.id)), ...lotDocs.map((d) => d.ref)];
+      const allRefs = [...stillEmpty.map((m) => doc(db, 'meds', m.id)), ...lotDocs.filter((l) => stillEmptyIds.has(l.medId)).map((l) => l.ref)];
       for (let i = 0; i < allRefs.length; i += 450) {
         const batch = writeBatch(db);
         allRefs.slice(i, i + 450).forEach((ref) => batch.delete(ref));
         await withTimeout(batch.commit());
       }
-      logAudit({ type: 'med_deleted', note: 'ลบยาที่ปิดใช้งานทั้งหมด ' + removable.length + ' รายการ (ยอดเป็น 0) ออกจากระบบถาวร: ' + removable.map((m) => m.name).join(', ') });
-      toast('ลบยาที่ปิดใช้งานแล้ว ' + removable.length + ' รายการ' + (blocked.length ? ' · ข้าม ' + blocked.length + ' รายการที่ยังมียอดคงเหลือ' : ''));
+      logAudit({ type: 'med_deleted', note: 'ลบยาที่ปิดใช้งานทั้งหมด ' + stillEmpty.length + ' รายการ (ยอดเป็น 0) ออกจากระบบถาวร: ' + stillEmpty.map((m) => m.name).join(', ') });
+      toast('ลบยาที่ปิดใช้งานแล้ว ' + stillEmpty.length + ' รายการ'
+        + (blocked.length ? ' · ข้าม ' + blocked.length + ' รายการที่ยังมียอดคงเหลือ' : '')
+        + (gainedStock.length ? ' · ข้ามอีก ' + gainedStock.length + ' รายการที่มียอดเข้ามาระหว่างนี้' : ''));
     } catch (e) { toastErr(e, 'ลบไม่สำเร็จ'); }
   }), [canEditMeds, state, logAudit, toast, toastErr, confirmAsync, guardOnce]);
 
@@ -3564,6 +3595,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setAdminTab = useCallback((t: AppState['adminTab']) => patch({ adminTab: t }), [patch]);
   const setAuditFilter = useCallback((f: AppState['auditFilter']) => patch({ auditFilter: f }), [patch]);
 
+  // Bug fix (race — could zero out all admins): the last-active-admin guard used to count
+  // from state.users (the onSnapshot cache). Two admins each demoting/disabling the OTHER at
+  // nearly the same moment both read "2 active admins" from their own stale cache, both pass
+  // the <=1 check, and both writes succeed independently — 0 active admins left, recoverable
+  // only via the Firebase console. Firestore transactions retry automatically when a document
+  // they READ changes before they commit — so re-reading every admin's live active state
+  // (including the one under a concurrent write) inside the same transaction as this write
+  // closes the race: whichever of the two transactions commits second gets forced to retry
+  // against the first one's already-written result, and its recount then correctly blocks it.
+  const lastAdminGuardedWrite = useCallback(async (targetId: string, apply: (trx: Transaction, live: { role: Role; active: boolean }) => boolean | void) => {
+    const adminIds = (await getDocs(query(collection(db, 'users'), where('role', '==', 'admin')))).docs.map((d) => d.id);
+    await runTx(async (trx) => {
+      const targetSnap = await trx.get(doc(db, 'users', targetId));
+      const targetData = targetSnap.data() as { role?: Role; active?: boolean } | undefined;
+      if (!targetData) throw new Error('not-found');
+      const live = { role: (targetData.role ?? 'tech') as Role, active: !!targetData.active };
+      const reducesAdmins = apply(trx, live);
+      if (reducesAdmins) {
+        let activeAdmins = 0;
+        for (const aid of adminIds) {
+          if (aid === targetId) { if (live.active) activeAdmins++; continue; }
+          const s = await trx.get(doc(db, 'users', aid));
+          if ((s.data() as { active?: boolean } | undefined)?.active) activeAdmins++;
+        }
+        if (activeAdmins <= 1) throw new Error('last-admin');
+      }
+    });
+  }, [runTx]);
+
   const setUserRole = useCallback(async (id: string, role: Role) => {
     // Bug fix: every other privileged mutation in this file (addMed, updateMedFull,
     // mergeWardMeds, applyAllSuggested, ...) checks a role gate before doing anything — this
@@ -3574,19 +3634,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (state.role !== 'admin') return;
     const u = state.users.find((x) => x.id === id);
     if (!u || u.role === role) return;
-    // Demoting the last active admin would lock the hospital out of admin functions
-    // entirely (nobody left to approve accounts or promote anyone back) — the only recovery
-    // would be hand-editing Firestore in the Firebase console again, same as first bootstrap.
-    if (u.role === 'admin' && role !== 'admin') {
-      const activeAdmins = state.users.filter((x) => x.role === 'admin' && x.active).length;
-      if (activeAdmins <= 1) { toast('เปลี่ยนไม่ได้ — นี่คือ Admin ที่ใช้งานอยู่คนสุดท้าย ต้องมี Admin อย่างน้อย 1 คนเสมอ'); return; }
-    }
     if (id === state.myUid && !(await confirmAsync('คุณกำลังจะเปลี่ยนบทบาทของตัวเอง จาก ' + roleLabelFor(u.role) + ' เป็น ' + roleLabelFor(role) + ' — ยืนยันหรือไม่?'))) return;
     try {
-      await withTimeout(updateDoc(doc(db, 'users', id), { role }));
-      logAudit({ type: 'user_role_changed', note: 'เปลี่ยนบทบาท ' + u.name + ' จาก ' + roleLabelFor(u.role) + ' เป็น ' + roleLabelFor(role) });
-    } catch (e) { console.error(e); toast('เปลี่ยนบทบาทไม่สำเร็จ'); }
-  }, [state.role, state.users, state.myUid, logAudit, toast, confirmAsync]);
+      let fromRole = u.role;
+      await lastAdminGuardedWrite(id, (trx, live) => {
+        fromRole = live.role;
+        trx.update(doc(db, 'users', id), { role });
+        // Demoting the last active admin would lock the hospital out of admin functions
+        // entirely (nobody left to approve accounts or promote anyone back) — the only
+        // recovery would be hand-editing Firestore in the Firebase console again, same as
+        // first bootstrap. Only a demotion AWAY from admin needs the live headcount below.
+        return live.role === 'admin' && role !== 'admin' && live.active;
+      });
+      logAudit({ type: 'user_role_changed', note: 'เปลี่ยนบทบาท ' + u.name + ' จาก ' + roleLabelFor(fromRole) + ' เป็น ' + roleLabelFor(role) });
+    } catch (e) {
+      if ((e as Error)?.message === 'last-admin') { toast('เปลี่ยนไม่ได้ — นี่คือ Admin ที่ใช้งานอยู่คนสุดท้าย ต้องมี Admin อย่างน้อย 1 คนเสมอ'); return; }
+      console.error(e); toast('เปลี่ยนบทบาทไม่สำเร็จ');
+    }
+  }, [state.role, state.users, state.myUid, lastAdminGuardedWrite, logAudit, toast, confirmAsync]);
 
   const toggleUserActive = useCallback(async (id: string) => {
     // Bug fix: see the same guard in setUserRole above — this had no client-side role check
@@ -3595,26 +3660,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const u = state.users.find((x) => x.id === id);
     if (!u) return;
     const next = !u.active;
-    if (!next && u.role === 'admin') {
-      const activeAdmins = state.users.filter((x) => x.role === 'admin' && x.active).length;
-      if (activeAdmins <= 1) { toast('ปิดใช้งานไม่ได้ — นี่คือ Admin ที่ใช้งานอยู่คนสุดท้าย ต้องมี Admin อย่างน้อย 1 คนเสมอ'); return; }
-    }
     if (id === state.myUid && !next && !(await confirmAsync('คุณกำลังจะปิดใช้งานบัญชีของตัวเอง — จะออกจากระบบทันที และต้องให้ Admin คนอื่นเปิดให้ใหม่ ยืนยันหรือไม่?'))) return;
-    // Bug fix: this used to decide "first-time approval" vs "re-enable after being disabled"
-    // with `u.active === false && u.createdAt` — but `u.active` here is always false in this
-    // branch already (next=true means it was false), and every user has a createdAt, so that
-    // check was tautologically always true. A previously-active account that got disabled and
-    // is now being turned back on always logged/toasted as "อนุมัติบัญชี" (approved), which is
-    // misleading for someone who was never a pending new registration. `lastLogin` actually
-    // distinguishes the two cases: a never-logged-in account is a genuine first approval; one
-    // that has logged in before is being reinstated, not approved for the first time.
-    const isFirstApproval = next && !u.lastLogin;
     try {
-      await withTimeout(updateDoc(doc(db, 'users', id), { active: next }));
-      logAudit({ type: isFirstApproval ? 'user_approved' : 'user_status_changed', note: (next ? (isFirstApproval ? 'อนุมัติบัญชี ' : 'เปิดใช้งานบัญชี ') : 'ปิดใช้งานบัญชี ') + u.name });
+      let wasFirstApproval = false;
+      await lastAdminGuardedWrite(id, (trx, live) => {
+        // Bug fix: this used to decide "first-time approval" vs "re-enable after being
+        // disabled" with `u.active === false && u.createdAt` — but `u.active` here is always
+        // false in this branch already (next=true means it was false), and every user has a
+        // createdAt, so that check was tautologically always true. A previously-active account
+        // that got disabled and is now being turned back on always logged/toasted as
+        // "อนุมัติบัญชี" (approved), which is misleading for someone who was never a pending
+        // new registration. `lastLogin` actually distinguishes the two cases: a never-logged-in
+        // account is a genuine first approval; one that has logged in before is being
+        // reinstated, not approved for the first time.
+        wasFirstApproval = next && !u.lastLogin;
+        trx.update(doc(db, 'users', id), { active: next });
+        return !next && live.role === 'admin' && live.active;
+      });
+      logAudit({ type: wasFirstApproval ? 'user_approved' : 'user_status_changed', note: (next ? (wasFirstApproval ? 'อนุมัติบัญชี ' : 'เปิดใช้งานบัญชี ') : 'ปิดใช้งานบัญชี ') + u.name });
       toast((next ? 'เปิดใช้งาน' : 'ปิดใช้งาน') + 'บัญชี ' + u.name + ' แล้ว');
-    } catch (e) { console.error(e); toast('เปลี่ยนสถานะไม่สำเร็จ'); }
-  }, [state.role, state.users, state.myUid, logAudit, toast, confirmAsync]);
+    } catch (e) {
+      if ((e as Error)?.message === 'last-admin') { toast('ปิดใช้งานไม่ได้ — นี่คือ Admin ที่ใช้งานอยู่คนสุดท้าย ต้องมี Admin อย่างน้อย 1 คนเสมอ'); return; }
+      console.error(e); toast('เปลี่ยนสถานะไม่สำเร็จ');
+    }
+  }, [state.role, state.users, state.myUid, lastAdminGuardedWrite, logAudit, toast, confirmAsync]);
 
   const exportAudit = useCallback(async () => {
     // Same reasoning as exportReportCsv — the live subscriptions are capped at 300 each for
