@@ -2177,7 +2177,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     window.clearTimeout(parDebounce.current[medId + field]);
     const fire = () => {
       delete pendingFlush.current[key];
-      updateDoc(doc(db, 'meds', medId), { [field]: val }).catch(() => toast('บันทึกค่า par ไม่สำเร็จ'));
+      updateDoc(doc(db, 'meds', medId), { [field]: val }).catch(async () => {
+        toast('บันทึกค่า par ไม่สำเร็จ — กำลังดึงค่าจริงกลับมาแสดง');
+        // Bug fix: the optimistic local edit above (setParSub/setParFloor, applied immediately
+        // on keystroke) used to stay on screen forever on a write failure — nothing rolled it
+        // back, so the field could keep showing a number that was never actually saved, with
+        // only a toast (easy to miss, especially mid-typing) ever having said so. Re-read the
+        // real value and restore it so the screen never silently disagrees with Firestore.
+        try {
+          const snap = await getDoc(doc(db, 'meds', medId));
+          const real = (snap.data() as Record<string, unknown> | undefined)?.[field];
+          if (typeof real === 'number') {
+            setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, [field]: real } : x)) }));
+          }
+        } catch { /* best-effort rollback; the live meds listener will eventually correct it too */ }
+      });
     };
     pendingFlush.current[key] = fire;
     parDebounce.current[medId + field] = window.setTimeout(fire, 500);
@@ -2206,7 +2220,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     window.clearTimeout(binDebounce.current[medId]);
     const fire = () => {
       delete pendingFlush.current[key];
-      updateDoc(doc(db, 'meds', medId), { bin: val }).catch(() => toast('บันทึกชั้นวางไม่สำเร็จ'));
+      updateDoc(doc(db, 'meds', medId), { bin: val }).catch(async () => {
+        toast('บันทึกชั้นวางไม่สำเร็จ — กำลังดึงค่าจริงกลับมาแสดง');
+        // Bug fix: same rollback gap as debouncedParWrite above — restore the real saved bin
+        // code on a write failure instead of leaving the field showing an unsaved value.
+        try {
+          const snap = await getDoc(doc(db, 'meds', medId));
+          const real = (snap.data() as { bin?: string } | undefined)?.bin;
+          if (typeof real === 'string') {
+            setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, bin: real } : x)) }));
+          }
+        } catch { /* best-effort rollback; the live meds listener will eventually correct it too */ }
+      });
     };
     pendingFlush.current[key] = fire;
     binDebounce.current[medId] = window.setTimeout(fire, 500);
@@ -2469,47 +2494,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       + 'แต่ละคู่จะบวกยอดหน้างานเข้าด้วยกัน พร้อมเก็บชั้นวางแยก OPD/IPD ไว้ — ย้อนกลับไม่ได้จากหน้านี้\n'
       + 'แนะนำให้นับสต็อกจริงทุกตัวหลังรวมเพื่อยืนยันยอด'
     ))) return;
-    try {
-      const ipdIds = pairs.map((p) => p.ipdMed.id);
-      const lotUpdates: { ref: ReturnType<typeof doc>; opdId: string }[] = [];
-      for (let i = 0; i < ipdIds.length; i += 30) {
-        const chunk = ipdIds.slice(i, i + 30);
-        const opdIdByIpdId = new Map(pairs.filter((p) => chunk.includes(p.ipdMed.id)).map((p) => [p.ipdMed.id, p.opdMed.id]));
-        const snap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', 'in', chunk))));
-        snap.docs.forEach((d) => {
-          const medId = (d.data() as { medId?: string }).medId;
-          const opdId = medId ? opdIdByIpdId.get(medId) : undefined;
-          if (opdId) lotUpdates.push({ ref: d.ref, opdId });
-        });
-      }
-      const ops: { ref: ReturnType<typeof doc>; data: Record<string, unknown> }[] = [
-        ...lotUpdates.map((u) => ({ ref: u.ref, data: { medId: u.opdId } })),
-        ...pairs.flatMap((p) => [
-          { ref: doc(db, 'meds', p.opdMed.id), data: {
+    // Bug fix (lost-update race): this used to compute each pair's merged floor from
+    // state.meds (the client's cached snapshot) once up front, then write everything via
+    // plain chunked writeBatch calls — same class of bug as mergeWardMeds's single-pair
+    // version (see its own fix note): anything landing on either side's floor between whenever
+    // that snapshot last synced and this commit got silently overwritten/lost. Same fix here,
+    // per pair: a small transaction that re-reads both med docs live right before writing.
+    // Sequential (not parallel) same reasoning as commitAllCounts/commitAllSubCounts — a slow
+    // connection degrades into "slower", not a burst of concurrent transactions contending on
+    // the same docs, and one pair's failure doesn't need to abort every other pair's merge.
+    const names: string[] = [];
+    let ok = 0;
+    let failed = 0;
+    for (const p of pairs) {
+      try {
+        const lotSnap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', '==', p.ipdMed.id))));
+        await runTx(async (trx) => {
+          const opdSnap = await trx.get(doc(db, 'meds', p.opdMed.id));
+          const ipdSnap = await trx.get(doc(db, 'meds', p.ipdMed.id));
+          const freshOpdFloor = (opdSnap.data() as { floor?: number } | undefined)?.floor ?? p.opdMed.floor;
+          const freshIpdFloor = (ipdSnap.data() as { floor?: number } | undefined)?.floor ?? p.ipdMed.floor;
+          lotSnap.docs.forEach((d) => trx.update(d.ref, { medId: p.opdMed.id }));
+          trx.update(doc(db, 'meds', p.opdMed.id), {
             shared: true,
             binIpd: p.ipdMed.bin,
-            floor: p.opdMed.floor + p.ipdMed.floor,
+            floor: freshOpdFloor + freshIpdFloor,
             used30: p.opdMed.used30 + p.ipdMed.used30,
             usedPrev30: p.opdMed.usedPrev30 + p.ipdMed.usedPrev30,
             ward: 'opd',
-          } },
-          { ref: doc(db, 'meds', p.ipdMed.id), data: { active: false, floor: 0 } },
-        ]),
-      ];
-      for (let i = 0; i < ops.length; i += 400) {
-        const batch = writeBatch(db);
-        ops.slice(i, i + 400).forEach((o) => batch.update(o.ref, o.data));
-        await withTimeout(batch.commit());
-      }
-      const names = pairs.map((p) => p.opdMed.name);
+          });
+          trx.update(doc(db, 'meds', p.ipdMed.id), { active: false, floor: 0 });
+        });
+        names.push(p.opdMed.name);
+        ok++;
+      } catch (e) { console.error(e); failed++; }
+    }
+    if (ok > 0) {
       logAudit({
         type: 'med_edited',
-        note: 'รวมสต็อก OPD/IPD ทั้งหมด ' + pairs.length + ' คู่ เป็นยอดเดียวกัน: '
+        note: 'รวมสต็อก OPD/IPD ทั้งหมด ' + ok + ' คู่ เป็นยอดเดียวกัน: '
           + names.slice(0, 20).join(', ') + (names.length > 20 ? ' และอีก ' + (names.length - 20) + ' รายการ' : ''),
       });
-      toast('รวมสต็อกแล้ว ' + pairs.length + ' คู่ — แนะนำให้นับสต็อกจริงทุกตัวเพื่อยืนยันยอด');
-    } catch (e) { toastErr(e, 'รวมสต็อกไม่สำเร็จ'); }
-  }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce]);
+    }
+    toast(failed > 0
+      ? 'รวมสต็อกแล้ว ' + ok + ' คู่ · ไม่สำเร็จ ' + failed + ' คู่ (ลองกดปุ่มนี้อีกครั้งสำหรับคู่ที่เหลือ)'
+      : 'รวมสต็อกแล้ว ' + ok + ' คู่ — แนะนำให้นับสต็อกจริงทุกตัวเพื่อยืนยันยอด');
+  }), [canEditMeds, state.meds, logAudit, toast, guardOnce, runTx, confirmAsync]);
 
   // The common real starting point: a formulary that has NO separate IPD records at all yet
   // (every med is a plain single 'opd'-ward record) — mergeAllWardPairs() finds nothing to
