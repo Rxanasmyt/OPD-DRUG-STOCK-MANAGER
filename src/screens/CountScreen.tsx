@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf } from '../utils/format';
 import { SearchInput } from '../components/SearchInput';
-import { categoryOf, subQty, usesSubstock } from '../store/selectors';
+import { categoryOf, subQty, usesSubstock, binDisplayAll } from '../store/selectors';
 import { DRUG_CATEGORIES } from '../data/categories';
 import { EmptyState } from '../components/EmptyState';
 import type { Med } from '../types';
@@ -14,7 +14,7 @@ const DAY = 86400000;
  * longest — and the ones never counted at all — have to float to the top on their own instead
  * of being hunted for by name. 'name' is the old alphabetical behavior, kept for when someone
  * is working down a physical shelf list. */
-type Sort = 'stale' | 'name';
+type Sort = 'stale' | 'name' | 'bin';
 /** Extra narrowing on top of search/category — 'typed' is for reviewing what's about to be
  * committed (the batch-save preview), 'never' for "which drugs have never been counted at all". */
 type Scope = 'all' | 'never' | 'typed';
@@ -46,6 +46,13 @@ export default function CountScreen() {
   const oneBusyKey = (id: string) => (loc === 'floor' ? 'count:' : 'subCount:') + id;
   const systemQtyOf = (m: Med) => (loc === 'floor' ? m.floor : subQty(state, m.id));
   const lastTsOf = (m: Med) => (loc === 'floor' ? m.lastCountTs : m.lastSubCountTs);
+  // Real-world request: "ไล่ดูตามรหัสชั้นวาง" — the shelf-position sort/filter TransferScreen
+  // already offers for เติมหน้างาน, brought here too so a physical cycle count (walking the
+  // shelf/substock room in one pass) doesn't have to fight an alphabetical or staleness order.
+  // Floor and substock keep separate shelf codes (Med.bin/binIpd vs Med.binSub — a drug's
+  // substock rack is rarely the same physical spot as its dispensing shelf), so this has to
+  // branch on `loc` same as systemQtyOf/lastTsOf above.
+  const binOf = (m: Med) => (loc === 'floor' ? binDisplayAll(m) : (m.binSub || ''));
 
   // Counts for the category chips are computed over every eligible med, not the currently
   // filtered slice — the chip's number has to mean "how many drugs are in this group",
@@ -83,11 +90,21 @@ export default function CountScreen() {
       .filter((m) => !needle || m.name.toLowerCase().indexOf(needle) >= 0 || m.code.toLowerCase().indexOf(needle) >= 0)
       .filter((m) => catTab === 'all' || categoryOf(m) === catTab)
       .filter((m) => scope === 'all' || (scope === 'never' ? !lastTsOf(m) : typedSet.has(m.id)))
-      .sort((a, b) => (sort === 'name'
-        ? a.name.localeCompare(b.name, 'th')
+      .sort((a, b) => {
+        if (sort === 'name') return a.name.localeCompare(b.name, 'th');
+        if (sort === 'bin') {
+          // Blank shelf codes sort last, same convention as TransferScreen's own bin sort —
+          // an unassigned bin isn't "shelf A", it's "nobody's told the app where this lives
+          // yet", and floating those to the top of a walking route would be actively wrong.
+          const ab = binOf(a);
+          const bb = binOf(b);
+          if (!ab !== !bb) return ab ? -1 : 1;
+          return ab.localeCompare(bb, 'en') || a.name.localeCompare(b.name, 'th');
+        }
         // Never-counted first (MAX_SAFE_INTEGER staleness), then oldest count first; ties
         // broken by name so the order is stable rather than dependent on array order.
-        : staleness(b) - staleness(a) || a.name.localeCompare(b.name, 'th')))
+        return staleness(b) - staleness(a) || a.name.localeCompare(b.name, 'th');
+      })
       .slice(0, 150);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, q, catTab, scope, sort, typedSet, loc]);
@@ -133,6 +150,7 @@ export default function CountScreen() {
 
       <div style={{ display: 'flex', gap: 7, marginBottom: 8, overflowX: 'auto', paddingBottom: 2 }}>
         <button className="chip" style={{ ...chip(sort === 'stale'), flex: 'none' }} onClick={() => setSort('stale')}>เรียงตามที่ค้างนานสุด</button>
+        <button className="chip" style={{ ...chip(sort === 'bin'), flex: 'none' }} onClick={() => setSort('bin')}>เรียงตามชั้นวาง</button>
         <button className="chip" style={{ ...chip(sort === 'name'), flex: 'none' }} onClick={() => setSort('name')}>เรียงตามชื่อยา</button>
       </div>
       <div style={{ display: 'flex', gap: 7, marginBottom: 8, overflowX: 'auto', paddingBottom: 2 }}>
@@ -178,7 +196,12 @@ export default function CountScreen() {
             <div key={m.id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', background: has ? 'var(--green-tint)' : undefined }}>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>{m.name}</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {/* Shown regardless of sort — useful context any time, essential while
+                        walking shelf order (sort === 'bin') to confirm you're at the right spot. */}
+                    {binOf(m) && <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 6, padding: '1px 6px' }}>{binOf(m)}</span>}
+                    <span>{m.name}</span>
+                  </div>
                   <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
                     ระบบคำนวณ {nf(sysQty)} {m.unit} · <span style={stale ? { color: 'var(--amber-ink)', fontWeight: 700 } : undefined}>นับล่าสุด {daysSince === null ? 'ยังไม่เคยนับ' : daysSince <= 0 ? 'วันนี้' : daysSince + ' วันก่อน'}</span>
                   </div>
