@@ -20,7 +20,13 @@ import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { writeFile, mkdir, appendFile } from 'node:fs/promises';
 
 // Every top-level collection this app reads/writes — see firestore.rules for the same list.
-const COLLECTIONS = ['meds', 'lots', 'txs', 'auditLog', 'users', 'usernames', 'pendingReceives', 'meta'];
+// Bug fix: 'dailyMetrics' (one doc/day, written by collect-daily-metrics.mjs, read by the
+// "📅 ตัวชี้วัดย้อนหลัง" KPI report tab) was missing from this list. Unlike meds/lots/txs —
+// which can all be reconstructed from txs history — a dailyMetrics doc's stock-snapshot
+// fields are computed "as of script run time" and can never be recomputed for a past date
+// once that day is gone, so a gap here meant months of KPI trend history had no backup at
+// all, with nothing in this script or verify-backup.mjs ever indicating the gap.
+const COLLECTIONS = ['meds', 'lots', 'txs', 'auditLog', 'users', 'usernames', 'pendingReceives', 'meta', 'dailyMetrics'];
 
 function serialize(value) {
   if (value instanceof Timestamp) return value.toDate().toISOString();

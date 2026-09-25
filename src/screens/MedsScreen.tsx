@@ -471,7 +471,19 @@ export default function MedsScreen() {
                   <Badge flexNone size={10.5} padding="4px 8px" color={m.active ? 'var(--green)' : 'var(--muted)'} bg={m.active ? 'var(--green-tint)' : 'var(--bg-subtle)'}>{m.active ? 'ใช้งานอยู่' : 'ปิดใช้งาน'}</Badge>
                 </div>
                 <div style={{ display: 'flex', gap: 7 }}>
-                  <button onClick={() => { setEditingId(isEditing ? null : m.id); setAddOpen(false); }} style={{ flex: 1, border: '1px solid var(--green)', background: isEditing ? 'var(--green)' : 'var(--bg-card)', color: isEditing ? '#fff' : 'var(--green)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44 }}>
+                  <button
+                    onClick={async () => {
+                      // Bug fix: switching straight from editing med A to editing med B used
+                      // to skip confirmLeaveIfDirty entirely (every other close path in this
+                      // file — BottomSheet's own onClose, "+เพิ่มยาใหม่" — already goes through
+                      // it) and silently discard A's unsaved edits. Only the "switch to a
+                      // different, already-open row" case needs the check — toggling the same
+                      // row open/closed keeps its original no-confirm behavior.
+                      if (editingId && editingId !== m.id && !(await confirmLeaveIfDirty())) return;
+                      setEditingId(isEditing ? null : m.id); setAddOpen(false);
+                    }}
+                    style={{ flex: 1, border: '1px solid var(--green)', background: isEditing ? 'var(--green)' : 'var(--bg-card)', color: isEditing ? '#fff' : 'var(--green)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44 }}
+                  >
                     {isEditing ? 'ปิดฟอร์มแก้ไข' : 'แก้ไขข้อมูล'}
                   </button>
                   <button onClick={() => toggleMedActive(m.id)} style={{ flex: 1, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44 }}>
@@ -511,6 +523,15 @@ export default function MedsScreen() {
         return (
           <BottomSheet open={true} onClose={async () => { if (await confirmLeaveIfDirty()) setEditingId(null); }} title={'แก้ไขข้อมูล: ' + m.name}>
             <MedForm
+              // Bug fix (wrong-med data corruption): this sheet is one shared instance across
+              // every row (see the comment above), so switching editingId from med A straight
+              // to med B without this key left React reusing the same <MedForm> instance —
+              // useState(initial) only ever consumes `initial` on first mount, so the form kept
+              // showing A's (possibly half-edited) field values while onSubmit's closure had
+              // already moved on to B. Saving then wrote A's stale values onto B's Firestore
+              // doc. Keying by the edited med's id forces a real remount — and a fresh
+              // useState(initial) read — every time editingId changes to a different med.
+              key={editingId}
               heading={null}
               initial={formFromMed(m)}
               submitLabel="บันทึกการแก้ไข"

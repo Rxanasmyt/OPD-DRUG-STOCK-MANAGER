@@ -1313,7 +1313,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const cart = { ...state.cart };
     const ids = Object.keys(cart);
     if (!ids.length) return;
-    const meds = state.meds, lotsCache = state.lots;
+    const meds = state.meds;
     let resultRows: AppState['doneRows'] = [];
     try {
       await runTx(async (trx) => {
@@ -1324,7 +1324,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         for (const medId of ids) {
           const medSnap = await trx.get(doc(db, 'meds', medId));
           medReads[medId] = (medSnap.data() as { floor?: number } | undefined)?.floor ?? 0;
-          const lotIds = lotsCache.filter((l) => l.medId === medId && l.qty > 0).sort((a, b) => a.exp - b.exp).map((l) => l.id);
+          // Bug fix (false "substock ไม่พอ" rejection + FEFO-skip risk): lotsCache (state.lots,
+          // the onSnapshot cache) could miss a lot created between building the cart and
+          // confirming here — e.g. a receive landing on this exact med mid-transfer. A live
+          // query right before reading each lot shrinks that window to a single round trip;
+          // the Firestore client SDK can't query inside the transaction itself (trx.get() only
+          // takes a doc ref), so this runs just outside it, freshly on every retry.
+          const liveLotDocs = (await getDocs(query(collection(db, 'lots'), where('medId', '==', medId)))).docs;
+          const lotIds = liveLotDocs
+            .map((d) => ({ id: d.id, qty: (d.data() as { qty?: number }).qty ?? 0, exp: (d.data() as { exp?: number }).exp ?? 0 }))
+            .filter((l) => l.qty > 0).sort((a, b) => a.exp - b.exp).map((l) => l.id);
           lotIdsByMed[medId] = lotIds;
           for (const lotId of lotIds) {
             const lotSnap = await trx.get(doc(db, 'lots', lotId));
@@ -1402,7 +1411,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (msg.startsWith('insufficient:')) { toast('substock เหลือไม่พอสำหรับ ' + msg.slice('insufficient:'.length) + ' — น่าจะมีคนอื่นเบิกไปพร้อมกัน กลับไปปรับจำนวนในตะกร้าแล้วลองใหม่'); return; }
       toastErr(e, 'เติมหน้างานไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [state.cart, state.meds, state.lots, userName, toast, toastErr, guardOnce]);
+  }), [state.cart, state.meds, userName, toast, toastErr, guardOnce]);
 
   // ---------- receive ----------
   const setRecvNo = useCallback((v: string) => patch({ recvNo: v }), [patch]);
@@ -3080,7 +3089,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       let delta = 0;
       let note = '';
-      const lotIds = state.lots.filter((l) => l.medId === medId).map((l) => l.id);
+      // Bug fix (data integrity — fabricated stock): the LOT SET itself, not just each lot's
+      // qty, must be fresh. state.lots is the onSnapshot cache — if a receive/approve lands a
+      // brand-new lot for this med between opening the count screen and hitting "save" (a
+      // multi-minute shelf walk is exactly the case this can happen in), that lot's id is
+      // invisible to a list built from the stale cache, so curSub below undercounts it. The
+      // "over" branch then fabricates a whole extra ปรับยอด lot for the gap — double-counting
+      // stock that a real, just-received lot already accounts for. The Firestore client SDK
+      // can't run a query inside a transaction (trx.get() only takes a doc ref), so the lot-id
+      // list has to be refreshed via a plain query immediately before the transaction starts —
+      // this can't close the window to zero, but it shrinks it from "however long the count
+      // screen was open" down to a single round trip.
+      const lotIds = (await getDocs(query(collection(db, 'lots'), where('medId', '==', medId)))).docs.map((d) => d.id);
       // Bug fix (data integrity): tx-log write folded into the same transaction as the lot
       // writes — see commitCount's note on this exact class of gap.
       await runTx(async (trx) => {
@@ -3119,7 +3139,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       patch((st) => { const ci = { ...st.subCountInputs }; delete ci[medId]; return { subCountInputs: ci }; });
       toast(m.name + ' — ' + note);
     } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }), [state.subCountInputs, state.meds, state.lots, userName, toast, toastErr, patch, guardOnce]);
+  }), [state.subCountInputs, state.meds, userName, toast, toastErr, patch, guardOnce]);
 
   /** Batch version of commitSubCount(), mirroring commitAllCounts() — sequential per-med
    * transactions (never one lumped write) for the same reason: each has to re-read its own
@@ -3138,7 +3158,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!m) continue;
       try {
         let delta = 0;
-        const lotIds = state.lots.filter((l) => l.medId === medId).map((l) => l.id);
+        // Bug fix (data integrity — fabricated stock): see commitSubCount's matching note
+        // right above — the lot-id set itself must be re-queried live, not read off the
+        // onSnapshot cache, or a lot created concurrently (e.g. a receive landing mid-batch)
+        // is invisible here and gets double-counted as a fabricated ปรับยอด lot.
+        const lotIds = (await getDocs(query(collection(db, 'lots'), where('medId', '==', medId)))).docs.map((d) => d.id);
         // Bug fix (data integrity): tx-log write folded into the same transaction — see
         // commitCount's note on this exact class of gap.
         await runTx(async (trx) => {
@@ -3182,7 +3206,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toast(failed > 0
       ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
       : 'บันทึกครบ ' + ok + ' รายการ' + (diffs > 0 ? ' · มีส่วนต่าง ' + diffs + ' รายการ (ดูได้ใน Discrepancy log)' : ' · ตรงกับระบบทุกรายการ'));
-  }), [state.subCountInputs, state.meds, state.lots, userName, toast, patch, guardOnce]);
+  }), [state.subCountInputs, state.meds, userName, toast, patch, guardOnce]);
 
   // ---------- hosxp reconcile ----------
   const setHosxpText = useCallback((v: string) => patch({ hosxpText: v }), [patch]);

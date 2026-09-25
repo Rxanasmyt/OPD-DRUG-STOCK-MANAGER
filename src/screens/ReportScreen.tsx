@@ -1,5 +1,5 @@
 import { useApp } from '../store/AppContext';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor } from '../store/selectors';
 import { nf, thDate, isoDate, DAY } from '../utils/format';
 import type { ReportTab, DailyMetrics } from '../types';
@@ -135,9 +135,22 @@ export default function ReportScreen() {
   const [kpiRows, setKpiRows] = useState<DailyMetrics[]>([]);
   const [kpiLoading, setKpiLoading] = useState(false);
   const [kpiLoaded, setKpiLoaded] = useState(false);
+  // Bug fix (stale report silently shown): no request-id guard here meant two overlapping
+  // fetchDailyMetrics calls (e.g. the mount effect firing, then the user changes the date
+  // range and hits "ดึงรางาน" again before the first resolves) could resolve out of order —
+  // whichever finished LAST won, even if it was for a range the user no longer has selected.
+  // The date inputs stayed visually correct throughout while the table/CSV/print underneath
+  // silently held a different range's data, with nothing on screen to reveal the mismatch.
+  // Same "last request wins" ref-counter pattern SubstockCardScreen already uses for its own
+  // fetch race — only the request that's still the newest when it resolves gets applied.
+  const kpiReqId = useRef(0);
   const loadKpi = () => {
+    const reqId = ++kpiReqId.current;
     setKpiLoading(true);
-    fetchDailyMetrics(kpiFrom, kpiTo).then((rows) => { setKpiRows(rows); setKpiLoaded(true); }).finally(() => setKpiLoading(false));
+    fetchDailyMetrics(kpiFrom, kpiTo).then((rows) => {
+      if (reqId !== kpiReqId.current) return;
+      setKpiRows(rows); setKpiLoaded(true);
+    }).finally(() => { if (reqId === kpiReqId.current) setKpiLoading(false); });
   };
   useEffect(() => {
     if (state.reportTab === 'kpi' && !kpiLoaded) loadKpi();
