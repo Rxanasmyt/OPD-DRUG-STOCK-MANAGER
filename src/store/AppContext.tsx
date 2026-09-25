@@ -1103,7 +1103,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => { signOut(auth); patch({ cart: {}, authUsername: '', authPassword: '' }); }, [patch]);
   const setDevice = useCallback((d: 'phone' | 'tablet') => patch({ device: d }), [patch]);
 
-  const seedDatabase = useCallback(async () => {
+  // Bug fix: this was the only bulk-write action in the app neither wrapped in guardOnce nor
+  // backed by a state.busy[...] flag — every other bulk button (MedsScreen/SettingsScreen)
+  // disables itself and shows "กำลัง…" via state.busy while its write is in flight. A double-tap
+  // here (easy on a slow first-run connection loading 585 meds across chunked batches) fired
+  // seedInitialData() twice concurrently — harmless since seed.ts's doc IDs are deterministic
+  // ("M0001"...), so the second run just re-writes the same docs, but still a real missing
+  // double-submit guard inconsistent with the rest of the codebase's own pattern.
+  const seedDatabase = useCallback(guardOnce('seedDatabase', async () => {
     toast('กำลังโหลดข้อมูลตั้งต้น…');
     try {
       const r = await seedInitialData();
@@ -1115,7 +1122,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       toast('โหลดข้อมูลตั้งต้นไม่สำเร็จ: ' + authErrorMessage(e));
     }
-  }, [toast, logAudit]);
+  }), [toast, logAudit, guardOnce]);
 
   // ---------- transfer ----------
   const setSearch = useCallback((v: string) => patch({ search: v }), [patch]);
@@ -1238,7 +1245,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // shelf under par; the person carrying this sheet should know to also flag it for
         // the next "เบิกจากคลังใหญ่" run instead of assuming the job's done.
         const shortNote = qty < need ? 'substock เหลือไม่พอเติมเต็ม par (ขาดอีก ' + nf(need - qty) + ' ' + m.unit + ')' : undefined;
-        const boxNote = m.packSize && m.packSize > 1 ? 'เบิกเป็นกล่อง กล่องละ ' + nf(m.packSize) + ' ' + m.unit + ' (' + nf(qty / m.packSize) + ' กล่อง)' : undefined;
+        // Bug fix: unlike printWarehouseRequestList (which rounds its own qty UP to a packStep
+        // multiple before computing this note, so qty/packSize is always a clean integer), qty
+        // here is suggestTransferQty()'s result — capped at whatever substock actually has,
+        // which is NOT guaranteed to be a whole number of boxes. nf()'s rounding used to hide
+        // that gap: e.g. packSize 30 with only 47 units actually available printed "2 กล่อง"
+        // (implying 60 units) instead of the true 1 full box + 17 loose — a wrong count on an
+        // official pick-list. Show the exact split instead of ever rounding it away.
+        const boxNote = (() => {
+          if (!m.packSize || m.packSize <= 1) return undefined;
+          const boxes = Math.floor(qty / m.packSize);
+          const rem = qty % m.packSize;
+          const boxesLabel = boxes + ' กล่อง' + (rem > 0 ? ' + ' + nf(rem) + ' ' + m.unit + ' (ไม่ครบกล่อง)' : '');
+          return 'บรรจุกล่องละ ' + nf(m.packSize) + ' ' + m.unit + ' — หยิบ ' + boxesLabel;
+        })();
         const note = [boxNote, shortNote].filter(Boolean).join(' · ') || undefined;
         return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note };
       })
@@ -1432,6 +1452,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const approve = true;
     const items = state.recvItems;
     if (!items.length) return;
+    // Bug fix (data integrity): recvItems is purely local state, never reflected in Firestore
+    // until this commit — nothing stops the med from being deleted (by someone else, another
+    // device) in the gap between adding it here and confirming. Without this check, the
+    // `m && !usesSubstock(m)` test below is FALSE for a deleted med (m is undefined), which
+    // falls into the substock branch and creates a real lots doc + receive_from_central tx
+    // pointing at a medId that no longer exists in `meds` — an orphaned "phantom stock" entry
+    // invisible to FEFO pickers and every substock-balance view, with no error shown to the
+    // user at all. Same pre-write guard commitTransfer already has for its cart.
+    const missingMed = items.some((it) => !state.meds.find((x) => x.id === it.medId));
+    if (missingMed) { toast('มีรายการที่ถูกลบออกจากระบบไปแล้ว — กลับไปลบรายการนั้นออกจากรายการรับเข้าก่อน'); return; }
     try {
       const batch = writeBatch(db);
       if (!approve) {
@@ -1503,7 +1533,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const pr = snap.data() as PendingReceive | undefined;
         if (!pr || pr.status !== 'pending') throw new Error('already-resolved');
         const m = state.meds.find((x) => x.id === pr.medId);
-        if (m && !usesSubstock(m)) {
+        // Bug fix (data integrity): same class of bug as commitReceive above — a pending
+        // request can sit for a while before anyone approves it, long enough for the med it
+        // references to get deleted in the meantime. Without this check, `m && !usesSubstock(m)`
+        // is falsy purely because `m` is undefined, which fell into the substock branch below
+        // and created a lots doc + receive_from_central tx for a medId no longer in `meds` —
+        // real inventory value silently made invisible, with the request still marked approved.
+        if (!m) throw new Error('missing-med');
+        if (!usesSubstock(m)) {
           trx.update(doc(db, 'meds', pr.medId), { floor: increment(pr.qty) });
           trx.set(doc(collection(db, 'txs')), {
             type: 'receive_from_central' as TxType, name: pr.name, medId: pr.medId, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'floor',
@@ -1521,7 +1558,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       toast('อนุมัติรับเข้าแล้ว');
     } catch (e) {
-      if ((e as Error)?.message === 'already-resolved') { toast('รายการนี้ถูกอนุมัติหรือปฏิเสธไปแล้ว'); return; }
+      const msg = (e as Error)?.message || '';
+      if (msg === 'already-resolved') { toast('รายการนี้ถูกอนุมัติหรือปฏิเสธไปแล้ว'); return; }
+      if (msg === 'missing-med') { toast('ยาในคำขอนี้ถูกลบออกจากระบบไปแล้ว — อนุมัติไม่ได้ ให้ปฏิเสธคำขอนี้แทน'); return; }
       toastErr(e, 'อนุมัติไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
   }), [canApproveReceive, state.meds, userName, toast, toastErr, guardOnce]);
@@ -2370,25 +2409,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ))) return;
     try {
       const lotSnap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', '==', ipdMed.id))));
-      const batch = writeBatch(db);
-      lotSnap.docs.forEach((d) => batch.update(d.ref, { medId: opdMed.id }));
-      batch.update(doc(db, 'meds', opdMed.id), {
-        shared: true,
-        binIpd: ipdMed.bin,
-        floor: opdMed.floor + ipdMed.floor,
-        used30: opdMed.used30 + ipdMed.used30,
-        usedPrev30: opdMed.usedPrev30 + ipdMed.usedPrev30,
-        ward: 'opd',
+      // Bug fix (lost-update race): floor here used to come straight from state.meds (the
+      // client's cached snapshot) and get written via a plain writeBatch — anything landing on
+      // either side's floor between whenever that snapshot last synced and this commit (a
+      // transfer/count/adjust from another device, easily minutes on a walk to confirm the
+      // merge dialog) got silently overwritten/lost, not just "stale, go recount" as the old
+      // comment framed it. Re-reading both med docs live inside a transaction, right before
+      // writing, makes the merge use whatever floor actually exists at commit time.
+      const mergedFloor = await runTx(async (trx) => {
+        const opdSnap = await trx.get(doc(db, 'meds', opdMed.id));
+        const ipdSnap = await trx.get(doc(db, 'meds', ipdMed.id));
+        const freshOpdFloor = (opdSnap.data() as { floor?: number } | undefined)?.floor ?? opdMed.floor;
+        const freshIpdFloor = (ipdSnap.data() as { floor?: number } | undefined)?.floor ?? ipdMed.floor;
+        const merged = freshOpdFloor + freshIpdFloor;
+        lotSnap.docs.forEach((d) => trx.update(d.ref, { medId: opdMed.id }));
+        trx.update(doc(db, 'meds', opdMed.id), {
+          shared: true,
+          binIpd: ipdMed.bin,
+          floor: merged,
+          used30: opdMed.used30 + ipdMed.used30,
+          usedPrev30: opdMed.usedPrev30 + ipdMed.usedPrev30,
+          ward: 'opd',
+        });
+        trx.update(doc(db, 'meds', ipdMed.id), { active: false, floor: 0 });
+        return merged;
       });
-      batch.update(doc(db, 'meds', ipdMed.id), { active: false, floor: 0 });
-      await withTimeout(batch.commit());
       logAudit({
         type: 'med_edited',
-        note: 'รวมสต็อก OPD/IPD ของ ' + opdMed.name + ' เป็นยอดเดียวกัน (' + nf(opdMed.floor + ipdMed.floor) + ' ' + opdMed.unit + ') ชั้นวาง OPD ' + (opdMed.bin || '—') + ' / IPD ' + (ipdMed.bin || '—'),
+        note: 'รวมสต็อก OPD/IPD ของ ' + opdMed.name + ' เป็นยอดเดียวกัน (' + nf(mergedFloor) + ' ' + opdMed.unit + ') ชั้นวาง OPD ' + (opdMed.bin || '—') + ' / IPD ' + (ipdMed.bin || '—'),
       });
       toast('รวมสต็อก ' + opdMed.name + ' แล้ว — แนะนำให้นับสต็อกจริงเพื่อยืนยันยอด');
     } catch (e) { toastErr(e, 'รวมสต็อกไม่สำเร็จ'); }
-  }), [canEditMeds, state.meds, logAudit, toast, toastErr, confirmAsync, guardOnce]);
+  }), [canEditMeds, state.meds, logAudit, toast, toastErr, confirmAsync, guardOnce, runTx]);
 
   // "รวมกันเลย" — do mergeWardMeds() for every still-separate OPD/IPD pair across the whole
   // formulary in one go, instead of clicking through each pair one at a time in MedsScreen.
@@ -3459,6 +3511,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setAuditFilter = useCallback((f: AppState['auditFilter']) => patch({ auditFilter: f }), [patch]);
 
   const setUserRole = useCallback(async (id: string, role: Role) => {
+    // Bug fix: every other privileged mutation in this file (addMed, updateMedFull,
+    // mergeWardMeds, applyAllSuggested, ...) checks a role gate before doing anything — this
+    // one and toggleUserActive below didn't, relying only on AdminScreen hiding their buttons
+    // and firestore.rules blocking the write server-side. Both still hold, but a client-side
+    // guard here matches the app's own defense-in-depth pattern and fails with a clear message
+    // instead of a round-trip to Firestore that firestore.rules then silently rejects.
+    if (state.role !== 'admin') return;
     const u = state.users.find((x) => x.id === id);
     if (!u || u.role === role) return;
     // Demoting the last active admin would lock the hospital out of admin functions
@@ -3473,9 +3532,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await withTimeout(updateDoc(doc(db, 'users', id), { role }));
       logAudit({ type: 'user_role_changed', note: 'เปลี่ยนบทบาท ' + u.name + ' จาก ' + roleLabelFor(u.role) + ' เป็น ' + roleLabelFor(role) });
     } catch (e) { console.error(e); toast('เปลี่ยนบทบาทไม่สำเร็จ'); }
-  }, [state.users, state.myUid, logAudit, toast, confirmAsync]);
+  }, [state.role, state.users, state.myUid, logAudit, toast, confirmAsync]);
 
   const toggleUserActive = useCallback(async (id: string) => {
+    // Bug fix: see the same guard in setUserRole above — this had no client-side role check
+    // either, relying only on the UI hiding the button and firestore.rules to block it.
+    if (state.role !== 'admin') return;
     const u = state.users.find((x) => x.id === id);
     if (!u) return;
     const next = !u.active;
@@ -3498,7 +3560,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: isFirstApproval ? 'user_approved' : 'user_status_changed', note: (next ? (isFirstApproval ? 'อนุมัติบัญชี ' : 'เปิดใช้งานบัญชี ') : 'ปิดใช้งานบัญชี ') + u.name });
       toast((next ? 'เปิดใช้งาน' : 'ปิดใช้งาน') + 'บัญชี ' + u.name + ' แล้ว');
     } catch (e) { console.error(e); toast('เปลี่ยนสถานะไม่สำเร็จ'); }
-  }, [state.users, state.myUid, logAudit, toast, confirmAsync]);
+  }, [state.role, state.users, state.myUid, logAudit, toast, confirmAsync]);
 
   const exportAudit = useCallback(async () => {
     // Same reasoning as exportReportCsv — the live subscriptions are capped at 300 each for

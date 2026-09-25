@@ -68,9 +68,28 @@ export default function SubstockCardScreen() {
     ? state.meds.filter((m) => { const s = search.trim().toLowerCase(); return m.active && (m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0); }).slice(0, 10)
     : [];
 
+  // Bug fix (stale-response race): openCard's fetch is async — opening med A (slow network/
+  // large history) then immediately searching and opening med B (small/fast history) before
+  // A's fetch finishes used to let A's slower response land AFTER B's and silently overwrite
+  // B's already-correct rows with A's ledger, while the header/search box/liveBalance still
+  // showed med B — a wrong-drug ledger table. One monotonic counter shared with the live
+  // re-fetch effect below: whichever fetch was issued LAST always wins, however they resolve.
+  const loadReqId = useRef(0);
+  // Bug fix (false mismatch): -1 means "no fetch has completed for the currently open med yet"
+  // — distinct from 0, which is latestRelevantTxTs's own legitimate value for "this med truly
+  // has no relevant transaction at all". The old code used 0 for both meanings, so a med opened
+  // with no relevant history yet (0) looked identical to "not initialized" (also 0) — when its
+  // first-ever relevant transaction then landed while the card was open, the live-refetch effect
+  // below mistook that brand-new transaction for the one openCard's initial fetch already
+  // covered, set the baseline, and returned WITHOUT refetching — liveBalance updated immediately
+  // (it's reactive) but the ledger rows stayed empty/stale, firing a false mismatch banner that
+  // only ever self-corrected once a SECOND new transaction arrived. See openCard and the effect
+  // below for where each end of this fix lives.
+  const seenTxTs = useRef(-1);
   const openCard = async (id: string) => {
     const m = state.meds.find((x) => x.id === id);
     if (!m) return;
+    const reqId = ++loadReqId.current;
     setMedId(id);
     setSearch(m.name);
     setLoading(true);
@@ -78,7 +97,13 @@ export default function SubstockCardScreen() {
     setYear('all');
     try {
       const ledger = await (usesSubstock(m) ? fetchSubstockLedger(id) : fetchFloorLedger(id));
+      if (loadReqId.current !== reqId) return; // a newer openCard()/live-refetch has since superseded this
       setRows(ledger);
+      // Bug fix (false mismatch): baseline the "already covered by this fetch" marker off the
+      // ledger's OWN last row ts (0 when it has none), not off latestRelevantTxTs computed from
+      // state.txs — see the live-refetch effect below for why relying on that alone dropped the
+      // very first new transaction after opening a med with no relevant history yet.
+      seenTxTs.current = ledger.length ? ledger[ledger.length - 1].ts : 0;
       // Default to whichever fiscal year is most relevant to look at right now: this year's
       // (ปีงบประมาณปัจจุบัน) if it already has activity, otherwise the most recent year that
       // does — never lands on an empty screen for a drug whose last movement was last year.
@@ -87,10 +112,11 @@ export default function SubstockCardScreen() {
       if (fys.has(curFy)) setYear(curFy);
       else if (fys.size) setYear(Math.max(...fys));
     } catch (e) {
+      if (loadReqId.current !== reqId) return;
       console.error(e);
       toast('ดึงประวัติบัตรสต็อกไม่สำเร็จ — ต้องใช้อินเทอร์เน็ต ลองใหม่อีกครั้ง');
     } finally {
-      setLoading(false);
+      if (loadReqId.current === reqId) setLoading(false);
     }
   };
 
@@ -161,16 +187,22 @@ export default function SubstockCardScreen() {
       return t.ts > mx ? t.ts : mx;
     }, 0);
   }, [state.txs, medId, med]);
-  const seenTxTs = useRef(0);
   useEffect(() => {
-    seenTxTs.current = 0; // reset the baseline whenever a different med's card opens
+    seenTxTs.current = -1; // reset the baseline whenever a different med's card opens — openCard's own fetch will set the real one
   }, [medId]);
   useEffect(() => {
     if (!medId || !latestRelevantTxTs || !med) return;
-    if (seenTxTs.current === 0) { seenTxTs.current = latestRelevantTxTs; return; } // openCard's own fetch already covers this
+    // seenTxTs.current still -1 here means openCard's fetch for this med hasn't resolved yet
+    // (this effect raced ahead of it) — let openCard's own completion set the real baseline
+    // instead of guessing one here, so its stale-response guard (loadReqId) stays the single
+    // source of truth for which fetch's result actually wins.
+    if (seenTxTs.current < 0) return;
     if (latestRelevantTxTs <= seenTxTs.current) return;
     seenTxTs.current = latestRelevantTxTs;
-    (usesSubstock(med) ? fetchSubstockLedger(medId) : fetchFloorLedger(medId)).then(setRows).catch((e) => console.error(e));
+    const reqId = ++loadReqId.current;
+    (usesSubstock(med) ? fetchSubstockLedger(medId) : fetchFloorLedger(medId))
+      .then((ledger) => { if (loadReqId.current === reqId) setRows(ledger); })
+      .catch((e) => console.error(e));
   }, [latestRelevantTxTs, medId, med, fetchSubstockLedger, fetchFloorLedger]);
 
   const liveBalance = med ? (hasSub ? subQty(state, med.id) : med.floor) : 0;
