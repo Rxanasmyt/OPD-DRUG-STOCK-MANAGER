@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as XLSX from 'xlsx';
-import { parseUsageCsvText, parseHosxpUsageWorkbook } from './usageImport';
+import { parseUsageCsvText, parseUsageCsvTextWithSkipped, parseHosxpUsageWorkbook } from './usageImport';
 
 // Builds a minimal in-memory .xlsx workbook (same shape parseHosxpUsageWorkbook reads via
 // XLSX.read) from plain header/data rows, so these tests exercise the real header-detection
@@ -46,6 +46,20 @@ describe('parseUsageCsvText', () => {
 
   it('returns an empty array for input with no valid rows at all', () => {
     expect(parseUsageCsvText('')).toEqual([]);
+  });
+});
+
+describe('parseUsageCsvTextWithSkipped', () => {
+  it('reports how many lines did not survive parsing, not just the rows that did', () => {
+    const { rows, skipped } = parseUsageCsvTextWithSkipped('Real Drug,10\nZeroQty,0\nBadQty,abc\nNegative,-5\nNoComma');
+    expect(rows).toEqual([{ name: 'Real Drug', qty: 10 }]);
+    expect(skipped).toBe(4);
+  });
+
+  it('reports zero skipped for an all-valid file', () => {
+    const { rows, skipped } = parseUsageCsvTextWithSkipped('Drug A,5\nDrug B,10');
+    expect(rows).toHaveLength(2);
+    expect(skipped).toBe(0);
   });
 });
 

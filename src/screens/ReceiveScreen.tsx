@@ -103,7 +103,7 @@ export default function ReceiveScreen() {
                   const rowBusy = !!state.busy[`approveReceive:${r.id}`] || !!state.busy[`rejectReceive:${r.id}`];
                   return (
                   <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                    <button onClick={() => approvePendingReceive(r.id)} disabled={rowBusy} style={{ flex: 1, border: 0, background: 'var(--green)', color: '#fff', padding: '8px 10px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, minHeight: 44, opacity: rowBusy ? 0.7 : 1 }}>
+                    <button onClick={() => approvePendingReceive(r.id)} disabled={rowBusy} className="btn-primary" style={{ flex: 1, padding: '8px 10px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, minHeight: 44, opacity: rowBusy ? 0.7 : 1 }}>
                       {state.busy[`approveReceive:${r.id}`] ? 'กำลังบันทึก…' : 'อนุมัติ'}
                     </button>
                     <button

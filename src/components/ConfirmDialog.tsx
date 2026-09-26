@@ -29,6 +29,15 @@ export default function ConfirmDialog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.confirmDialog]);
 
+  // Same reasoning as PromptDialog.tsx — backdrop tap and ยกเลิก already cancel; Escape from a
+  // physical keyboard or accessibility switch device had no way to do the same.
+  useEffect(() => {
+    if (!state.confirmDialog) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') respondConfirm(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [state.confirmDialog, respondConfirm]);
+
   if (!shown) return null;
   return (
     <div
@@ -41,9 +50,12 @@ export default function ConfirmDialog() {
     >
       <div
         className="card"
+        role="alertdialog"
+        aria-modal="true"
+        aria-describedby="confirm-dialog-message"
         style={{ width: '100%', maxWidth: 380, padding: 18, animation: shown.exiting ? 'popOut .18s var(--ease) both' : 'pop .2s var(--ease-out) both' }}
       >
-        <div style={{ fontSize: 13.5, lineHeight: 1.6, whiteSpace: 'pre-line', marginBottom: 18 }}>
+        <div id="confirm-dialog-message" style={{ fontSize: 13.5, lineHeight: 1.6, whiteSpace: 'pre-line', marginBottom: 18 }}>
           {shown.message}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>

@@ -50,7 +50,15 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
           <div style={{ fontSize: 13, opacity: 0.7, marginBottom: 18, maxWidth: 320, lineHeight: 1.6 }}>ข้อมูลสต็อกยังปลอดภัย ไม่ถูกกระทบ — ลองโหลดหน้าใหม่อีกครั้ง ถ้ายังเกิดซ้ำให้แจ้งผู้ดูแลระบบ</div>
           <button
             onClick={() => window.location.reload()}
-            style={{ border: 0, background: 'var(--green, #007371)', color: '#fff', padding: '13px 22px', borderRadius: 11, fontSize: 14.5, fontWeight: 600, minHeight: 48 }}
+            // Bug fix (dark-mode legibility): kept the defensive var(...,fallback) pattern this
+            // last-resort crash screen already uses for background (in case styles.css itself
+            // failed to load) rather than switching to className="btn-primary" — but the hardcoded
+            // '#fff' text color had the same dark-mode contrast bug as every other ad-hoc button
+            // fixed in this pass: dark mode's --green is a bright teal, and white text on it is
+            // ~1.7:1 contrast (WCAG AA needs 4.5:1). --ink-soft is the token that already flips to
+            // a near-black in dark mode for exactly this reason; kept its own fallback for the
+            // same defensive reason as --green's.
+            style={{ border: 0, background: 'var(--green, #007371)', color: 'var(--ink-soft, #f2f5ef)', padding: '13px 22px', borderRadius: 11, fontSize: 14.5, fontWeight: 600, minHeight: 48 }}
           >
             โหลดหน้าใหม่
           </button>

@@ -67,9 +67,15 @@ service cloud.firestore {
     match /meds/{medId} {
       allow read: if isActive();
       allow create, delete: if isAdmin();
+      // Bug fix: this branch type-checked `floor` but not `lastCountTs`/`lastSubCountTs`,
+      // inconsistent with the `lots` rule right below which type-checks every field it allows.
+      // A malformed value here (string/null from a client bug or stale cache) would corrupt the
+      // "days since last count" staleness calculations reports/selectors read from these fields.
       allow update: if isAdmin()
                     || (isActive() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['floor', 'lastCountTs', 'lastSubCountTs'])
-                        && isNonNegNum(request.resource.data.floor));
+                        && isNonNegNum(request.resource.data.floor)
+                        && (!('lastCountTs' in request.resource.data) || request.resource.data.lastCountTs is number)
+                        && (!('lastSubCountTs' in request.resource.data) || request.resource.data.lastSubCountTs is number));
     }
     // ---- lots: any approved staff can read/write (receiving, FEFO transfer, scrap
     // all touch lots as part of normal day-to-day work, not just pharm/admin). Schema-checked
@@ -86,7 +92,13 @@ service cloud.firestore {
                     && request.resource.data.medId is string
                     && isNonNegNum(request.resource.data.qty)
                     && request.resource.data.exp is number;
-      allow delete: if isActive();
+      // Bug fix: the app itself never deletes a lot doc — every real depletion (scrap, transfer,
+      // count) zeroes `qty` via a transaction that also logs a matching txs row, same pattern the
+      // update rule above enforces the shape of. Letting any active (tech-level) user outright
+      // delete a lot doc had no matching app feature, no schema check, and no audit requirement —
+      // real stock could vanish with zero trace. Admin-only, matching every other destructive
+      // action in this file (meds delete, resetAllStockLedgers' txs delete).
+      allow delete: if isAdmin();
     }
 
     // ---- transactions: append-only for everyone EXCEPT one admin-only escape hatch.
@@ -127,9 +139,25 @@ service cloud.firestore {
     // is intentionally excluded even from touching their own submission after the fact. ----
     match /pendingReceives/{id} {
       allow read: if isActive();
+      // Bug fix: unlike every other shared-write collection here (txs/auditLog check every
+      // field's type — see txs's own comment on why), this only ever checked
+      // requestedByUid/status, leaving medId/qty/exp/lotNo/name/unit completely unconstrained.
+      // A pendingReceives doc is exactly the kind of thing the txs comment warns about: a
+      // low-privilege (tech) writer whose data later gets blindly applied to real stock —
+      // approvePendingReceive() (AppContext.tsx) does `increment(pr.qty)` on a med's floor and
+      // copies these same fields straight into a new txs row. A malformed qty/medId here used
+      // to surface only as a confusing failed-transaction error at approval time instead of
+      // being rejected up front, at the point it was actually written.
       allow create: if isActive()
                     && request.resource.data.requestedByUid == request.auth.uid
-                    && request.resource.data.status == 'pending';
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.medId is string
+                    && request.resource.data.name is string
+                    && request.resource.data.unit is string
+                    && request.resource.data.lotNo is string
+                    && request.resource.data.exp is number
+                    && isNonNegNum(request.resource.data.qty)
+                    && request.resource.data.ts is number;
       allow update: if isPharmOrAdmin();
       allow delete: if false;
     }

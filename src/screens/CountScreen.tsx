@@ -111,7 +111,7 @@ export default function CountScreen() {
 
   const countedEver = useMemo(() => active.filter((m) => !!lastTsOf(m)).length, [active, loc]); // eslint-disable-line react-hooks/exhaustive-deps
   const countedRecently = useMemo(() => active.filter((m) => { const ts = lastTsOf(m); return ts && Date.now() - ts < 30 * DAY; }).length, [active, loc]); // eslint-disable-line react-hooks/exhaustive-deps
-  const chip = (on: boolean) => ({ border: on ? '1px solid var(--green)' : '1px solid var(--border)', background: on ? 'var(--green)' : 'var(--bg-card)', color: on ? '#fff' : 'var(--ink)' });
+  const chip = (on: boolean) => ({ border: on ? '1px solid var(--green)' : '1px solid var(--border)', background: on ? 'var(--green)' : 'var(--bg-card)', color: on ? 'var(--ink-soft)' : 'var(--ink)' });
 
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
@@ -169,7 +169,8 @@ export default function CountScreen() {
         <button
           onClick={commitAll}
           disabled={!!state.busy[allBusyKey]}
-          style={{ width: '100%', border: 0, background: 'var(--green)', color: '#fff', padding: '12px 14px', borderRadius: 11, fontSize: 13.5, fontWeight: 700, minHeight: 48, marginBottom: 12, opacity: state.busy[allBusyKey] ? 0.7 : 1 }}
+          className="btn-primary"
+          style={{ width: '100%', padding: '12px 14px', borderRadius: 11, fontSize: 13.5, fontWeight: 700, minHeight: 48, marginBottom: 12, opacity: state.busy[allBusyKey] ? 0.7 : 1 }}
         >
           {state.busy[allBusyKey]
             ? 'กำลังบันทึก…'
@@ -230,7 +231,7 @@ export default function CountScreen() {
                 <button
                   disabled={!has || !!state.busy[oneBusyKey(m.id)]}
                   onClick={() => commitOne(m.id)}
-                  style={{ flex: 'none', border: 0, background: has ? 'var(--green)' : 'var(--border-strong)', color: '#fff', padding: '9px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 42, opacity: state.busy[oneBusyKey(m.id)] ? 0.7 : 1 }}
+                  style={{ flex: 'none', border: 0, background: has ? 'var(--green)' : 'var(--border-strong)', color: has ? 'var(--ink-soft)' : 'var(--ink)', padding: '9px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 42, opacity: state.busy[oneBusyKey(m.id)] ? 0.7 : 1 }}
                 >
                   {state.busy[oneBusyKey(m.id)] ? '…' : 'บันทึก'}
                 </button>

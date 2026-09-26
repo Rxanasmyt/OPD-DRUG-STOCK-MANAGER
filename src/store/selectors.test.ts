@@ -156,9 +156,28 @@ describe('subQty / fefoLot', () => {
     expect(subQty(st, 'nonexistent')).toBe(0);
   });
 
+  it('subQty stays correct across different state objects (WeakMap index cache does not cross-contaminate)', () => {
+    const other = { ...st, lots: [
+      { id: 'x1', code: 'X1', medId: 'm1', lotNo: '1', exp: 300, qty: 42, loc: 'x' },
+    ] } as unknown as AppState;
+    expect(subQty(st, 'm1')).toBe(15); // unchanged
+    expect(subQty(other, 'm1')).toBe(42); // different lots array, different answer
+    expect(subQty(st, 'm1')).toBe(15); // still correct after querying a different state
+  });
+
   it('fefoLot picks the soonest-expiring lot that still has stock (first-expired-first-out)', () => {
     const l = fefoLot(st, 'm1');
     expect(l?.id).toBe('l2'); // exp 100, earliest among qty>0 lots (l3 is depleted)
+  });
+
+  it('fefoLot treats a lot with missing exp as unknown/lowest-priority, not most-urgent', () => {
+    const stWithUnknownExp = { ...st, lots: [
+      { id: 'known', code: 'K', medId: 'm2', lotNo: '1', exp: 500, qty: 10, loc: 'x' },
+      { id: 'unknown', code: 'U', medId: 'm2', lotNo: '2', exp: undefined as unknown as number, qty: 10, loc: 'x' },
+    ] } as unknown as AppState;
+    // A missing exp used to coerce to NaN (or 0 in the transaction path) and could sort FIRST,
+    // ahead of a lot with a real near-term expiry — exactly backwards for FEFO.
+    expect(fefoLot(stWithUnknownExp, 'm2')?.id).toBe('known');
   });
 });
 
@@ -229,8 +248,9 @@ describe('isUrgentLow', () => {
   it('flags a shelf at/below half its own Min, not just below Min', () => {
     // floorMin set explicitly here (30) — this test is about isUrgentLow()'s own "half of
     // whatever Min is" rule, independent of floorMinOf()'s default-fallback ratio.
-    expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 14 }))).toBe(true); // 14 < 15 (half of 30)
-    expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 15 }))).toBe(false); // exactly half — not urgent yet
+    expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 14 }))).toBe(true); // 14 <= 15 (half of 30)
+    expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 15 }))).toBe(true); // exactly half — urgent too, per this function's own doc comment ("at/below")
+    expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 16 }))).toBe(false); // just above half — below Min but not urgent yet
     expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 29 }))).toBe(false); // below Min but not urgent
   });
 });

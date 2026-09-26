@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly } from '../utils/format';
-import { wardOf, wardLabel, floorMinOf, toneFor, isSharedMed, categoryOf } from '../store/selectors';
+import { wardOf, wardLabel, floorMinOf, toneFor, subTone, isSharedMed, categoryOf } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
-import { Badge } from '../components/Badge';
+import { Badge, HadTag } from '../components/Badge';
 import { BottomSheet } from '../components/BottomSheet';
 import { Qty } from '../components/Qty';
 import type { Med, Ward } from '../types';
@@ -268,7 +268,7 @@ export default function MedsScreen() {
       .filter((g) => g.items.length > 0)
     : null;
 
-  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
+  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
 
   if (!canEdit) {
     return (
@@ -348,7 +348,8 @@ export default function MedsScreen() {
         <button
           onClick={shareAllMeds}
           disabled={!!state.busy['shareAllMeds']}
-          style={{ width: '100%', border: 0, background: 'var(--green)', color: '#fff', padding: '11px 14px', borderRadius: 11, fontSize: 12.5, fontWeight: 600, minHeight: 44, marginBottom: 8, opacity: state.busy['shareAllMeds'] ? 0.7 : 1 }}
+          className="btn-primary"
+          style={{ width: '100%', padding: '11px 14px', borderRadius: 11, fontSize: 12.5, fontWeight: 600, minHeight: 44, marginBottom: 8, opacity: state.busy['shareAllMeds'] ? 0.7 : 1 }}
         >
           {state.busy['shareAllMeds'] ? 'กำลังตั้งค่า…' : `🔗 ใช้ยาทั้งหมดร่วมกันทั้ง OPD/IPD เลย (${shareAllCount} รายการ)`}
         </button>
@@ -372,7 +373,7 @@ export default function MedsScreen() {
         {parOneCount > 0 && (
           <button
             className="chip"
-            style={{ border: parOneOnly ? '1px solid var(--amber)' : '1px solid var(--border)', background: parOneOnly ? 'var(--amber)' : 'var(--bg-card)', color: parOneOnly ? '#fff' : 'var(--amber-ink)' }}
+            style={{ border: parOneOnly ? '1px solid var(--amber)' : '1px solid var(--border)', background: parOneOnly ? 'var(--amber)' : 'var(--bg-card)', color: parOneOnly ? 'var(--ink-soft)' : 'var(--amber-ink)' }}
             onClick={() => setFilter(parOneOnly ? 'active' : 'parOne')}
           >
             ⚠ Max=Min=1 ({parOneCount})
@@ -443,7 +444,7 @@ export default function MedsScreen() {
                     <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
                       <MedDot code={m.code} />
                       <span>{m.name}</span>
-                      {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
+                      {m.had && <HadTag />}
                       {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
                     </div>
                     <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
@@ -451,7 +452,7 @@ export default function MedsScreen() {
                     </div>
                     {m.active && (
                       <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                        หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={11} /> · substock <Qty value={sub(m.id)} unit={m.unit} size={11} />
+                        หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={11} /> · substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} unit={m.unit} size={11} />
                         {/* Only surfaced under the Max=Min=1 diagnostic filter above — showing
                             the actual numbers right on the row is the whole point of that
                             filter (spot them without opening each edit form one by one). */}
@@ -471,7 +472,19 @@ export default function MedsScreen() {
                   <Badge flexNone size={10.5} padding="4px 8px" color={m.active ? 'var(--green)' : 'var(--muted)'} bg={m.active ? 'var(--green-tint)' : 'var(--bg-subtle)'}>{m.active ? 'ใช้งานอยู่' : 'ปิดใช้งาน'}</Badge>
                 </div>
                 <div style={{ display: 'flex', gap: 7 }}>
-                  <button onClick={() => { setEditingId(isEditing ? null : m.id); setAddOpen(false); }} style={{ flex: 1, border: '1px solid var(--green)', background: isEditing ? 'var(--green)' : 'var(--bg-card)', color: isEditing ? '#fff' : 'var(--green)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44 }}>
+                  <button
+                    onClick={async () => {
+                      // Bug fix: switching straight from editing med A to editing med B used
+                      // to skip confirmLeaveIfDirty entirely (every other close path in this
+                      // file — BottomSheet's own onClose, "+เพิ่มยาใหม่" — already goes through
+                      // it) and silently discard A's unsaved edits. Only the "switch to a
+                      // different, already-open row" case needs the check — toggling the same
+                      // row open/closed keeps its original no-confirm behavior.
+                      if (editingId && editingId !== m.id && !(await confirmLeaveIfDirty())) return;
+                      setEditingId(isEditing ? null : m.id); setAddOpen(false);
+                    }}
+                    style={{ flex: 1, border: '1px solid var(--green)', background: isEditing ? 'var(--green)' : 'var(--bg-card)', color: isEditing ? 'var(--ink-soft)' : 'var(--green)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44 }}
+                  >
                     {isEditing ? 'ปิดฟอร์มแก้ไข' : 'แก้ไขข้อมูล'}
                   </button>
                   <button onClick={() => toggleMedActive(m.id)} style={{ flex: 1, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44 }}>
@@ -481,7 +494,8 @@ export default function MedsScreen() {
                     onClick={() => deleteMed(m.id)}
                     disabled={stockLeft}
                     title={stockLeft ? 'ยังมียอดคงเหลือ ต้องปรับยอดให้เป็น 0 ก่อน' : 'ลบถาวร'}
-                    style={{ flex: 'none', border: '1px solid var(--border)', background: 'var(--bg-card)', color: stockLeft ? 'var(--muted)' : 'var(--red)', padding: '8px 11px', borderRadius: 9, fontSize: 12, minHeight: 38, whiteSpace: 'nowrap' }}
+                    className={stockLeft ? undefined : 'btn-danger'}
+                    style={{ flex: 'none', border: stockLeft ? '1px solid var(--border)' : undefined, background: stockLeft ? 'var(--bg-card)' : undefined, color: stockLeft ? 'var(--muted)' : undefined, padding: '8px 11px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44, whiteSpace: 'nowrap' }}
                   >
                     ลบถาวร
                   </button>
@@ -511,6 +525,15 @@ export default function MedsScreen() {
         return (
           <BottomSheet open={true} onClose={async () => { if (await confirmLeaveIfDirty()) setEditingId(null); }} title={'แก้ไขข้อมูล: ' + m.name}>
             <MedForm
+              // Bug fix (wrong-med data corruption): this sheet is one shared instance across
+              // every row (see the comment above), so switching editingId from med A straight
+              // to med B without this key left React reusing the same <MedForm> instance —
+              // useState(initial) only ever consumes `initial` on first mount, so the form kept
+              // showing A's (possibly half-edited) field values while onSubmit's closure had
+              // already moved on to B. Saving then wrote A's stale values onto B's Firestore
+              // doc. Keying by the edited med's id forces a real remount — and a fresh
+              // useState(initial) read — every time editingId changes to a different med.
+              key={editingId}
               heading={null}
               initial={formFromMed(m)}
               submitLabel="บันทึกการแก้ไข"
@@ -582,7 +605,7 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
   const floorMinTyped = v.floorMin.trim() !== '' ? parseInt(v.floorMin, 10) || 0 : null;
   const minExceedsMax = floorMinTyped !== null && parFloorNum > 0 && floorMinTyped > parFloorNum;
   const setShared = (on: boolean) => setV((s) => ({ ...s, shared: on, binIpd: on ? s.binIpd : '' }));
-  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
+  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
 
   return (
     <div className="card" style={{ padding: 13, marginBottom: 14, animation: 'fade .16s var(--ease-out)' }}>
@@ -702,7 +725,8 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
               type="button"
               onClick={() => onMerge(sibling.id)}
               disabled={mergeBusy}
-              style={{ width: '100%', border: 0, background: 'var(--green)', color: '#fff', padding: '10px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, opacity: mergeBusy ? 0.7 : 1 }}
+              className="btn-primary"
+              style={{ width: '100%', padding: '10px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, opacity: mergeBusy ? 0.7 : 1 }}
             >
               {mergeBusy ? 'กำลังรวมสต็อก…' : 'รวมสต็อก OPD+IPD เป็นยอดเดียวกัน (มีถามยืนยันอีกครั้ง)'}
             </button>
@@ -778,7 +802,7 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
         <button
           onClick={() => set('fridge', !v.fridge)}
           className="chip"
-          style={{ border: v.fridge ? '1px solid var(--fridge)' : '1px solid var(--border)', background: v.fridge ? 'var(--fridge)' : 'var(--bg-card)', color: v.fridge ? '#fff' : 'var(--ink)', flex: 1, textAlign: 'center' }}
+          style={{ border: v.fridge ? '1px solid var(--fridge)' : '1px solid var(--border)', background: v.fridge ? 'var(--fridge)' : 'var(--bg-card)', color: v.fridge ? 'var(--ink-soft)' : 'var(--ink)', flex: 1, textAlign: 'center' }}
         >
           {v.fridge ? '✓ 🧊 ยาตู้เย็น' : '🧊 ยาตู้เย็น?'}
         </button>

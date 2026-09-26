@@ -1,5 +1,5 @@
 import { useApp } from '../store/AppContext';
-import { subQty, daysUntil, toneFor } from '../store/selectors';
+import { subQty, daysUntil, toneFor, subTone } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
@@ -65,7 +65,7 @@ export default function AdjustScreen() {
             <button
               key={t}
               onClick={() => pickAdjType(t)}
-              style={{ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)', padding: '13px 12px', borderRadius: 12, textAlign: 'left', minHeight: 64 }}
+              style={{ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)', padding: '13px 12px', borderRadius: 12, textAlign: 'left', minHeight: 64 }}
             >
               <div style={{ fontSize: 14.5, fontWeight: 600 }}>{label}</div>
               <div style={{ fontSize: 11.5, opacity: 0.72, lineHeight: 1.35 }}>{sub}</div>
@@ -85,7 +85,7 @@ export default function AdjustScreen() {
                   <div style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>{m.name} <WardBadge med={m} /></div>
                   <div style={{ fontSize: 11.5, marginTop: 2, color: d < 0 ? 'var(--red)' : 'var(--amber)' }}>lot {l.lotNo} · exp {thDate(l.exp)} · {nf(l.qty)} {m.unit} · มูลค่า {nf(l.qty * m.price)} บาท</div>
                 </div>
-                <button onClick={() => scrapLot(l.id)} disabled={!!state.busy[`scrapLot:${l.id}`]} style={{ border: '1px solid var(--red)', background: 'var(--red-bg)', color: 'var(--red)', padding: '9px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, flex: 'none', minHeight: 40, opacity: state.busy[`scrapLot:${l.id}`] ? 0.7 : 1 }}>
+                <button onClick={() => scrapLot(l.id)} disabled={!!state.busy[`scrapLot:${l.id}`]} className="btn-danger" style={{ padding: '9px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, flex: 'none', minHeight: 44, opacity: state.busy[`scrapLot:${l.id}`] ? 0.7 : 1 }}>
                   {state.busy[`scrapLot:${l.id}`] ? 'กำลังตัด…' : 'ตัดออก'}
                 </button>
               </div>
@@ -113,7 +113,7 @@ export default function AdjustScreen() {
               {options.map((m) => (
                 <button key={m.id} onClick={() => pickAdjMed(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
                   <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name} <WardBadge med={m} /></span>
-                  <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={11.5} /> · substock {nf(subQty(state, m.id))} {m.unit}</span>
+                  <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={11.5} /> · substock <Qty value={subQty(state, m.id)} tone={subTone(subQty(state, m.id), m.parSub)} unit={m.unit} size={11.5} /></span>
                 </button>
               ))}
             </div>
@@ -123,7 +123,7 @@ export default function AdjustScreen() {
             <>
               <div style={{ background: 'var(--green-tint)', borderRadius: 10, padding: '9px 11px', fontSize: 13.5, fontWeight: 600, marginBottom: 9 }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={adjMed.code} /> {adjMed.name} <WardBadge med={adjMed} size="md" /></span>
-                <span className="muted" style={{ display: 'block', fontSize: 11.5, fontWeight: 400 }}>หน้างาน <Qty value={adjMed.floor} tone={toneFor(adjMed)} size={11.5} /> · substock {nf(subQty(state, adjMed.id))} {adjMed.unit}</span>
+                <span className="muted" style={{ display: 'block', fontSize: 11.5, fontWeight: 400 }}>หน้างาน <Qty value={adjMed.floor} tone={toneFor(adjMed)} size={11.5} /> · substock <Qty value={subQty(state, adjMed.id)} tone={subTone(subQty(state, adjMed.id), adjMed.parSub)} unit={adjMed.unit} size={11.5} /></span>
               </div>
               {state.adjType === 'adjust' && (
                 <div style={{ background: 'var(--amber-bg)', border: '1px solid var(--amber)', borderRadius: 10, padding: '10px 12px', fontSize: 12, lineHeight: 1.55, color: 'var(--amber-ink)', marginBottom: 9 }}>
@@ -157,7 +157,7 @@ export default function AdjustScreen() {
               <button
                 onClick={commitAdjust}
                 disabled={!state.adjReason || !state.adjQty || !!state.busy['adjust']}
-                style={{ width: '100%', border: 0, background: state.adjReason && state.adjQty ? 'var(--green)' : 'var(--border-strong)', color: '#fff', padding: 15, borderRadius: 11, fontSize: 15.5, fontWeight: 600, minHeight: 52, marginTop: 10, opacity: state.busy['adjust'] ? 0.7 : 1 }}
+                style={{ width: '100%', border: 0, background: state.adjReason && state.adjQty ? 'var(--green)' : 'var(--border-strong)', color: state.adjReason && state.adjQty ? 'var(--ink-soft)' : 'var(--ink)', padding: 15, borderRadius: 11, fontSize: 15.5, fontWeight: 600, minHeight: 52, marginTop: 10, opacity: state.busy['adjust'] ? 0.7 : 1 }}
               >
                 {state.busy['adjust'] ? 'กำลังบันทึก…' : (state.adjType === 'return' ? 'บันทึกรับคืน' : 'บันทึกปรับยอด')}
               </button>

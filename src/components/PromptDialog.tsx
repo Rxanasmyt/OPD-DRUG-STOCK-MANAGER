@@ -32,6 +32,16 @@ export default function PromptDialog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.promptDialog]);
 
+  // Every other dismiss path (backdrop tap, ✕/ยกเลิก) already cancels the prompt — a physical
+  // Escape key (common on tablets paired with a keyboard, or accessibility switch devices that
+  // map a switch to Escape) had no way to do the same thing.
+  useEffect(() => {
+    if (!state.promptDialog) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') respondPrompt(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [state.promptDialog, respondPrompt]);
+
   if (!shown) return null;
   return (
     <div
@@ -44,9 +54,12 @@ export default function PromptDialog() {
     >
       <div
         className="card"
+        role="dialog"
+        aria-modal="true"
+        aria-describedby="prompt-dialog-message"
         style={{ width: '100%', maxWidth: 380, padding: 18, animation: shown.exiting ? 'popOut .18s var(--ease) both' : 'pop .2s var(--ease-out) both' }}
       >
-        <div style={{ fontSize: 13.5, lineHeight: 1.6, whiteSpace: 'pre-line', marginBottom: 10 }}>
+        <div id="prompt-dialog-message" style={{ fontSize: 13.5, lineHeight: 1.6, whiteSpace: 'pre-line', marginBottom: 10 }}>
           {shown.message}
         </div>
         <input

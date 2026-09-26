@@ -75,9 +75,23 @@ describe('digitsOnly / parseIntSafe', () => {
     expect(digitsOnly('')).toBe('');
   });
 
+  it('digitsOnly converts Thai numerals instead of silently stripping them', () => {
+    expect(digitsOnly('๕๐')).toBe('50');
+    expect(digitsOnly('๑๒3๔')).toBe('1234');
+  });
+
   it('parseIntSafe falls back instead of returning NaN on unparseable input', () => {
     expect(parseIntSafe('abc')).toBe(0);
     expect(parseIntSafe('abc', 7)).toBe(7);
     expect(parseIntSafe('42')).toBe(42);
+  });
+
+  it('parseIntSafe parses Thai numerals instead of falling back to 0', () => {
+    expect(parseIntSafe('๕๐')).toBe(50);
+  });
+
+  it('digitsOnly caps length so a long pasted digit string cannot lose precision downstream', () => {
+    expect(digitsOnly('123456789012345678901234567890')).toBe('123456789');
+    expect(parseIntSafe('999999999999999999999')).toBeLessThanOrEqual(Number.MAX_SAFE_INTEGER);
   });
 });

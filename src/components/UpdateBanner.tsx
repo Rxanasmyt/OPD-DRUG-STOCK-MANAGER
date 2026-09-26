@@ -40,8 +40,8 @@ export default function UpdateBanner() {
       </button>
       <button
         onClick={applyUpdate}
-        className="press-spring"
-        style={{ flex: 'none', border: 0, background: 'var(--green)', color: '#fff', padding: '9px 14px', borderRadius: 10, fontSize: 12.5, fontWeight: 700, minHeight: 38 }}
+        className="btn-primary press-spring"
+        style={{ flex: 'none', padding: '9px 14px', borderRadius: 10, fontSize: 12.5, fontWeight: 700, minHeight: 38 }}
       >
         อัปเดตเลย
       </button>

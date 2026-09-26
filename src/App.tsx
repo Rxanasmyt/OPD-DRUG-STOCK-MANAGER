@@ -1,4 +1,4 @@
-import { lazy, Suspense, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import { useApp } from './store/AppContext';
 import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
@@ -78,6 +78,21 @@ export default function App() {
   const prevDepthRef = useRef(state.navStack.length);
   const navDir = state.navStack.length >= prevDepthRef.current ? 'fwd' : 'back';
   prevDepthRef.current = state.navStack.length;
+
+  // Bug fix (accessibility): document.title never changed on navigation — every screen switch
+  // in this SPA left the browser tab/history entry, and more importantly a screen reader's
+  // "page loaded" announcement, stuck on the app's install-time name. A screen reader user
+  // tapping a nav tab or drilling into a screen got zero confirmation anything happened unless
+  // they read the header text themselves. Mirrors the same home ward-filter override the visible
+  // header title gets below, since "ห้องยา OPD/IPD" is the more useful screen-reader title there.
+  useEffect(() => {
+    if (state.authStatus !== 'signedIn' || !state.dbReady) return;
+    const [titleDef] = TITLES[state.screen];
+    const screenTitle = state.screen === 'home'
+      ? (state.wardFilter === 'opd' ? 'ห้องยา OPD' : state.wardFilter === 'ipd' ? 'ห้องยา IPD' : titleDef)
+      : titleDef;
+    document.title = screenTitle ? `${screenTitle} · KPNHOS-DRUG` : 'KPNHOS-DRUG SUBSTOCK-OPD-IPD-MANAGEMENT';
+  }, [state.authStatus, state.dbReady, state.screen, state.wardFilter]);
 
   if (state.authStatus !== 'signedIn') {
     return <LoginScreen />;

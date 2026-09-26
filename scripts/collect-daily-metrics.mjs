@@ -24,6 +24,12 @@
 // past date, since those are genuine historical records. The report screen surfaces this same
 // caveat next to the stock-value chart.
 //
+// Bug fix (doc accuracy): one field doesn't follow that "receiving fields are date-accurate"
+// rule above — receivePendingBacklog (below) counts pendingReceives docs with status==='pending'
+// RIGHT NOW, the same "as of script run time" limitation as the คงคลัง section, since a pending
+// request has no historical resolved-date to filter by. Backfilling an old date still labels
+// that row with today's live backlog count, not that day's. See its own comment below.
+//
 // Idempotent: writes with .set() (full overwrite) keyed by date, so re-running for the same
 // date (a backfill, or a retried workflow run) just recomputes and replaces that one day —
 // never creates a duplicate or double-counts.
@@ -207,6 +213,9 @@ async function main() {
   let leadTimeSumHours = 0, receiveApprovedCount = 0, receivePendingBacklog = 0;
   for (const d of pendingSnap.docs) {
     const p = d.data();
+    // receivePendingBacklog: current backlog count, not date-scoped — see the file header's
+    // "Bug fix (doc accuracy)" note. A pending request has no resolved-date to filter on, so
+    // this can only ever reflect "right now", same caveat as the คงคลัง stock-snapshot section.
     if (p.status === 'pending') { receivePendingBacklog++; continue; }
     if (p.status !== 'approved' || typeof p.resolvedTs !== 'number') continue;
     if (p.resolvedTs < dayStart || p.resolvedTs >= dayEnd) continue; // resolved ON this target day

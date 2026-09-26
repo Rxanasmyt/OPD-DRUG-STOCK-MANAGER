@@ -96,20 +96,38 @@ export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<RawUsag
  * from qty (works even if the name itself contains a comma) — plus a header-row sniff: a
  * plain CSV export routinely leads with a column-title row like "ชื่อยา,จำนวน" whose second
  * field isn't a number, dropped rather than parsed into a bogus 0-qty row. */
-export function parseUsageCsvText(text: string): RawUsageRow[] {
+function parseUsageCsvLines(text: string): { rows: RawUsageRow[]; skipped: number } {
   let lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (lines.length) {
     const firstIdx = lines[0].lastIndexOf(',');
     const firstQty = firstIdx >= 0 ? lines[0].slice(firstIdx + 1).trim() : '';
     if (!/^-?\d+(\.\d+)?$/.test(firstQty)) lines = lines.slice(1);
   }
-  return lines
+  let skipped = 0;
+  const rows = lines
     .map((l) => {
       const idx = l.lastIndexOf(',');
-      if (idx < 0) return null;
+      if (idx < 0) { skipped++; return null; }
       const name = l.slice(0, idx).trim().replace(/^"|"$/g, '');
       const qty = parseCellNumber(l.slice(idx + 1));
-      return qty > 0 ? { name, qty } : null;
+      if (qty > 0) return { name, qty };
+      skipped++;
+      return null;
     })
     .filter((x): x is RawUsageRow => !!x);
+  return { rows, skipped };
+}
+
+export function parseUsageCsvText(text: string): RawUsageRow[] {
+  return parseUsageCsvLines(text).rows;
+}
+
+// Bug fix (silent data loss): a malformed row (no comma, empty/unparseable qty cell) used to be
+// dropped with zero trace — the caller only ever saw the surviving rows, with no way to tell
+// "this file had 40 usable rows" apart from "this file had 40 usable rows AND we silently
+// dropped 12 broken ones". A pharmacist importing a usage file for par suggestions had no way
+// to know some of it never made it in. Same parsing logic as parseUsageCsvText, just also
+// reporting how many lines didn't survive.
+export function parseUsageCsvTextWithSkipped(text: string): { rows: RawUsageRow[]; skipped: number } {
+  return parseUsageCsvLines(text);
 }

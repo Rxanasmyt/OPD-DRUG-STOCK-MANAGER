@@ -2,6 +2,7 @@ import { useApp } from '../store/AppContext';
 import { nf, thTime } from '../utils/format';
 import { wardOf, isSharedMed } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
+import { HadTag } from '../components/Badge';
 import { medColor } from '../utils/color';
 import { StepIndicator, TRANSFER_STEPS } from '../components/StepIndicator';
 import { EmptyState } from '../components/EmptyState';
@@ -25,14 +26,26 @@ export default function TConfirmScreen() {
       let need = state.cart[id];
       const used = state.lots
         .filter((l) => l.medId === id && l.qty > 0)
-        .sort((a, b) => a.exp - b.exp)
+        // Bug fix (FEFO correctness): matches commitTransfer's own fallback — a lot missing
+        // `exp` used to produce NaN here (Array.sort with a NaN comparator is unspecified), which
+        // could make this "what will be drawn" preview silently disagree with what the commit
+        // actually draws from.
+        .sort((a, b) => (a.exp ?? Infinity) - (b.exp ?? Infinity))
         .map((l) => {
           const take = Math.min(need, l.qty);
           need -= take;
           return take > 0 ? `lot ${l.lotNo} exp ${new Date(l.exp).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit' })} × ${nf(take)}` : null;
         })
         .filter(Boolean);
-      return { id, m, used, qty: state.cart[id] };
+      // Bug fix (data-integrity UX): carts are local-only, never reflected in Firestore until
+      // commit — another device transferring out the same lots between adding this to the cart
+      // and reaching this screen can leave less substock than the cart still asks for. commitTransfer
+      // independently re-checks live and rejects the whole transfer if actually short (nothing
+      // gets written), so this can never corrupt data — but without this flag, a pharmacist saw a
+      // FEFO breakdown that visibly summed to less than the qty on the right with no warning at
+      // all until after tapping confirm.
+      const short = need > 0;
+      return { id, m, used, qty: state.cart[id], short };
     })
     .filter((r): r is NonNullable<typeof r> => !!r);
 
@@ -70,16 +83,19 @@ export default function TConfirmScreen() {
       <div className="muted" style={{ fontSize: 12.5, marginBottom: 10 }}>ตัดจาก substock ตามหลัก FEFO (lot ที่หมดอายุก่อนถูกเลือกให้อัตโนมัติ) และเพิ่มเข้าหน้างาน</div>
 
       <div className="card" style={{ overflow: 'hidden', marginBottom: 14 }}>
-        {rows.map(({ id, m, used, qty }, i) => (
+        {rows.map(({ id, m, used, qty, short }, i) => (
           <div key={id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', borderLeft: '4px solid ' + medColor(m.code), display: 'flex', gap: 10, alignItems: 'flex-start', animation: 'fade .22s var(--ease-out) both', animationDelay: Math.min(i, 10) * 18 + 'ms' }}>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
                 <MedDot code={m.code} />
                 <span>{m.name}</span>
-                {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
+                {m.had && <HadTag />}
                 {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
               </div>
               <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>{used.join('  ·  ')}</div>
+              {short && (
+                <div style={{ fontSize: 11.5, marginTop: 2, fontWeight: 600, color: 'var(--red)' }}>⚠ substock อาจไม่พอ — ระบบจะตรวจสอบซ้ำอีกครั้งตอนยืนยัน</div>
+              )}
               {m.fridge && (
                 <div style={{ fontSize: 11.5, marginTop: 2, fontWeight: 600, color: 'var(--fridge)' }}>🧊 ยาตู้เย็น — รีบนำเข้าตู้เย็นทันทีหลังเติมหน้างาน</div>
               )}

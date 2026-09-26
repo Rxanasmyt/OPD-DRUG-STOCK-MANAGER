@@ -18,7 +18,7 @@ import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
 import { shortLabelName } from '../utils/labelName';
 import { printLabelSheet, printPickListSheet, printExecutiveSummarySheet, type PrintLabel, type ExecSummaryStat, type ExecSummaryRow } from '../utils/print';
-import { parseHosxpUsageWorkbook, parseUsageCsvText, type RawUsageRow } from '../utils/usageImport';
+import { parseHosxpUsageWorkbook, parseUsageCsvTextWithSkipped, type RawUsageRow } from '../utils/usageImport';
 import { LOCS, FRIDGE_LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
 import { withTimeout, TimeoutError } from '../utils/timeout';
@@ -1313,7 +1313,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const cart = { ...state.cart };
     const ids = Object.keys(cart);
     if (!ids.length) return;
-    const meds = state.meds, lotsCache = state.lots;
+    const meds = state.meds;
     let resultRows: AppState['doneRows'] = [];
     try {
       await runTx(async (trx) => {
@@ -1324,7 +1324,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         for (const medId of ids) {
           const medSnap = await trx.get(doc(db, 'meds', medId));
           medReads[medId] = (medSnap.data() as { floor?: number } | undefined)?.floor ?? 0;
-          const lotIds = lotsCache.filter((l) => l.medId === medId && l.qty > 0).sort((a, b) => a.exp - b.exp).map((l) => l.id);
+          // Bug fix (false "substock ไม่พอ" rejection + FEFO-skip risk): lotsCache (state.lots,
+          // the onSnapshot cache) could miss a lot created between building the cart and
+          // confirming here — e.g. a receive landing on this exact med mid-transfer. A live
+          // query right before reading each lot shrinks that window to a single round trip;
+          // the Firestore client SDK can't query inside the transaction itself (trx.get() only
+          // takes a doc ref), so this runs just outside it, freshly on every retry.
+          const liveLotDocs = (await getDocs(query(collection(db, 'lots'), where('medId', '==', medId)))).docs;
+          // Bug fix (FEFO correctness): a lot doc missing/lacking `exp` (legacy import, manual
+          // Firestore edit) used to default to `exp: 0` — 1970 — which sorts FIRST, ahead of
+          // every lot with a real near-term expiry. That's exactly backwards for FEFO: an
+          // unknown-expiry lot should never outrank one that's genuinely expiring soon.
+          // Infinity sorts it LAST instead — treated as "no known urgency", not "most urgent".
+          const lotIds = liveLotDocs
+            .map((d) => ({ id: d.id, qty: (d.data() as { qty?: number }).qty ?? 0, exp: (d.data() as { exp?: number }).exp ?? Infinity }))
+            .filter((l) => l.qty > 0).sort((a, b) => a.exp - b.exp).map((l) => l.id);
           lotIdsByMed[medId] = lotIds;
           for (const lotId of lotIds) {
             const lotSnap = await trx.get(doc(db, 'lots', lotId));
@@ -1402,7 +1416,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (msg.startsWith('insufficient:')) { toast('substock เหลือไม่พอสำหรับ ' + msg.slice('insufficient:'.length) + ' — น่าจะมีคนอื่นเบิกไปพร้อมกัน กลับไปปรับจำนวนในตะกร้าแล้วลองใหม่'); return; }
       toastErr(e, 'เติมหน้างานไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [state.cart, state.meds, state.lots, userName, toast, toastErr, guardOnce]);
+  }), [state.cart, state.meds, userName, toast, toastErr, guardOnce]);
 
   // ---------- receive ----------
   const setRecvNo = useCallback((v: string) => patch({ recvNo: v }), [patch]);
@@ -1463,6 +1477,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const missingMed = items.some((it) => !state.meds.find((x) => x.id === it.medId));
     if (missingMed) { toast('มีรายการที่ถูกลบออกจากระบบไปแล้ว — กลับไปลบรายการนั้นออกจากรายการรับเข้าก่อน'); return; }
     try {
+      // Bug fix (phantom stock): the missingMed check above only guards against state.meds (the
+      // client cache) already being stale by the time this screen was opened — but the
+      // substock branch below never writes to the med doc itself (only a new lots doc + txs
+      // row), so a med deleted by another device in the narrower gap between that check and
+      // this commit wouldn't be caught by Firestore either (writeBatch only fails on doc-level
+      // errors of documents it actually references, and a brand-new lots doc has no such
+      // reference to fail on). Re-fetching each item's med doc live, right before building the
+      // batch, closes that gap the same way deleteMed/deleteAllInactiveMeds re-check live right
+      // before their own writes.
+      const liveMeds = new Map<string, { code?: string; noSubstock?: boolean }>();
+      for (const it of items) {
+        if (liveMeds.has(it.medId)) continue;
+        const snap = await getDoc(doc(db, 'meds', it.medId));
+        if (snap.exists()) liveMeds.set(it.medId, snap.data() as { code?: string; noSubstock?: boolean });
+      }
+      if (items.some((it) => !liveMeds.has(it.medId))) {
+        toast('มีรายการที่ถูกลบออกจากระบบไปแล้ว — กลับไปลบรายการนั้นออกจากรายการรับเข้าก่อน');
+        return;
+      }
       const batch = writeBatch(db);
       if (!approve) {
         // Structured pending record per item — carries the actual medId/lot/exp/qty needed
@@ -1492,8 +1525,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // same limitation the rest of the app already accepts for regular transferred
         // stock) — just credit the shelf directly instead of a substock lot nobody would
         // ever transfer out of.
-        const m = state.meds.find((x) => x.id === it.medId);
-        if (m && !usesSubstock(m)) {
+        const m = liveMeds.get(it.medId);
+        if (m && m.noSubstock) {
           batch.update(doc(db, 'meds', it.medId), { floor: increment(it.qty) });
           batch.set(doc(collection(db, 'txs')), {
             type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'floor',
@@ -1532,15 +1565,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const snap = await trx.get(ref);
         const pr = snap.data() as PendingReceive | undefined;
         if (!pr || pr.status !== 'pending') throw new Error('already-resolved');
-        const m = state.meds.find((x) => x.id === pr.medId);
         // Bug fix (data integrity): same class of bug as commitReceive above — a pending
         // request can sit for a while before anyone approves it, long enough for the med it
-        // references to get deleted in the meantime. Without this check, `m && !usesSubstock(m)`
-        // is falsy purely because `m` is undefined, which fell into the substock branch below
-        // and created a lots doc + receive_from_central tx for a medId no longer in `meds` —
-        // real inventory value silently made invisible, with the request still marked approved.
+        // references to get deleted in the meantime. This used to read `m` from state.meds (the
+        // client cache), which is falsy for a deleted med purely because it's missing from the
+        // cache — but that check ran BEFORE this transaction, not inside it, so a delete landing
+        // during the transaction's own retries wasn't caught: `trx.get()` here instead makes the
+        // med doc part of this transaction's live read set, so Firestore retries (and then
+        // correctly throws) if it's deleted concurrently, the same guarantee every other
+        // transactional read in this file relies on.
+        const mSnap = await trx.get(doc(db, 'meds', pr.medId));
+        const m = mSnap.exists() ? (mSnap.data() as { code?: string; noSubstock?: boolean }) : undefined;
         if (!m) throw new Error('missing-med');
-        if (!usesSubstock(m)) {
+        if (m.noSubstock) {
           trx.update(doc(db, 'meds', pr.medId), { floor: increment(pr.qty) });
           trx.set(doc(collection(db, 'txs')), {
             type: 'receive_from_central' as TxType, name: pr.name, medId: pr.medId, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'floor',
@@ -1563,7 +1600,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (msg === 'missing-med') { toast('ยาในคำขอนี้ถูกลบออกจากระบบไปแล้ว — อนุมัติไม่ได้ ให้ปฏิเสธคำขอนี้แทน'); return; }
       toastErr(e, 'อนุมัติไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [canApproveReceive, state.meds, userName, toast, toastErr, guardOnce]);
+  }), [canApproveReceive, userName, toast, toastErr, guardOnce]);
 
   const rejectPendingReceive = useCallback(guardOnce('rejectReceive', async (id: string, reason: string) => {
     if (!canApproveReceive) return;
@@ -2433,7 +2470,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       + 'ย้อนกลับไม่ได้จากหน้านี้ — แนะนำให้นับสต็อกจริงทันทีหลังรวมเพื่อยืนยันยอด'
     ))) return;
     try {
-      const lotSnap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', '==', ipdMed.id))));
       // Bug fix (lost-update race): floor here used to come straight from state.meds (the
       // client's cached snapshot) and get written via a plain writeBatch — anything landing on
       // either side's floor between whenever that snapshot last synced and this commit (a
@@ -2441,7 +2477,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // merge dialog) got silently overwritten/lost, not just "stale, go recount" as the old
       // comment framed it. Re-reading both med docs live inside a transaction, right before
       // writing, makes the merge use whatever floor actually exists at commit time.
+      //
+      // Bug fix (orphaned lot): the lots query used to run once, OUTSIDE and before this
+      // transaction — a lot created for ipdMed in the gap between that query and commit (e.g. a
+      // receive landing mid-merge) was missing from the result and never got reassigned to
+      // opdMed.id, then became permanently invisible once ipdMed.active was set false. Moved
+      // inside the transaction callback, same pattern commitTransfer/commitSubCount already use
+      // for their own live lot lookups: the Firestore client SDK can't query inside a
+      // transaction directly, but running the query fresh on every retry (and reading each
+      // found lot doc via trx.get(), which Firestore's transaction retries on if it changes
+      // before commit) closes the window down to just the final attempt instead of the whole
+      // confirm-dialog-to-commit gap.
       const mergedFloor = await runTx(async (trx) => {
+        const lotSnap = await getDocs(query(collection(db, 'lots'), where('medId', '==', ipdMed.id)));
+        for (const d of lotSnap.docs) await trx.get(d.ref);
         const opdSnap = await trx.get(doc(db, 'meds', opdMed.id));
         const ipdSnap = await trx.get(doc(db, 'meds', ipdMed.id));
         const freshOpdFloor = (opdSnap.data() as { floor?: number } | undefined)?.floor ?? opdMed.floor;
@@ -2508,8 +2557,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let failed = 0;
     for (const p of pairs) {
       try {
-        const lotSnap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', '==', p.ipdMed.id))));
+        // Bug fix (orphaned lot) — same fix as mergeWardMeds's own note: the lots query moved
+        // inside the transaction callback so it re-runs fresh on every retry, and each found lot
+        // doc is read via trx.get() so Firestore's transaction retries if one changes before
+        // commit, instead of running once outside the transaction and missing a lot created in
+        // the gap before commit.
         await runTx(async (trx) => {
+          const lotSnap = await getDocs(query(collection(db, 'lots'), where('medId', '==', p.ipdMed.id)));
+          for (const d of lotSnap.docs) await trx.get(d.ref);
           const opdSnap = await trx.get(doc(db, 'meds', p.opdMed.id));
           const ipdSnap = await trx.get(doc(db, 'meds', p.ipdMed.id));
           const freshOpdFloor = (opdSnap.data() as { floor?: number } | undefined)?.floor ?? p.opdMed.floor;
@@ -2618,7 +2673,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (m.floor > 0 || subQty(state, medId) > 0) { toast('ลบไม่ได้ — ยังมียอดคงเหลือที่หน้างานหรือ substock ต้องปรับยอด/ตัดออกให้เป็น 0 ก่อน'); return; }
     if (!(await confirmAsync('ลบ "' + m.name + '" ออกจากระบบถาวร? ย้อนกลับไม่ได้ — ถ้าแค่เลิกใช้ชั่วคราวแนะนำให้ "ปิดใช้งาน" แทน'))) return;
     try {
-      const lotSnap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', '==', medId))));
+      // Bug fix (real stock deletion risk): the floor/subQty check above ran on the CACHED
+      // state, before the confirm dialog — nothing stopped a receive from landing on this med
+      // while the dialog sat open (or just in the round trip after "ยืนยัน"), which would mean
+      // deleting real, just-arrived stock lots along with the med doc. Re-check live floor +
+      // live lot quantities right before actually deleting, using the same lot docs about to
+      // be deleted, so this can't silently discard stock that arrived after the check above.
+      const [medSnap, lotSnap] = await withTimeout(Promise.all([
+        getDoc(doc(db, 'meds', medId)),
+        getDocs(query(collection(db, 'lots'), where('medId', '==', medId))),
+      ]));
+      const liveFloor = (medSnap.data() as { floor?: number } | undefined)?.floor ?? 0;
+      const liveLotQty = lotSnap.docs.reduce((s, d) => s + ((d.data() as { qty?: number }).qty ?? 0), 0);
+      if (liveFloor > 0 || liveLotQty > 0) { toast('ลบไม่ได้ — มียอดคงเหลือเข้ามาระหว่างนี้ (หน้างานหรือ substock) ต้องปรับยอด/ตัดออกให้เป็น 0 ก่อน'); return; }
       const batch = writeBatch(db);
       lotSnap.docs.forEach((d) => batch.delete(d.ref));
       batch.delete(doc(db, 'meds', medId));
@@ -2652,26 +2719,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       + (blocked.length ? ' (อีก ' + blocked.length + ' รายการยังมียอดคงเหลือ จะไม่ถูกลบ)' : '');
     if (!(await confirmAsync(confirmMsg))) return;
     try {
-      const lotSnap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', 'in', removable.slice(0, 30).map((m) => m.id)))));
-      // 'in' queries cap at 30 values — for a formulary-sized cleanup, fetch each remaining
-      // med's lots in its own chunk instead of one query that would silently miss the rest.
-      const lotDocs = lotSnap.docs.slice();
-      for (let i = 30; i < removable.length; i += 30) {
-        const chunkIds = removable.slice(i, i + 30).map((m) => m.id);
-        const snap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', 'in', chunkIds))));
-        lotDocs.push(...snap.docs);
+      const idChunks: string[][] = [];
+      for (let i = 0; i < removable.length; i += 30) idChunks.push(removable.slice(i, i + 30).map((m) => m.id));
+      const lotDocs: { ref: ReturnType<typeof doc>; medId: string; qty: number }[] = [];
+      // Bug fix (real stock deletion risk): lots were fetched live (good — catches a lot that
+      // arrived after `removable` was computed from cached state), but their quantities were
+      // never actually checked before deleting them — any lot doc found for a removable med
+      // got deleted unconditionally, live qty or not. Also nothing re-checked each med's live
+      // FLOOR at all; the confirm dialog can sit open for a while, and a receive/adjustment
+      // landing in that window on a med judged "empty" from stale state would have its real
+      // stock silently deleted along with the med doc. Re-fetch both live right before
+      // deciding what's actually safe to delete.
+      const liveFloorById = new Map<string, number>();
+      for (const chunkIds of idChunks) {
+        const [lotSnap, medSnaps] = await withTimeout(Promise.all([
+          getDocs(query(collection(db, 'lots'), where('medId', 'in', chunkIds))),
+          Promise.all(chunkIds.map((id) => getDoc(doc(db, 'meds', id)))),
+        ]));
+        lotSnap.docs.forEach((d) => lotDocs.push({ ref: d.ref, medId: (d.data() as { medId?: string }).medId ?? '', qty: (d.data() as { qty?: number }).qty ?? 0 }));
+        medSnaps.forEach((s) => liveFloorById.set(s.id, (s.data() as { floor?: number } | undefined)?.floor ?? 0));
       }
+      const liveLotQtyByMed = new Map<string, number>();
+      for (const l of lotDocs) liveLotQtyByMed.set(l.medId, (liveLotQtyByMed.get(l.medId) ?? 0) + l.qty);
+      const stillEmpty = removable.filter((m) => (liveFloorById.get(m.id) ?? 0) === 0 && (liveLotQtyByMed.get(m.id) ?? 0) === 0);
+      const gainedStock = removable.filter((m) => (liveFloorById.get(m.id) ?? 0) > 0 || (liveLotQtyByMed.get(m.id) ?? 0) > 0);
+      if (!stillEmpty.length) { toast('ลบไม่ได้ — มียอดคงเหลือเข้ามาระหว่างนี้ในทุกรายการที่เลือก'); return; }
+      const stillEmptyIds = new Set(stillEmpty.map((m) => m.id));
       // Combine into one flat list of refs before chunking — chunking meds and lots
       // separately at 400 each could put up to 800 deletes in one batch, over Firestore's
       // hard 500-per-commit limit.
-      const allRefs = [...removable.map((m) => doc(db, 'meds', m.id)), ...lotDocs.map((d) => d.ref)];
+      const allRefs = [...stillEmpty.map((m) => doc(db, 'meds', m.id)), ...lotDocs.filter((l) => stillEmptyIds.has(l.medId)).map((l) => l.ref)];
       for (let i = 0; i < allRefs.length; i += 450) {
         const batch = writeBatch(db);
         allRefs.slice(i, i + 450).forEach((ref) => batch.delete(ref));
         await withTimeout(batch.commit());
       }
-      logAudit({ type: 'med_deleted', note: 'ลบยาที่ปิดใช้งานทั้งหมด ' + removable.length + ' รายการ (ยอดเป็น 0) ออกจากระบบถาวร: ' + removable.map((m) => m.name).join(', ') });
-      toast('ลบยาที่ปิดใช้งานแล้ว ' + removable.length + ' รายการ' + (blocked.length ? ' · ข้าม ' + blocked.length + ' รายการที่ยังมียอดคงเหลือ' : ''));
+      logAudit({ type: 'med_deleted', note: 'ลบยาที่ปิดใช้งานทั้งหมด ' + stillEmpty.length + ' รายการ (ยอดเป็น 0) ออกจากระบบถาวร: ' + stillEmpty.map((m) => m.name).join(', ') });
+      toast('ลบยาที่ปิดใช้งานแล้ว ' + stillEmpty.length + ' รายการ'
+        + (blocked.length ? ' · ข้าม ' + blocked.length + ' รายการที่ยังมียอดคงเหลือ' : '')
+        + (gainedStock.length ? ' · ข้ามอีก ' + gainedStock.length + ' รายการที่มียอดเข้ามาระหว่างนี้' : ''));
     } catch (e) { toastErr(e, 'ลบไม่สำเร็จ'); }
   }), [canEditMeds, state, logAudit, toast, toastErr, confirmAsync, guardOnce]);
 
@@ -3080,7 +3166,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       let delta = 0;
       let note = '';
-      const lotIds = state.lots.filter((l) => l.medId === medId).map((l) => l.id);
+      // Bug fix (data integrity — fabricated stock): the LOT SET itself, not just each lot's
+      // qty, must be fresh. state.lots is the onSnapshot cache — if a receive/approve lands a
+      // brand-new lot for this med between opening the count screen and hitting "save" (a
+      // multi-minute shelf walk is exactly the case this can happen in), that lot's id is
+      // invisible to a list built from the stale cache, so curSub below undercounts it. The
+      // "over" branch then fabricates a whole extra ปรับยอด lot for the gap — double-counting
+      // stock that a real, just-received lot already accounts for. The Firestore client SDK
+      // can't run a query inside a transaction (trx.get() only takes a doc ref), so the lot-id
+      // list has to be refreshed via a plain query immediately before the transaction starts —
+      // this can't close the window to zero, but it shrinks it from "however long the count
+      // screen was open" down to a single round trip.
+      const lotIds = (await getDocs(query(collection(db, 'lots'), where('medId', '==', medId)))).docs.map((d) => d.id);
       // Bug fix (data integrity): tx-log write folded into the same transaction as the lot
       // writes — see commitCount's note on this exact class of gap.
       await runTx(async (trx) => {
@@ -3088,7 +3185,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         for (const lotId of lotIds) {
           const snap = await trx.get(doc(db, 'lots', lotId));
           const data = snap.data() as { qty?: number; exp?: number } | undefined;
-          liveLots.push({ id: lotId, qty: data?.qty ?? 0, exp: data?.exp ?? 0 });
+          liveLots.push({ id: lotId, qty: data?.qty ?? 0, exp: data?.exp ?? Infinity }); // FEFO fix: unknown exp sorts last, not first (see commitTransfer's own note on this bug)
         }
         const curSub = liveLots.reduce((s, l) => s + l.qty, 0);
         delta = q - curSub;
@@ -3119,7 +3216,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       patch((st) => { const ci = { ...st.subCountInputs }; delete ci[medId]; return { subCountInputs: ci }; });
       toast(m.name + ' — ' + note);
     } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }), [state.subCountInputs, state.meds, state.lots, userName, toast, toastErr, patch, guardOnce]);
+  }), [state.subCountInputs, state.meds, userName, toast, toastErr, patch, guardOnce]);
 
   /** Batch version of commitSubCount(), mirroring commitAllCounts() — sequential per-med
    * transactions (never one lumped write) for the same reason: each has to re-read its own
@@ -3138,7 +3235,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!m) continue;
       try {
         let delta = 0;
-        const lotIds = state.lots.filter((l) => l.medId === medId).map((l) => l.id);
+        // Bug fix (data integrity — fabricated stock): see commitSubCount's matching note
+        // right above — the lot-id set itself must be re-queried live, not read off the
+        // onSnapshot cache, or a lot created concurrently (e.g. a receive landing mid-batch)
+        // is invisible here and gets double-counted as a fabricated ปรับยอด lot.
+        const lotIds = (await getDocs(query(collection(db, 'lots'), where('medId', '==', medId)))).docs.map((d) => d.id);
         // Bug fix (data integrity): tx-log write folded into the same transaction — see
         // commitCount's note on this exact class of gap.
         await runTx(async (trx) => {
@@ -3146,7 +3247,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           for (const lotId of lotIds) {
             const snap = await trx.get(doc(db, 'lots', lotId));
             const data = snap.data() as { qty?: number; exp?: number } | undefined;
-            liveLots.push({ id: lotId, qty: data?.qty ?? 0, exp: data?.exp ?? 0 });
+            liveLots.push({ id: lotId, qty: data?.qty ?? 0, exp: data?.exp ?? Infinity }); // FEFO fix: unknown exp sorts last, not first (see commitTransfer's own note on this bug)
           }
           const curSub = liveLots.reduce((s, l) => s + l.qty, 0);
           delta = q - curSub;
@@ -3182,7 +3283,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toast(failed > 0
       ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
       : 'บันทึกครบ ' + ok + ' รายการ' + (diffs > 0 ? ' · มีส่วนต่าง ' + diffs + ' รายการ (ดูได้ใน Discrepancy log)' : ' · ตรงกับระบบทุกรายการ'));
-  }), [state.subCountInputs, state.meds, state.lots, userName, toast, patch, guardOnce]);
+  }), [state.subCountInputs, state.meds, userName, toast, patch, guardOnce]);
 
   // ---------- hosxp reconcile ----------
   const setHosxpText = useCallback((v: string) => patch({ hosxpText: v }), [patch]);
@@ -3213,10 +3314,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const isSpreadsheet = /\.xlsx?$/i.test(file.name);
     reader.onload = async () => {
       let raw: RawUsageRow[];
+      let skipped = 0;
       try {
-        raw = isSpreadsheet
-          ? await parseHosxpUsageWorkbook(reader.result as ArrayBuffer)
-          : parseUsageCsvText(String(reader.result || ''));
+        if (isSpreadsheet) {
+          raw = await parseHosxpUsageWorkbook(reader.result as ArrayBuffer);
+        } else {
+          const parsed = parseUsageCsvTextWithSkipped(String(reader.result || ''));
+          raw = parsed.rows;
+          skipped = parsed.skipped;
+        }
       } catch (e) {
         console.error('hosxp reconcile file parse failed:', e);
         toast('อ่านไฟล์นี้ไม่สำเร็จ — ตรวจสอบว่าเป็นไฟล์ Excel (.xls/.xlsx) จาก HOSxP หรือ CSV ที่ไม่เสียหาย');
@@ -3225,7 +3331,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!raw.length) { toast('ไม่พบข้อมูลที่อ่านได้ในไฟล์นี้'); return; }
       const rows = raw.map((r) => ({ name: r.name, qty: Math.round(r.qty), match: matchHosxpMed(state.meds, r.name) }));
       patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpConfirmSingleDay: false, hosxpText: '' });
-      toast('อ่านไฟล์ ' + file.name + ' แล้ว ' + rows.length + ' รายการ — ตรวจสอบรายการด้านล่างก่อนตัดยอด');
+      // Bug fix (silent data loss): a malformed line (no comma, empty/unparseable qty cell) used
+      // to be dropped with zero trace — nothing here distinguished "this file had exactly N
+      // rows" from "this file had more, and some were silently unreadable". Only worth
+      // mentioning when it actually happened.
+      toast('อ่านไฟล์ ' + file.name + ' แล้ว ' + rows.length + ' รายการ'
+        + (skipped > 0 ? ' (ข้าม ' + skipped + ' แถวที่อ่านไม่ได้)' : '')
+        + ' — ตรวจสอบรายการด้านล่างก่อนตัดยอด');
     };
     if (isSpreadsheet) reader.readAsArrayBuffer(file);
     else reader.readAsText(file);
@@ -3330,10 +3442,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const isSpreadsheet = /\.xlsx?$/i.test(file.name);
     reader.onload = async () => {
       let raw: RawUsageRow[];
+      let skipped = 0;
       try {
-        raw = isSpreadsheet
-          ? await parseHosxpUsageWorkbook(reader.result as ArrayBuffer)
-          : parseUsageCsvText(String(reader.result || ''));
+        if (isSpreadsheet) {
+          raw = await parseHosxpUsageWorkbook(reader.result as ArrayBuffer);
+        } else {
+          const parsed = parseUsageCsvTextWithSkipped(String(reader.result || ''));
+          raw = parsed.rows;
+          skipped = parsed.skipped;
+        }
       } catch (e) {
         console.error('usage file parse failed:', e);
         toast('อ่านไฟล์นี้ไม่สำเร็จ — ตรวจสอบว่าเป็นไฟล์ Excel (.xls/.xlsx) จาก HOSxP หรือ CSV ที่ไม่เสียหาย');
@@ -3342,6 +3459,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!raw.length) { toast('ไม่พบข้อมูลที่อ่านได้ในไฟล์นี้'); return; }
       const rows = raw.map((r) => ({ ...r, match: matchHosxpMed(state.meds, r.name) }));
       patch({ usageRows: rows, usageFileName: file.name, usageConfirmFuzzy: false });
+      // Bug fix (silent data loss): same fix as processHosxpFile above — a malformed line used
+      // to be dropped with zero trace. Only worth a toast when it actually happened, since this
+      // screen has no other success toast to fold it into.
+      if (skipped > 0) toast('อ่านไฟล์แล้ว — ข้าม ' + skipped + ' แถวที่อ่านไม่ได้');
     };
     if (isSpreadsheet) reader.readAsArrayBuffer(file);
     else reader.readAsText(file);
@@ -3540,6 +3661,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setAdminTab = useCallback((t: AppState['adminTab']) => patch({ adminTab: t }), [patch]);
   const setAuditFilter = useCallback((f: AppState['auditFilter']) => patch({ auditFilter: f }), [patch]);
 
+  // Bug fix (race — could zero out all admins): the last-active-admin guard used to count
+  // from state.users (the onSnapshot cache). Two admins each demoting/disabling the OTHER at
+  // nearly the same moment both read "2 active admins" from their own stale cache, both pass
+  // the <=1 check, and both writes succeed independently — 0 active admins left, recoverable
+  // only via the Firebase console. Firestore transactions retry automatically when a document
+  // they READ changes before they commit — so re-reading every admin's live active state
+  // (including the one under a concurrent write) inside the same transaction as this write
+  // closes the race: whichever of the two transactions commits second gets forced to retry
+  // against the first one's already-written result, and its recount then correctly blocks it.
+  const lastAdminGuardedWrite = useCallback(async (targetId: string, apply: (trx: Transaction, live: { role: Role; active: boolean }) => boolean | void) => {
+    const adminIds = (await getDocs(query(collection(db, 'users'), where('role', '==', 'admin')))).docs.map((d) => d.id);
+    await runTx(async (trx) => {
+      const targetSnap = await trx.get(doc(db, 'users', targetId));
+      const targetData = targetSnap.data() as { role?: Role; active?: boolean } | undefined;
+      if (!targetData) throw new Error('not-found');
+      const live = { role: (targetData.role ?? 'tech') as Role, active: !!targetData.active };
+      const reducesAdmins = apply(trx, live);
+      if (reducesAdmins) {
+        // Bug fix: `adminIds` (the list of WHO to re-check) is still a plain getDocs query run
+        // outside this transaction, so it can be stale by commit time — but the fix isn't
+        // re-querying that list live too (Firestore transactions can't run a live query against
+        // a moving result set the way they can re-GET a specific doc). It's that this loop used
+        // to only re-check `active` on each of those ids, not `role` — so an admin who got
+        // demoted (role changed away from 'admin') in the gap between the query above and this
+        // transaction, but is still active:true, was still counted as one of the ≥2 admins
+        // needed to allow THIS demotion. Re-checking role here closes that half of the race the
+        // same way the active re-check closes the other half; the id-list staleness itself only
+        // ever causes under-counting (an admin promoted in that same gap gets missed), which
+        // fails safe by blocking a demotion rather than allowing one it shouldn't.
+        let activeAdmins = 0;
+        for (const aid of adminIds) {
+          if (aid === targetId) { if (live.active && live.role === 'admin') activeAdmins++; continue; }
+          const s = await trx.get(doc(db, 'users', aid));
+          const sd = s.data() as { role?: Role; active?: boolean } | undefined;
+          if (sd?.active && sd?.role === 'admin') activeAdmins++;
+        }
+        if (activeAdmins <= 1) throw new Error('last-admin');
+      }
+    });
+  }, [runTx]);
+
   const setUserRole = useCallback(async (id: string, role: Role) => {
     // Bug fix: every other privileged mutation in this file (addMed, updateMedFull,
     // mergeWardMeds, applyAllSuggested, ...) checks a role gate before doing anything — this
@@ -3550,19 +3712,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (state.role !== 'admin') return;
     const u = state.users.find((x) => x.id === id);
     if (!u || u.role === role) return;
-    // Demoting the last active admin would lock the hospital out of admin functions
-    // entirely (nobody left to approve accounts or promote anyone back) — the only recovery
-    // would be hand-editing Firestore in the Firebase console again, same as first bootstrap.
-    if (u.role === 'admin' && role !== 'admin') {
-      const activeAdmins = state.users.filter((x) => x.role === 'admin' && x.active).length;
-      if (activeAdmins <= 1) { toast('เปลี่ยนไม่ได้ — นี่คือ Admin ที่ใช้งานอยู่คนสุดท้าย ต้องมี Admin อย่างน้อย 1 คนเสมอ'); return; }
-    }
     if (id === state.myUid && !(await confirmAsync('คุณกำลังจะเปลี่ยนบทบาทของตัวเอง จาก ' + roleLabelFor(u.role) + ' เป็น ' + roleLabelFor(role) + ' — ยืนยันหรือไม่?'))) return;
     try {
-      await withTimeout(updateDoc(doc(db, 'users', id), { role }));
-      logAudit({ type: 'user_role_changed', note: 'เปลี่ยนบทบาท ' + u.name + ' จาก ' + roleLabelFor(u.role) + ' เป็น ' + roleLabelFor(role) });
-    } catch (e) { console.error(e); toast('เปลี่ยนบทบาทไม่สำเร็จ'); }
-  }, [state.role, state.users, state.myUid, logAudit, toast, confirmAsync]);
+      let fromRole = u.role;
+      await lastAdminGuardedWrite(id, (trx, live) => {
+        fromRole = live.role;
+        trx.update(doc(db, 'users', id), { role });
+        // Demoting the last active admin would lock the hospital out of admin functions
+        // entirely (nobody left to approve accounts or promote anyone back) — the only
+        // recovery would be hand-editing Firestore in the Firebase console again, same as
+        // first bootstrap. Only a demotion AWAY from admin needs the live headcount below.
+        return live.role === 'admin' && role !== 'admin' && live.active;
+      });
+      logAudit({ type: 'user_role_changed', note: 'เปลี่ยนบทบาท ' + u.name + ' จาก ' + roleLabelFor(fromRole) + ' เป็น ' + roleLabelFor(role) });
+    } catch (e) {
+      if ((e as Error)?.message === 'last-admin') { toast('เปลี่ยนไม่ได้ — นี่คือ Admin ที่ใช้งานอยู่คนสุดท้าย ต้องมี Admin อย่างน้อย 1 คนเสมอ'); return; }
+      console.error(e); toast('เปลี่ยนบทบาทไม่สำเร็จ');
+    }
+  }, [state.role, state.users, state.myUid, lastAdminGuardedWrite, logAudit, toast, confirmAsync]);
 
   const toggleUserActive = useCallback(async (id: string) => {
     // Bug fix: see the same guard in setUserRole above — this had no client-side role check
@@ -3571,26 +3738,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const u = state.users.find((x) => x.id === id);
     if (!u) return;
     const next = !u.active;
-    if (!next && u.role === 'admin') {
-      const activeAdmins = state.users.filter((x) => x.role === 'admin' && x.active).length;
-      if (activeAdmins <= 1) { toast('ปิดใช้งานไม่ได้ — นี่คือ Admin ที่ใช้งานอยู่คนสุดท้าย ต้องมี Admin อย่างน้อย 1 คนเสมอ'); return; }
-    }
     if (id === state.myUid && !next && !(await confirmAsync('คุณกำลังจะปิดใช้งานบัญชีของตัวเอง — จะออกจากระบบทันที และต้องให้ Admin คนอื่นเปิดให้ใหม่ ยืนยันหรือไม่?'))) return;
-    // Bug fix: this used to decide "first-time approval" vs "re-enable after being disabled"
-    // with `u.active === false && u.createdAt` — but `u.active` here is always false in this
-    // branch already (next=true means it was false), and every user has a createdAt, so that
-    // check was tautologically always true. A previously-active account that got disabled and
-    // is now being turned back on always logged/toasted as "อนุมัติบัญชี" (approved), which is
-    // misleading for someone who was never a pending new registration. `lastLogin` actually
-    // distinguishes the two cases: a never-logged-in account is a genuine first approval; one
-    // that has logged in before is being reinstated, not approved for the first time.
-    const isFirstApproval = next && !u.lastLogin;
     try {
-      await withTimeout(updateDoc(doc(db, 'users', id), { active: next }));
-      logAudit({ type: isFirstApproval ? 'user_approved' : 'user_status_changed', note: (next ? (isFirstApproval ? 'อนุมัติบัญชี ' : 'เปิดใช้งานบัญชี ') : 'ปิดใช้งานบัญชี ') + u.name });
+      let wasFirstApproval = false;
+      await lastAdminGuardedWrite(id, (trx, live) => {
+        // Bug fix: this used to decide "first-time approval" vs "re-enable after being
+        // disabled" with `u.active === false && u.createdAt` — but `u.active` here is always
+        // false in this branch already (next=true means it was false), and every user has a
+        // createdAt, so that check was tautologically always true. A previously-active account
+        // that got disabled and is now being turned back on always logged/toasted as
+        // "อนุมัติบัญชี" (approved), which is misleading for someone who was never a pending
+        // new registration. `lastLogin` actually distinguishes the two cases: a never-logged-in
+        // account is a genuine first approval; one that has logged in before is being
+        // reinstated, not approved for the first time.
+        wasFirstApproval = next && !u.lastLogin;
+        trx.update(doc(db, 'users', id), { active: next });
+        return !next && live.role === 'admin' && live.active;
+      });
+      logAudit({ type: wasFirstApproval ? 'user_approved' : 'user_status_changed', note: (next ? (wasFirstApproval ? 'อนุมัติบัญชี ' : 'เปิดใช้งานบัญชี ') : 'ปิดใช้งานบัญชี ') + u.name });
       toast((next ? 'เปิดใช้งาน' : 'ปิดใช้งาน') + 'บัญชี ' + u.name + ' แล้ว');
-    } catch (e) { console.error(e); toast('เปลี่ยนสถานะไม่สำเร็จ'); }
-  }, [state.role, state.users, state.myUid, logAudit, toast, confirmAsync]);
+    } catch (e) {
+      if ((e as Error)?.message === 'last-admin') { toast('ปิดใช้งานไม่ได้ — นี่คือ Admin ที่ใช้งานอยู่คนสุดท้าย ต้องมี Admin อย่างน้อย 1 คนเสมอ'); return; }
+      console.error(e); toast('เปลี่ยนสถานะไม่สำเร็จ');
+    }
+  }, [state.role, state.users, state.myUid, lastAdminGuardedWrite, logAudit, toast, confirmAsync]);
 
   const exportAudit = useCallback(async () => {
     // Same reasoning as exportReportCsv — the live subscriptions are capped at 300 each for

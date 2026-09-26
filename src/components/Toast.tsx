@@ -28,6 +28,8 @@ export default function Toast() {
   if (!shown) return null;
   return (
     <div
+      role="status"
+      aria-live="polite"
       style={{
         position: 'absolute', left: 14, right: 14, bottom: 78,
         background: 'var(--ink)', color: 'var(--ink-soft)',
