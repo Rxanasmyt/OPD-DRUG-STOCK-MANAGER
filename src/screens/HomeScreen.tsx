@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { useApp } from '../store/AppContext';
-import { toneFor, daysUntil, usesSubstock, floorMinOf, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso } from '../store/selectors';
+import { toneFor, subTone, daysUntil, usesSubstock, floorMinOf, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso } from '../store/selectors';
 import { nf, thDate, isoDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge } from '../components/Qty';
@@ -218,7 +218,7 @@ export default function HomeScreen() {
                 {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
               </div>
               <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
-                หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={12.5} /> · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock <Qty value={sub(m.id)} unit={m.unit} size={12.5} />
+                หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={12.5} /> · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} unit={m.unit} size={12.5} />
               </div>
               <div className="bar-track" style={{ height: 4, background: 'var(--border-soft)', borderRadius: 2, marginTop: 6 }}>
                 <div className="bar-fill" style={{ height: '100%', transform: 'scaleX(' + Math.max(3, Math.min(100, Math.round((m.floor / Math.max(1, m.parFloor)) * 100))) / 100 + ')', background: toneFor(m), borderRadius: 2 }} />
@@ -262,7 +262,7 @@ export default function HomeScreen() {
                 {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
               </div>
               <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
-                substock <Qty value={sub(m.id)} tone="var(--red)" size={12.5} /> / par {nf(m.parSub)}
+                substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={12.5} /> / par {nf(m.parSub)}
               </div>
               <div style={{ marginTop: 6 }}>
                 <DeficitBadge amount={Math.max(0, m.parSub - sub(m.id))} unit={m.unit} urgent={sub(m.id) === 0} />

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly } from '../utils/format';
-import { wardOf, wardLabel, floorMinOf, toneFor, isSharedMed, categoryOf } from '../store/selectors';
+import { wardOf, wardLabel, floorMinOf, toneFor, subTone, isSharedMed, categoryOf } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
 import { Badge, HadTag } from '../components/Badge';
 import { BottomSheet } from '../components/BottomSheet';
@@ -451,7 +451,7 @@ export default function MedsScreen() {
                     </div>
                     {m.active && (
                       <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                        หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={11} /> · substock <Qty value={sub(m.id)} unit={m.unit} size={11} />
+                        หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={11} /> · substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} unit={m.unit} size={11} />
                         {/* Only surfaced under the Max=Min=1 diagnostic filter above — showing
                             the actual numbers right on the row is the whole point of that
                             filter (spot them without opening each edit form one by one). */}

@@ -1,5 +1,5 @@
 import { useApp } from '../store/AppContext';
-import { subQty, daysUntil, toneFor } from '../store/selectors';
+import { subQty, daysUntil, toneFor, subTone } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
@@ -113,7 +113,7 @@ export default function AdjustScreen() {
               {options.map((m) => (
                 <button key={m.id} onClick={() => pickAdjMed(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
                   <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name} <WardBadge med={m} /></span>
-                  <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={11.5} /> · substock {nf(subQty(state, m.id))} {m.unit}</span>
+                  <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={11.5} /> · substock <Qty value={subQty(state, m.id)} tone={subTone(subQty(state, m.id), m.parSub)} unit={m.unit} size={11.5} /></span>
                 </button>
               ))}
             </div>
@@ -123,7 +123,7 @@ export default function AdjustScreen() {
             <>
               <div style={{ background: 'var(--green-tint)', borderRadius: 10, padding: '9px 11px', fontSize: 13.5, fontWeight: 600, marginBottom: 9 }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={adjMed.code} /> {adjMed.name} <WardBadge med={adjMed} size="md" /></span>
-                <span className="muted" style={{ display: 'block', fontSize: 11.5, fontWeight: 400 }}>หน้างาน <Qty value={adjMed.floor} tone={toneFor(adjMed)} size={11.5} /> · substock {nf(subQty(state, adjMed.id))} {adjMed.unit}</span>
+                <span className="muted" style={{ display: 'block', fontSize: 11.5, fontWeight: 400 }}>หน้างาน <Qty value={adjMed.floor} tone={toneFor(adjMed)} size={11.5} /> · substock <Qty value={subQty(state, adjMed.id)} tone={subTone(subQty(state, adjMed.id), adjMed.parSub)} unit={adjMed.unit} size={11.5} /></span>
               </div>
               {state.adjType === 'adjust' && (
                 <div style={{ background: 'var(--amber-bg)', border: '1px solid var(--amber)', borderRadius: 10, padding: '10px 12px', fontSize: 12, lineHeight: 1.55, color: 'var(--amber-ink)', marginBottom: 9 }}>
