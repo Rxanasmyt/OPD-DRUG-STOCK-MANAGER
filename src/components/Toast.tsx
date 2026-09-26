@@ -36,6 +36,15 @@ export default function Toast() {
         padding: '13px 16px', borderRadius: 12, fontSize: 13, lineHeight: 1.45,
         zIndex: 30, animation: shown.exiting ? 'toastOut .2s var(--ease) both' : 'toastIn .32s cubic-bezier(.16,1,.3,1)',
         boxShadow: '0 16px 32px -12px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.25)',
+        // Bug fix (real flow friction): this toast has no interactive element of its own — it's
+        // pure feedback text — but without this it still captured taps in its own screen region
+        // like any other element would. On TransferScreen (the single most-used screen in the
+        // app) that region overlaps the sticky "ตรวจสอบ →" confirm button, and several actions
+        // that lead straight into wanting to tap that button (fillAll/fillUrgent/clearCart) also
+        // fire a toast right beforehand — swallowing the very next tap for up to 2.6s with no
+        // visible reason why. Letting taps pass through to whatever's underneath costs nothing
+        // here since there's nothing in this toast to tap.
+        pointerEvents: 'none',
       }}
     >
       {shown.text}
