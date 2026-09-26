@@ -1,4 +1,4 @@
-import type { AppState, HosxpMatch, Med, Role, Ward, Tx } from '../types';
+import type { AppState, HosxpMatch, Lot, Med, Role, Ward, Tx } from '../types';
 import { DAY, daysUntil, isoDate, nf } from '../utils/format';
 import { UNCATEGORIZED, DRUG_CATEGORIES, categoryLabel } from '../data/categories';
 
@@ -119,10 +119,28 @@ export function lastReconcileDateIso(txs: Tx[]): string | null {
   return last ? isoDate(last.ts) : null;
 }
 
+// Bug fix (perf): subQty() used to do a full linear scan of state.lots on every call — called
+// 2-4x per rendered row across HomeScreen/TransferScreen/MedsScreen/AdjustScreen (and several
+// more places in AppContext.tsx/ReportScreen), this made every list render O(meds × lots): at
+// this hospital's real scale (~580 meds, likely 1000+ lots), on the order of a million+
+// array-scan iterations per render — genuinely perceptible jank on a ward tablet, not a
+// theoretical inefficiency. state.lots gets a fresh array reference only when Firestore's
+// onSnapshot listener actually delivers new lot data (see AppContext.tsx's setState calls), so a
+// WeakMap keyed on that reference gives each render's lots array a build-once, O(1)-lookup-after
+// index without needing every one of subQty's ~15 call sites (several outside AppContext.tsx
+// entirely) to thread a memoized map through themselves.
+const subQtyIndexCache = new WeakMap<Lot[], Map<string, number>>();
+function subQtyIndex(lots: Lot[]): Map<string, number> {
+  let idx = subQtyIndexCache.get(lots);
+  if (!idx) {
+    idx = new Map<string, number>();
+    for (const l of lots) idx.set(l.medId, (idx.get(l.medId) ?? 0) + l.qty);
+    subQtyIndexCache.set(lots, idx);
+  }
+  return idx;
+}
 export function subQty(state: AppState, medId: string): number {
-  let sum = 0;
-  for (const l of state.lots) if (l.medId === medId) sum += l.qty;
-  return sum;
+  return subQtyIndex(state.lots).get(medId) ?? 0;
 }
 
 export interface UsageAnomaly { med: Med; changePct: number; direction: 'up' | 'down' }
@@ -297,9 +315,15 @@ export function daysOfStockLeft(state: AppState, m: Med): number | null {
 }
 
 export function fefoLot(state: AppState, medId: string) {
+  // Bug fix (FEFO correctness): a lot doc missing `exp` at runtime (legacy import, manual
+  // Firestore edit — the TS type says `number` but real data can still violate that) used to
+  // produce NaN from `a.exp - b.exp`, and Array.sort's behavior with a NaN comparator is
+  // unspecified — this "recommended lot" UI hint could then silently disagree with what
+  // commitTransfer's live query actually draws from (which explicitly falls back missing exp to
+  // Infinity, sorting it last, not first). Same fallback here keeps both in agreement.
   return state.lots
     .filter((l) => l.medId === medId && l.qty > 0)
-    .sort((a, b) => a.exp - b.exp)[0];
+    .sort((a, b) => (a.exp ?? Infinity) - (b.exp ?? Infinity))[0];
 }
 
 export function userNameFor(role: Role | null): string {

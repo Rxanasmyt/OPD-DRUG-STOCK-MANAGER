@@ -18,7 +18,7 @@ import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
 import { shortLabelName } from '../utils/labelName';
 import { printLabelSheet, printPickListSheet, printExecutiveSummarySheet, type PrintLabel, type ExecSummaryStat, type ExecSummaryRow } from '../utils/print';
-import { parseHosxpUsageWorkbook, parseUsageCsvText, type RawUsageRow } from '../utils/usageImport';
+import { parseHosxpUsageWorkbook, parseUsageCsvTextWithSkipped, type RawUsageRow } from '../utils/usageImport';
 import { LOCS, FRIDGE_LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
 import { withTimeout, TimeoutError } from '../utils/timeout';
@@ -1331,8 +1331,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // the Firestore client SDK can't query inside the transaction itself (trx.get() only
           // takes a doc ref), so this runs just outside it, freshly on every retry.
           const liveLotDocs = (await getDocs(query(collection(db, 'lots'), where('medId', '==', medId)))).docs;
+          // Bug fix (FEFO correctness): a lot doc missing/lacking `exp` (legacy import, manual
+          // Firestore edit) used to default to `exp: 0` — 1970 — which sorts FIRST, ahead of
+          // every lot with a real near-term expiry. That's exactly backwards for FEFO: an
+          // unknown-expiry lot should never outrank one that's genuinely expiring soon.
+          // Infinity sorts it LAST instead — treated as "no known urgency", not "most urgent".
           const lotIds = liveLotDocs
-            .map((d) => ({ id: d.id, qty: (d.data() as { qty?: number }).qty ?? 0, exp: (d.data() as { exp?: number }).exp ?? 0 }))
+            .map((d) => ({ id: d.id, qty: (d.data() as { qty?: number }).qty ?? 0, exp: (d.data() as { exp?: number }).exp ?? Infinity }))
             .filter((l) => l.qty > 0).sort((a, b) => a.exp - b.exp).map((l) => l.id);
           lotIdsByMed[medId] = lotIds;
           for (const lotId of lotIds) {
@@ -3180,7 +3185,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         for (const lotId of lotIds) {
           const snap = await trx.get(doc(db, 'lots', lotId));
           const data = snap.data() as { qty?: number; exp?: number } | undefined;
-          liveLots.push({ id: lotId, qty: data?.qty ?? 0, exp: data?.exp ?? 0 });
+          liveLots.push({ id: lotId, qty: data?.qty ?? 0, exp: data?.exp ?? Infinity }); // FEFO fix: unknown exp sorts last, not first (see commitTransfer's own note on this bug)
         }
         const curSub = liveLots.reduce((s, l) => s + l.qty, 0);
         delta = q - curSub;
@@ -3242,7 +3247,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           for (const lotId of lotIds) {
             const snap = await trx.get(doc(db, 'lots', lotId));
             const data = snap.data() as { qty?: number; exp?: number } | undefined;
-            liveLots.push({ id: lotId, qty: data?.qty ?? 0, exp: data?.exp ?? 0 });
+            liveLots.push({ id: lotId, qty: data?.qty ?? 0, exp: data?.exp ?? Infinity }); // FEFO fix: unknown exp sorts last, not first (see commitTransfer's own note on this bug)
           }
           const curSub = liveLots.reduce((s, l) => s + l.qty, 0);
           delta = q - curSub;
@@ -3309,10 +3314,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const isSpreadsheet = /\.xlsx?$/i.test(file.name);
     reader.onload = async () => {
       let raw: RawUsageRow[];
+      let skipped = 0;
       try {
-        raw = isSpreadsheet
-          ? await parseHosxpUsageWorkbook(reader.result as ArrayBuffer)
-          : parseUsageCsvText(String(reader.result || ''));
+        if (isSpreadsheet) {
+          raw = await parseHosxpUsageWorkbook(reader.result as ArrayBuffer);
+        } else {
+          const parsed = parseUsageCsvTextWithSkipped(String(reader.result || ''));
+          raw = parsed.rows;
+          skipped = parsed.skipped;
+        }
       } catch (e) {
         console.error('hosxp reconcile file parse failed:', e);
         toast('อ่านไฟล์นี้ไม่สำเร็จ — ตรวจสอบว่าเป็นไฟล์ Excel (.xls/.xlsx) จาก HOSxP หรือ CSV ที่ไม่เสียหาย');
@@ -3321,7 +3331,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!raw.length) { toast('ไม่พบข้อมูลที่อ่านได้ในไฟล์นี้'); return; }
       const rows = raw.map((r) => ({ name: r.name, qty: Math.round(r.qty), match: matchHosxpMed(state.meds, r.name) }));
       patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpConfirmSingleDay: false, hosxpText: '' });
-      toast('อ่านไฟล์ ' + file.name + ' แล้ว ' + rows.length + ' รายการ — ตรวจสอบรายการด้านล่างก่อนตัดยอด');
+      // Bug fix (silent data loss): a malformed line (no comma, empty/unparseable qty cell) used
+      // to be dropped with zero trace — nothing here distinguished "this file had exactly N
+      // rows" from "this file had more, and some were silently unreadable". Only worth
+      // mentioning when it actually happened.
+      toast('อ่านไฟล์ ' + file.name + ' แล้ว ' + rows.length + ' รายการ'
+        + (skipped > 0 ? ' (ข้าม ' + skipped + ' แถวที่อ่านไม่ได้)' : '')
+        + ' — ตรวจสอบรายการด้านล่างก่อนตัดยอด');
     };
     if (isSpreadsheet) reader.readAsArrayBuffer(file);
     else reader.readAsText(file);
@@ -3426,10 +3442,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const isSpreadsheet = /\.xlsx?$/i.test(file.name);
     reader.onload = async () => {
       let raw: RawUsageRow[];
+      let skipped = 0;
       try {
-        raw = isSpreadsheet
-          ? await parseHosxpUsageWorkbook(reader.result as ArrayBuffer)
-          : parseUsageCsvText(String(reader.result || ''));
+        if (isSpreadsheet) {
+          raw = await parseHosxpUsageWorkbook(reader.result as ArrayBuffer);
+        } else {
+          const parsed = parseUsageCsvTextWithSkipped(String(reader.result || ''));
+          raw = parsed.rows;
+          skipped = parsed.skipped;
+        }
       } catch (e) {
         console.error('usage file parse failed:', e);
         toast('อ่านไฟล์นี้ไม่สำเร็จ — ตรวจสอบว่าเป็นไฟล์ Excel (.xls/.xlsx) จาก HOSxP หรือ CSV ที่ไม่เสียหาย');
@@ -3438,6 +3459,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!raw.length) { toast('ไม่พบข้อมูลที่อ่านได้ในไฟล์นี้'); return; }
       const rows = raw.map((r) => ({ ...r, match: matchHosxpMed(state.meds, r.name) }));
       patch({ usageRows: rows, usageFileName: file.name, usageConfirmFuzzy: false });
+      // Bug fix (silent data loss): same fix as processHosxpFile above — a malformed line used
+      // to be dropped with zero trace. Only worth a toast when it actually happened, since this
+      // screen has no other success toast to fold it into.
+      if (skipped > 0) toast('อ่านไฟล์แล้ว — ข้าม ' + skipped + ' แถวที่อ่านไม่ได้');
     };
     if (isSpreadsheet) reader.readAsArrayBuffer(file);
     else reader.readAsText(file);

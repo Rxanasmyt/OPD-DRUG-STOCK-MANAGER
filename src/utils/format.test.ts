@@ -89,4 +89,9 @@ describe('digitsOnly / parseIntSafe', () => {
   it('parseIntSafe parses Thai numerals instead of falling back to 0', () => {
     expect(parseIntSafe('๕๐')).toBe(50);
   });
+
+  it('digitsOnly caps length so a long pasted digit string cannot lose precision downstream', () => {
+    expect(digitsOnly('123456789012345678901234567890')).toBe('123456789');
+    expect(parseIntSafe('999999999999999999999')).toBeLessThanOrEqual(Number.MAX_SAFE_INTEGER);
+  });
 });
