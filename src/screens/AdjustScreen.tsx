@@ -65,7 +65,7 @@ export default function AdjustScreen() {
             <button
               key={t}
               onClick={() => pickAdjType(t)}
-              style={{ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)', padding: '13px 12px', borderRadius: 12, textAlign: 'left', minHeight: 64 }}
+              style={{ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)', padding: '13px 12px', borderRadius: 12, textAlign: 'left', minHeight: 64 }}
             >
               <div style={{ fontSize: 14.5, fontWeight: 600 }}>{label}</div>
               <div style={{ fontSize: 11.5, opacity: 0.72, lineHeight: 1.35 }}>{sub}</div>
@@ -157,7 +157,7 @@ export default function AdjustScreen() {
               <button
                 onClick={commitAdjust}
                 disabled={!state.adjReason || !state.adjQty || !!state.busy['adjust']}
-                style={{ width: '100%', border: 0, background: state.adjReason && state.adjQty ? 'var(--green)' : 'var(--border-strong)', color: '#fff', padding: 15, borderRadius: 11, fontSize: 15.5, fontWeight: 600, minHeight: 52, marginTop: 10, opacity: state.busy['adjust'] ? 0.7 : 1 }}
+                style={{ width: '100%', border: 0, background: state.adjReason && state.adjQty ? 'var(--green)' : 'var(--border-strong)', color: state.adjReason && state.adjQty ? 'var(--ink-soft)' : 'var(--ink)', padding: 15, borderRadius: 11, fontSize: 15.5, fontWeight: 600, minHeight: 52, marginTop: 10, opacity: state.busy['adjust'] ? 0.7 : 1 }}
               >
                 {state.busy['adjust'] ? 'กำลังบันทึก…' : (state.adjType === 'return' ? 'บันทึกรับคืน' : 'บันทึกปรับยอด')}
               </button>

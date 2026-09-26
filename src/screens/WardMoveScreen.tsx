@@ -78,7 +78,7 @@ export default function WardMoveScreen() {
           <button
             onClick={commitWardMove}
             disabled={!canSubmit || !!state.busy['wardMove']}
-            style={{ width: '100%', border: 0, background: canSubmit ? 'var(--green)' : 'var(--border-strong)', color: '#fff', padding: 15, borderRadius: 11, fontSize: 15, fontWeight: 600, minHeight: 52, opacity: state.busy['wardMove'] ? 0.7 : 1 }}
+            style={{ width: '100%', border: 0, background: canSubmit ? 'var(--green)' : 'var(--border-strong)', color: canSubmit ? 'var(--ink-soft)' : 'var(--ink)', padding: 15, borderRadius: 11, fontSize: 15, fontWeight: 600, minHeight: 52, opacity: state.busy['wardMove'] ? 0.7 : 1 }}
           >
             {state.busy['wardMove'] ? 'กำลังบันทึก…' : `ย้าย ${qty > 0 ? nf(qty) + ' ' + fromMed.unit : ''} จาก ${fromMed.name} → ${toMed.name}`}
           </button>

@@ -26,7 +26,7 @@ export function StepIndicator({ steps, current }: { steps: string[]; current: nu
                 style={{
                   width: 22, height: 22, borderRadius: '50%', flex: 'none',
                   background: done || active ? 'var(--green)' : 'var(--border-soft)',
-                  color: done || active ? '#fff' : 'var(--muted)',
+                  color: done || active ? 'var(--ink-soft)' : 'var(--muted)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 11, fontWeight: 700,
                   boxShadow: active ? '0 0 0 3px rgba(var(--green-rgb), .18)' : 'none',

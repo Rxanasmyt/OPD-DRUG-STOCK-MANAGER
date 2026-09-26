@@ -110,7 +110,7 @@ export default function TransferScreen() {
     });
 
   const cartIds = Object.keys(state.cart);
-  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
+  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
 
   return (
     <div style={{ animation: 'fade .18s' }}>

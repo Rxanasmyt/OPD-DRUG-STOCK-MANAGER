@@ -232,7 +232,7 @@ export default function SettingsScreen() {
             {anomalies.length > 30 && <div className="muted" style={{ fontSize: 11, textAlign: 'center' }}>และอีก {anomalies.length - 30} รายการ</div>}
           </div>
           {canEdit && (
-            <button onClick={() => go('meds')} style={{ marginTop: 10, width: '100%', border: 0, background: anomalyErrors.length > 0 ? 'var(--red)' : 'var(--amber)', color: '#fff', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>
+            <button onClick={() => go('meds')} style={{ marginTop: 10, width: '100%', border: 0, background: anomalyErrors.length > 0 ? 'var(--red)' : 'var(--amber)', color: 'var(--ink-soft)', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>
               ไปที่จัดการรายการยา เพื่อแก้ไข →
             </button>
           )}

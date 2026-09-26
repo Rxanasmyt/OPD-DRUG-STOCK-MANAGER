@@ -268,7 +268,7 @@ export default function MedsScreen() {
       .filter((g) => g.items.length > 0)
     : null;
 
-  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
+  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
 
   if (!canEdit) {
     return (
@@ -373,7 +373,7 @@ export default function MedsScreen() {
         {parOneCount > 0 && (
           <button
             className="chip"
-            style={{ border: parOneOnly ? '1px solid var(--amber)' : '1px solid var(--border)', background: parOneOnly ? 'var(--amber)' : 'var(--bg-card)', color: parOneOnly ? '#fff' : 'var(--amber-ink)' }}
+            style={{ border: parOneOnly ? '1px solid var(--amber)' : '1px solid var(--border)', background: parOneOnly ? 'var(--amber)' : 'var(--bg-card)', color: parOneOnly ? 'var(--ink-soft)' : 'var(--amber-ink)' }}
             onClick={() => setFilter(parOneOnly ? 'active' : 'parOne')}
           >
             ⚠ Max=Min=1 ({parOneCount})
@@ -483,7 +483,7 @@ export default function MedsScreen() {
                       if (editingId && editingId !== m.id && !(await confirmLeaveIfDirty())) return;
                       setEditingId(isEditing ? null : m.id); setAddOpen(false);
                     }}
-                    style={{ flex: 1, border: '1px solid var(--green)', background: isEditing ? 'var(--green)' : 'var(--bg-card)', color: isEditing ? '#fff' : 'var(--green)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44 }}
+                    style={{ flex: 1, border: '1px solid var(--green)', background: isEditing ? 'var(--green)' : 'var(--bg-card)', color: isEditing ? 'var(--ink-soft)' : 'var(--green)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44 }}
                   >
                     {isEditing ? 'ปิดฟอร์มแก้ไข' : 'แก้ไขข้อมูล'}
                   </button>
@@ -605,7 +605,7 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
   const floorMinTyped = v.floorMin.trim() !== '' ? parseInt(v.floorMin, 10) || 0 : null;
   const minExceedsMax = floorMinTyped !== null && parFloorNum > 0 && floorMinTyped > parFloorNum;
   const setShared = (on: boolean) => setV((s) => ({ ...s, shared: on, binIpd: on ? s.binIpd : '' }));
-  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
+  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
 
   return (
     <div className="card" style={{ padding: 13, marginBottom: 14, animation: 'fade .16s var(--ease-out)' }}>
@@ -802,7 +802,7 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
         <button
           onClick={() => set('fridge', !v.fridge)}
           className="chip"
-          style={{ border: v.fridge ? '1px solid var(--fridge)' : '1px solid var(--border)', background: v.fridge ? 'var(--fridge)' : 'var(--bg-card)', color: v.fridge ? '#fff' : 'var(--ink)', flex: 1, textAlign: 'center' }}
+          style={{ border: v.fridge ? '1px solid var(--fridge)' : '1px solid var(--border)', background: v.fridge ? 'var(--fridge)' : 'var(--bg-card)', color: v.fridge ? 'var(--ink-soft)' : 'var(--ink)', flex: 1, textAlign: 'center' }}
         >
           {v.fridge ? '✓ 🧊 ยาตู้เย็น' : '🧊 ยาตู้เย็น?'}
         </button>

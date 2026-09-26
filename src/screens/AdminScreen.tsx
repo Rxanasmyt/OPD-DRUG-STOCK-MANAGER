@@ -51,7 +51,7 @@ export default function AdminScreen() {
   } = useApp();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [userQuery, setUserQuery] = useState('');
-  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
+  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
 
   const copyInviteLink = async () => {
     try {

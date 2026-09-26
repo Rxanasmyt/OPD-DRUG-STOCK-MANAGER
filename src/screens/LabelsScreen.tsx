@@ -133,7 +133,7 @@ export default function LabelsScreen() {
   const selectedIds = Object.keys(state.labelSelected).filter((id) => state.labelSelected[id]);
   const selectedSet = new Set(selectedIds);
   const meds = selectedSet.size === 0 ? activeMeds : activeMeds.filter((m) => selectedSet.has(m.id));
-  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
+  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
   // Real-world request: "อยากเลือกยาที่ปริ้นตามรหัสชั้นวางยาได้" — printing a whole shelf/bin's
   // worth of QR labels in one batch (e.g. re-organizing shelf "J4", or printing every code for
   // one aisle) needs picking meds by shelf code, not just by name. The bin code shown here

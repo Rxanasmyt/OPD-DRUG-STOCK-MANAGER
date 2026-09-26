@@ -41,7 +41,7 @@ export default function ReportScreen() {
   const [discSearch, setDiscSearch] = useState('');
   // OPD/IPD ward tabs removed — reports always cover the whole formulary.
   const meds = state.meds.filter((m) => m.active);
-  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--ink)' });
+  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
 
   const medIds = new Set(meds.map((m) => m.id));
   const wardLots = state.lots.filter((l) => medIds.has(l.medId));
