@@ -229,8 +229,9 @@ describe('isUrgentLow', () => {
   it('flags a shelf at/below half its own Min, not just below Min', () => {
     // floorMin set explicitly here (30) — this test is about isUrgentLow()'s own "half of
     // whatever Min is" rule, independent of floorMinOf()'s default-fallback ratio.
-    expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 14 }))).toBe(true); // 14 < 15 (half of 30)
-    expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 15 }))).toBe(false); // exactly half — not urgent yet
+    expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 14 }))).toBe(true); // 14 <= 15 (half of 30)
+    expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 15 }))).toBe(true); // exactly half — urgent too, per this function's own doc comment ("at/below")
+    expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 16 }))).toBe(false); // just above half — below Min but not urgent yet
     expect(isUrgentLow(med({ parFloor: 100, floorMin: 30, floor: 29 }))).toBe(false); // below Min but not urgent
   });
 });

@@ -78,8 +78,15 @@ export function mulberry32(seed: number) {
   };
 }
 
+// Bug fix: every qty input in the app runs raw keystrokes through this on every change (see
+// digitsOnly() call sites in MedsScreen/SettingsScreen/TransferScreen/WardMoveScreen/
+// AppContext.tsx). JS's \D only recognizes ASCII 0-9 — a Thai numeral keyboard (๐๑๒๓๔๕๖๗๘๙,
+// U+0E50-0E59) typed into any of those fields got silently stripped as "not a digit" instead of
+// converted, so parseIntSafe() fell back to 0 with no error: a real risk of silently recording a
+// zero-quantity transaction. Normalize Thai digits to ASCII first, then strip everything else.
 export function digitsOnly(raw: string): string {
-  return raw.replace(/\D/g, '');
+  const normalized = raw.replace(/[๐-๙]/g, (ch) => String(ch.charCodeAt(0) - 0x0E50));
+  return normalized.replace(/\D/g, '');
 }
 
 export function parseIntSafe(raw: string, fallback = 0): number {

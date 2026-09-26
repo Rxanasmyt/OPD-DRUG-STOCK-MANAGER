@@ -1472,6 +1472,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const missingMed = items.some((it) => !state.meds.find((x) => x.id === it.medId));
     if (missingMed) { toast('มีรายการที่ถูกลบออกจากระบบไปแล้ว — กลับไปลบรายการนั้นออกจากรายการรับเข้าก่อน'); return; }
     try {
+      // Bug fix (phantom stock): the missingMed check above only guards against state.meds (the
+      // client cache) already being stale by the time this screen was opened — but the
+      // substock branch below never writes to the med doc itself (only a new lots doc + txs
+      // row), so a med deleted by another device in the narrower gap between that check and
+      // this commit wouldn't be caught by Firestore either (writeBatch only fails on doc-level
+      // errors of documents it actually references, and a brand-new lots doc has no such
+      // reference to fail on). Re-fetching each item's med doc live, right before building the
+      // batch, closes that gap the same way deleteMed/deleteAllInactiveMeds re-check live right
+      // before their own writes.
+      const liveMeds = new Map<string, { code?: string; noSubstock?: boolean }>();
+      for (const it of items) {
+        if (liveMeds.has(it.medId)) continue;
+        const snap = await getDoc(doc(db, 'meds', it.medId));
+        if (snap.exists()) liveMeds.set(it.medId, snap.data() as { code?: string; noSubstock?: boolean });
+      }
+      if (items.some((it) => !liveMeds.has(it.medId))) {
+        toast('มีรายการที่ถูกลบออกจากระบบไปแล้ว — กลับไปลบรายการนั้นออกจากรายการรับเข้าก่อน');
+        return;
+      }
       const batch = writeBatch(db);
       if (!approve) {
         // Structured pending record per item — carries the actual medId/lot/exp/qty needed
@@ -1501,8 +1520,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // same limitation the rest of the app already accepts for regular transferred
         // stock) — just credit the shelf directly instead of a substock lot nobody would
         // ever transfer out of.
-        const m = state.meds.find((x) => x.id === it.medId);
-        if (m && !usesSubstock(m)) {
+        const m = liveMeds.get(it.medId);
+        if (m && m.noSubstock) {
           batch.update(doc(db, 'meds', it.medId), { floor: increment(it.qty) });
           batch.set(doc(collection(db, 'txs')), {
             type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'floor',
@@ -1541,15 +1560,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const snap = await trx.get(ref);
         const pr = snap.data() as PendingReceive | undefined;
         if (!pr || pr.status !== 'pending') throw new Error('already-resolved');
-        const m = state.meds.find((x) => x.id === pr.medId);
         // Bug fix (data integrity): same class of bug as commitReceive above — a pending
         // request can sit for a while before anyone approves it, long enough for the med it
-        // references to get deleted in the meantime. Without this check, `m && !usesSubstock(m)`
-        // is falsy purely because `m` is undefined, which fell into the substock branch below
-        // and created a lots doc + receive_from_central tx for a medId no longer in `meds` —
-        // real inventory value silently made invisible, with the request still marked approved.
+        // references to get deleted in the meantime. This used to read `m` from state.meds (the
+        // client cache), which is falsy for a deleted med purely because it's missing from the
+        // cache — but that check ran BEFORE this transaction, not inside it, so a delete landing
+        // during the transaction's own retries wasn't caught: `trx.get()` here instead makes the
+        // med doc part of this transaction's live read set, so Firestore retries (and then
+        // correctly throws) if it's deleted concurrently, the same guarantee every other
+        // transactional read in this file relies on.
+        const mSnap = await trx.get(doc(db, 'meds', pr.medId));
+        const m = mSnap.exists() ? (mSnap.data() as { code?: string; noSubstock?: boolean }) : undefined;
         if (!m) throw new Error('missing-med');
-        if (!usesSubstock(m)) {
+        if (m.noSubstock) {
           trx.update(doc(db, 'meds', pr.medId), { floor: increment(pr.qty) });
           trx.set(doc(collection(db, 'txs')), {
             type: 'receive_from_central' as TxType, name: pr.name, medId: pr.medId, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'floor',
@@ -1572,7 +1595,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (msg === 'missing-med') { toast('ยาในคำขอนี้ถูกลบออกจากระบบไปแล้ว — อนุมัติไม่ได้ ให้ปฏิเสธคำขอนี้แทน'); return; }
       toastErr(e, 'อนุมัติไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [canApproveReceive, state.meds, userName, toast, toastErr, guardOnce]);
+  }), [canApproveReceive, userName, toast, toastErr, guardOnce]);
 
   const rejectPendingReceive = useCallback(guardOnce('rejectReceive', async (id: string, reason: string) => {
     if (!canApproveReceive) return;
@@ -2442,7 +2465,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       + 'ย้อนกลับไม่ได้จากหน้านี้ — แนะนำให้นับสต็อกจริงทันทีหลังรวมเพื่อยืนยันยอด'
     ))) return;
     try {
-      const lotSnap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', '==', ipdMed.id))));
       // Bug fix (lost-update race): floor here used to come straight from state.meds (the
       // client's cached snapshot) and get written via a plain writeBatch — anything landing on
       // either side's floor between whenever that snapshot last synced and this commit (a
@@ -2450,7 +2472,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // merge dialog) got silently overwritten/lost, not just "stale, go recount" as the old
       // comment framed it. Re-reading both med docs live inside a transaction, right before
       // writing, makes the merge use whatever floor actually exists at commit time.
+      //
+      // Bug fix (orphaned lot): the lots query used to run once, OUTSIDE and before this
+      // transaction — a lot created for ipdMed in the gap between that query and commit (e.g. a
+      // receive landing mid-merge) was missing from the result and never got reassigned to
+      // opdMed.id, then became permanently invisible once ipdMed.active was set false. Moved
+      // inside the transaction callback, same pattern commitTransfer/commitSubCount already use
+      // for their own live lot lookups: the Firestore client SDK can't query inside a
+      // transaction directly, but running the query fresh on every retry (and reading each
+      // found lot doc via trx.get(), which Firestore's transaction retries on if it changes
+      // before commit) closes the window down to just the final attempt instead of the whole
+      // confirm-dialog-to-commit gap.
       const mergedFloor = await runTx(async (trx) => {
+        const lotSnap = await getDocs(query(collection(db, 'lots'), where('medId', '==', ipdMed.id)));
+        for (const d of lotSnap.docs) await trx.get(d.ref);
         const opdSnap = await trx.get(doc(db, 'meds', opdMed.id));
         const ipdSnap = await trx.get(doc(db, 'meds', ipdMed.id));
         const freshOpdFloor = (opdSnap.data() as { floor?: number } | undefined)?.floor ?? opdMed.floor;
@@ -2517,8 +2552,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let failed = 0;
     for (const p of pairs) {
       try {
-        const lotSnap = await withTimeout(getDocs(query(collection(db, 'lots'), where('medId', '==', p.ipdMed.id))));
+        // Bug fix (orphaned lot) — same fix as mergeWardMeds's own note: the lots query moved
+        // inside the transaction callback so it re-runs fresh on every retry, and each found lot
+        // doc is read via trx.get() so Firestore's transaction retries if one changes before
+        // commit, instead of running once outside the transaction and missing a lot created in
+        // the gap before commit.
         await runTx(async (trx) => {
+          const lotSnap = await getDocs(query(collection(db, 'lots'), where('medId', '==', p.ipdMed.id)));
+          for (const d of lotSnap.docs) await trx.get(d.ref);
           const opdSnap = await trx.get(doc(db, 'meds', p.opdMed.id));
           const ipdSnap = await trx.get(doc(db, 'meds', p.ipdMed.id));
           const freshOpdFloor = (opdSnap.data() as { floor?: number } | undefined)?.floor ?? p.opdMed.floor;
@@ -3613,11 +3654,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const live = { role: (targetData.role ?? 'tech') as Role, active: !!targetData.active };
       const reducesAdmins = apply(trx, live);
       if (reducesAdmins) {
+        // Bug fix: `adminIds` (the list of WHO to re-check) is still a plain getDocs query run
+        // outside this transaction, so it can be stale by commit time — but the fix isn't
+        // re-querying that list live too (Firestore transactions can't run a live query against
+        // a moving result set the way they can re-GET a specific doc). It's that this loop used
+        // to only re-check `active` on each of those ids, not `role` — so an admin who got
+        // demoted (role changed away from 'admin') in the gap between the query above and this
+        // transaction, but is still active:true, was still counted as one of the ≥2 admins
+        // needed to allow THIS demotion. Re-checking role here closes that half of the race the
+        // same way the active re-check closes the other half; the id-list staleness itself only
+        // ever causes under-counting (an admin promoted in that same gap gets missed), which
+        // fails safe by blocking a demotion rather than allowing one it shouldn't.
         let activeAdmins = 0;
         for (const aid of adminIds) {
-          if (aid === targetId) { if (live.active) activeAdmins++; continue; }
+          if (aid === targetId) { if (live.active && live.role === 'admin') activeAdmins++; continue; }
           const s = await trx.get(doc(db, 'users', aid));
-          if ((s.data() as { active?: boolean } | undefined)?.active) activeAdmins++;
+          const sd = s.data() as { role?: Role; active?: boolean } | undefined;
+          if (sd?.active && sd?.role === 'admin') activeAdmins++;
         }
         if (activeAdmins <= 1) throw new Error('last-admin');
       }

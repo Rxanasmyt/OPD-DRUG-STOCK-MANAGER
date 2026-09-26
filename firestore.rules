@@ -67,9 +67,15 @@ service cloud.firestore {
     match /meds/{medId} {
       allow read: if isActive();
       allow create, delete: if isAdmin();
+      // Bug fix: this branch type-checked `floor` but not `lastCountTs`/`lastSubCountTs`,
+      // inconsistent with the `lots` rule right below which type-checks every field it allows.
+      // A malformed value here (string/null from a client bug or stale cache) would corrupt the
+      // "days since last count" staleness calculations reports/selectors read from these fields.
       allow update: if isAdmin()
                     || (isActive() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['floor', 'lastCountTs', 'lastSubCountTs'])
-                        && isNonNegNum(request.resource.data.floor));
+                        && isNonNegNum(request.resource.data.floor)
+                        && (!('lastCountTs' in request.resource.data) || request.resource.data.lastCountTs is number)
+                        && (!('lastSubCountTs' in request.resource.data) || request.resource.data.lastSubCountTs is number));
     }
     // ---- lots: any approved staff can read/write (receiving, FEFO transfer, scrap
     // all touch lots as part of normal day-to-day work, not just pharm/admin). Schema-checked
@@ -86,7 +92,13 @@ service cloud.firestore {
                     && request.resource.data.medId is string
                     && isNonNegNum(request.resource.data.qty)
                     && request.resource.data.exp is number;
-      allow delete: if isActive();
+      // Bug fix: the app itself never deletes a lot doc — every real depletion (scrap, transfer,
+      // count) zeroes `qty` via a transaction that also logs a matching txs row, same pattern the
+      // update rule above enforces the shape of. Letting any active (tech-level) user outright
+      // delete a lot doc had no matching app feature, no schema check, and no audit requirement —
+      // real stock could vanish with zero trace. Admin-only, matching every other destructive
+      // action in this file (meds delete, resetAllStockLedgers' txs delete).
+      allow delete: if isAdmin();
     }
 
     // ---- transactions: append-only for everyone EXCEPT one admin-only escape hatch.

@@ -26,7 +26,11 @@ import { writeFile, mkdir, appendFile } from 'node:fs/promises';
 // fields are computed "as of script run time" and can never be recomputed for a past date
 // once that day is gone, so a gap here meant months of KPI trend history had no backup at
 // all, with nothing in this script or verify-backup.mjs ever indicating the gap.
-const COLLECTIONS = ['meds', 'lots', 'txs', 'auditLog', 'users', 'usernames', 'pendingReceives', 'meta', 'dailyMetrics'];
+// Bug fix: same class of gap as dailyMetrics before it — _preResetSnapshots (AppContext.tsx's
+// snapshotBeforeDelete(), the last-resort recovery layer resetAllStockLedgers()/
+// resetAllQuantities() write before wiping data) was missing from this list, meaning the one
+// safety net a go-live reset relies on wasn't in the daily backup either.
+const COLLECTIONS = ['meds', 'lots', 'txs', 'auditLog', 'users', 'usernames', 'pendingReceives', 'meta', 'dailyMetrics', '_preResetSnapshots'];
 
 function serialize(value) {
   if (value instanceof Timestamp) return value.toDate().toISOString();

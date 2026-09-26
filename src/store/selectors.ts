@@ -91,7 +91,7 @@ export function floorMinOf(m: Med): number {
  * Same threshold DeficitBadge's `urgent` prop already used inline — pulled out here so the
  * chip filter, the fillUrgent() bulk action, and the badge all agree on one definition. */
 export function isUrgentLow(m: Med): boolean {
-  return m.floor < floorMinOf(m) * 0.5;
+  return m.floor <= floorMinOf(m) * 0.5;
 }
 
 /** Whether `m` belongs on the "ควรเบิกจากคลังใหญ่" central-warehouse request — same rule
