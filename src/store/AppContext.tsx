@@ -1321,7 +1321,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const medReads: Record<string, number> = {};
         const lotReads: Record<string, { qty: number; lotNo: string }> = {};
         const lotIdsByMed: Record<string, string[]> = {};
-        for (const medId of ids) {
+        // Bug fix (flow latency): this used to walk `ids` with a plain `for` loop — every med's
+        // med-doc read, live lot query, and per-lot reads all awaited one after another, with
+        // zero data dependency between different meds in the cart. A 4-5 item cart (an entirely
+        // normal multi-drug transfer) meant 4-5 fully serialized round trips on top of each
+        // other before any write even started — 1-2+ real seconds of pure waiting on hospital
+        // wifi, repeated on every transaction retry. Firing all meds' work concurrently (and each
+        // med's own lot reads concurrently too, since they don't depend on each other either)
+        // collapses this phase to roughly one round-trip's worth of latency regardless of cart
+        // size.
+        await Promise.all(ids.map(async (medId) => {
           const medSnap = await trx.get(doc(db, 'meds', medId));
           medReads[medId] = (medSnap.data() as { floor?: number } | undefined)?.floor ?? 0;
           // Bug fix (false "substock ไม่พอ" rejection + FEFO-skip risk): lotsCache (state.lots,
@@ -1340,12 +1349,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             .map((d) => ({ id: d.id, qty: (d.data() as { qty?: number }).qty ?? 0, exp: (d.data() as { exp?: number }).exp ?? Infinity }))
             .filter((l) => l.qty > 0).sort((a, b) => a.exp - b.exp).map((l) => l.id);
           lotIdsByMed[medId] = lotIds;
-          for (const lotId of lotIds) {
+          await Promise.all(lotIds.map(async (lotId) => {
             const lotSnap = await trx.get(doc(db, 'lots', lotId));
             const data = lotSnap.data() as { qty?: number; lotNo?: string } | undefined;
             lotReads[lotId] = { qty: data?.qty ?? 0, lotNo: data?.lotNo ?? '' };
-          }
-        }
+          }));
+        }));
         // Real bug this closes: the cart's qty is capped against substock at the moment it
         // was typed (see bump()/setCartQty()), but nothing re-checked that against what's
         // actually still in the lots by the time this transaction runs — plausible any time
@@ -1486,12 +1495,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // reference to fail on). Re-fetching each item's med doc live, right before building the
       // batch, closes that gap the same way deleteMed/deleteAllInactiveMeds re-check live right
       // before their own writes.
-      const liveMeds = new Map<string, { code?: string; noSubstock?: boolean }>();
-      for (const it of items) {
-        if (liveMeds.has(it.medId)) continue;
-        const snap = await getDoc(doc(db, 'meds', it.medId));
-        if (snap.exists()) liveMeds.set(it.medId, snap.data() as { code?: string; noSubstock?: boolean });
-      }
+      // Bug fix (flow latency): this used to fetch each unique med with a separate sequential
+      // `await getDoc` — a delivery of 8-10 distinct meds (a normal central-warehouse receive)
+      // cost 8-10 round trips in a row before the batch write even started. These reads don't
+      // depend on each other, so firing them concurrently cuts that wait from ~1-2s down to
+      // roughly one round trip regardless of how many distinct meds are in the delivery.
+      const uniqueMedIds = [...new Set(items.map((it) => it.medId))];
+      const liveMedEntries = await Promise.all(uniqueMedIds.map(async (medId) => {
+        const snap = await getDoc(doc(db, 'meds', medId));
+        return snap.exists() ? [medId, snap.data() as { code?: string; noSubstock?: boolean }] as const : null;
+      }));
+      const liveMeds = new Map(liveMedEntries.filter((e): e is readonly [string, { code?: string; noSubstock?: boolean }] => e !== null));
       if (items.some((it) => !liveMeds.has(it.medId))) {
         toast('มีรายการที่ถูกลบออกจากระบบไปแล้ว — กลับไปลบรายการนั้นออกจากรายการรับเข้าก่อน');
         return;
@@ -2490,7 +2504,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // confirm-dialog-to-commit gap.
       const mergedFloor = await runTx(async (trx) => {
         const lotSnap = await getDocs(query(collection(db, 'lots'), where('medId', '==', ipdMed.id)));
-        for (const d of lotSnap.docs) await trx.get(d.ref);
+        // Bug fix (flow latency): these reads don't depend on each other — firing them
+        // concurrently instead of one lot at a time saves real time when a med has several open
+        // lots, with no correctness change (each is still read via trx.get(), so Firestore still
+        // retries this transaction if any of them changes before commit).
+        await Promise.all(lotSnap.docs.map((d) => trx.get(d.ref)));
         const opdSnap = await trx.get(doc(db, 'meds', opdMed.id));
         const ipdSnap = await trx.get(doc(db, 'meds', ipdMed.id));
         const freshOpdFloor = (opdSnap.data() as { floor?: number } | undefined)?.floor ?? opdMed.floor;
@@ -2564,7 +2582,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // the gap before commit.
         await runTx(async (trx) => {
           const lotSnap = await getDocs(query(collection(db, 'lots'), where('medId', '==', p.ipdMed.id)));
-          for (const d of lotSnap.docs) await trx.get(d.ref);
+          // Bug fix (flow latency) — same fix as mergeWardMeds's own note: these reads don't
+          // depend on each other, so run them concurrently instead of one lot at a time.
+          await Promise.all(lotSnap.docs.map((d) => trx.get(d.ref)));
           const opdSnap = await trx.get(doc(db, 'meds', p.opdMed.id));
           const ipdSnap = await trx.get(doc(db, 'meds', p.ipdMed.id));
           const freshOpdFloor = (opdSnap.data() as { floor?: number } | undefined)?.floor ?? p.opdMed.floor;
@@ -3361,35 +3381,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let applied = 0, skipped = 0, zeroQty = 0;
     const skippedNames: string[] = [];
     try {
-      for (const r of rows) {
-        if (r.qty <= 0) { zeroQty++; continue; }
-        // Only 'exact' and 'fuzzy' (human-confirmed above) resolve to a single med — 'ambiguous'
-        // and 'none' never touch stock, so a bad name in the source file can't silently
-        // deduct from the wrong drug or get dropped without anyone noticing.
-        const medId = r.match.kind === 'exact' || r.match.kind === 'fuzzy' ? r.match.medId : null;
-        const m = medId ? meds.find((x) => x.id === medId) : null;
-        if (!m) { skipped++; skippedNames.push(r.name); continue; }
-        let after = 0, before = 0;
-        // Bug fix (data integrity): tx-log write folded into the same transaction as the floor
-        // deduction — was a separate logTx() call after runTx() resolved, the exact "stock
-        // changed but no matching history row if the second call drops" gap commitTransfer's
-        // own fix comment describes. This is the daily real-dispense deduction path — the one
-        // number this whole app exists to keep trustworthy — so it gets the same atomic
-        // treatment every other stock-mutating flow already has.
-        await runTx(async (trx) => {
-          const ref = doc(db, 'meds', m.id);
-          const snap = await trx.get(ref);
-          before = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
-          after = Math.max(0, before - r.qty);
-          trx.update(ref, { floor: after });
-          trx.set(doc(collection(db, 'txs')), {
-            type: 'reconcile_hosxp', name: m.name, medId: m.id, qty: -(before - after), unit: m.unit,
-            reason: 'นำเข้าจากไฟล์ HOSxP',
-            note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP' + (r.match.kind === 'fuzzy' ? ' (จับคู่ชื่อแบบไม่ตรงเป๊ะ — ยืนยันโดยผู้ใช้แล้ว)' : ''),
-            loc: 'floor', by: userName(), ts: Date.now(),
-          } satisfies Omit<import('../types').Tx, 'id'>);
-        });
-        applied++;
+      // Bug fix (flow latency): this used to run one `runTx` per row, one at a time, in a plain
+      // for-loop — a routine daily HOSxP file (commonly 50-150+ line items, nearly always
+      // distinct meds with no real write contention between them) meant 50-150+ sequential
+      // transaction round trips, tens of seconds a pharmacist had to sit and watch every single
+      // day for the single largest aggregate wait in the app. Unlike commitAllCounts/
+      // commitAllSubCounts/mergeAllWardPairs (which stay sequential on purpose — see their own
+      // comments), there's no such reason here: each row targets its own med. Running rows in
+      // concurrent chunks cuts this to a few seconds; the chunk size caps how many transactions
+      // are ever in flight at once rather than firing all of them simultaneously. On the rare
+      // case two rows in the same chunk resolve to the SAME med (a duplicate name in the source
+      // file), Firestore's own transaction retry (it already handles two admins racing the same
+      // doc, same guarantee here) makes the second one re-read the fresh floor and reapply
+      // correctly — concurrency here costs nothing in correctness, only removes dead waiting.
+      const CHUNK_SIZE = 15;
+      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        await Promise.all(rows.slice(i, i + CHUNK_SIZE).map(async (r) => {
+          if (r.qty <= 0) { zeroQty++; return; }
+          // Only 'exact' and 'fuzzy' (human-confirmed above) resolve to a single med —
+          // 'ambiguous' and 'none' never touch stock, so a bad name in the source file can't
+          // silently deduct from the wrong drug or get dropped without anyone noticing.
+          const medId = r.match.kind === 'exact' || r.match.kind === 'fuzzy' ? r.match.medId : null;
+          const m = medId ? meds.find((x) => x.id === medId) : null;
+          if (!m) { skipped++; skippedNames.push(r.name); return; }
+          // Bug fix (data integrity): tx-log write folded into the same transaction as the floor
+          // deduction — was a separate logTx() call after runTx() resolved, the exact "stock
+          // changed but no matching history row if the second call drops" gap commitTransfer's
+          // own fix comment describes. This is the daily real-dispense deduction path — the one
+          // number this whole app exists to keep trustworthy — so it gets the same atomic
+          // treatment every other stock-mutating flow already has.
+          await runTx(async (trx) => {
+            const ref = doc(db, 'meds', m.id);
+            const snap = await trx.get(ref);
+            const before = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
+            const after = Math.max(0, before - r.qty);
+            trx.update(ref, { floor: after });
+            trx.set(doc(collection(db, 'txs')), {
+              type: 'reconcile_hosxp', name: m.name, medId: m.id, qty: -(before - after), unit: m.unit,
+              reason: 'นำเข้าจากไฟล์ HOSxP',
+              note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP' + (r.match.kind === 'fuzzy' ? ' (จับคู่ชื่อแบบไม่ตรงเป๊ะ — ยืนยันโดยผู้ใช้แล้ว)' : ''),
+              loc: 'floor', by: userName(), ts: Date.now(),
+            } satisfies Omit<import('../types').Tx, 'id'>);
+          });
+          applied++;
+        }));
       }
       // Bug fix (efficiency): a name that fails to match keeps failing every single day until
       // someone notices and fixes it — but the only trace before this was a one-line toast that
