@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useEffect, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
 import { QrScanner } from './QrScanner';
 
@@ -23,6 +23,17 @@ const MODE_THEME: Record<'receive' | 'transfer' | 'other', { accent: string; acc
 
 export default function QrModal() {
   const { state, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason } = useApp();
+
+  // Same reasoning as ConfirmDialog/PromptDialog/BottomSheet — the ✕ button and backdrop tap
+  // already close this; Escape from a physical keyboard or accessibility switch device had no
+  // way to do the same for this full-screen scanner.
+  useEffect(() => {
+    if (!state.qrOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeQr(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [state.qrOpen, closeQr]);
+
   if (!state.qrOpen) return null;
 
   const isReceive = state.qrPurpose === 'receive';

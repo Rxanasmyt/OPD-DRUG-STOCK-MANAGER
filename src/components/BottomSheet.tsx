@@ -53,6 +53,16 @@ export function BottomSheet({ open, onClose, title, children }: {
     return () => window.clearTimeout(exitTimer.current);
   }, [open]);
 
+  // Same reasoning as ConfirmDialog/PromptDialog — the ✕ button and backdrop tap already close
+  // this (both through onClose, so confirmLeaveIfDirty still gets a chance to run); Escape from
+  // a physical keyboard or accessibility switch device had no way to do the same.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
   if (!shown) return null;
   return (
     <div
