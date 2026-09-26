@@ -340,7 +340,7 @@ function StatTile({ icon, label, value, tone, note, onClick }: { icon?: string; 
         )}
         {onClick && <span style={{ color: 'var(--muted)', fontSize: 13 }}>→</span>}
       </div>
-      <div style={{ fontSize: 25, fontWeight: 800, lineHeight: 1, color: t, letterSpacing: '-.01em' }}>{value.toLocaleString('en-US')}</div>
+      <div style={{ fontSize: 25, fontWeight: 800, lineHeight: 1, color: t, letterSpacing: '-.01em', transition: 'color var(--dur) var(--ease)' }}>{value.toLocaleString('en-US')}</div>
       <div className="muted" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
       <div className="muted" style={{ fontSize: 10.5, marginTop: 1, lineHeight: 1.4 }}>{note}</div>
     </Tag>

@@ -145,6 +145,15 @@ body {
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
+  /* Stability pass (real-world request: "การจดสี/ขนาดไม่กระโดดเวลาข้อมูล real-time เปลี่ยน") —
+     every stock figure in this app (<Qty>, stat tiles, บัตรสต็อก rows) is fed by a live
+     Firestore onSnapshot and can change to a different digit COUNT at any moment (8 → 88), not
+     just a different value. Proportional digit widths (the font's default) make that read as
+     the whole number visibly shifting sideways/resizing mid-glance — a genuinely different kind
+     of distraction from the deliberate qtyPulse scale-pop those components already do on
+     change. tabular-nums fixes every digit's width app-wide in one place, so a number changing
+     length no longer nudges anything next to it. */
+  font-variant-numeric: tabular-nums;
 }
 
 a { color: var(--green); transition: color var(--dur-fast) var(--ease); }
@@ -476,11 +485,22 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 
 /* Animated gradient-mesh backdrop — two soft radial blobs drifting slowly behind the header
    and login screen, instead of a flat gradient fill. Cheap (transform-only, GPU-composited)
-   and turns off cleanly under prefers-reduced-motion via the global rule above. */
-.mesh-bg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+   and turns off cleanly under prefers-reduced-motion via the global rule above.
+   Stability pass (real-world request: "แอนิเมชันลื่น...เวลา...เครื่องเก่า"): the header copy of
+   this runs inside App.tsx's top bar, which is on screen for the entire session on every single
+   screen — not just the once-per-login screen this was designed for — so its 14s loop never
+   actually stops repainting for as long as the app is open, on exactly the low-end Android
+   tablets this app's other comments already call out as the real target hardware. `contain`
+   scopes this element's own paint/layout so the animation loop can't force the browser to
+   re-check anything outside it every frame, and `will-change` asks the browser to promote the
+   blurred blobs to their own compositor layer up front instead of discovering it needs to
+   partway into the animation — both no-op on a fast device, both real jank reduction on a slow
+   one. */
+.mesh-bg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; contain: layout paint; }
 .mesh-bg::before, .mesh-bg::after {
   content: ''; position: absolute; width: 140%; height: 140%; border-radius: 50%;
   filter: blur(40px); opacity: .55; animation: meshDrift 14s ease-in-out infinite;
+  will-change: transform;
 }
 /* Same two-tone language the real hospital crest uses — teal dominant, one coral accent, not
    two competing greens. */

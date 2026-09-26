@@ -44,7 +44,14 @@ export function Qty({ value, unit, tone, size = 13 }: { value: number; unit?: st
     <>
       <span
         style={{
+          // Stability pass (real-world request: "การจดสีไม่กระโดดเวลาข้อมูล real-time เปลี่ยน") —
+          // a live figure crossing a par threshold (ปกติ → เริ่มต่ำ → วิกฤต) used to snap straight
+          // to its new color the instant Firestore's onSnapshot delivered the change, with
+          // nothing else on screen to soften a hard color cut. A short color fade reads as "this
+          // eased into its new state" instead of "this glitched," the same way qtyPulse's scale-
+          // pop already softens the number itself changing.
           fontWeight: 800, color: tone || 'inherit', fontSize: size, display: 'inline-block',
+          transition: 'color var(--dur) var(--ease)',
           animation: pulsing ? 'qtyPulse .55s var(--ease-spring)' : undefined,
         }}
       >
