@@ -4,6 +4,7 @@ import { toneFor, daysUntil, usesSubstock, floorMinOf, isUrgentLow, needsWarehou
 import { nf, thDate, isoDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge } from '../components/Qty';
+import { HadTag } from '../components/Badge';
 import HospitalCrest from '../components/HospitalCrest';
 
 const GREETING_DATE_FMT: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
@@ -213,7 +214,7 @@ export default function HomeScreen() {
               <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
                 <MedDot code={m.code} />
                 <span>{m.name}</span>
-                {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
+                {m.had && <HadTag />}
                 {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
               </div>
               <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
@@ -257,7 +258,7 @@ export default function HomeScreen() {
               <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
                 <MedDot code={m.code} />
                 <span>{m.name}</span>
-                {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
+                {m.had && <HadTag />}
                 {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
               </div>
               <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>

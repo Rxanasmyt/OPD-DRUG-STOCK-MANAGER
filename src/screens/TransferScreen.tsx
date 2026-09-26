@@ -5,6 +5,7 @@ import { nf, thDate, digitsOnly } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge } from '../components/Qty';
+import { HadTag } from '../components/Badge';
 import { MedMiniCard } from '../components/MedMiniCard';
 import { EmptyState } from '../components/EmptyState';
 import { StepIndicator, TRANSFER_STEPS } from '../components/StepIndicator';
@@ -198,7 +199,7 @@ export default function TransferScreen() {
                   <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
                     <MedDot code={m.code} />
                     <span>{m.name}</span>
-                    {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
+                    {m.had && <HadTag />}
                     {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
                   </div>
                   <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>

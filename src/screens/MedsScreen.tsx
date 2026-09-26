@@ -3,7 +3,7 @@ import { useApp } from '../store/AppContext';
 import { nf, digitsOnly } from '../utils/format';
 import { wardOf, wardLabel, floorMinOf, toneFor, isSharedMed, categoryOf } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
-import { Badge } from '../components/Badge';
+import { Badge, HadTag } from '../components/Badge';
 import { BottomSheet } from '../components/BottomSheet';
 import { Qty } from '../components/Qty';
 import type { Med, Ward } from '../types';
@@ -443,7 +443,7 @@ export default function MedsScreen() {
                     <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
                       <MedDot code={m.code} />
                       <span>{m.name}</span>
-                      {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
+                      {m.had && <HadTag />}
                       {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
                     </div>
                     <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
@@ -493,7 +493,8 @@ export default function MedsScreen() {
                     onClick={() => deleteMed(m.id)}
                     disabled={stockLeft}
                     title={stockLeft ? 'ยังมียอดคงเหลือ ต้องปรับยอดให้เป็น 0 ก่อน' : 'ลบถาวร'}
-                    style={{ flex: 'none', border: '1px solid var(--border)', background: 'var(--bg-card)', color: stockLeft ? 'var(--muted)' : 'var(--red)', padding: '8px 11px', borderRadius: 9, fontSize: 12, minHeight: 38, whiteSpace: 'nowrap' }}
+                    className={stockLeft ? undefined : 'btn-danger'}
+                    style={{ flex: 'none', border: stockLeft ? '1px solid var(--border)' : undefined, background: stockLeft ? 'var(--bg-card)' : undefined, color: stockLeft ? 'var(--muted)' : undefined, padding: '8px 11px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44, whiteSpace: 'nowrap' }}
                   >
                     ลบถาวร
                   </button>

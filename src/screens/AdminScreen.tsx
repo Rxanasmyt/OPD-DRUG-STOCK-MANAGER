@@ -213,7 +213,7 @@ export default function AdminScreen() {
                           triggers — so this destructive-ish action (deactivates someone else's
                           account) used to be unreadable at a glance. Text label now, not just
                           an icon; aria-label kept for screen readers. */}
-                      <button onClick={() => toggleUserActive(u.id)} title="ปิดใช้งานบัญชี" aria-label={'ปิดใช้งานบัญชี ' + u.name} style={{ flex: '1 1 100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--red)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 38 }}>
+                      <button onClick={() => toggleUserActive(u.id)} title="ปิดใช้งานบัญชี" aria-label={'ปิดใช้งานบัญชี ' + u.name} className="btn-danger" style={{ flex: '1 1 100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44, marginTop: 4 }}>
                         <span aria-hidden="true">⏻</span> ปิดใช้งานบัญชี
                       </button>
                     </div>

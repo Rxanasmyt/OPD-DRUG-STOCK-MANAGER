@@ -42,6 +42,7 @@
   --red-bg: #fbeceb;
   --red-rgb: 163, 43, 34;
   --had: #8f1f4f;
+  --had-rgb: 143, 31, 79;
   --ipd: #5a4fcf;
   --ipd-bg: #eeecfb;
   /* ยาตู้เย็น (cold-chain — needs refrigerated storage) — a distinct cool blue, since this is a
@@ -109,6 +110,7 @@
   --red-bg: rgba(239, 107, 96, .14);
   --red-rgb: 239, 107, 96;
   --had: #e8639e;
+  --had-rgb: 232, 99, 158;
   --ipd: #9d8fff;
   --ipd-bg: rgba(157, 143, 255, .16);
   --fridge: #6ab7ff;
@@ -168,6 +170,46 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
    dark-mode variant of --login-bg, which is a deep green-black, not just the light one). Class
    selector's specificity beats the tag-selector rule above even with both !important. */
 .login-field:focus { border-color: rgba(255, 255, 255, .65) !important; background: rgba(255, 255, 255, .12) !important; box-shadow: 0 0 0 4px rgba(255, 255, 255, .18) !important; }
+
+/* UX safety pass (real-world request: "ป้องกันการกดผิด/กดซ้ำโดยไม่ตั้งใจ" + "ใช้งานบนมือถือ/
+   แท็บเล็ตปลอดภัยขึ้น") — every interactive control gets `touch-action: manipulation`. Without
+   it, a fast double-tap on a phone (the exact motion someone confirming a stock action quickly
+   makes) can be interpreted by the browser as a zoom gesture instead of two taps — the SECOND
+   tap silently doesn't register as a click at all, which reads to the person as "the button
+   didn't work," not as the safety feature it actually is. `manipulation` keeps pan/zoom
+   gestures working everywhere else on the page (this only applies to the control itself) while
+   telling the browser "every tap here is a deliberate action, register it immediately" — it
+   also removes the ~300ms tap-registration delay some mobile browsers otherwise add while they
+   wait to see if a second tap is coming, so the whole app feels snappier, not just safer. */
+button, .chip, .row-interactive, a, input, select, textarea {
+  touch-action: manipulation;
+}
+
+/* One consistent visual language for a genuinely irreversible action (permanent delete,
+   disabling someone's account) — everywhere one of these used to just be red TEXT on the same
+   plain white/card background every ordinary button uses, so a "ลบถาวร"/"ปิดใช้งานบัญชี" button
+   sitting right next to a safe, reversible one (ปิดใช้งาน/เปิดใช้งาน) read at the same visual
+   weight and was easy to mis-tap in a hurry. A filled red-tinted background makes it register
+   as "different and heavier" before anyone even reads the label — the same red-bg+red-border
+   pairing AdjustScreen's "ตัดทิ้ง (หมดอายุ)" button already used, now everywhere else that also
+   deletes/disables something for real. Still gated by its own confirm dialog underneath —
+   this is the visual half of that safety, not a replacement for it. */
+.btn-danger {
+  background: var(--red-bg);
+  border: 1px solid var(--red);
+  color: var(--red);
+}
+@media (hover: hover) {
+  .btn-danger:not(:disabled):hover { background: var(--red); color: #fff; }
+}
+
+/* A blocked/invalid action (e.g. tapping "ลบถาวร" while stock remains, or submitting a form
+   with a required field still empty) gets a quick horizontal shake instead of just silently
+   doing nothing — "the app noticed and is telling me why" reads much more clearly on a small
+   screen than a toast alone, especially the moment before someone re-taps a button that isn't
+   going to do anything different the second time either. */
+@keyframes shake { 10%, 90% { transform: translateX(-1px); } 20%, 80% { transform: translateX(2px); } 30%, 50%, 70% { transform: translateX(-4px); } 40%, 60% { transform: translateX(4px); } }
+.shake { animation: shake .4s var(--ease); }
 
 button {
   cursor: pointer;

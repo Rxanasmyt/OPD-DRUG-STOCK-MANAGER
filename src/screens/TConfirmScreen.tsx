@@ -2,6 +2,7 @@ import { useApp } from '../store/AppContext';
 import { nf, thTime } from '../utils/format';
 import { wardOf, isSharedMed } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
+import { HadTag } from '../components/Badge';
 import { medColor } from '../utils/color';
 import { StepIndicator, TRANSFER_STEPS } from '../components/StepIndicator';
 import { EmptyState } from '../components/EmptyState';
@@ -76,7 +77,7 @@ export default function TConfirmScreen() {
               <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
                 <MedDot code={m.code} />
                 <span>{m.name}</span>
-                {m.had && <span style={{ color: 'var(--had)', fontSize: 11, fontWeight: 700 }}>HAD</span>}
+                {m.had && <HadTag />}
                 {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
               </div>
               <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>{used.join('  ·  ')}</div>
