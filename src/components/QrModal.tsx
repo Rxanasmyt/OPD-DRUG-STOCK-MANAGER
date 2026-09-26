@@ -64,6 +64,9 @@ export default function QrModal() {
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
       style={{ position: 'absolute', inset: 0, background: '#000', zIndex: 20, animation: 'fade .18s var(--ease-out)', boxShadow: `inset 0 0 0 4px rgba(${theme.accentRgb},.9)` }}
       onClick={(e) => { if (e.target === e.currentTarget) closeQr(); }}
     >

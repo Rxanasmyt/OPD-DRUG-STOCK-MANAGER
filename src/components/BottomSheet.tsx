@@ -65,6 +65,9 @@ export function BottomSheet({ open, onClose, title, children }: {
     >
       <div
         className="card"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         style={{
           width: '100%', maxWidth: 560, maxHeight: '88dvh', overflowY: 'auto',
           borderBottomLeftRadius: 0, borderBottomRightRadius: 0,

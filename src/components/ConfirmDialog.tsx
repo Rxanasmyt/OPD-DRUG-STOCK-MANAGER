@@ -41,9 +41,12 @@ export default function ConfirmDialog() {
     >
       <div
         className="card"
+        role="alertdialog"
+        aria-modal="true"
+        aria-describedby="confirm-dialog-message"
         style={{ width: '100%', maxWidth: 380, padding: 18, animation: shown.exiting ? 'popOut .18s var(--ease) both' : 'pop .2s var(--ease-out) both' }}
       >
-        <div style={{ fontSize: 13.5, lineHeight: 1.6, whiteSpace: 'pre-line', marginBottom: 18 }}>
+        <div id="confirm-dialog-message" style={{ fontSize: 13.5, lineHeight: 1.6, whiteSpace: 'pre-line', marginBottom: 18 }}>
           {shown.message}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
