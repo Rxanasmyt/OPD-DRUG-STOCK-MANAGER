@@ -76,7 +76,8 @@ export default function SettingsScreen() {
             {warnDirty && (
               <button
                 onClick={() => updateGlobalSettings({ expiryWarnDays: parseIntSafe(warnDraft, state.expiryWarnDays) })}
-                style={{ marginLeft: 'auto', border: 0, background: 'var(--green)', color: '#fff', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}
+                className="btn-primary"
+                style={{ marginLeft: 'auto', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}
               >
                 บันทึก
               </button>
@@ -110,7 +111,7 @@ export default function SettingsScreen() {
         ) : notifyPermission === 'denied' ? (
           <div style={{ fontSize: 12, color: 'var(--red)' }}>เบราว์เซอร์บล็อกการแจ้งเตือนไว้ — ไปเปิดสิทธิ์แจ้งเตือนให้เว็บนี้ในตั้งค่าเบราว์เซอร์/ระบบก่อน แล้วลองใหม่</div>
         ) : (
-          <button onClick={enableExpiryNotify} style={{ border: 0, background: 'var(--green)', color: '#fff', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>เปิดแจ้งเตือน</button>
+          <button onClick={enableExpiryNotify} className="btn-primary" style={{ padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>เปิดแจ้งเตือน</button>
         )}
       </div>
 
@@ -134,7 +135,7 @@ export default function SettingsScreen() {
         ) : notifyPermission === 'denied' ? (
           <div style={{ fontSize: 12, color: 'var(--red)' }}>เบราว์เซอร์บล็อกการแจ้งเตือนไว้ — ไปเปิดสิทธิ์แจ้งเตือนให้เว็บนี้ในตั้งค่าเบราว์เซอร์/ระบบก่อน แล้วลองใหม่</div>
         ) : (
-          <button onClick={enableLowStockNotify} style={{ border: 0, background: 'var(--green)', color: '#fff', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>เปิดแจ้งเตือน</button>
+          <button onClick={enableLowStockNotify} className="btn-primary" style={{ padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>เปิดแจ้งเตือน</button>
         )}
       </div>
 
@@ -173,7 +174,8 @@ export default function SettingsScreen() {
             {coverDirty && (
               <button
                 onClick={() => updateGlobalSettings({ parFloorCoverDays: parseIntSafe(floorDraft, state.parFloorCoverDays), parSubCoverDays: parseIntSafe(subDraft, state.parSubCoverDays) })}
-                style={{ border: 0, background: 'var(--green)', color: '#fff', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}
+                className="btn-primary"
+                style={{ padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}
               >
                 บันทึก
               </button>
@@ -185,7 +187,7 @@ export default function SettingsScreen() {
         )}
         {canEdit && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button onClick={applyAllSuggested} disabled={!!state.busy['applyAllSuggested']} style={{ border: 0, background: 'var(--green)', color: '#fff', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40, opacity: state.busy['applyAllSuggested'] ? 0.7 : 1 }}>
+            <button onClick={applyAllSuggested} disabled={!!state.busy['applyAllSuggested']} className="btn-primary" style={{ padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40, opacity: state.busy['applyAllSuggested'] ? 0.7 : 1 }}>
               {state.busy['applyAllSuggested'] ? 'กำลังบันทึก…' : `ใช้ค่าแนะนำทั้งหมด (${suggestDiffCount} รายการเปลี่ยน)`}
             </button>
             <button onClick={recomputeUsageStats} disabled={!!state.busy['recomputeUsageStats']} style={{ border: '1px solid var(--green)', background: 'var(--bg-card)', color: 'var(--green)', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40, opacity: state.busy['recomputeUsageStats'] ? 0.7 : 1 }}>

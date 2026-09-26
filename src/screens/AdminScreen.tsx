@@ -158,7 +158,13 @@ export default function AdminScreen() {
                     </div>
                     <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
                       <code style={{ flex: '1 1 auto', minWidth: 0, fontSize: 11, background: 'var(--bg-subtle)', border: '1px solid var(--border-soft)', borderRadius: 8, padding: '7px 9px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{APP_URL}</code>
-                      <button onClick={copyInviteLink} style={{ flex: 'none', border: 0, background: 'var(--green)', color: '#fff', padding: '8px 13px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 34 }}>คัดลอกลิงก์</button>
+                      {/* Bug fix (dark-mode legibility): className="btn-primary" instead of a hardcoded
+                          color: '#fff' — dark mode's --green is a bright teal, not the dark teal light
+                          mode uses, so white text on it comes out at ~1.7:1 contrast (WCAG AA needs
+                          4.5:1). .btn-primary already themes its text via --ink-soft, which flips to a
+                          near-black in dark mode for exactly this reason — every ad-hoc button below in
+                          this pass gets the same fix. */}
+                      <button onClick={copyInviteLink} className="btn-primary" style={{ flex: 'none', padding: '8px 13px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 34 }}>คัดลอกลิงก์</button>
                     </div>
                   </div>
                 </div>
@@ -346,7 +352,7 @@ function PendingRow({ u, onApprove, roleLabelOf }: { u: User; onApprove: () => v
         <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }}>{u.name}</div>
         <div className="muted" style={{ fontSize: 11.5, marginTop: 1 }}>@{u.username} · {u.dept} · สมัครเป็น{roleLabelOf(u.role)}</div>
       </div>
-      <button onClick={onApprove} style={{ flex: 'none', border: 0, background: 'var(--green)', color: '#fff', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>อนุมัติ</button>
+      <button onClick={onApprove} className="btn-primary" style={{ flex: 'none', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>อนุมัติ</button>
     </div>
   );
 }

@@ -169,7 +169,8 @@ export default function CountScreen() {
         <button
           onClick={commitAll}
           disabled={!!state.busy[allBusyKey]}
-          style={{ width: '100%', border: 0, background: 'var(--green)', color: '#fff', padding: '12px 14px', borderRadius: 11, fontSize: 13.5, fontWeight: 700, minHeight: 48, marginBottom: 12, opacity: state.busy[allBusyKey] ? 0.7 : 1 }}
+          className="btn-primary"
+          style={{ width: '100%', padding: '12px 14px', borderRadius: 11, fontSize: 13.5, fontWeight: 700, minHeight: 48, marginBottom: 12, opacity: state.busy[allBusyKey] ? 0.7 : 1 }}
         >
           {state.busy[allBusyKey]
             ? 'กำลังบันทึก…'

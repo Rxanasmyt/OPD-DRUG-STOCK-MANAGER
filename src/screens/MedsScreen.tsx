@@ -348,7 +348,8 @@ export default function MedsScreen() {
         <button
           onClick={shareAllMeds}
           disabled={!!state.busy['shareAllMeds']}
-          style={{ width: '100%', border: 0, background: 'var(--green)', color: '#fff', padding: '11px 14px', borderRadius: 11, fontSize: 12.5, fontWeight: 600, minHeight: 44, marginBottom: 8, opacity: state.busy['shareAllMeds'] ? 0.7 : 1 }}
+          className="btn-primary"
+          style={{ width: '100%', padding: '11px 14px', borderRadius: 11, fontSize: 12.5, fontWeight: 600, minHeight: 44, marginBottom: 8, opacity: state.busy['shareAllMeds'] ? 0.7 : 1 }}
         >
           {state.busy['shareAllMeds'] ? 'กำลังตั้งค่า…' : `🔗 ใช้ยาทั้งหมดร่วมกันทั้ง OPD/IPD เลย (${shareAllCount} รายการ)`}
         </button>
@@ -724,7 +725,8 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
               type="button"
               onClick={() => onMerge(sibling.id)}
               disabled={mergeBusy}
-              style={{ width: '100%', border: 0, background: 'var(--green)', color: '#fff', padding: '10px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, opacity: mergeBusy ? 0.7 : 1 }}
+              className="btn-primary"
+              style={{ width: '100%', padding: '10px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, opacity: mergeBusy ? 0.7 : 1 }}
             >
               {mergeBusy ? 'กำลังรวมสต็อก…' : 'รวมสต็อก OPD+IPD เป็นยอดเดียวกัน (มีถามยืนยันอีกครั้ง)'}
             </button>
