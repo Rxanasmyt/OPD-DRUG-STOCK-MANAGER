@@ -1723,7 +1723,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
       });
       toast('ย้าย ' + nf(q) + ' ' + from.unit + ' จาก ' + from.name + ' ไป ' + to.name + ' แล้ว');
-      patch({ wmFromMed: null, wmFromSearch: '', wmToMed: null, wmToSearch: '', wmQty: '', wmReason: '' });
+      // Bug fix (flow friction): this used to also clear wmReason — but the real use case this
+      // screen's own doc comment describes is a RECURRING move (e.g. the same weekly "เติม stat
+      // drawer OPD ประจำสัปดาห์" reason, logged repeatedly for the same from→to pair), so
+      // clearing it forced retyping the same text from scratch every single time. Same fix
+      // shape as commitAdjust's own flow-friction fix (only clears what actually needs
+      // clearing between actions, not the med selected) — only med/qty need resetting for a
+      // genuinely new move; the reason is very likely the same one again.
+      patch({ wmFromMed: null, wmFromSearch: '', wmToMed: null, wmToSearch: '', wmQty: '' });
     } catch (e) {
       if ((e as Error)?.message === 'insufficient') { toast('ต้นทางมีไม่พอ — เหลือ ' + nf(latestFloor) + ' ' + from.unit); return; }
       toastErr(e, 'ย้ายไม่สำเร็จ ลองใหม่อีกครั้ง');
@@ -3137,7 +3144,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const q = parseInt(raw, 10);
     if (isNaN(q)) return;
     const m = state.meds.find((x) => x.id === medId);
-    if (!m) return;
+    // Bug fix (silent no-op): this used to just `return` here with no toast at all — a med
+    // deleted by another device before this row got committed left the button tap do
+    // absolutely nothing with zero explanation, worse than even a vague error message since
+    // there's nothing to read. commitTransfer/commitReceive already toast a clear, specific
+    // message for this exact same "deleted-med" gap; this one never got the equivalent.
+    if (!m) { toast('รายการนี้ถูกลบออกจากระบบไปแล้ว — ลบแถวนี้ออกจากหน้านับสต็อกแล้วรีเฟรชหน้าจอ'); return; }
     try {
       let delta = 0;
       let note = '';
@@ -3182,7 +3194,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let failed = 0;
     for (const { medId, q } of entries) {
       const m = state.meds.find((x) => x.id === medId);
-      if (!m) continue;
+      // Bug fix (silent no-op): this used to `continue` here with no record at all — a deleted
+      // med's row was silently dropped from both the "ok" and "failed" counts, so the final
+      // toast's tally undercounted with no indication that row even existed. Counting it as
+      // failed at least surfaces it, instead of the total quietly not adding up to what was
+      // actually typed on screen.
+      if (!m) { failed++; continue; }
       try {
         let delta = 0;
         // Bug fix (data integrity): tx-log write folded into the same per-med transaction —
@@ -3235,7 +3252,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const q = parseInt(raw, 10);
     if (isNaN(q)) return;
     const m = state.meds.find((x) => x.id === medId);
-    if (!m) return;
+    // Bug fix (silent no-op): same class of gap as commitCount's own fix — this used to just
+    // `return` here with no toast, leaving a tap on a deleted med's row do nothing at all.
+    if (!m) { toast('รายการนี้ถูกลบออกจากระบบไปแล้ว — ลบแถวนี้ออกจากหน้านับสต็อกแล้วรีเฟรชหน้าจอ'); return; }
     try {
       let delta = 0;
       let note = '';
@@ -3305,7 +3324,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let failed = 0;
     for (const { medId, q } of entries) {
       const m = state.meds.find((x) => x.id === medId);
-      if (!m) continue;
+      // Bug fix (silent no-op): same fix as commitAllCounts's own sibling gap — a deleted med's
+      // row used to silently drop out of both the "ok" and "failed" tallies here too.
+      if (!m) { failed++; continue; }
       try {
         let delta = 0;
         // Bug fix (data integrity — fabricated stock): see commitSubCount's matching note
