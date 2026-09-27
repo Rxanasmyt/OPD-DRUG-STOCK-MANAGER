@@ -31,6 +31,12 @@
 //     reset on logout, or the next person signing in on the same shared tablet can find the
 //     previous person's half-entered lot/qty/reason still sitting there — see logout's own
 //     "Bug fix (shared-device data leak)" comment.
+// 11. commitCount/commitSubCount's typo-safety-net fix: a wildly implausible count (relative to
+//     the med's own par level) must ask for confirmation before committing — see their own "Bug
+//     fix (typo safety net)" comments.
+// 12. processHosxp's paste-mistake safety net: an exact doubled-paste or a suspiciously large
+//     row count must ask for confirmation before staging rows for reconcile — see its own "Bug
+//     fix (paste-mistake safety net)" comment.
 import { describe, it, expect } from 'vitest';
 import { useEffect } from 'react';
 import { screen, waitFor } from '@testing-library/react';
@@ -39,6 +45,7 @@ import TConfirmScreen from '../screens/TConfirmScreen';
 import { useApp } from './AppContext';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import Toast from '../components/Toast';
+import ConfirmDialog from '../components/ConfirmDialog';
 import {
   signInAs, fireCollection, hasListener, seedDoc, seedCollection, getLastTransactionWrites,
   getLastBatchWrites,
@@ -414,5 +421,71 @@ describe('logout — shared-device data-leak regression', () => {
     expect(screen.getByTestId('adjQty').textContent).toBe('');
     expect(screen.getByTestId('adjNote').textContent).toBe('');
     expect(screen.getByTestId('recvQty').textContent).toBe('');
+  });
+});
+
+function CountPlausibilityHarness({ value }: { value: string }) {
+  const { setCountInput, commitCount } = useApp();
+  useEffect(() => { setCountInput('m1', value); }, [setCountInput, value]);
+  return <button onClick={() => commitCount('m1')}>commit-count</button>;
+}
+
+describe('commitCount — plausibility-check regression', () => {
+  it('asks for confirmation before committing a wildly implausible count, and blocks on cancel', async () => {
+    const user = userEvent.setup();
+    // MED.floor=40, MED.parFloor=100 → threshold = max(100,20)*8 = 800; 5000 is well past it.
+    renderWithApp(<><CountPlausibilityHarness value="5000" /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    seedDoc('meds/m1', { floor: MED.floor });
+
+    await user.click(screen.getByRole('button', { name: 'commit-count' }));
+    await screen.findByText(/ต่างจากยอดระบบ.*มากผิดปกติ/);
+    await user.click(screen.getByRole('button', { name: 'ยกเลิก' }));
+
+    expect(getLastTransactionWrites().length).toBe(0);
+  });
+
+  it('commits directly with no confirm prompt when the count is plausible', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><CountPlausibilityHarness value="45" /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    seedDoc('meds/m1', { floor: MED.floor });
+
+    await user.click(screen.getByRole('button', { name: 'commit-count' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+    expect(screen.queryByText(/มากผิดปกติ/)).not.toBeInTheDocument();
+  });
+});
+
+function HosxpHarness() {
+  const { state, setHosxpText, processHosxp } = useApp();
+  return (
+    <div>
+      <button onClick={() => setHosxpText('Paracetamol 500mg,10\nAmoxicillin 250mg,5\nParacetamol 500mg,10\nAmoxicillin 250mg,5')}>paste-doubled</button>
+      <button onClick={processHosxp}>process</button>
+      <div data-testid="rowCount">{state.hosxpRows?.length ?? 'none'}</div>
+    </div>
+  );
+}
+
+describe('processHosxp — paste-mistake safety net regression', () => {
+  it('asks for confirmation when the pasted block is an exact doubled paste, and blocks on cancel', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><HosxpHarness /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+
+    await user.click(screen.getByRole('button', { name: 'paste-doubled' }));
+    await user.click(screen.getByRole('button', { name: 'process' }));
+    await screen.findByText(/วางซ้ำ 2 รอบ/);
+    await user.click(screen.getByRole('button', { name: 'ยกเลิก' }));
+
+    // Blocked before hosxpRows was ever populated — still "none".
+    expect(screen.getByTestId('rowCount').textContent).toBe('none');
   });
 });

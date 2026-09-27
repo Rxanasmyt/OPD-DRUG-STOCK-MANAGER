@@ -369,7 +369,7 @@ export interface AppCtx {
 
   // hosxp reconcile
   setHosxpText: (v: string) => void;
-  processHosxp: () => void;
+  processHosxp: () => Promise<void>;
   processHosxpFile: (file: File) => void;
   setHosxpConfirmFuzzy: (v: boolean) => void;
   setHosxpConfirmSingleDay: (v: boolean) => void;
@@ -3193,6 +3193,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // there's nothing to read. commitTransfer/commitReceive already toast a clear, specific
     // message for this exact same "deleted-med" gap; this one never got the equivalent.
     if (!m) { toast('รายการนี้ถูกลบออกจากระบบไปแล้ว — ลบแถวนี้ออกจากหน้านับสต็อกแล้วรีเฟรชหน้าจอ'); return; }
+    // Bug fix (typo safety net): nothing here ever checked the typed count against anything —
+    // digitsOnly() only guards against overflow/corruption (caps at 9 digits), not plausibility.
+    // Typing several rows quickly on a shelf walk is exactly the situation an extra digit (e.g.
+    // "990" instead of "90") slips in unnoticed, and the old flow committed it with the same
+    // zero friction as a correct entry, logging a wildly wrong "discrepancy" tx with no warning
+    // at all. Flags (not blocks) a count that implies a delta far outside anything this med's
+    // own par level would ever plausibly produce — cheap for a legitimate large count (one
+    // extra tap), but catches the real, common typo case.
+    const implausible = Math.abs(q - m.floor) > Math.max(m.parFloor, 20) * 8;
+    if (implausible && !(await confirmAsync(
+      'นับได้ ' + nf(q) + ' ' + m.unit + ' — ต่างจากยอดระบบ (' + nf(m.floor) + ') มากผิดปกติเมื่อเทียบกับ par ('
+      + nf(m.parFloor) + ') ของ ' + m.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
+    ))) return;
     try {
       let delta = 0;
       let note = '';
@@ -3216,7 +3229,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       patch((st) => { const ci = { ...st.countInputs }; delete ci[medId]; return { countInputs: ci }; });
       toast(m.name + ' — ' + note);
     } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }), [state.countInputs, state.meds, userName, toast, toastErr, patch, guardOnce]);
+  }), [state.countInputs, state.meds, userName, toast, toastErr, patch, guardOnce, confirmAsync]);
 
   // Batch version of commitCount() for a real cycle count: someone walks the shelf typing
   // numbers into 20-40 rows, then commits the lot in one tap. Deliberately NOT one big
@@ -3298,6 +3311,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Bug fix (silent no-op): same class of gap as commitCount's own fix — this used to just
     // `return` here with no toast, leaving a tap on a deleted med's row do nothing at all.
     if (!m) { toast('รายการนี้ถูกลบออกจากระบบไปแล้ว — ลบแถวนี้ออกจากหน้านับสต็อกแล้วรีเฟรชหน้าจอ'); return; }
+    // Bug fix (typo safety net): same gap as commitCount's own fix above — nothing here ever
+    // checked the typed count against anything plausible before committing it.
+    const curSub = subQty(state, medId);
+    const implausible = Math.abs(q - curSub) > Math.max(m.parSub, 20) * 8;
+    if (implausible && !(await confirmAsync(
+      'นับได้ ' + nf(q) + ' ' + m.unit + ' — ต่างจากยอดระบบ (' + nf(curSub) + ') มากผิดปกติเมื่อเทียบกับ par ('
+      + nf(m.parSub) + ') ของ ' + m.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
+    ))) return;
     try {
       let delta = 0;
       let note = '';
@@ -3351,7 +3372,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       patch((st) => { const ci = { ...st.subCountInputs }; delete ci[medId]; return { subCountInputs: ci }; });
       toast(m.name + ' — ' + note);
     } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }), [state.subCountInputs, state.meds, userName, toast, toastErr, patch, guardOnce]);
+  }), [state, userName, toast, toastErr, patch, guardOnce, confirmAsync]);
 
   /** Batch version of commitSubCount(), mirroring commitAllCounts() — sequential per-med
    * transactions (never one lumped write) for the same reason: each has to re-read its own
@@ -3425,7 +3446,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---------- hosxp reconcile ----------
   const setHosxpText = useCallback((v: string) => patch({ hosxpText: v }), [patch]);
 
-  const processHosxp = useCallback(() => {
+  const processHosxp = useCallback(async () => {
     const lines = state.hosxpText.split('\n').map((l) => l.trim()).filter(Boolean);
     // Bug fix (data integrity): see splitNameQty's own doc comment (usageImport.ts) — a plain
     // lastIndexOf(',') split here broke the moment a day's dispensed qty itself had a Thai-
@@ -3439,8 +3460,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return { name: split.name, qty, match: matchHosxpMed(state.meds, split.name) };
     }).filter((x): x is { name: string; qty: number; match: ReturnType<typeof matchHosxpMed> } => !!x);
     if (!rows.length) { toast('วางข้อมูล CSV รูปแบบ "ชื่อยา,จำนวน" ก่อนประมวลผล'); return; }
+    // Bug fix (paste-mistake safety net): nothing here ever checked the pasted block itself for
+    // two real, common mistakes — accidentally pasting the same content twice (a doubled
+    // clipboard paste), or pasting an entire multi-sheet/multi-day report instead of just one
+    // day's usage rows. Every resulting row is still gated by matchHosxpMed on commit, but that
+    // only catches "this drug doesn't exist," not "this whole paste looks wrong." Flags (not
+    // blocks) both: an exact repeat of the first half in the second half (the specific,
+    // unambiguous signature of a doubled paste — vanishingly unlikely to occur from real,
+    // once-only usage data), and a row count well beyond this formulary's own size (~580 meds)
+    // for what's supposed to be a single day's dispense list.
+    const half = Math.floor(lines.length / 2);
+    const isDoublePaste = lines.length >= 4 && lines.length % 2 === 0 && lines.slice(0, half).join('\n') === lines.slice(half).join('\n');
+    const tooManyRows = rows.length > 300;
+    if ((isDoublePaste || tooManyRows) && !(await confirmAsync(
+      isDoublePaste
+        ? 'ข้อมูลที่วางดูเหมือนถูกวางซ้ำ 2 รอบ (' + nf(rows.length) + ' แถว) — วางซ้ำโดยไม่ตั้งใจหรือไม่? กด "ตกลง" เพื่อประมวลผลต่อตามที่วางไว้จริง'
+        : 'ข้อมูลที่วางมี ' + nf(rows.length) + ' แถว มากกว่าปกติมาก (ยาทั้งฟอร์มูลารีมีประมาณ 580 รายการ) — ตรวจสอบว่าวางถูกไฟล์/ถูกช่วงวันที่ (ควรเป็นวันเดียว) แล้วใช่ไหม?'
+    ))) return;
     patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpConfirmSingleDay: false });
-  }, [state.hosxpText, state.meds, patch, toast]);
+  }, [state.hosxpText, state.meds, patch, toast, confirmAsync]);
 
   // Lets the daily floor-deduction workflow attach the actual HOSxP "รายงานการใช้ยา" export
   // (.xls/.xlsx) directly instead of hand-copying it into the "ชื่อยา,จำนวน" textarea above —
