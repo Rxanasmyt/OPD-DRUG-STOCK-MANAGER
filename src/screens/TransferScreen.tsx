@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, binDisplayAll } from '../store/selectors';
-import { nf, thDate, digitsOnly } from '../utils/format';
+import { nf, thDate, digitsOnly, isoDate } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge } from '../components/Qty';
@@ -25,6 +25,24 @@ const WEEKDAY_CLINICS: Record<number, string> = {
   5: 'ศุกร์: Warfarin, หัวใจ/หลอดเลือด, จิตเวช',
 };
 
+// Bug fix (flow friction): these two banners used to be plain useState(true) — the intent (per
+// the comments at their call sites below) was "a fresh nudge each time this SCREEN is opened",
+// meaning roughly once a day on a shared device. But the real เติมหน้างาน loop (build cart →
+// confirm → commit → "ทำรายการต่อ" → back to this screen) unmounts and remounts this exact
+// component several times in a single shift for someone doing several small refill batches
+// back to back — each remount reset the ✕'d-away banner right back to visible, costing a real
+// extra tap every single time for information already acknowledged minutes earlier. Keying the
+// dismissal by today's calendar date in sessionStorage (cleared on browser/tab close, same as
+// the daily-reset-on-shared-device behavior the original comment wanted) makes "opened" mean
+// what it was supposed to mean — once per day — without reaching for global AppContext state
+// for something this screen-local and disposable.
+function readDismissedToday(key: string): boolean {
+  try { return sessionStorage.getItem(key) === isoDate(Date.now()); } catch { return false; }
+}
+function dismissToday(key: string) {
+  try { sessionStorage.setItem(key, isoDate(Date.now())); } catch { /* ignore */ }
+}
+
 export default function TransferScreen() {
   const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, fillUrgent, clearCart, printPickList, printTodayReplenishList, go, openScanSearch } = useApp();
   // Only one row's "เคลื่อนไหวล่าสุด" panel expanded at a time (opt-in, not automatic) — the
@@ -45,11 +63,9 @@ export default function TransferScreen() {
   // the aisle wants: one pass past each shelf rather than criss-crossing the room in urgency
   // order. 'name' is for when someone is looking up a specific drug in a familiar list.
   const [sort, setSort] = useState<'need' | 'bin' | 'name'>('need');
-  // Collapsible, not persisted — a fresh "should I check today's clinics" nudge each time this
-  // screen is opened (resets when the app is reopened/refreshed, which happens naturally at
-  // least once a day on a shared phone) rather than a one-time-ever dismissal that would go
-  // stale and stop being useful within a week.
-  const [showClinicInfo, setShowClinicInfo] = useState(true);
+  // Collapsible, dismissed for the rest of TODAY (see readDismissedToday's doc comment above) —
+  // a fresh "should I check today's clinics" nudge once a day, not once per screen visit.
+  const [showClinicInfo, setShowClinicInfo] = useState(() => !readDismissedToday('opd-clinic-banner-dismissed'));
   const todayClinics = WEEKDAY_CLINICS[new Date().getDay()];
   // Friday-only nudge, separate from the clinic-info banner above (this one is actionable, not
   // just FYI) — the shelf isn't topped up again until Monday, so whatever's left after Friday's
@@ -57,7 +73,7 @@ export default function TransferScreen() {
   // everyday habit the rest of the week) leaves a shelf just barely above its weekday reorder
   // point to somehow last three days with nobody there to top it up if it runs low — filling all
   // the way to Max specifically on Friday is what actually closes that gap.
-  const [showFridayNudge, setShowFridayNudge] = useState(true);
+  const [showFridayNudge, setShowFridayNudge] = useState(() => !readDismissedToday('opd-friday-nudge-dismissed'));
   const isFriday = new Date().getDay() === 5;
   // noSubstock meds (liquids/sprays — received straight to the shelf, see ReceiveScreen)
   // have nothing to transfer from; showing them here with permanently-stuck-at-0 +/- buttons
@@ -121,7 +137,7 @@ export default function TransferScreen() {
         <div style={{ margin: '10px 14px 0', padding: '9px 12px', background: 'var(--bg-subtle)', border: '1px solid var(--border-soft)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5 }}>
           <span style={{ flex: 'none', fontSize: 14 }}>📅</span>
           <span className="muted" style={{ flex: 1, lineHeight: 1.4 }}>คลินิกวันนี้ — {todayClinics} · ยากลุ่มนี้อาจใช้เร็วกว่าปกติ</span>
-          <button onClick={() => setShowClinicInfo(false)} aria-label="ปิดข้อความนี้" style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 15, padding: '2px 4px', lineHeight: 1 }}>✕</button>
+          <button onClick={() => { dismissToday('opd-clinic-banner-dismissed'); setShowClinicInfo(false); }} aria-label="ปิดข้อความนี้" style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 15, padding: '2px 4px', lineHeight: 1 }}>✕</button>
         </div>
       )}
       {/* Actionable (not just FYI) — เฉพาะวันศุกร์: เสาร์-อาทิตย์ไม่มีเติมหน้างาน ของที่เติมวันนี้
@@ -130,7 +146,7 @@ export default function TransferScreen() {
         <div style={{ margin: '10px 14px 0', padding: '9px 12px', background: 'var(--amber-bg)', border: '1px solid var(--amber)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5 }}>
           <span style={{ flex: 'none', fontSize: 14 }}>⚠️</span>
           <span style={{ flex: 1, lineHeight: 1.4, color: 'var(--amber-ink)' }}>วันนี้ศุกร์ — เสาร์-อาทิตย์ไม่มีเติมหน้างาน แนะนำเติมให้เต็ม Max แทนแค่ถึง Min เผื่อของอยู่ได้ถึงวันจันทร์</span>
-          <button onClick={() => setShowFridayNudge(false)} aria-label="ปิดข้อความนี้" style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--amber-ink)', fontSize: 15, padding: '2px 4px', lineHeight: 1 }}>✕</button>
+          <button onClick={() => { dismissToday('opd-friday-nudge-dismissed'); setShowFridayNudge(false); }} aria-label="ปิดข้อความนี้" style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--amber-ink)', fontSize: 15, padding: '2px 4px', lineHeight: 1 }}>✕</button>
         </div>
       )}
       <div style={{ padding: '12px 14px 10px' }} className="sticky-bar">

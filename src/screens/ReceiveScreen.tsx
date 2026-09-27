@@ -66,6 +66,19 @@ export default function ReceiveScreen() {
     return out;
   }, [state.txs, state.meds, state.recvSearch, state.recvMed]);
 
+  // Bug fix (flow friction / mistake risk): the quick-pick lists below (recentMeds, options,
+  // needsReceive) never showed whether a drug was already added to THIS in-progress, not-yet-
+  // committed receipt (state.recvItems) — genuinely ambiguous mid-delivery when working through
+  // several items in a row, with a real risk of tapping the same drug again and double-entering
+  // its lot/qty by mistake. A badge (not a disable — a real delivery can legitimately have two
+  // different lots of the same drug arrive together, so re-picking it must still be possible)
+  // closes the ambiguity without removing that case.
+  const recvItemCountByMed = useMemo(() => {
+    const counts: Record<string, number> = {};
+    state.recvItems.forEach((it) => { counts[it.medId] = (counts[it.medId] || 0) + 1; });
+    return counts;
+  }, [state.recvItems]);
+
   const canApprove = state.role !== 'tech';
   const pending = state.pendingReceives.filter((r) => r.status === 'pending');
   const myPending = pending.filter((r) => r.requestedByUid === state.myUid);
@@ -171,7 +184,10 @@ export default function ReceiveScreen() {
           <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 172, overflowY: 'auto', marginBottom: 9 }}>
             {options.map((m) => (
               <button key={m.id} onClick={() => pickRecvMed(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
-                <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name} <WardBadge med={m} /></span>
+                <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <MedDot code={m.code} /> {m.name} <WardBadge med={m} />
+                  {recvItemCountByMed[m.id] > 0 && <span className="muted" style={{ fontSize: 11 }}>· เพิ่มแล้ว {recvItemCountByMed[m.id]} lot</span>}
+                </span>
                 <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={11.5} /> · par {nf(m.parSub)}</span>
               </button>
             ))}
@@ -184,7 +200,10 @@ export default function ReceiveScreen() {
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 260, overflowY: 'auto' }}>
               {needsReceive.map((m) => (
                 <button key={m.id} onClick={() => pickRecvMed(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
-                  <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name} <WardBadge med={m} /></span>
+                  <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <MedDot code={m.code} /> {m.name} <WardBadge med={m} />
+                    {recvItemCountByMed[m.id] > 0 && <span className="muted" style={{ fontSize: 11 }}>· เพิ่มแล้ว {recvItemCountByMed[m.id]} lot</span>}
+                  </span>
                   {/* A noSubstock med has no real substock number to show (always 0) — its
                       shelf (floor/parFloor) IS the number that matters for "should this be on
                       the warehouse request" here, so show that instead — see needsReceive's
