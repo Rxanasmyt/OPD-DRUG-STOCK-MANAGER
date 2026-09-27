@@ -351,6 +351,12 @@ function PendingRow({ u, onApprove, roleLabelOf }: { u: User; onApprove: () => v
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }}>{u.name}</div>
         <div className="muted" style={{ fontSize: 11.5, marginTop: 1 }}>@{u.username} · {u.dept} · สมัครเป็น{roleLabelOf(u.role)}</div>
+        {/* Bug fix (informed-decision gap): this list is explicitly sorted by createdAt (newest
+            first — see the sort just above where this row is used) but never showed it, even
+            though thDate/thTime are already imported and used elsewhere in this same file for
+            the exact same purpose (lastLogin, audit entries). An admin approving from this list
+            had no way to tell a fresh signup apart from one that's sat unapproved for weeks. */}
+        <div className="muted" style={{ fontSize: 11, marginTop: 1 }}>สมัครเมื่อ {thDate(u.createdAt)} {thTime(u.createdAt)}</div>
       </div>
       <button onClick={onApprove} className="btn-primary" style={{ flex: 'none', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>อนุมัติ</button>
     </div>
