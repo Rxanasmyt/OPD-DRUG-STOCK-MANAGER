@@ -13,6 +13,12 @@
 // 4. scrapLot's data-integrity fix: the write-off qty logged must come from the lot's live
 //    (transaction-read) qty, not the stale client-cached one — see its own "Bug fix (data
 //    integrity)" comment.
+// 5. deleteMed's real-stock-deletion-risk fix: a live re-check of floor/lot qty right before
+//    the actual delete must block it if real stock arrived during the confirm dialog — see its
+//    own "Bug fix (real stock deletion risk)" comment.
+// 6. mergeWardMeds's lost-update-race fix: the merged floor must use each side's LIVE
+//    (transaction-read) floor, not the stale client-cached one — see its own "Bug fix
+//    (lost-update race)" comment.
 import { describe, it, expect } from 'vitest';
 import { useEffect } from 'react';
 import { screen, waitFor } from '@testing-library/react';
@@ -23,6 +29,7 @@ import { renderWithApp } from '../test-utils/renderWithApp';
 import Toast from '../components/Toast';
 import {
   signInAs, fireCollection, hasListener, seedDoc, seedCollection, getLastTransactionWrites,
+  getLastBatchWrites,
 } from '../test-utils/firebaseTestDouble';
 
 const MED = {
@@ -189,5 +196,69 @@ describe('scrapLot — data-integrity regression', () => {
     const txWrite = writes.find((w) => w.path === '');
     expect(lotWrite?.data).toEqual({ qty: 0 });
     expect(txWrite?.data.qty).toBe(-4);
+  });
+});
+
+function DeleteMedHarness() {
+  const { deleteMed } = useApp();
+  return <button onClick={() => deleteMed(MED.id)}>delete-med</button>;
+}
+
+describe('deleteMed — real-stock-deletion-risk regression', () => {
+  it('blocks the delete when live stock arrived during the confirm dialog', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><DeleteMedHarness /><AutoConfirmYes /><Toast /></>);
+    // deleteMed gates on canEditMeds (myProfile.role === 'admin').
+    await signInAs('admin0', { role: 'admin', name: 'แอดมิน หนึ่ง', username: 'admin0' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [{ ...MED, floor: 0 }]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', []);
+
+    // The cached-state gate (floor === 0, no substock) passes and the confirm dialog opens —
+    // but a receive lands on this exact med while it's sitting open, before the live re-check.
+    seedDoc('meds/m1', { floor: 5 });
+
+    await user.click(screen.getByRole('button', { name: 'delete-med' }));
+
+    // Without the live re-check fix, this would go straight to batch.delete on the med doc AND
+    // every one of its lot docs, discarding the 5 units that just arrived.
+    await screen.findByText('ลบไม่ได้ — มียอดคงเหลือเข้ามาระหว่างนี้ (หน้างานหรือ substock) ต้องปรับยอด/ตัดออกให้เป็น 0 ก่อน');
+    expect(getLastBatchWrites().length).toBe(0);
+  });
+});
+
+const OPD_MED = { ...MED, id: 'mOpd', ward: 'opd' as const, floor: 10, used30: 4, usedPrev30: 2, bin: 'A1' };
+const IPD_MED = { ...MED, id: 'mIpd', ward: 'ipd' as const, floor: 5, used30: 1, usedPrev30: 1, bin: 'B2' };
+
+function MergeWardHarness() {
+  const { mergeWardMeds } = useApp();
+  return <button onClick={() => mergeWardMeds(OPD_MED.id, IPD_MED.id)}>merge-ward</button>;
+}
+
+describe('mergeWardMeds — lost-update-race regression', () => {
+  it('merges using each side\'s LIVE floor, not the stale client-cached one', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><MergeWardHarness /><AutoConfirmYes /></>);
+    await signInAs('admin0', { role: 'admin', name: 'แอดมิน หนึ่ง', username: 'admin0' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    // Cached floors (10 + 5 = 15) are what the confirm dialog's own message is built from —
+    // real UX, not what must land in the write below.
+    fireCollection('meds', [OPD_MED, IPD_MED]);
+    await screen.findByRole('button', { name: 'merge-ward' });
+
+    // Another device's transfer/count landed on both sides in the gap between that cached
+    // snapshot and clicking through the confirm dialog — live floors are now 20 and 8.
+    seedDoc('meds/mOpd', { floor: 20 });
+    seedDoc('meds/mIpd', { floor: 8 });
+    seedCollection('lots', []);
+
+    await user.click(screen.getByRole('button', { name: 'merge-ward' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+    const opdWrite = getLastTransactionWrites().find((w) => w.path === 'meds/mOpd');
+    // Without the live re-read fix, this would write 15 (10 + 5, the stale cached sum) instead
+    // of 28 (20 + 8, what actually exists at commit time) — silently discarding 13 real units.
+    expect(opdWrite?.data.floor).toBe(28);
   });
 });

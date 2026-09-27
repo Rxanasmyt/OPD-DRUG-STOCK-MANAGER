@@ -44,6 +44,7 @@ export function resetFirebaseTestDouble() {
   docStore.clear();
   collectionStore.clear();
   lastTransactionWrites = [];
+  batchWrites = [];
 }
 
 /** Seeds what a one-shot `getDoc(doc(db, ...segments))` or a transaction's `trx.get(...)` on
@@ -79,6 +80,17 @@ export type TrxWrite = { kind: 'update' | 'set'; path: string; data: Record<stri
 let lastTransactionWrites: TrxWrite[] = [];
 export function getLastTransactionWrites(): TrxWrite[] {
   return lastTransactionWrites;
+}
+
+// Same idea as lastTransactionWrites, for writeBatch() — AppContext's non-transactional bulk/
+// delete paths (deleteMed, shareAllMeds, ...) use a plain writeBatch instead of runTransaction,
+// which has no retry semantics to preserve here, so every update/delete/set across every
+// writeBatch() call in a test just accumulates until resetFirebaseTestDouble() clears it —
+// there's normally only one action's worth of batch calls per test anyway.
+export type BatchWrite = { kind: 'update' | 'delete' | 'set'; path: string; data?: Record<string, unknown> };
+let batchWrites: BatchWrite[] = [];
+export function getLastBatchWrites(): BatchWrite[] {
+  return batchWrites;
 }
 
 /** Simulates the given COLLECTION path's live data changing — drives every onSnapshot
@@ -180,7 +192,12 @@ vi.mock('firebase/firestore', () => ({
   addDoc: vi.fn(async () => ({ id: 'new-doc' })),
   updateDoc: vi.fn(async () => undefined),
   setDoc: vi.fn(async () => undefined),
-  writeBatch: vi.fn(() => ({ update: vi.fn(), delete: vi.fn(), set: vi.fn(), commit: vi.fn(async () => undefined) })),
+  writeBatch: vi.fn(() => ({
+    update: vi.fn((target: { path: string }, data: Record<string, unknown>) => { batchWrites.push({ kind: 'update', path: target.path, data }); }),
+    delete: vi.fn((target: { path: string }) => { batchWrites.push({ kind: 'delete', path: target.path }); }),
+    set: vi.fn((target: { path: string }, data: Record<string, unknown>) => { batchWrites.push({ kind: 'set', path: target.path, data }); }),
+    commit: vi.fn(async () => undefined),
+  })),
   // A transaction's own trx.get() reads from the same seeded doc store getDoc() does — the real
   // SDK guarantees a transaction sees a consistent snapshot as of when it starts, which matters
   // for real concurrent-write races but not for what these tests check (single-shot correctness
