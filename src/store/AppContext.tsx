@@ -975,8 +975,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (state.authStatus !== 'signedIn' || !state.dbReady || !notifyEnabled) return;
     const activeLots = state.lots.filter((l) => l.qty > 0 && state.meds.some((m) => m.id === l.medId && m.active));
-    const expiredCount = activeLots.filter((l) => daysUntil(l.exp) < 0).length;
-    const nearCount = activeLots.filter((l) => { const d = daysUntil(l.exp); return d >= 0 && d < state.expiryWarnDays; }).length;
+    // Bug fix (consistency): matches the aging report's own "หมดอายุแล้ว" bucket boundary (`<=
+    // hi` with hi=0) — a lot expiring TODAY is already counted as expired there, but this
+    // notification used `< 0`, so a lot that just crossed into "expired" on the report could
+    // still be silently bucketed as "near expiry" here and never get the more urgent notice.
+    const expiredCount = activeLots.filter((l) => daysUntil(l.exp) <= 0).length;
+    const nearCount = activeLots.filter((l) => { const d = daysUntil(l.exp); return d > 0 && d < state.expiryWarnDays; }).length;
     void maybeNotifyExpiring(nearCount, expiredCount);
   }, [state.authStatus, state.dbReady, state.meds, state.lots, state.expiryWarnDays, notifyEnabled]);
 
@@ -1943,35 +1947,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // that tab in favor of exportDailyMetricsCsv on its own fetched date range — but the map
     // still needs every ReportTab key to satisfy state.reportTab's type below.
     const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', exec: 'executive_summary.csv', kpi: 'kpi_metrics.csv' };
-    // Matches whatever ward tab is open on screen — exporting "everything" while the screen
-    // shows only OPD (or vice versa) would be a silently misleading report.
-    const wardMeds = st.meds.filter((m) => matchesWard(m, st.wardFilter));
-    const wardMedIds = new Set(wardMeds.map((m) => m.id));
-    const wardNames = new Set(wardMeds.map((m) => m.name));
-    // A name in wardNames isn't necessarily ward-exclusive — OPD and IPD versions of the same
-    // drug deliberately share a name (see wardOf/Ward), so a plain name-set filter would also
-    // pull in the OTHER ward's tx rows for any name that happens to exist on both shelves.
-    // Only drop into name-matching for a name that's genuinely unambiguous; an ambiguous name
-    // is trusted only via its tagged medId (see Tx.medId — older rows predating that field
-    // just won't appear for an ambiguous name, same tradeoff as the substock ledger).
-    const otherWardNames = new Set(st.meds.filter((m) => st.wardFilter !== 'all' && !isSharedMed(m) && wardOf(m) !== st.wardFilter).map((m) => m.name));
+    // Bug fix (report accuracy): ReportScreen.tsx dropped OPD/IPD ward tabs a while back ("reports
+    // always cover the whole formulary" — see its own comment) and every on-screen computation
+    // there (aging/category/turn/insights/exec/disc) reads straight from state.meds.filter(active)
+    // or state.txs with NO ward filtering at all — but this export kept scoping every branch to
+    // st.wardFilter, a value ReportScreen.tsx itself never reads or sets. That value is just
+    // whatever wardFilter happens to be left over from another screen (e.g. MedsScreen) — a
+    // pharmacist could open Report, look at the whole-formulary aging/category/turnover numbers
+    // on screen, click "Export CSV", and get a spreadsheet silently re-scoped to only OPD (or
+    // only IPD) because that's what wardFilter happened to be set to elsewhere, with no visual
+    // cue on this screen that anything was filtered. Matching the on-screen source of truth
+    // exactly: every branch now uses the same plain active-med set ReportScreen.tsx computes.
+    const meds = st.meds.filter((m) => m.active);
     let outcome: Awaited<ReturnType<typeof downloadCsv>>;
     if (st.reportTab === 'aging') {
+      const medIds = new Set(meds.map((m) => m.id));
       const bDef: [string, number, number][] = [['หมดอายุแล้ว', -99999, 0], ['เหลือ ≤ 30 วัน', 0, 30], ['31–90 วัน', 30, 90], ['91–180 วัน', 90, 180], ['มากกว่า 180 วัน', 180, 99999]];
       const rows = bDef.map(([label, lo, hi]) => {
-        const ls = st.lots.filter((l) => wardMedIds.has(l.medId) && l.qty > 0 && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
-        const val = ls.reduce((s, l) => s + l.qty * (st.meds.find((m) => m.id === l.medId)?.price || 0), 0);
+        const ls = st.lots.filter((l) => medIds.has(l.medId) && l.qty > 0 && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
+        const val = ls.reduce((s, l) => s + l.qty * (meds.find((m) => m.id === l.medId)?.price || 0), 0);
         return [label, ls.length, Math.round(val)];
       });
       outcome = await downloadCsv([['bucket', 'lots', 'value_thb'], ...rows], names.aging);
     } else if (st.reportTab === 'category') {
       // Same categoryStats() the on-screen table renders from — one source of truth, so an
       // exported spreadsheet can never quietly disagree with what the pharmacist just read.
-      const rows = categoryStats(st, wardMeds.filter((m) => m.active), st.expiryWarnDays)
+      const rows = categoryStats(st, meds, st.expiryWarnDays)
         .map((r) => [r.label, r.meds, r.low, Math.round(r.value), Math.round(r.atRisk), r.used30]);
       outcome = await downloadCsv([['category', 'medications', 'below_min', 'stock_value_thb', 'expiry_risk_value_thb', 'used_30d'], ...rows], names.category);
     } else if (st.reportTab === 'turn') {
-      const rows = wardMeds.filter((m) => m.active).map((m) => {
+      const rows = meds.map((m) => {
         const oh = m.floor + subQty(st, m.id);
         // A drug with no recorded usage yet (used30 === 0 — new, or never HOSxP-reconciled)
         // divides by zero here; the on-screen "รายงาน" tab already guards this with
@@ -1982,14 +1987,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       outcome = await downloadCsv([['medication', 'unit', 'on_hand', 'used_30d', 'days_on_hand'], ...rows], names.turn);
     } else if (st.reportTab === 'insights') {
-      const anomalies = usageAnomalies(wardMeds);
+      const anomalies = usageAnomalies(meds);
       const rows = anomalies.map((a) => [
         a.med.name, a.med.used30, a.med.usedPrev30, Math.round(a.changePct * 100),
         daysOfStockLeft(st, a.med) ?? '',
       ]);
       outcome = await downloadCsv([['medication', 'used_30d', 'used_prev_30d', 'change_pct', 'days_of_stock_left'], ...rows], names.insights);
     } else if (st.reportTab === 'exec') {
-      const rows = wardMeds.filter((m) => m.active).map((m) => {
+      const rows = meds.map((m) => {
         const oh = m.floor + subQty(st, m.id);
         return [m.name, m.unit, oh, Math.round(oh * m.price), m.used30];
       }).sort((a, b) => (b[3] as number) - (a[3] as number));
@@ -2005,12 +2010,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const snap = await withTimeout(getDocs(query(collection(db, 'txs'), orderBy('ts', 'desc'))));
         rows = snap.docs
           .map((d) => d.data() as { type: string; ts: number; name: string; qty: number; unit: string; loc?: string; reason?: string; note?: string; by: string; medId?: string })
-          .filter((x) => {
-            if (types.indexOf(x.type) < 0) return false;
-            if (st.wardFilter === 'all') return true;
-            if (x.medId) return wardMedIds.has(x.medId);
-            return wardNames.has(x.name) && !otherWardNames.has(x.name);
-          })
+          .filter((x) => types.indexOf(x.type) >= 0)
           .map((x) => [isoDate(x.ts), x.name, x.type, x.qty, x.unit, x.loc || '', x.reason || '', x.note || '', x.by]);
       } catch (e) { toastErr(e, 'ดึงประวัติไม่สำเร็จ ลองใหม่อีกครั้ง'); return; }
       outcome = await downloadCsv([['date', 'medication', 'type', 'qty', 'unit', 'location', 'reason', 'note', 'performed_by'], ...rows], names.disc);
@@ -2093,10 +2093,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       };
 
       // 1) Stock aging (มูลค่ายาตามช่วงอายุคงเหลือ)
+      // Bug fix (report accuracy): used to scan st.lots with no medId/active filtering at all —
+      // a lot belonging to a discontinued med (active:false, unscrapped stock still physically
+      // sitting on a shelf) would count here even though the on-screen aging report (and the
+      // per-tab CSV export, fixed the same way above) both restrict to active meds only. Same
+      // activeMeds set every other sheet in this export already uses.
+      const activeMedIds = new Set(activeMeds.map((m) => m.id));
       const bDef: [string, number, number][] = [['หมดอายุแล้ว', -99999, 0], ['เหลือ ≤ 30 วัน', 0, 30], ['31–90 วัน', 30, 90], ['91–180 วัน', 90, 180], ['มากกว่า 180 วัน', 180, 99999]];
       addSheet('stock_aging', [['bucket', 'lots', 'value_thb'], ...bDef.map(([label, lo, hi]) => {
-        const ls = st.lots.filter((l) => l.qty > 0 && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
-        const val = ls.reduce((s, l) => s + l.qty * (st.meds.find((m) => m.id === l.medId)?.price || 0), 0);
+        const ls = st.lots.filter((l) => activeMedIds.has(l.medId) && l.qty > 0 && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
+        const val = ls.reduce((s, l) => s + l.qty * (activeMeds.find((m) => m.id === l.medId)?.price || 0), 0);
         return [label, ls.length, Math.round(val)];
       })]);
 
