@@ -18,7 +18,7 @@ import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
 import { shortLabelName } from '../utils/labelName';
 import { printLabelSheet, printPickListSheet, printExecutiveSummarySheet, type PrintLabel, type ExecSummaryStat, type ExecSummaryRow } from '../utils/print';
-import { parseHosxpUsageWorkbook, parseUsageCsvTextWithSkipped, type RawUsageRow } from '../utils/usageImport';
+import { parseHosxpUsageWorkbook, parseUsageCsvTextWithSkipped, splitNameQty, type RawUsageRow } from '../utils/usageImport';
 import { LOCS, FRIDGE_LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
 import { withTimeout, TimeoutError } from '../utils/timeout';
@@ -3400,12 +3400,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const processHosxp = useCallback(() => {
     const lines = state.hosxpText.split('\n').map((l) => l.trim()).filter(Boolean);
+    // Bug fix (data integrity): see splitNameQty's own doc comment (usageImport.ts) — a plain
+    // lastIndexOf(',') split here broke the moment a day's dispensed qty itself had a Thai-
+    // locale thousand-separator comma (e.g. "Paracetamol 500 mg,1,234"), silently truncating
+    // the quantity and corrupting the drug name with the leftover digits instead of matching
+    // and floor-deducting the real 1,234 units.
     const rows = lines.map((l) => {
-      const idx = l.lastIndexOf(',');
-      if (idx < 0) return null;
-      const name = l.slice(0, idx).trim();
-      const qty = parseIntSafe(l.slice(idx + 1));
-      return { name, qty, match: matchHosxpMed(state.meds, name) };
+      const split = splitNameQty(l);
+      if (!split) return null;
+      const qty = parseIntSafe(split.qtyStr);
+      return { name: split.name, qty, match: matchHosxpMed(state.meds, split.name) };
     }).filter((x): x is { name: string; qty: number; match: ReturnType<typeof matchHosxpMed> } => !!x);
     if (!rows.length) { toast('วางข้อมูล CSV รูปแบบ "ชื่อยา,จำนวน" ก่อนประมวลผล'); return; }
     patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpConfirmSingleDay: false });

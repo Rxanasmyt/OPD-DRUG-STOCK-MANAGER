@@ -44,6 +44,19 @@ describe('parseUsageCsvText', () => {
     expect(parseUsageCsvText('\nDrug A,5\n\n')).toEqual([{ name: 'Drug A', qty: 5 }]);
   });
 
+  // Regression guard: a plain lastIndexOf(',') split (the previous approach) breaks the moment
+  // the quantity itself has a Thai-locale thousand-separator comma — splitting between "1" and
+  // "234" instead of between the name and "1,234", stapling the stray "1" onto the drug name
+  // and truncating the real quantity to 234. A day dispensing 1,000+ units of a common drug is
+  // entirely plausible, not an edge case.
+  it('does not mis-split when the quantity itself has a thousand-separator comma', () => {
+    expect(parseUsageCsvText('Paracetamol 500 mg,1,234')).toEqual([{ name: 'Paracetamol 500 mg', qty: 1234 }]);
+  });
+
+  it('still splits on a comma-containing name correctly even alongside a comma-grouped qty', () => {
+    expect(parseUsageCsvText('Drug A, Extra Strength,2,500')).toEqual([{ name: 'Drug A, Extra Strength', qty: 2500 }]);
+  });
+
   it('returns an empty array for input with no valid rows at all', () => {
     expect(parseUsageCsvText('')).toEqual([]);
   });

@@ -92,25 +92,44 @@ export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<RawUsag
   return out;
 }
 
-/** Same lenient "name,qty" line parser processHosxp already uses — last comma splits name
- * from qty (works even if the name itself contains a comma) — plus a header-row sniff: a
- * plain CSV export routinely leads with a column-title row like "ชื่อยา,จำนวน" whose second
- * field isn't a number, dropped rather than parsed into a bogus 0-qty row. */
+// Bug fix (data integrity): a plain `lastIndexOf(',')` split (the previous approach here and
+// in processHosxp's matching textarea parser in AppContext.tsx) breaks the moment the quantity
+// itself has a Thai-locale thousand-separator comma — a real, plausible cell for any drug
+// dispensed 1,000+ units in a day. "Paracetamol 500 mg,1,234" would split at the LAST comma
+// (between "1" and "234"), stapling the stray "1" onto the drug name and truncating the qty to
+// 234 — silently wrong, not just malformed. Matches from the end instead: the trailing run of
+// digits/commas/decimal-point (optionally quoted) IS the quantity, however many commas it has
+// inside it, and everything before the comma that introduces it is the name (which may itself
+// still legitimately contain commas, e.g. "Drug A, formulation B,50" — regex backtracking finds
+// the correct split by requiring the SUFFIX after it to be a complete, valid number to end of
+// line, which "50" alone satisfies but " formulation B,50" does not).
+export function splitNameQty(line: string): { name: string; qtyStr: string } | null {
+  // Lazy (not greedy) on the name group — tries the SHORTEST possible name first, so it finds
+  // the EARLIEST comma whose remainder is a complete, valid number to end-of-line. A greedy
+  // `.*` here would do the opposite (prefer the longest name, i.e. the LAST comma), which is
+  // exactly the bug this function exists to avoid — see the file-level comment above.
+  const m = line.match(/^(.*?),\s*"?(-?[\d][\d,]*(?:\.\d+)?)"?\s*$/);
+  if (!m) return null;
+  return { name: m[1].trim().replace(/^"|"$/g, ''), qtyStr: m[2] };
+}
+
+/** Same lenient "name,qty" line parser processHosxp already uses — see splitNameQty() for how
+ * the split itself works — plus a header-row sniff: a plain CSV export routinely leads with a
+ * column-title row like "ชื่อยา,จำนวน" whose second field isn't a number, dropped rather than
+ * parsed into a bogus 0-qty row. */
 function parseUsageCsvLines(text: string): { rows: RawUsageRow[]; skipped: number } {
   let lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (lines.length) {
-    const firstIdx = lines[0].lastIndexOf(',');
-    const firstQty = firstIdx >= 0 ? lines[0].slice(firstIdx + 1).trim() : '';
-    if (!/^-?\d+(\.\d+)?$/.test(firstQty)) lines = lines.slice(1);
+    const first = splitNameQty(lines[0]);
+    if (!first || !/^-?[\d,]+(\.\d+)?$/.test(first.qtyStr)) lines = lines.slice(1);
   }
   let skipped = 0;
   const rows = lines
     .map((l) => {
-      const idx = l.lastIndexOf(',');
-      if (idx < 0) { skipped++; return null; }
-      const name = l.slice(0, idx).trim().replace(/^"|"$/g, '');
-      const qty = parseCellNumber(l.slice(idx + 1));
-      if (qty > 0) return { name, qty };
+      const split = splitNameQty(l);
+      if (!split) { skipped++; return null; }
+      const qty = parseCellNumber(split.qtyStr);
+      if (qty > 0) return { name: split.name, qty };
       skipped++;
       return null;
     })
