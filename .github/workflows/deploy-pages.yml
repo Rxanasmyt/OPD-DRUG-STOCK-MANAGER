@@ -10,6 +10,15 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Bug fix: two quick successive pushes to main (a squash-merge habit, or a follow-up push right
+# after another) used to start two build-and-deploy jobs in parallel, both writing to gh-pages
+# via peaceiris/actions-gh-pages@v4 — a real race that can leave gh-pages on a mismatched/older
+# bundle depending on which job's push wins. Queuing (not cancelling) keeps every push's deploy
+# from being silently dropped, same guarantee ci.yml's own commit-by-commit gating relies on.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -20,9 +29,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # See ci.yml's own comment on this pin — Node 20 fails `npm test` on this repo's
+          # jsdom/undici combo, which now matters here too since this job runs the suite below.
+          node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run lint
+      # Bug fix: this workflow used to go straight from `npm ci` to `npm run build` — `build`
+      # (tsc -b && vite build) only catches type errors, not a failing test. ci.yml runs the
+      # suite on every push already, but it's a separate, non-blocking workflow — nothing here
+      # stopped a change that type-checks and builds but fails vitest from still deploying to
+      # production. Safety-critical stock app: a red test suite should never reach gh-pages.
+      - run: npm test
       - run: npm run build
         env:
           GITHUB_PAGES: "true"

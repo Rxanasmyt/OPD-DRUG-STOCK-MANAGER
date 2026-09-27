@@ -7,6 +7,28 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.90.5] - 2026-09-27
+
+### Fixed
+- **ตรวจสอบรอบใหม่ (2 agent คู่ขนาน: สุขภาพ build/deploy config, การเข้าถึงสำหรับคนตาบอดสี+ช่องว่างเทสต์ที่
+  เหลือ) — พบและแก้ 3 จุดจริงใน CI/CD (คำขอจริง: "ตรวจต่อเรื่อยๆจนแอพสมบูรณ์ในทุกด้านในการทำแอพ"):**
+  - **`deploy-pages.yml` ไม่เคยรันชุดเทสต์ก่อน deploy จริง** — เดิมมีแค่ `npm ci` → `npm run build`
+    (แค่ type-check ผ่าน `tsc -b`) การเปลี่ยนแปลงที่ type-check ผ่านแต่ทำให้ vitest ล้ม จะยัง deploy ขึ้น
+    production ได้ปกติ (ci.yml ที่รันเทสต์จริงเป็น workflow แยก ไม่ได้ block การ deploy) — แก้ให้เพิ่ม
+    `npm run lint` และ `npm test` เป็นขั้นตอนก่อน build เสมอ
+  - **ไม่มี concurrency group ใน `deploy-pages.yml`** — push ติดกันเร็วๆ 2 ครั้งเข้า main (เช่นพฤติกรรม
+    squash-merge) จะรัน job deploy พร้อมกัน 2 อัน แข่งกันเขียน gh-pages ผ่าน `peaceiris/actions-gh-pages@v4`
+    อาจจบด้วย build เก่ากว่าทับ build ใหม่กว่า — แก้ให้เพิ่ม `concurrency: {group: pages}` คิวให้รันทีละ job
+    ไม่ทิ้ง deploy ใดไป
+  - **Node version ไม่ตรงกันระหว่าง workflow** — `ci.yml` ปักหมุดไว้ที่ 22 เพราะ Node 20 รัน `npm test`
+    ไม่ผ่าน (jsdom-30/undici-8 เข้ากันไม่ได้ — คอมเมนต์เดิมอธิบายไว้แล้ว) แต่ `deploy-pages.yml`/
+    `firestore-backup.yml`/`low-stock-notify.yml` ยังปักที่ 20 อยู่ — ตอนนี้ไม่มีผลเพราะ 3 workflow นี้ไม่รัน
+    เทสต์ แต่เป็นกับระเบิดเวลาที่จะเจอทันทีที่เพิ่ม `npm test` (ข้อก่อนหน้า) — แก้ให้ปักที่ 22 ให้ตรงกันทั้งหมด
+  - ตรวจสอบแล้ว: ไม่มี `firebase.json`/`.firebaserc` เพราะแอปนี้ deploy ผ่าน GitHub Pages ไม่ใช่ Firebase
+    Hosting (ไม่เกี่ยวกับความเสี่ยง cache ของ service worker ที่ตรวจสอบไว้), `base` path ใน vite.config.ts
+    ตรงกับ `GITHUB_PAGES` env ที่ workflow set ไว้ถูกต้องแล้ว, `tsconfig.json` (`strict: true`) เหมาะสมแล้ว
+    ไม่ต้องแก้
+
 ## [3.90.4] - 2026-09-27
 
 ### Added

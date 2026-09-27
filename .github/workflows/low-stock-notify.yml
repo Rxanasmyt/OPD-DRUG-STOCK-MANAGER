@@ -36,7 +36,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # See firestore-backup.yml's own comment on this same bump — kept in step with
+          # ci.yml/deploy-pages.yml's pin at 22 to avoid the same landmine.
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: node scripts/notify-low-stock.mjs

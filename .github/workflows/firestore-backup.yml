@@ -28,7 +28,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Kept in step with deploy-pages.yml/ci.yml's own pin at 22 — this workflow doesn't run
+          # the test suite itself so 20 never actually broke here, but pinning it separately was
+          # a landmine: adding any test step later would immediately hit the same known Node
+          # 20/jsdom/undici failure ci.yml's comment documents.
+          node-version: 22
           cache: npm
       - run: npm ci
       - id: backup
