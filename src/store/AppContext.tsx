@@ -1699,7 +1699,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }), [state.meds, state.wmFromMed, state.wmToMed, state.wmQty, state.wmReason, userName, toast, toastErr, patch, guardOnce]);
 
   // ---------- adjust ----------
-  const pickAdjType = useCallback((t: AdjType) => patch({ adjType: t, adjMed: null, adjReason: '' }), [patch]);
+  // Bug fix (flow friction): re-tapping the already-active type chip (e.g. confirming "ปรับยอด"
+  // is still selected) used to wipe out adjMed/adjReason too, even though nothing about the
+  // workflow actually changed — only switching to a genuinely DIFFERENT type needs to clear
+  // those, since the reason list and qty-field meaning differ by type.
+  const pickAdjType = useCallback((t: AdjType) => patch((st) => (t === st.adjType ? {} : { adjType: t, adjMed: null, adjReason: '' })), [patch]);
   // Editing the search box after a med is already picked needs to re-open the dropdown, or
   // there's no way to fix a wrong selection short of switching the adjustment type away and
   // back — this used to just patch adjSearch with nothing clearing adjMed, so options (which
@@ -1748,7 +1752,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } satisfies Omit<import('../types').Tx, 'id'>);
       });
       const appliedQty = after - before;
-      patch({ adjQty: '', adjReason: '', adjNote: '', adjMed: null, adjSearch: '' });
+      // Bug fix (flow friction): this used to also clear adjMed/adjSearch, forcing a full
+      // retype-and-repick of the same med to log a second, unrelated adjustment right after the
+      // first (e.g. a "damaged" entry right after a "return" for the same drug, or several
+      // patient returns of the same item back-to-back) — a real extra search+tap on every single
+      // commit, several times a shift, with no safety benefit: only qty/reason/note actually
+      // need clearing between adjustments, not which med is selected.
+      patch({ adjQty: '', adjReason: '', adjNote: '' });
       hapticSuccess();
       toast('บันทึกแล้ว · ' + m.name + ' ' + (appliedQty > 0 ? '+' : appliedQty < 0 ? '−' : '') + nf(Math.abs(appliedQty)) + ' ' + m.unit);
     } catch (e) {
@@ -2396,7 +2406,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const c = 'MED-' + String(next).padStart(4, '0');
         const binIpd = input.binIpd ? normBin(input.binIpd) : '';
         const binSub = input.binSub ? normBin(input.binSub) : '';
-        trx.set(doc(collection(db, 'meds')), {
+        const medRef = doc(collection(db, 'meds'));
+        trx.set(medRef, {
           code: c, name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
           price: input.price || 0, had: input.had, active: true,
           ...(input.fridge ? { fridge: true } : {}),
@@ -2411,12 +2422,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ...(input.category ? { category: input.category } : {}),
           ...(input.packSize && input.packSize > 1 ? { packSize: Math.round(input.packSize) } : {}),
         });
-        return c;
+        return { code: c, id: medRef.id };
       });
-      logAudit({ type: 'med_added', note: 'เพิ่มยาใหม่ ' + name + ' (' + code + ')' });
+      logAudit({ type: 'med_added', note: 'เพิ่มยาใหม่ ' + name + ' (' + code.code + ')' });
       toast('เพิ่ม ' + name + ' แล้ว');
+      // Bug fix (flow friction): a new med is essentially never useful on the shelf without
+      // its label printed — the previous behavior left the person to separately navigate to
+      // "ฉลาก QR", retype the same name they just typed here, and re-select it: 3 extra taps +
+      // a full retype for something the app already has in hand. Pre-selecting it here means
+      // whenever they do open the Labels screen next (the near-universal next step after adding
+      // a med), it's already picked and ready to print — without forcing a navigation change
+      // for anyone adding several meds in a row from this same screen.
+      patch({ labelType: 'med', labelSelected: { [code.id]: true } });
     } catch (e) { toastErr(e, 'เพิ่มยาไม่สำเร็จ'); }
-  }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce]);
+  }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce, patch]);
 
   // One consolidated save for everything about a med someone would want to fix in one place
   // — name/strength (kept together in `name`, same as everywhere else), dosage form, unit,
