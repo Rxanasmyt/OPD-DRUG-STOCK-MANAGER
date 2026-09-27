@@ -2174,7 +2174,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const medIds = new Set(meds.map((m) => m.id));
       labels = state.lots.filter((l) => medIds.has(l.medId)).map((l) => {
         const m = meds.find((x) => x.id === l.medId)!;
-        return { payload: encodeQr('lot', l.code), id: l.code, title: m.name, sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: daysUntil(l.exp) < state.expiryWarnDays ? 'ใกล้หมดอายุ' : undefined, ward: wardOf(m) };
+        // Bug fix (consistency): every other near-expiry check in this file (categoryStats,
+        // riskValue at line 1944) uses `<=`, so a lot exactly `expiryWarnDays` days out counts
+        // as at-risk in every KPI/report total — this one used `<`, silently excluding that
+        // same lot from the printed "ใกล้หมดอายุ" label tag on its boundary day.
+        return { payload: encodeQr('lot', l.code), id: l.code, title: m.name, sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: daysUntil(l.exp) <= state.expiryWarnDays ? 'ใกล้หมดอายุ' : undefined, ward: wardOf(m) };
       });
     } else if (state.locScope === 'sub') {
       // Bug fix: the first cut of this (v3.12.0) printed a generic, drug-less location sheet
