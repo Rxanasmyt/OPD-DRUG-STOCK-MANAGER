@@ -1031,10 +1031,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // the person a TimeoutError's specific "connection stalled" message instead of the
   // function's usual generic failure message, since that one case has a genuinely different
   // recommended action (check your connection) than "something went wrong, try again".
+  // Bug fix (offline clarity): a Firestore transaction (runTx — every commit* function uses it)
+  // doesn't work offline at all — with zero signal it rejects near-instantly with a plain
+  // FirebaseError (code 'unavailable', occasionally 'failed-precondition'), not a TimeoutError,
+  // so this used to fall through to each caller's generic fallback message ("บันทึกไม่สำเร็จ ลอง
+  // ใหม่อีกครั้ง") — reading like something's wrong with the data, not "you have no signal". The
+  // header already shows a persistent offline banner (state.online), but the toast itself gave
+  // no such context. Same clear "check your connection" message TimeoutError already gets.
   const toastErr = useCallback((e: unknown, fallback: string) => {
     console.error(e);
     hapticError();
-    toast(e instanceof TimeoutError ? e.message : fallback);
+    const code = (e as { code?: string } | null)?.code;
+    if (e instanceof TimeoutError) toast(e.message);
+    else if (code === 'unavailable' || code === 'failed-precondition') toast('ไม่มีสัญญาณอินเทอร์เน็ต — ยังไม่ได้บันทึก ลองใหม่อีกครั้งเมื่อเชื่อมต่อได้');
+    else toast(fallback);
   }, [toast]);
 
   // ---------- auth actions ----------

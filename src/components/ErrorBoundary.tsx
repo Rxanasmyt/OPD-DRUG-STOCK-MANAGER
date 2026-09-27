@@ -28,7 +28,14 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
 
   componentDidCatch(error: Error, info: { componentStack: string }) {
     console.error('Uncaught render error:', error, info.componentStack);
-    if (CHUNK_ERROR_RE.test(error.message)) {
+    // Bug fix (offline reload loop): a stale chunk 404s the exact same way whether the device
+    // just lost signal or a new build is actually up — the old code couldn't tell those apart
+    // and reloaded unconditionally. Reloading with zero signal fails to fetch and can land on
+    // the browser's own native offline page, outside this component (and its reload-loop guard)
+    // entirely; if signal comes back and someone navigates again, a fresh drop could repeat it.
+    // Skipping the auto-reload while offline instead shows this component's own recoverable
+    // fallback screen (which still offers a manual reload button once connection is back).
+    if (CHUNK_ERROR_RE.test(error.message) && navigator.onLine) {
       let lastReload = 0;
       try { lastReload = Number(sessionStorage.getItem(RELOAD_GUARD_KEY)) || 0; } catch { /* ignore */ }
       // Only auto-reload if we haven't just tried this — a fresh page load hitting the same
