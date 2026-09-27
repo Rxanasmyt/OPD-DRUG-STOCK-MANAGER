@@ -12,7 +12,7 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -2413,6 +2413,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!canEditMeds) return false;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
+    // Bug fix (data integrity risk): addMed never checked for an existing active med with the
+    // same name — a pharmacist re-adding "Paracetamol 500mg" by mistake (fat-finger, forgot it
+    // was already in the formulary) got no warning at all, silently creating a second,
+    // disconnected stock record for the same real drug. Deliberately NOT a hard block: adding
+    // the SAME name under a DIFFERENT ward on purpose (to later mergeWardMeds them into one
+    // pooled record — see that function's own doc comment) is the app's own intended,
+    // legitimate two-step workflow, so this only warns on the combinations mergeWardMeds could
+    // never resolve anyway (same ward, or either side already shared/covering both wards) —
+    // exactly the "genuinely accidental, no legitimate merge target" case.
+    const nameConflict = state.meds.find((x) => x.active && x.name === name
+      && (input.shared || isSharedMed(x) || wardOf(x) === input.ward));
+    if (nameConflict && !(await confirmAsync(
+      'มียา "' + name + '" ที่เปิดใช้งานอยู่แล้วในฝั่ง' + wardLabel(wardOf(nameConflict))
+      + ' (' + nameConflict.code + ') — เพิ่มรายการใหม่จะเป็นคนละ record แยกจากของเดิม (รวมกันไม่ได้ทีหลัง '
+      + 'เพราะไม่ใช่คู่ OPD/IPD คนละฝั่ง) ยืนยันว่าต้องการเพิ่มยาตัวใหม่จริงหรือไม่?'
+    ))) return false;
     try {
       // The QR printed on a shelf label encodes this `code` — two meds ever ending up with
       // the same code would mean two different drugs' labels both resolve to whichever one
@@ -2475,7 +2491,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       patch({ labelType: 'med', labelSelected: { [code.id]: true } });
       return true;
     } catch (e) { toastErr(e, 'เพิ่มยาไม่สำเร็จ'); return false; }
-  }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce, patch]);
+  }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce, patch, confirmAsync]);
 
   // One consolidated save for everything about a med someone would want to fix in one place
   // — name/strength (kept together in `name`, same as everywhere else), dosage form, unit,
