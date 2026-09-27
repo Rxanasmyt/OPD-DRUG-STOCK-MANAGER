@@ -217,9 +217,19 @@ export default function MedsScreen() {
     [state.meds],
   );
 
-  const medsBeforeWard = state.meds
-    .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : filter === 'inactive' ? !m.active : (m.parFloor === 1 && floorMinOf(m) === 1)))
-    .filter((m) => { const s = q.trim().toLowerCase(); return !s || m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0; });
+  // Bug fix (performance): this whole filter→filter→filter→sort→(20×filter) chain (medsBeforeWard
+  // through groups below) used to be plain consts, recomputed from scratch on EVERY render of
+  // this screen — not just on a search keystroke or tab change, but on any unrelated context
+  // state change too (state.busy flipping during any async action anywhere, state.medsFocusId,
+  // ...), since this screen re-renders whenever useApp()'s value changes at all. On a real
+  // ~580-med formulary that's real, repeated work with no payoff. Memoized with the same
+  // dependency shape wardCounts/catCounts below already used (and correctly relied on).
+  const medsBeforeWard = useMemo(
+    () => state.meds
+      .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : filter === 'inactive' ? !m.active : (m.parFloor === 1 && floorMinOf(m) === 1)))
+      .filter((m) => { const s = q.trim().toLowerCase(); return !s || m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0; }),
+    [state.meds, filter, q],
+  );
 
   // Bug fix (clarity): matchesWard() (used everywhere else — TransferScreen/ReceiveScreen/etc.)
   // deliberately puts a shared med under BOTH the "OPD" and "IPD" tab, since it really is
@@ -239,34 +249,35 @@ export default function MedsScreen() {
       else counts.ipd++;
     });
     return counts;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.meds, filter, q]);
+  }, [medsBeforeWard]);
 
-  const medsBeforeCat = medsBeforeWard.filter((m) => {
+  const medsBeforeCat = useMemo(() => medsBeforeWard.filter((m) => {
     if (wardTab === 'all') return true;
     if (wardTab === 'shared') return isSharedMed(m);
     return !isSharedMed(m) && wardOf(m) === wardTab;
-  });
+  }), [medsBeforeWard, wardTab]);
 
   const catCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     medsBeforeCat.forEach((m) => { const c = categoryOf(m); counts[c] = (counts[c] || 0) + 1; });
     return counts;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.meds, filter, wardTab, q]);
+  }, [medsBeforeCat]);
 
-  const meds = medsBeforeCat
-    .filter((m) => catTab === 'all' || categoryOf(m) === catTab)
-    .sort((a, b) => a.name.localeCompare(b.name, 'th'));
+  const meds = useMemo(
+    () => medsBeforeCat
+      .filter((m) => catTab === 'all' || categoryOf(m) === catTab)
+      .sort((a, b) => a.name.localeCompare(b.name, 'th')),
+    [medsBeforeCat, catTab],
+  );
 
   // Grouped-by-category view of the visible list — only built (and only shown) when browsing
   // "ทุกหมวด" with nothing narrowing it down further; picking one category tab already IS the
   // narrow view, repeating its own name as a lone group header on top would be noise.
-  const groups = catTab === 'all'
+  const groups = useMemo(() => (catTab === 'all'
     ? DRUG_CATEGORIES
       .map((c) => ({ id: c.id, label: c.label, items: meds.filter((m) => categoryOf(m) === c.id) }))
       .filter((g) => g.items.length > 0)
-    : null;
+    : null), [catTab, meds]);
 
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
 

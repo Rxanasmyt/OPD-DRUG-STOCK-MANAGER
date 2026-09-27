@@ -144,7 +144,8 @@ export default function AdjustScreen() {
                 {REASONS[state.adjType].map((r) => {
                   const active = state.adjReason === r;
                   return (
-                    <button key={r} onClick={() => setAdjReason(r)} className="chip" style={{ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green-tint)' : 'var(--bg-card)', color: active ? 'var(--green)' : 'var(--ink)', minHeight: 38 }}>{r}</button>
+                    // Bug fix (accessibility): 38px, under the 44px minimum touch target.
+                    <button key={r} onClick={() => setAdjReason(r)} className="chip" style={{ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green-tint)' : 'var(--bg-card)', color: active ? 'var(--green)' : 'var(--ink)', minHeight: 44 }}>{r}</button>
                   );
                 })}
               </div>

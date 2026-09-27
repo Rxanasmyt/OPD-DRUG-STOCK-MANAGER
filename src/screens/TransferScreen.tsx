@@ -227,7 +227,11 @@ export default function TransferScreen() {
                   {expandedId === m.id && <MedMiniCard medId={m.id} unit={m.unit} />}
                 </div>
                 <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <button onClick={() => bump(m.id, -1)} aria-label={'ลดจำนวน ' + m.name} className="press-spring" style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', width: 40, height: 40, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>−</button>
+                  {/* Bug fix (accessibility): these two were 40px, under the 44px minimum touch
+                      target — tapped repeatedly per line item while building a transfer, unlike
+                      every other actionable button on this screen (scan/clear/print/submit),
+                      which already used 44px+. */}
+                  <button onClick={() => bump(m.id, -1)} aria-label={'ลดจำนวน ' + m.name} className="press-spring" style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', width: 44, height: 44, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>−</button>
                   <input
                     value={state.cart[m.id] || ''}
                     onChange={(e) => setCartQty(m.id, digitsOnly(e.target.value))}
@@ -236,9 +240,9 @@ export default function TransferScreen() {
                     // Bug fix (mobile fit): under 16px, iOS Safari zooms the whole page in on
                     // focus — this is the highest-traffic numeric field on the busiest screen
                     // in the app (walking the shelf, bumping cart quantities item by item).
-                    style={{ width: 62, height: 40, textAlign: 'center', border: '1px solid var(--border)', borderRadius: 10, fontSize: 16, fontWeight: 600 }}
+                    style={{ width: 62, height: 44, textAlign: 'center', border: '1px solid var(--border)', borderRadius: 10, fontSize: 16, fontWeight: 600 }}
                   />
-                  <button onClick={() => bump(m.id, 1)} aria-label={'เพิ่มจำนวน ' + m.name} className="press-spring" style={{ border: '1px solid var(--green)', background: 'var(--green-tint)', color: 'var(--green)', width: 40, height: 40, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>+</button>
+                  <button onClick={() => bump(m.id, 1)} aria-label={'เพิ่มจำนวน ' + m.name} className="press-spring" style={{ border: '1px solid var(--green)', background: 'var(--green-tint)', color: 'var(--green)', width: 44, height: 44, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>+</button>
                 </div>
               </div>
             </div>

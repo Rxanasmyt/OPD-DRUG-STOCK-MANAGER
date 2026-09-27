@@ -41,24 +41,59 @@ export function BottomSheet({ open, onClose, title, children }: {
 }) {
   const [shown, setShown] = useState<{ exiting: boolean } | null>(null);
   const exitTimer = useRef<number>();
+  const cardRef = useRef<HTMLDivElement>(null);
+  // Bug fix (accessibility): whoever tapped/keyboard-activated the button that opened this
+  // sheet had focus silently dropped to <body> on close (no dialog in this app ever restored
+  // it) — for keyboard/switch-device navigation that means starting the next tab sequence over
+  // from the very top of the page instead of picking up right where they left off.
+  const triggerRef = useRef<Element | null>(null);
 
   useEffect(() => {
     window.clearTimeout(exitTimer.current);
     if (open) {
+      triggerRef.current = document.activeElement;
       setShown({ exiting: false });
     } else {
       setShown((s) => (s ? { exiting: true } : s));
       exitTimer.current = window.setTimeout(() => setShown(null), 220);
+      if (triggerRef.current instanceof HTMLElement) triggerRef.current.focus();
+      triggerRef.current = null;
     }
     return () => window.clearTimeout(exitTimer.current);
+  }, [open]);
+
+  // Bug fix (accessibility): moves focus INTO the sheet once it's actually in the DOM (right
+  // after the open-triggering render, not before) — without this, focus stayed on the trigger
+  // button behind the now-visible sheet, so the very next Tab press from a keyboard/switch
+  // device landed on whatever was next in the SCREEN behind it, not in the sheet in front.
+  useEffect(() => {
+    if (open) cardRef.current?.focus();
   }, [open]);
 
   // Same reasoning as ConfirmDialog/PromptDialog — the ✕ button and backdrop tap already close
   // this (both through onClose, so confirmLeaveIfDirty still gets a chance to run); Escape from
   // a physical keyboard or accessibility switch device had no way to do the same.
+  //
+  // Bug fix (accessibility — focus trap): Tab/Shift+Tab used to walk straight out of an open
+  // sheet into the screen behind it (nothing here constrained focus to the sheet's own
+  // focusable elements), landing a keyboard/switch-device user on content that's supposed to be
+  // inert while this sheet is up. Wrapping focus at both ends keeps it inside the sheet, same
+  // guarantee a native <dialog> gets for free.
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab' || !cardRef.current) return;
+      const focusable = cardRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
@@ -74,10 +109,12 @@ export function BottomSheet({ open, onClose, title, children }: {
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
+        ref={cardRef}
         className="card"
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        tabIndex={-1}
         style={{
           width: '100%', maxWidth: 560, maxHeight: '88dvh', overflowY: 'auto',
           borderBottomLeftRadius: 0, borderBottomRightRadius: 0,
@@ -96,7 +133,9 @@ export function BottomSheet({ open, onClose, title, children }: {
           <button
             onClick={onClose}
             aria-label="ปิด"
-            style={{ marginLeft: title ? 0 : 'auto', flex: 'none', width: 32, height: 32, borderRadius: 9, border: 0, background: 'var(--bg-subtle)', color: 'var(--ink)', fontSize: 15 }}
+            // Bug fix (accessibility): under the 44px minimum touch target, despite being the
+            // one control every sheet's close relies on.
+            style={{ marginLeft: title ? 0 : 'auto', flex: 'none', width: 44, height: 44, borderRadius: 9, border: 0, background: 'var(--bg-subtle)', color: 'var(--ink)', fontSize: 15 }}
           >
             ✕
           </button>
