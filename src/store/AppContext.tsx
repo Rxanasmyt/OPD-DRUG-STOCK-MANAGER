@@ -297,7 +297,11 @@ export interface AppCtx {
   updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => void;
 
   // meds (formulary) management
-  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }) => void;
+  // Bug fix (flow friction): returns whether the add actually succeeded — MedsScreen's "add
+  // med" form used to close (discarding every field just typed) right after firing this,
+  // regardless of outcome, since it had no way to tell a failure apart from a success without
+  // awaiting a real signal back.
+  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }) => Promise<boolean | undefined>;
   updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }) => void;
   /** Merges an existing OPD/IPD ward-pair (same name, one 'opd' one 'ipd' record) into a
    * single pooled record — see Med.binIpd. Survives as the OPD-ward record with the IPD
@@ -514,8 +518,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // approving two different pending receives) don't block each other, only a genuine repeat
   // of the exact same action.
   const busyKeys = useRef<Set<string>>(new Set());
-  const guardOnce = useCallback(<A extends unknown[]>(key: string, fn: (...args: A) => Promise<void>) => {
-    return async (...args: A) => {
+  const guardOnce = useCallback(<A extends unknown[], R>(key: string, fn: (...args: A) => Promise<R>) => {
+    return async (...args: A): Promise<R | undefined> => {
       // Bug fix: the ':' + String(args[0]) suffix exists so per-item actions (scrapLot(lotId),
       // commitCount(medId), approveReceive(id)) key on that one item and don't block unrelated
       // items — but String() on anything that isn't already a primitive silently does the
@@ -539,7 +543,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // show "กำลังบันทึก…"/disable the button for exactly as long as guardOnce is actually
       // blocking a repeat — same lifetime, just made visible.
       patch((st) => ({ busy: { ...st.busy, [k]: true } }));
-      try { await fn(...args); } finally {
+      try { return await fn(...args); } finally {
         busyKeys.current.delete(k);
         patch((st) => { const b = { ...st.busy }; delete b[k]; return { busy: b }; });
       }
@@ -2388,10 +2392,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [canEditMeds, logAudit, toast]);
 
   // ---------- meds (formulary) management ----------
-  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }) => {
-    if (!canEditMeds) return;
+  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }): Promise<boolean> => {
+    if (!canEditMeds) return false;
     const name = input.name.trim();
-    if (!name) { toast('กรอกชื่อยาก่อน'); return; }
+    if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
     try {
       // The QR printed on a shelf label encodes this `code` — two meds ever ending up with
       // the same code would mean two different drugs' labels both resolve to whichever one
@@ -2452,7 +2456,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // a med), it's already picked and ready to print — without forcing a navigation change
       // for anyone adding several meds in a row from this same screen.
       patch({ labelType: 'med', labelSelected: { [code.id]: true } });
-    } catch (e) { toastErr(e, 'เพิ่มยาไม่สำเร็จ'); }
+      return true;
+    } catch (e) { toastErr(e, 'เพิ่มยาไม่สำเร็จ'); return false; }
   }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce, patch]);
 
   // One consolidated save for everything about a med someone would want to fix in one place

@@ -19,6 +19,12 @@
 // 6. mergeWardMeds's lost-update-race fix: the merged floor must use each side's LIVE
 //    (transaction-read) floor, not the stale client-cached one — see its own "Bug fix
 //    (lost-update race)" comment.
+// 7. commitReceive's phantom-stock fix: a live re-fetch of each item's med doc, right before
+//    the batch write, must catch a med deleted after the (stale) cache-based guard already
+//    passed — see its own "Bug fix (phantom stock)" comment.
+// 8. approvePendingReceive's data-integrity fix: the med doc read must be inside the
+//    transaction (trx.get), so a concurrent delete is caught instead of silently approving a
+//    request for a med that no longer exists — see its own "Bug fix (data integrity)" comment.
 import { describe, it, expect } from 'vitest';
 import { useEffect } from 'react';
 import { screen, waitFor } from '@testing-library/react';
@@ -260,5 +266,70 @@ describe('mergeWardMeds — lost-update-race regression', () => {
     // Without the live re-read fix, this would write 15 (10 + 5, the stale cached sum) instead
     // of 28 (20 + 8, what actually exists at commit time) — silently discarding 13 real units.
     expect(opdWrite?.data.floor).toBe(28);
+  });
+});
+
+// Drives pickRecvMed → setRecvLot → setRecvExp → setRecvQty → addRecv() one state update at a
+// time (same "wait for the effect that consumes the previous update" shape as AdjustHarness),
+// then exposes commitReceive once exactly one item is queued.
+function ReceiveHarness() {
+  const { state, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, commitReceive } = useApp();
+  useEffect(() => { if (!state.recvMed && !state.recvItems.length) pickRecvMed(MED.id); }, [state.recvMed, state.recvItems.length, pickRecvMed]);
+  useEffect(() => { if (state.recvMed && !state.recvLot) setRecvLot('LOT1'); }, [state.recvMed, state.recvLot, setRecvLot]);
+  useEffect(() => { if (state.recvLot && !state.recvExp) setRecvExp('2027-01-01'); }, [state.recvLot, state.recvExp, setRecvExp]);
+  useEffect(() => { if (state.recvExp && !state.recvQty) setRecvQty('10'); }, [state.recvExp, state.recvQty, setRecvQty]);
+  useEffect(() => { if (state.recvQty && !state.recvItems.length) addRecv(); }, [state.recvQty, state.recvItems.length, addRecv]);
+  return <button disabled={!state.recvItems.length} onClick={commitReceive}>commit-receive</button>;
+}
+
+describe('commitReceive — phantom-stock regression', () => {
+  it('blocks the receive when the med was deleted after the cache-based guard already passed', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ReceiveHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    // Cached copy — passes commitReceive's first (stale) guard, same as it did for whoever
+    // built this recv list a few minutes ago before the confirm screen was reached.
+    fireCollection('meds', [MED]);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'commit-receive' })).not.toBeDisabled());
+
+    // Live: someone else deleted this med in the narrower gap between that cache check and
+    // this commit — the batch write path itself never references an existing doc it could
+    // fail on (a brand-new lots/txs doc has nothing to conflict with), so only the live
+    // re-fetch this fix added can catch it.
+    seedDoc('meds/m1', null);
+
+    await user.click(screen.getByRole('button', { name: 'commit-receive' }));
+    await screen.findByText('มีรายการที่ถูกลบออกจากระบบไปแล้ว — กลับไปลบรายการนั้นออกจากรายการรับเข้าก่อน');
+    expect(getLastBatchWrites().length).toBe(0);
+  });
+});
+
+function ApproveReceiveHarness() {
+  const { approvePendingReceive } = useApp();
+  return <button onClick={() => approvePendingReceive('pr1')}>approve-pr1</button>;
+}
+
+describe('approvePendingReceive — data-integrity regression', () => {
+  it('blocks approval when the med was deleted while the request sat pending', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ApproveReceiveHarness /><Toast /></>);
+    // canApproveReceive gates on role !== 'tech'.
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+
+    seedDoc('pendingReceives/pr1', {
+      recvNo: 'RX1', medId: MED.id, name: MED.name, unit: MED.unit, lotNo: 'LOT1',
+      exp: Date.now() + 30 * 86400000, qty: 10, requestedBy: 'เทค หนึ่ง', requestedByUid: 'tech1',
+      ts: Date.now(), status: 'pending',
+    });
+    // The med this pending request references was deleted while it sat waiting for approval.
+    seedDoc('meds/m1', null);
+
+    await user.click(screen.getByRole('button', { name: 'approve-pr1' }));
+    await screen.findByText('ยาในคำขอนี้ถูกลบออกจากระบบไปแล้ว — อนุมัติไม่ได้ ให้ปฏิเสธคำขอนี้แทน');
+    // Blocked inside the transaction before the pending-request doc's status was updated —
+    // the old client-cache check ran before the transaction and couldn't catch a delete that
+    // landed during the transaction's own retries.
+    expect(getLastTransactionWrites().find((w) => w.path === 'pendingReceives/pr1')).toBeUndefined();
   });
 });

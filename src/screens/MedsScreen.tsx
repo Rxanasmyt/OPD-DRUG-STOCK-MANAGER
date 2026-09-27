@@ -307,9 +307,14 @@ export default function MedsScreen() {
           initial={blankForm()}
           submitLabel="บันทึก"
           onCancel={() => setAddOpen(false)}
-          onSubmit={(v) => {
-            addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined });
-            setAddOpen(false);
+          onSubmit={async (v) => {
+            // Bug fix (flow friction): this used to close the sheet right after firing addMed,
+            // regardless of outcome — a failure (network error, permission check) left the
+            // toast as the only feedback while every field just typed (name, dosage form,
+            // price, bins, par levels, ...) was already gone, forcing a full re-entry to retry.
+            // Now only closes once addMed actually confirms success.
+            const ok = await addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined });
+            if (ok) setAddOpen(false);
           }}
         />
       </BottomSheet>
