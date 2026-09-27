@@ -7,6 +7,26 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.92.4] - 2026-09-27
+
+### Fixed
+- **ตรวจสอบรอบใหม่ (2 agent คู่ขนาน: race condition ระหว่าง 2 อุปกรณ์แก้ไขยา/lot เดียวกัน,
+  การจัดการวันที่ พ.ศ./ค.ศ. และ fiscal year) — พบ 1 บัคจริงด้าน timezone
+  (คำขอจริง: "...ปลอดภัย...รวดเร็ว..."):**
+  - **สคริปต์แจ้งเตือนสต็อกต่ำ (`notify-low-stock.mjs`) ใช้วันที่ตาม timezone ของเครื่องรัน CI
+    (UTC) ไม่ใช่เวลาไทย** — `new Date().toLocaleDateString('th-TH', ...)` ไม่ได้ระบุ `timeZone`
+    เลย ทำให้ใช้ UTC เป็นค่าเริ่มต้นบน GitHub Actions runner ซึ่งตรงกับวันที่ของไทยพอดีเฉพาะช่วง
+    cron ตามกำหนดเวลาเท่านั้น (00:00 UTC = 07:00 ไทย) — ถ้ามีใครกด `workflow_dispatch` รันมือช่วง
+    17:00-23:59 UTC (00:00-06:59 น. ของ "วันถัดไป" ตามเวลาไทย) หัวข้อวันที่ในข้อความ LINE ที่ส่งถึง
+    เจ้าหน้าที่ทุกคนจะช้าไป 1 วันเต็ม — แก้โดยระบุ `timeZone: 'Asia/Bangkok'` ให้ชัดเจน
+  - ตรวจสอบเพิ่ม (ไม่พบปัญหา): race condition ระหว่างธุรกรรมทุกจุดใน AppContext.tsx (commitTransfer,
+    commitWardMove, commitAdjust, scrapLot, commitCount/commitSubCount, commitReconcile,
+    approve/rejectPendingReceive, mergeWardMeds/mergeAllWardPairs, commitReceive, bulk-admin batch
+    actions ทั้งหมด) — ทุกจุดอ่านค่าที่กำลังจะแก้ไขจาก `trx.get()` สดภายใน transaction จริง ไม่ใช่
+    ค่าจาก local state ที่อาจเก่า, ปีพุทธศักราช/ค.ศ. ในการสแกน OCR ไม่สับสน (จำกัดช่วงปีไว้แล้ว),
+    ปีงบประมาณ (ต.ค.-ก.ย.) คำนวณถูกต้อง
+  - ทดสอบผ่านครบ (171 tests), `tsc -b`, `node --check` และ `npm run build` ผ่านสะอาด
+
 ## [3.92.3] - 2026-09-27
 
 ### Fixed

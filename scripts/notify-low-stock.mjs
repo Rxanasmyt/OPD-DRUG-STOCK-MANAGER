@@ -80,7 +80,12 @@ async function main() {
     return;
   }
 
-  const dateLabel = new Date().toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  // Bug fix (timezone): this script runs on a GitHub Actions runner (UTC), not in Thailand —
+  // without an explicit timeZone, toLocaleDateString uses the runner's UTC calendar date, which
+  // is a day behind Bangkok's for roughly 17:00-23:59 UTC (00:00-06:59 the next day in Bangkok).
+  // The scheduled cron run happens to dodge this window, but a manual workflow_dispatch trigger
+  // during those hours would broadcast a stale "today" date to every staff member on the LINE OA.
+  const dateLabel = new Date().toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' });
   const section = (title, rows, fmt) => {
     if (!rows.length) return '';
     const shown = rows.slice(0, MAX_ROWS_PER_SECTION);
