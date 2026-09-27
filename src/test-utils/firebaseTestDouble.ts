@@ -26,9 +26,59 @@ let authListener: ((user: { uid: string } | null) => void) | null = null;
 // which are mocked below to key off this same `.path` string instead of any real SDK internals.
 function ref(path: string) { return { path }; }
 
+// Backing store for one-shot reads (getDoc/getDocs, and a transaction's own trx.get()) — a
+// SEPARATE thing from the onSnapshot listeners above, since AppContext's live-correctness fixes
+// (FEFO lot lookups, the last-admin guard, phantom-stock rechecks) specifically read fresh via
+// getDoc/getDocs/trx.get rather than trusting the onSnapshot cache. Keyed by the same `.path`
+// string every ref resolves to; query()/where() stay no-ops (see the firestore/firestore mock
+// below), so a getDocs() against a collection returns whatever was seeded for that exact path
+// regardless of the where() clause used — same "supply exactly the rows you want" philosophy
+// fireCollection() already uses for onSnapshot, and the reason every test using this keeps its
+// queries against one collection path scoped to a single med/id at a time.
+const docStore = new Map<string, Record<string, unknown> | null>();
+const collectionStore = new Map<string, { id: string; data: Record<string, unknown> }[]>();
+
 export function resetFirebaseTestDouble() {
   listeners.length = 0;
   authListener = null;
+  docStore.clear();
+  collectionStore.clear();
+  lastTransactionWrites = [];
+}
+
+/** Seeds what a one-shot `getDoc(doc(db, ...segments))` or a transaction's `trx.get(...)` on
+ * that same path returns. `data: null` simulates the doc not existing (`snap.exists() === false`
+ * ). Path is the segments joined with '/', matching how `doc()` is mocked below (e.g.
+ * `seedDoc('meds/m1', {...})`, `seedDoc('users/u2', {...})`). */
+export function seedDoc(path: string, data: Record<string, unknown> | null) {
+  docStore.set(path, data);
+}
+
+/** Seeds what a one-shot `getDocs(query(collection(db, path), where(...)))` returns for that
+ * collection path — the where()/query() wrapper is a no-op here (see the mock below), so this
+ * is the ONLY thing that determines the result; it does not re-filter by whatever `where()`
+ * arguments the real code passed. `rows` are plain objects, `id` becomes the doc id (a generated
+ * one if omitted). */
+export function seedCollection(path: string, rows: (Record<string, unknown> & { id?: string })[]) {
+  collectionStore.set(path, rows.map((r, i) => {
+    const { id, ...data } = r;
+    return { id: id ?? `${path}-seed-${i}`, data };
+  }));
+}
+
+function readSeededDoc(path: string) {
+  const data = docStore.has(path) ? docStore.get(path) : undefined;
+  return { exists: () => data != null, id: path.split('/').pop() ?? path, data: () => data ?? undefined };
+}
+
+// Recorded update()/set() calls from the MOST RECENT runTransaction() — replaced fresh on
+// every call, not accumulated across several actions in one test, so a test can commit one
+// action and immediately assert exactly what it wrote (which doc, what fields) without needing
+// to hand-thread a spy through AppContext itself.
+export type TrxWrite = { kind: 'update' | 'set'; path: string; data: Record<string, unknown> };
+let lastTransactionWrites: TrxWrite[] = [];
+export function getLastTransactionWrites(): TrxWrite[] {
+  return lastTransactionWrites;
 }
 
 /** Simulates the given COLLECTION path's live data changing — drives every onSnapshot
@@ -121,13 +171,31 @@ vi.mock('firebase/firestore', () => ({
       if (i >= 0) listeners.splice(i, 1);
     };
   },
-  getDoc: vi.fn(async () => ({ exists: () => false, data: () => undefined })),
-  getDocs: vi.fn(async () => ({ docs: [] })),
+  getDoc: vi.fn(async (target: { path: string }) => readSeededDoc(target.path)),
+  getDocs: vi.fn(async (target: { path: string }) => {
+    const rows = collectionStore.get(target.path) ?? [];
+    const docs: FakeDoc[] = rows.map((r) => ({ id: r.id, data: () => r.data }));
+    return { docs, forEach: (fn: (d: FakeDoc) => void) => docs.forEach(fn) };
+  }),
   addDoc: vi.fn(async () => ({ id: 'new-doc' })),
   updateDoc: vi.fn(async () => undefined),
   setDoc: vi.fn(async () => undefined),
   writeBatch: vi.fn(() => ({ update: vi.fn(), delete: vi.fn(), set: vi.fn(), commit: vi.fn(async () => undefined) })),
-  runTransaction: vi.fn(async (_db: unknown, fn: (trx: unknown) => unknown) => fn({ get: vi.fn(), update: vi.fn(), set: vi.fn() })),
+  // A transaction's own trx.get() reads from the same seeded doc store getDoc() does — the real
+  // SDK guarantees a transaction sees a consistent snapshot as of when it starts, which matters
+  // for real concurrent-write races but not for what these tests check (single-shot correctness
+  // of the FEFO/last-admin/phantom-stock logic against a fixed snapshot, not the retry-on-
+  // conflict behavior itself — that needs a real emulator, not this mock). update()/set() calls
+  // are recorded into lastTransactionWrites so a test can assert exactly what got written.
+  runTransaction: vi.fn(async (_db: unknown, fn: (trx: unknown) => unknown) => {
+    const writes: TrxWrite[] = [];
+    lastTransactionWrites = writes;
+    return fn({
+      get: vi.fn(async (target: { path: string }) => readSeededDoc(target.path)),
+      update: vi.fn((target: { path: string }, data: Record<string, unknown>) => { writes.push({ kind: 'update', path: target.path, data }); }),
+      set: vi.fn((target: { path: string }, data: Record<string, unknown>) => { writes.push({ kind: 'set', path: target.path, data }); }),
+    });
+  }),
   increment: (n: number) => n,
   deleteField: () => undefined,
   serverTimestamp: () => new Date(),
