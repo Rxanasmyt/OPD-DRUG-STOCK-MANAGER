@@ -520,37 +520,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // approving two different pending receives) don't block each other, only a genuine repeat
   // of the exact same action.
   const busyKeys = useRef<Set<string>>(new Set());
-  const guardOnce = useCallback(<A extends unknown[], R>(key: string, fn: (...args: A) => Promise<R>) => {
-    return async (...args: A): Promise<R | undefined> => {
-      // Bug fix: the ':' + String(args[0]) suffix exists so per-item actions (scrapLot(lotId),
-      // commitCount(medId), approveReceive(id)) key on that one item and don't block unrelated
-      // items — but String() on anything that isn't already a primitive silently does the
-      // wrong thing instead of erroring. deleteAllInactiveMeds(medIds: string[]) is the real
-      // case this bit: args[0] is an ARRAY, and String(anArray) joins it with commas — a
-      // formulary-sized cleanup call turned into a single busyKeys/state.busy entry keyed on a
-      // multi-hundred-character comma-joined id list. Not a crash, but it defeated the whole
-      // point of a stable, referenceable key (no screen could show busy state for it) and
-      // bloated state.busy for no reason. Only a genuine scalar id (string/number) gets the
-      // per-item suffix now; anything else (an array, object, undefined) falls back to the
-      // plain action key, same as a zero-arg bulk action like mergeAllWardPairs/shareAllMeds.
-      const first = args[0];
-      const isScalarId = typeof first === 'string' || typeof first === 'number';
-      const k = isScalarId ? key + ':' + first : key;
-      if (busyKeys.current.has(k)) return;
-      busyKeys.current.add(k);
-      // Bug fix: guardOnce already prevented a double-tap from running the same commit twice
-      // (see the comment above) — but nothing about that busy state was ever REACTIVE, so a
-      // commit button gave zero visual feedback while its real Firestore round trip was in
-      // flight on a slow connection. Mirroring the same key into state.busy lets any screen
-      // show "กำลังบันทึก…"/disable the button for exactly as long as guardOnce is actually
-      // blocking a repeat — same lifetime, just made visible.
-      patch((st) => ({ busy: { ...st.busy, [k]: true } }));
-      try { return await fn(...args); } finally {
-        busyKeys.current.delete(k);
-        patch((st) => { const b = { ...st.busy }; delete b[k]; return { busy: b }; });
-      }
-    };
-  }, [patch]);
+  // Bug fix (double-submit on network timeout) support state — declared here (rather than
+  // right next to guardOnce/toastErr below, which each need to be defined elsewhere for their
+  // own reasons — see their own comments) so both can close over the same refs regardless of
+  // definition order. activeGuardKeys tracks which guardOnce key(s) are actively running their
+  // wrapped fn() right now; toastErr reads it to attribute a TimeoutError to the right key even
+  // though every commit function catches/handles that error INSIDE its own fn body and never
+  // rethrows to guardOnce's own try/catch — there'd be nothing for guardOnce to catch otherwise.
+  const activeGuardKeys = useRef<string[]>([]);
+  const recentTimeouts = useRef<Map<string, number>>(new Map());
+  const TIMEOUT_RETRY_WINDOW_MS = 60000;
+  // guardOnce itself is defined further down (right after confirmAsync/respondConfirm), since
+  // its own timeout-retry-warning fix needs confirmAsync in scope.
 
   // ---------- network status (real, not simulated) ----------
   useEffect(() => {
@@ -774,6 +755,68 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     patch({ confirmDialog: null });
     if (resolve) resolve(v);
   }, [patch]);
+
+  // Bug fix (double-submit on network timeout): withTimeout's ~15s clock only stops the CLIENT
+  // from waiting on a hung Firestore call (runTransaction/batch.commit/etc.) — it has no way to
+  // actually cancel that call, so the real write can still land on the server seconds after the
+  // client gives up and shows an error toast. guardOnce's busy-guard (below) has to clear the
+  // instant that timeout fires, or the button would stay stuck "กำลังบันทึก…" forever on a
+  // connection that never recovers — but that means an immediate retry after the error runs as
+  // a fully independent write. For an absolute-value write derived from a client-held DELTA
+  // (e.g. commitAdjust's floor = before + sign*qty, not a Firestore increment()), a retry that
+  // lands on top of an original write that also eventually lands double-applies the delta
+  // silently — a real stock-count corruption, not just a duplicate log row. Tracks the most
+  // recent timeout per guardOnce key (via activeGuardKeys/recentTimeouts, declared up near
+  // busyKeys — see that comment for why toastErr, not this catch block, is what actually
+  // records the timeout: every commit function catches/handles its own errors internally and
+  // never rethrows here) and asks for confirmation before letting that exact action fire again
+  // within a short window — a soft check (only the user knows whether a "บันทึกแล้ว" toast
+  // actually landed moments after the error), not a hard block that could itself strand a
+  // legitimate retry after a connection that's now fine.
+  const guardOnce = useCallback(<A extends unknown[], R>(key: string, fn: (...args: A) => Promise<R>) => {
+    return async (...args: A): Promise<R | undefined> => {
+      // Bug fix: the ':' + String(args[0]) suffix exists so per-item actions (scrapLot(lotId),
+      // commitCount(medId), approveReceive(id)) key on that one item and don't block unrelated
+      // items — but String() on anything that isn't already a primitive silently does the
+      // wrong thing instead of erroring. deleteAllInactiveMeds(medIds: string[]) is the real
+      // case this bit: args[0] is an ARRAY, and String(anArray) joins it with commas — a
+      // formulary-sized cleanup call turned into a single busyKeys/state.busy entry keyed on a
+      // multi-hundred-character comma-joined id list. Not a crash, but it defeated the whole
+      // point of a stable, referenceable key (no screen could show busy state for it) and
+      // bloated state.busy for no reason. Only a genuine scalar id (string/number) gets the
+      // per-item suffix now; anything else (an array, object, undefined) falls back to the
+      // plain action key, same as a zero-arg bulk action like mergeAllWardPairs/shareAllMeds.
+      const first = args[0];
+      const isScalarId = typeof first === 'string' || typeof first === 'number';
+      const k = isScalarId ? key + ':' + first : key;
+      if (busyKeys.current.has(k)) return;
+      const lastTimeout = recentTimeouts.current.get(k);
+      if (lastTimeout !== undefined && Date.now() - lastTimeout < TIMEOUT_RETRY_WINDOW_MS) {
+        const ok = await confirmAsync('รายการก่อนหน้าอาจยังไม่เสร็จสมบูรณ์ (การเชื่อมต่อช้า/หลุด) ระบบตรวจสอบไม่ได้ว่าบันทึกไปแล้วหรือยัง ถ้าเพิ่งเห็นข้อความ "บันทึกแล้ว" ไม่ต้องทำซ้ำ — ต้องการทำรายการนี้อีกครั้งหรือไม่?');
+        if (!ok) return;
+      }
+      recentTimeouts.current.delete(k);
+      busyKeys.current.add(k);
+      // Makes `k` visible to toastErr while fn() is running (see the fix's own comment up near
+      // busyKeys) — toastErr is what actually calls recentTimeouts.current.set(k, ...) on a
+      // TimeoutError, since fn() itself never rethrows one out to this level.
+      activeGuardKeys.current.push(k);
+      // Bug fix: guardOnce already prevented a double-tap from running the same commit twice
+      // (see the comment above) — but nothing about that busy state was ever REACTIVE, so a
+      // commit button gave zero visual feedback while its real Firestore round trip was in
+      // flight on a slow connection. Mirroring the same key into state.busy lets any screen
+      // show "กำลังบันทึก…"/disable the button for exactly as long as guardOnce is actually
+      // blocking a repeat — same lifetime, just made visible.
+      patch((st) => ({ busy: { ...st.busy, [k]: true } }));
+      try {
+        return await fn(...args);
+      } finally {
+        activeGuardKeys.current = activeGuardKeys.current.filter((x) => x !== k);
+        busyKeys.current.delete(k);
+        patch((st) => { const b = { ...st.busy }; delete b[k]; return { busy: b }; });
+      }
+    };
+  }, [patch, confirmAsync]);
 
   // Same reasoning as confirmAsync above, for window.prompt() — also unreliable inside the
   // same embedded contexts, also with no visible error when it silently no-ops. Resolves the
@@ -1074,7 +1117,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     console.error(e);
     hapticError();
     const code = (e as { code?: string } | null)?.code;
-    if (e instanceof TimeoutError) toast(e.message);
+    if (e instanceof TimeoutError) {
+      // Bug fix (double-submit on network timeout): attributes this timeout to whichever
+      // guardOnce-wrapped commit function is currently running (see activeGuardKeys' own
+      // comment up near busyKeys) so a retry of that SAME action gets the confirm-before-retry
+      // warning — this is the only place that error is actually observed, since every commit
+      // function's own try/catch handles it right here instead of rethrowing to guardOnce.
+      activeGuardKeys.current.forEach((k) => recentTimeouts.current.set(k, Date.now()));
+      toast(e.message);
+    }
     else if (code === 'unavailable' || code === 'failed-precondition') toast('ไม่มีสัญญาณอินเทอร์เน็ต — ยังไม่ได้บันทึก ลองใหม่อีกครั้งเมื่อเชื่อมต่อได้');
     else toast(fallback);
   }, [toast]);

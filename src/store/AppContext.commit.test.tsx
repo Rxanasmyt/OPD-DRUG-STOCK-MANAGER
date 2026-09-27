@@ -37,15 +37,22 @@
 // 12. processHosxp's paste-mistake safety net: an exact doubled-paste or a suspiciously large
 //     row count must ask for confirmation before staging rows for reconcile — see its own "Bug
 //     fix (paste-mistake safety net)" comment.
-import { describe, it, expect } from 'vitest';
+// 13. guardOnce's double-submit-on-timeout fix: after a TimeoutError, guardOnce must ask for
+//     confirmation before letting that same guarded action fire again within the retry window,
+//     since the original write may still land on the server — see guardOnce's own "Bug fix
+//     (double-submit on network timeout)" comment.
+import { describe, it, expect, vi } from 'vitest';
 import { useEffect } from 'react';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { runTransaction } from 'firebase/firestore';
 import TConfirmScreen from '../screens/TConfirmScreen';
+import AdjustScreen from '../screens/AdjustScreen';
 import { useApp } from './AppContext';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import Toast from '../components/Toast';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { TimeoutError } from '../utils/timeout';
 import {
   signInAs, fireCollection, hasListener, seedDoc, seedCollection, getLastTransactionWrites,
   getLastBatchWrites,
@@ -487,5 +494,68 @@ describe('processHosxp — paste-mistake safety net regression', () => {
 
     // Blocked before hosxpRows was ever populated — still "none".
     expect(screen.getByTestId('rowCount').textContent).toBe('none');
+  });
+});
+
+describe('guardOnce — double-submit-on-timeout regression', () => {
+  it('asks for confirmation before letting a timed-out action retry, and skips the retry write on cancel', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><AdjustScreen /><Toast /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+
+    await user.click(await screen.findByRole('button', { name: /^ปรับยอด/ }));
+    const search = await screen.findByPlaceholderText('ค้นหาชื่อยา');
+    await user.type(search, 'Paracetamol');
+    await user.click(await screen.findByRole('button', { name: new RegExp(MED.name) }));
+    await user.click(screen.getByRole('button', { name: 'บันทึกจ่ายผิดรายการ' }));
+    await screen.findByText(/ส่วนต่างที่จะลบออกจากยอดระบบ/);
+    const qty = screen.getAllByRole('textbox').find((el) => el.getAttribute('inputmode') === 'numeric')!;
+    await user.type(qty, '5');
+
+    // First tap: the underlying transaction hangs long enough that withTimeout gives up —
+    // simulated directly by rejecting with the same TimeoutError withTimeout itself throws,
+    // rather than waiting out the real 15s clock.
+    vi.mocked(runTransaction).mockRejectedValueOnce(new TimeoutError());
+    await user.click(screen.getByRole('button', { name: 'บันทึกปรับยอด' }));
+    await screen.findByText(/การเชื่อมต่อช้าเกินไปหรือขาดหาย/);
+    expect(getLastTransactionWrites().length).toBe(0);
+
+    // Second tap (retry) within the window: without the fix, this would go straight through to
+    // a second, fully independent transaction — the exact double-apply risk this fix closes.
+    await user.click(screen.getByRole('button', { name: 'บันทึกปรับยอด' }));
+    await screen.findByText(/รายการก่อนหน้าอาจยังไม่เสร็จสมบูรณ์/);
+    await user.click(screen.getByRole('button', { name: 'ยกเลิก' }));
+
+    expect(getLastTransactionWrites().length).toBe(0);
+  });
+
+  it('proceeds with the retry once confirmed, running the transaction normally', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><AdjustScreen /><Toast /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    seedDoc('meds/m1', { floor: MED.floor });
+
+    await user.click(await screen.findByRole('button', { name: /^ปรับยอด/ }));
+    const search = await screen.findByPlaceholderText('ค้นหาชื่อยา');
+    await user.type(search, 'Paracetamol');
+    await user.click(await screen.findByRole('button', { name: new RegExp(MED.name) }));
+    await user.click(screen.getByRole('button', { name: 'บันทึกจ่ายผิดรายการ' }));
+    await screen.findByText(/ส่วนต่างที่จะลบออกจากยอดระบบ/);
+    const qty = screen.getAllByRole('textbox').find((el) => el.getAttribute('inputmode') === 'numeric')!;
+    await user.type(qty, '5');
+
+    vi.mocked(runTransaction).mockRejectedValueOnce(new TimeoutError());
+    await user.click(screen.getByRole('button', { name: 'บันทึกปรับยอด' }));
+    await screen.findByText(/การเชื่อมต่อช้าเกินไปหรือขาดหาย/);
+
+    await user.click(screen.getByRole('button', { name: 'บันทึกปรับยอด' }));
+    await screen.findByText(/รายการก่อนหน้าอาจยังไม่เสร็จสมบูรณ์/);
+    await user.click(screen.getByRole('button', { name: 'ยืนยัน' }));
+
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
   });
 });
