@@ -801,6 +801,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // vite.config.ts): the new service worker still downloads in the background exactly the
   // same, it just waits for updateSWRef.current() to be called instead of firing itself.
   const updateSWRef = useRef<((reloadPage?: boolean) => Promise<void>) | null>(null);
+  // Bug fix (stability): registerSW() only ever checks for a new service worker once, at the
+  // moment this hook mounts. This app is a client-routed SPA meant to be opened once on a ward
+  // tablet and left on for an entire multi-day shift rotation (see this comment's sibling note
+  // on registerType: 'prompt') — with no full-page navigation ever happening, nothing after that
+  // first check would ever notice a new deploy, so a stale tablet could run an already-superseded
+  // build (missing a since-shipped safety fix) indefinitely with the "มีแอพเวอร์ชันใหม่" banner
+  // never appearing. registration.update() re-checks the SW script against the network; calling
+  // it hourly and whenever the tab becomes visible again catches a new deploy within one shift
+  // without polling so often it's wasteful.
+  const swRegistrationRef = useRef<ServiceWorkerRegistration | null>(null);
   useEffect(() => {
     let cancelled = false;
     // Loaded lazily and only in the actual built PWA — this virtual module doesn't exist in
@@ -810,11 +820,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
         updateSWRef.current = registerSW({
           onNeedRefresh() { patch({ updateAvailable: true }); },
+          onRegisteredSW(_swUrl, registration) { swRegistrationRef.current = registration ?? null; },
         });
       })
       .catch(() => { /* not running as an installed/built PWA (e.g. plain dev server) — no-op */ });
     return () => { cancelled = true; };
   }, [patch]);
+  useEffect(() => {
+    const checkForUpdate = () => { swRegistrationRef.current?.update().catch(() => {}); };
+    const intervalId = setInterval(checkForUpdate, 60 * 60 * 1000);
+    const onVisible = () => { if (document.visibilityState === 'visible') checkForUpdate(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(intervalId); document.removeEventListener('visibilitychange', onVisible); };
+  }, []);
   const applyUpdate = useCallback(() => {
     patch({ updateAvailable: false });
     updateSWRef.current?.(true);
