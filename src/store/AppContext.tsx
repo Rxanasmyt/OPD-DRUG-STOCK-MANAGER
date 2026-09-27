@@ -302,7 +302,9 @@ export interface AppCtx {
   // regardless of outcome, since it had no way to tell a failure apart from a success without
   // awaiting a real signal back.
   addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }) => Promise<boolean | undefined>;
-  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }) => void;
+  // Bug fix (flow friction): same shape as addMed above — MedsScreen's edit-med sheet used to
+  // close (discarding every edited field) right after firing this, regardless of outcome.
+  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }) => Promise<boolean | undefined>;
   /** Merges an existing OPD/IPD ward-pair (same name, one 'opd' one 'ipd' record) into a
    * single pooled record — see Med.binIpd. Survives as the OPD-ward record with the IPD
    * record's bin code carried over as `binIpd`; floor/used30/usedPrev30 are summed (not
@@ -2465,10 +2467,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // price, high-alert flag, shelf/bin, and both par levels — instead of hunting across
   // separate screens. `code` (the QR/label identifier) is deliberately never touched here —
   // labels already printed with it must keep resolving to this med.
-  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }) => {
-    if (!canEditMeds) return;
+  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }): Promise<boolean> => {
+    if (!canEditMeds) return false;
     const name = input.name.trim();
-    if (!name) { toast('กรอกชื่อยาก่อน'); return; }
+    if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
     const binIpd = input.binIpd ? normBin(input.binIpd) : '';
     const binSub = input.binSub ? normBin(input.binSub) : '';
     const patch = {
@@ -2493,7 +2495,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await withTimeout(updateDoc(doc(db, 'meds', medId), patch));
       logAudit({ type: 'med_edited', note: 'แก้ไขข้อมูลยา ' + name });
       toast('บันทึกข้อมูล ' + name + ' แล้ว');
-    } catch (e) { console.error(e); toast('บันทึกไม่สำเร็จ'); }
+      return true;
+    } catch (e) { console.error(e); toast('บันทึกไม่สำเร็จ'); return false; }
   }), [canEditMeds, logAudit, toast, guardOnce]);
 
   // Merges a still-separate OPD/IPD ward pair (same name — see the "ยาตัวเดียวกันที่วางทั้งสอง
