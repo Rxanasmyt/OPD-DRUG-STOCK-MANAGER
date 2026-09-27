@@ -44,13 +44,20 @@ service cloud.firestore {
     }
 
     // ---- username -> uid claims (login is by username, not email) ----
-    // Publicly readable (needed to check "is this username taken" before signup,
-    // and it's not sensitive — just an index), but a username can only ever be
-    // claimed once: the doc ID is the username, and this only matches the
-    // "create" case (the doc not existing yet) — once claimed, any further
-    // write is treated as an "update" and blocked below.
+    // Publicly readable one-at-a-time (needed to check "is this username taken" before
+    // signup, and a single username's existence isn't sensitive), but a username can only
+    // ever be claimed once: the doc ID is the username, and create only matches the doc not
+    // existing yet — once claimed, any further write is treated as an "update" and blocked
+    // below.
+    // Bug fix (security): `allow read` grants both `get` (check one username) AND `list`
+    // (query the whole collection) — the app itself only ever does the former (see
+    // AppContext.tsx's signup flow), but the blanket rule let anyone with no account at all
+    // dump every username in the hospital system in one unauthenticated query, no guessing
+    // needed — real enumeration, not just a theoretical gap. `allow get` alone still serves
+    // every real use of this collection.
     match /usernames/{uname} {
-      allow read: if true;
+      allow get: if true;
+      allow list: if false;
       allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
       allow update, delete: if false;
     }

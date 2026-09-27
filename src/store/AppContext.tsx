@@ -409,10 +409,18 @@ export interface AppCtx {
 
 const Ctx = createContext<AppCtx | null>(null);
 
+// Bug fix (security): 'auth/user-not-found' used to get its own distinct message
+// ("ไม่พบบัญชีนี้") separate from the wrong-password/invalid-credential message — telling an
+// unauthenticated attacker (no account needed) exactly whether a guessed username exists at
+// all. Combined with the /usernames enumeration gap fixed in firestore.rules, that made
+// building a valid-username list, then focusing password-guessing effort on it, trivial. One
+// shared message for "no such account" and "wrong password" gives no such signal — this is the
+// same reasoning most login forms use ("invalid username or password", never distinguishing
+// which half was wrong).
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
   'auth/invalid-email': 'ชื่อผู้ใช้ไม่ถูกต้อง',
   'auth/user-disabled': 'บัญชีนี้ถูกปิดใช้งาน',
-  'auth/user-not-found': 'ไม่พบบัญชีนี้',
+  'auth/user-not-found': 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
   'auth/wrong-password': 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
   'auth/invalid-credential': 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
   'auth/email-already-in-use': 'ชื่อผู้ใช้นี้มีคนใช้แล้ว',
