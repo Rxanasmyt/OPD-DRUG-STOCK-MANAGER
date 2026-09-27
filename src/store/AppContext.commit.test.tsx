@@ -25,6 +25,8 @@
 // 8. approvePendingReceive's data-integrity fix: the med doc read must be inside the
 //    transaction (trx.get), so a concurrent delete is caught instead of silently approving a
 //    request for a med that no longer exists — see its own "Bug fix (data integrity)" comment.
+// 9. commitCount/commitSubCount's silent-no-op fix: a deleted med must produce a clear toast,
+//    not a silent do-nothing — see their own "Bug fix (silent no-op)" comments.
 import { describe, it, expect } from 'vitest';
 import { useEffect } from 'react';
 import { screen, waitFor } from '@testing-library/react';
@@ -331,5 +333,48 @@ describe('approvePendingReceive — data-integrity regression', () => {
     // the old client-cache check ran before the transaction and couldn't catch a delete that
     // landed during the transaction's own retries.
     expect(getLastTransactionWrites().find((w) => w.path === 'pendingReceives/pr1')).toBeUndefined();
+  });
+});
+
+function CountHarness() {
+  const { setCountInput, commitCount } = useApp();
+  useEffect(() => { setCountInput('m1', '10'); }, [setCountInput]);
+  return <button onClick={() => commitCount('m1')}>commit-count</button>;
+}
+
+function SubCountHarness() {
+  const { setSubCountInput, commitSubCount } = useApp();
+  useEffect(() => { setSubCountInput('m1', '10'); }, [setSubCountInput]);
+  return <button onClick={() => commitSubCount('m1')}>commit-subcount</button>;
+}
+
+describe('commitCount / commitSubCount — silent-no-op regression', () => {
+  it('commitCount toasts a clear message instead of doing nothing when the med is deleted', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><CountHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    // The med row this count input was typed for is gone from the live cache by commit time —
+    // deleted by another device. fireCollection([]) rather than never firing at all, so
+    // state.meds is confirmed empty, not just still-loading.
+    fireCollection('meds', []);
+
+    await user.click(screen.getByRole('button', { name: 'commit-count' }));
+    await screen.findByText('รายการนี้ถูกลบออกจากระบบไปแล้ว — ลบแถวนี้ออกจากหน้านับสต็อกแล้วรีเฟรชหน้าจอ');
+    // Confirms this returns before ever starting a transaction — not just a different failure
+    // deeper in the write path.
+    expect(getLastTransactionWrites().length).toBe(0);
+  });
+
+  it('commitSubCount toasts a clear message instead of doing nothing when the med is deleted', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><SubCountHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', []);
+
+    await user.click(screen.getByRole('button', { name: 'commit-subcount' }));
+    await screen.findByText('รายการนี้ถูกลบออกจากระบบไปแล้ว — ลบแถวนี้ออกจากหน้านับสต็อกแล้วรีเฟรชหน้าจอ');
+    expect(getLastTransactionWrites().length).toBe(0);
   });
 });
