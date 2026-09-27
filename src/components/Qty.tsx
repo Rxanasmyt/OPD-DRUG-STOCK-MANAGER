@@ -22,7 +22,7 @@ import { nf } from '../utils/format';
 // shelf and an "ต่ำมาก" one can look the same at a glance. toneFor()/subTone() only ever return
 // one of these three exact CSS variable strings, so map them back to a shape as well — color
 // stays the primary/fast read for everyone else, the glyph is what makes it not color-only.
-function severityIcon(tone: string): string | null {
+export function severityIcon(tone: string): string | null {
   if (tone === 'var(--red)') return '●';
   if (tone === 'var(--amber)') return '◆';
   if (tone === 'var(--green)') return '✓';

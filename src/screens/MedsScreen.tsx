@@ -217,9 +217,19 @@ export default function MedsScreen() {
     [state.meds],
   );
 
-  const medsBeforeWard = state.meds
-    .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : filter === 'inactive' ? !m.active : (m.parFloor === 1 && floorMinOf(m) === 1)))
-    .filter((m) => { const s = q.trim().toLowerCase(); return !s || m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0; });
+  // Bug fix (performance): this whole filter→filter→filter→sort→(20×filter) chain (medsBeforeWard
+  // through groups below) used to be plain consts, recomputed from scratch on EVERY render of
+  // this screen — not just on a search keystroke or tab change, but on any unrelated context
+  // state change too (state.busy flipping during any async action anywhere, state.medsFocusId,
+  // ...), since this screen re-renders whenever useApp()'s value changes at all. On a real
+  // ~580-med formulary that's real, repeated work with no payoff. Memoized with the same
+  // dependency shape wardCounts/catCounts below already used (and correctly relied on).
+  const medsBeforeWard = useMemo(
+    () => state.meds
+      .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : filter === 'inactive' ? !m.active : (m.parFloor === 1 && floorMinOf(m) === 1)))
+      .filter((m) => { const s = q.trim().toLowerCase(); return !s || m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0; }),
+    [state.meds, filter, q],
+  );
 
   // Bug fix (clarity): matchesWard() (used everywhere else — TransferScreen/ReceiveScreen/etc.)
   // deliberately puts a shared med under BOTH the "OPD" and "IPD" tab, since it really is
@@ -239,34 +249,35 @@ export default function MedsScreen() {
       else counts.ipd++;
     });
     return counts;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.meds, filter, q]);
+  }, [medsBeforeWard]);
 
-  const medsBeforeCat = medsBeforeWard.filter((m) => {
+  const medsBeforeCat = useMemo(() => medsBeforeWard.filter((m) => {
     if (wardTab === 'all') return true;
     if (wardTab === 'shared') return isSharedMed(m);
     return !isSharedMed(m) && wardOf(m) === wardTab;
-  });
+  }), [medsBeforeWard, wardTab]);
 
   const catCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     medsBeforeCat.forEach((m) => { const c = categoryOf(m); counts[c] = (counts[c] || 0) + 1; });
     return counts;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.meds, filter, wardTab, q]);
+  }, [medsBeforeCat]);
 
-  const meds = medsBeforeCat
-    .filter((m) => catTab === 'all' || categoryOf(m) === catTab)
-    .sort((a, b) => a.name.localeCompare(b.name, 'th'));
+  const meds = useMemo(
+    () => medsBeforeCat
+      .filter((m) => catTab === 'all' || categoryOf(m) === catTab)
+      .sort((a, b) => a.name.localeCompare(b.name, 'th')),
+    [medsBeforeCat, catTab],
+  );
 
   // Grouped-by-category view of the visible list — only built (and only shown) when browsing
   // "ทุกหมวด" with nothing narrowing it down further; picking one category tab already IS the
   // narrow view, repeating its own name as a lone group header on top would be noise.
-  const groups = catTab === 'all'
+  const groups = useMemo(() => (catTab === 'all'
     ? DRUG_CATEGORIES
       .map((c) => ({ id: c.id, label: c.label, items: meds.filter((m) => categoryOf(m) === c.id) }))
       .filter((g) => g.items.length > 0)
-    : null;
+    : null), [catTab, meds]);
 
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
 
@@ -307,9 +318,14 @@ export default function MedsScreen() {
           initial={blankForm()}
           submitLabel="บันทึก"
           onCancel={() => setAddOpen(false)}
-          onSubmit={(v) => {
-            addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined });
-            setAddOpen(false);
+          onSubmit={async (v) => {
+            // Bug fix (flow friction): this used to close the sheet right after firing addMed,
+            // regardless of outcome — a failure (network error, permission check) left the
+            // toast as the only feedback while every field just typed (name, dosage form,
+            // price, bins, par levels, ...) was already gone, forcing a full re-entry to retry.
+            // Now only closes once addMed actually confirms success.
+            const ok = await addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined });
+            if (ok) setAddOpen(false);
           }}
         />
       </BottomSheet>
@@ -538,9 +554,13 @@ export default function MedsScreen() {
               initial={formFromMed(m)}
               submitLabel="บันทึกการแก้ไข"
               onCancel={() => setEditingId(null)}
-              onSubmit={(v) => {
-                updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined });
-                setEditingId(null);
+              onSubmit={async (v) => {
+                // Bug fix (flow friction): same fix as addMed's own onSubmit above — this used
+                // to close the sheet right after firing updateMedFull regardless of outcome, so
+                // a failure (network error, permission check) lost every edited field with only
+                // a toast to show for it. Now only closes once the save actually confirms success.
+                const ok = await updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined });
+                if (ok) setEditingId(null);
               }}
               // ยาชื่อเดียวกันที่แยกรายการไว้คนละ ward (คนละ Firestore doc ตามหลักการออกแบบ
               // เดิม) มักมีชั้นวางคนละที่ ให้แก้ชั้นวางของอีกฝั่งได้จากฟอร์มนี้เลยเพื่อความ

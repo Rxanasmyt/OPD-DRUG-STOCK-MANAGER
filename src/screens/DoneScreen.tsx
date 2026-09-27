@@ -9,9 +9,19 @@ export default function DoneScreen() {
   const medById = (id?: string) => (id ? state.meds.find((m) => m.id === id) : undefined);
   const isTransferDone = state.doneKind === 'transfer';
   const title = state.doneKind === 'receive' ? 'รับเข้า substock สำเร็จ' : state.doneKind === 'recvPending' ? 'ส่งให้เภสัชกรอนุมัติแล้ว' : 'เติมหน้างานสำเร็จ';
+  // Bug fix (misleading copy): the offline branch this used to have implied an "saved locally,
+  // will sync later" queued-write guarantee this screen's own commit path doesn't provide —
+  // commitTransfer/commitReceive both `await` a real Firestore transaction/batch commit, which
+  // only resolves once the server has ACKNOWLEDGED the write (backed by a hard ~15s timeout —
+  // see withTimeout's own comment — specifically because that call hangs indefinitely while
+  // genuinely offline, rather than resolving early off the local persistence cache). This
+  // screen is only ever reached after that await already succeeded, so by the time anyone
+  // reads this line the write is already confirmed synced — regardless of what state.online
+  // happens to read at that exact instant (it could still flip in the split second after a
+  // successful commit, before the browser's offline event re-renders).
   const subLine = state.doneKind === 'recvPending'
     ? 'ยอดจะเข้าสต็อกก็ต่อเมื่อเภสัชกร/แอดมินกดอนุมัติในหน้า "รับยาเข้า" — รายการอยู่ในสถานะรออนุมัติแล้ว'
-    : state.online ? 'บันทึกและ audit trail แล้ว' : 'บันทึกไว้ในเครื่อง จะ sync ให้เมื่อกลับมาออนไลน์';
+    : 'บันทึกและ audit trail แล้ว';
   // Both "รับเข้า" (คลังใหญ่ → substock) and "เติมหน้างาน" (substock → ชั้นจ่ายยา) move the
   // substock number — this is exactly what the paper บัตรคุมสต็อกยา tracks, kept per
   // ปีงบประมาณ. Show it live right here instead of making someone go check a separate screen.

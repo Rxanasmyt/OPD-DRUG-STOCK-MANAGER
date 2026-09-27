@@ -7,6 +7,7 @@ import { EmptyState } from '../components/EmptyState';
 import { SkeletonList } from '../components/Skeleton';
 import { SearchInput } from '../components/SearchInput';
 import { printKpiReportSheet } from '../utils/print';
+import { severityIcon } from '../components/Qty';
 
 // "exec" leads the tab strip — a PTC/pharmacy-head reader opening this screen wants the
 // headline picture first, not to have to find it after four operational tabs. "kpi" trails
@@ -330,7 +331,14 @@ export default function ReportScreen() {
               >
                 <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--ink)' }}>{t.name}</span>
                 <span style={{ width: 64, textAlign: 'right', flex: 'none', fontSize: 13, color: 'var(--ink)' }}>{t.used}</span>
-                <span style={{ width: 52, textAlign: 'right', flex: 'none', fontSize: 13, fontWeight: 600, color: t.tone }}>{t.doh}</span>
+                {/* Bug fix (accessibility): this cell used to be a bare color-coded number with
+                    nothing else distinguishing "วิกฤต" from "ปกติ" — the same color-only signal
+                    Qty.tsx's own severityIcon() was added to close everywhere else, just not
+                    applied here since this table renders the tone inline instead of via <Qty>. */}
+                <span style={{ width: 52, textAlign: 'right', flex: 'none', fontSize: 13, fontWeight: 600, color: t.tone }}>
+                  {severityIcon(t.tone) && <span aria-hidden="true" style={{ marginRight: 2 }}>{severityIcon(t.tone)}</span>}
+                  {t.doh}
+                </span>
               </button>
             ))}
           </div>
@@ -494,8 +502,16 @@ export default function ReportScreen() {
 
                 <div className="grid-2 tablet-4" style={{ marginBottom: 16 }}>
                   <ExecStat label="มูลค่าคงคลังล่าสุด" value={kpiLast ? nf(Math.round(kpiLast.totalStockValue)) + ' บาท' : '—'} note={kpiLast ? 'ณ ' + kpiLast.date : undefined} />
-                  <ExecStat label="รับเข้ารวมช่วงนี้" value={nf(kpiSum((r) => r.receivedQty))} note={nf(kpiSum((r) => r.receivedCount)) + ' ครั้ง'} />
-                  <ExecStat label="จ่ายจริงรวม (HOSxP)" value={nf(kpiSum((r) => r.dispensedQty))} note={kpiReconcileMissedDays > 0 ? kpiReconcileMissedDays + ' วันไม่ได้ตัดยอด' : 'ตัดยอดครบทุกวัน'} tone={kpiReconcileMissedDays > 0 ? 'var(--amber)' : undefined} />
+                  {/* Bug fix (KPI clarity): these two sum a raw qty across the ENTIRE active
+                      formulary — tablets + ml + vials + boxes for hundreds of different drugs
+                      all added into one number, unlike the neighboring tiles (บาท/%/รายการ/ชม.)
+                      which all use one real, consistent unit. Printed on the official PTC
+                      summary sheet, an unlabeled "48,213" here reads as a real volume figure —
+                      it isn't one. Labeling explicitly as "คละหน่วย" (mixed units) so a
+                      reviewer skimming the printed report doesn't mistake it for something it's
+                      not. */}
+                  <ExecStat label="รับเข้ารวมช่วงนี้ (คละหน่วย)" value={nf(kpiSum((r) => r.receivedQty))} note={nf(kpiSum((r) => r.receivedCount)) + ' ครั้ง'} />
+                  <ExecStat label="จ่ายจริงรวม (HOSxP, คละหน่วย)" value={nf(kpiSum((r) => r.dispensedQty))} note={kpiReconcileMissedDays > 0 ? kpiReconcileMissedDays + ' วันไม่ได้ตัดยอด' : 'ตัดยอดครบทุกวัน'} tone={kpiReconcileMissedDays > 0 ? 'var(--amber)' : undefined} />
                   <ExecStat
                     label="par ผิดพลาดล่าสุด"
                     value={kpiLast ? nf(kpiLast.parErrorCount) + ' รายการ' : '—'}

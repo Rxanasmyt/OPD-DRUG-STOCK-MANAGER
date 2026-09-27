@@ -789,8 +789,12 @@ export function printKpiReportSheet(rows: DailyMetrics[], meta: { fromDate: stri
   const short = (d: string) => d.slice(5); // "2026-09-22" -> "09-22", plenty for a chart axis
   const stats: { label: string; value: string; note?: string; tone?: string }[] = [
     { label: 'มูลค่าคงคลังล่าสุด', value: last ? Math.round(last.totalStockValue).toLocaleString('en-US') + ' บาท' : '—', note: last ? 'ณ ' + last.date : undefined },
-    { label: 'รับเข้ารวมช่วงนี้', value: sum((r) => r.receivedQty).toLocaleString('en-US'), note: sum((r) => r.receivedCount).toLocaleString('en-US') + ' ครั้ง' },
-    { label: 'จ่ายจริงรวม (HOSxP)', value: sum((r) => r.dispensedQty).toLocaleString('en-US') },
+    // Bug fix (KPI clarity): same fix as ReportScreen's on-screen tiles — this sums a raw qty
+    // across the entire active formulary (tablets + ml + vials + ... all in one number), unlike
+    // every other tile here which uses one real, consistent unit. Labeled explicitly so this
+    // printed official sheet doesn't read as a real single-unit total.
+    { label: 'รับเข้ารวมช่วงนี้ (คละหน่วย)', value: sum((r) => r.receivedQty).toLocaleString('en-US'), note: sum((r) => r.receivedCount).toLocaleString('en-US') + ' ครั้ง' },
+    { label: 'จ่ายจริงรวม (HOSxP, คละหน่วย)', value: sum((r) => r.dispensedQty).toLocaleString('en-US') },
     { label: 'par ผิดพลาดล่าสุด', value: last ? last.parErrorCount.toLocaleString('en-US') + ' รายการ' : '—', tone: last && last.parErrorCount > 0 ? '#b3261e' : '#175554' },
     {
       label: 'อัตราขาดสต็อกจริงล่าสุด',
