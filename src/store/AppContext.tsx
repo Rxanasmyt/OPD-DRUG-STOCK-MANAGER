@@ -1132,7 +1132,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state.authUsername, state.authPassword, state.authName, state.authDept, patch]);
 
-  const logout = useCallback(() => { signOut(auth); patch({ cart: {}, authUsername: '', authPassword: '' }); }, [patch]);
+  // Bug fix (shared-device data leak): this used to reset only cart/authUsername/authPassword
+  // — every OTHER in-progress form field (recvItems, adjQty/adjNote, wmReason, search/filter,
+  // hosxpText, usageRows, ...) stayed live in this context state straight through to the next
+  // person's session on the same tab. This app is routinely handed off between staff on one
+  // shared tablet (shift change, mid-task interruption) — a real risk that the next person opens
+  // Receive/Adjust/WardMove and finds the previous person's half-entered lot/qty/reason still
+  // sitting there, then commits a transaction under their own name using someone else's stale
+  // data. Resets every ephemeral form/filter/selection field a screen can leave populated;
+  // deliberately leaves meds/lots/txs/users (repopulated by the same live listeners regardless
+  // of who's signed in) and settings like expiryWarnDays/device untouched.
+  const logout = useCallback(() => {
+    signOut(auth);
+    patch({
+      cart: {}, authUsername: '', authPassword: '',
+      search: '', filter: 'low', wardFilter: 'all',
+      wmFromSearch: '', wmFromMed: null, wmToSearch: '', wmToMed: null, wmQty: '', wmReason: '',
+      recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
+      adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '',
+      qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: null, scanConfirmMedId: null, hadOk: {},
+      countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpConfirmSingleDay: false,
+      usageDateFrom: '', usageDateTo: '', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
+      labelSelected: {}, medsFocusId: null, substockFocusId: null, doneKind: null, doneRows: [],
+    });
+  }, [patch]);
   const setDevice = useCallback((d: 'phone' | 'tablet') => patch({ device: d }), [patch]);
 
   // Bug fix: this was the only bulk-write action in the app neither wrapped in guardOnce nor

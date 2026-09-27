@@ -27,6 +27,10 @@
 //    request for a med that no longer exists — see its own "Bug fix (data integrity)" comment.
 // 9. commitCount/commitSubCount's silent-no-op fix: a deleted med must produce a clear toast,
 //    not a silent do-nothing — see their own "Bug fix (silent no-op)" comments.
+// 10. logout's shared-device data-leak fix: every in-progress form field (not just cart) must
+//     reset on logout, or the next person signing in on the same shared tablet can find the
+//     previous person's half-entered lot/qty/reason still sitting there — see logout's own
+//     "Bug fix (shared-device data leak)" comment.
 import { describe, it, expect } from 'vitest';
 import { useEffect } from 'react';
 import { screen, waitFor } from '@testing-library/react';
@@ -376,5 +380,39 @@ describe('commitCount / commitSubCount — silent-no-op regression', () => {
     await user.click(screen.getByRole('button', { name: 'commit-subcount' }));
     await screen.findByText('รายการนี้ถูกลบออกจากระบบไปแล้ว — ลบแถวนี้ออกจากหน้านับสต็อกแล้วรีเฟรชหน้าจอ');
     expect(getLastTransactionWrites().length).toBe(0);
+  });
+});
+
+function LogoutHarness() {
+  const { state, setAdjQty, setAdjNote, setRecvQty, logout } = useApp();
+  return (
+    <div>
+      <button onClick={() => { setAdjQty('37'); setAdjNote('นับได้ต่างจากระบบมาก'); setRecvQty('99'); }}>fill-forms</button>
+      <button onClick={logout}>logout</button>
+      <div data-testid="adjQty">{state.adjQty}</div>
+      <div data-testid="adjNote">{state.adjNote}</div>
+      <div data-testid="recvQty">{state.recvQty}</div>
+    </div>
+  );
+}
+
+describe('logout — shared-device data-leak regression', () => {
+  it('clears in-progress form fields, not just the cart, so the next person on a shared device starts clean', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<LogoutHarness />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+
+    await user.click(screen.getByRole('button', { name: 'fill-forms' }));
+    expect(screen.getByTestId('adjQty').textContent).toBe('37');
+    expect(screen.getByTestId('adjNote').textContent).toBe('นับได้ต่างจากระบบมาก');
+    expect(screen.getByTestId('recvQty').textContent).toBe('99');
+
+    await user.click(screen.getByRole('button', { name: 'logout' }));
+
+    // Without the fix, these would still show the previous user's half-entered values —
+    // exactly what the next person signing in on this same shared tablet would see.
+    expect(screen.getByTestId('adjQty').textContent).toBe('');
+    expect(screen.getByTestId('adjNote').textContent).toBe('');
+    expect(screen.getByTestId('recvQty').textContent).toBe('');
   });
 });
