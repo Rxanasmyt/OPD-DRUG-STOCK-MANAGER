@@ -677,7 +677,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           patch({ role: null, authStatus: 'pendingApproval' });
         }, downgradeDelay);
       },
-      () => { clearDowngrade(); patch({ authStatus: 'signedOut' }); },
+      // Bug fix (real report class — see the fromCache/downgradeDelay and half-synced-profile
+      // fixes right above): this used to sign out silently on ANY listener error, including a
+      // transient one (permission-denied during a token refresh, a backend blip, a flaky
+      // connection dropping mid-stream) — indistinguishable from an intentional logout, with
+      // nothing telling the person their account wasn't actually disabled. Logs it at least
+      // (toast() isn't declared yet at this point in the component body, so this can't reuse
+      // it without reordering a lot of other hooks) so a real occurrence shows up in the
+      // console instead of vanishing with zero trace.
+      (e) => { console.error('onSnapshot(myProfile) failed:', e); clearDowngrade(); patch({ authStatus: 'signedOut' }); },
     );
     return () => { clearDowngrade(); unsub(); };
   }, [state.myUid, patch]);

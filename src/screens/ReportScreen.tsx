@@ -502,8 +502,16 @@ export default function ReportScreen() {
 
                 <div className="grid-2 tablet-4" style={{ marginBottom: 16 }}>
                   <ExecStat label="มูลค่าคงคลังล่าสุด" value={kpiLast ? nf(Math.round(kpiLast.totalStockValue)) + ' บาท' : '—'} note={kpiLast ? 'ณ ' + kpiLast.date : undefined} />
-                  <ExecStat label="รับเข้ารวมช่วงนี้" value={nf(kpiSum((r) => r.receivedQty))} note={nf(kpiSum((r) => r.receivedCount)) + ' ครั้ง'} />
-                  <ExecStat label="จ่ายจริงรวม (HOSxP)" value={nf(kpiSum((r) => r.dispensedQty))} note={kpiReconcileMissedDays > 0 ? kpiReconcileMissedDays + ' วันไม่ได้ตัดยอด' : 'ตัดยอดครบทุกวัน'} tone={kpiReconcileMissedDays > 0 ? 'var(--amber)' : undefined} />
+                  {/* Bug fix (KPI clarity): these two sum a raw qty across the ENTIRE active
+                      formulary — tablets + ml + vials + boxes for hundreds of different drugs
+                      all added into one number, unlike the neighboring tiles (บาท/%/รายการ/ชม.)
+                      which all use one real, consistent unit. Printed on the official PTC
+                      summary sheet, an unlabeled "48,213" here reads as a real volume figure —
+                      it isn't one. Labeling explicitly as "คละหน่วย" (mixed units) so a
+                      reviewer skimming the printed report doesn't mistake it for something it's
+                      not. */}
+                  <ExecStat label="รับเข้ารวมช่วงนี้ (คละหน่วย)" value={nf(kpiSum((r) => r.receivedQty))} note={nf(kpiSum((r) => r.receivedCount)) + ' ครั้ง'} />
+                  <ExecStat label="จ่ายจริงรวม (HOSxP, คละหน่วย)" value={nf(kpiSum((r) => r.dispensedQty))} note={kpiReconcileMissedDays > 0 ? kpiReconcileMissedDays + ' วันไม่ได้ตัดยอด' : 'ตัดยอดครบทุกวัน'} tone={kpiReconcileMissedDays > 0 ? 'var(--amber)' : undefined} />
                   <ExecStat
                     label="par ผิดพลาดล่าสุด"
                     value={kpiLast ? nf(kpiLast.parErrorCount) + ' รายการ' : '—'}
