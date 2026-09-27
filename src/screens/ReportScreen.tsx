@@ -7,6 +7,7 @@ import { EmptyState } from '../components/EmptyState';
 import { SkeletonList } from '../components/Skeleton';
 import { SearchInput } from '../components/SearchInput';
 import { printKpiReportSheet } from '../utils/print';
+import { severityIcon } from '../components/Qty';
 
 // "exec" leads the tab strip — a PTC/pharmacy-head reader opening this screen wants the
 // headline picture first, not to have to find it after four operational tabs. "kpi" trails
@@ -330,7 +331,14 @@ export default function ReportScreen() {
               >
                 <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--ink)' }}>{t.name}</span>
                 <span style={{ width: 64, textAlign: 'right', flex: 'none', fontSize: 13, color: 'var(--ink)' }}>{t.used}</span>
-                <span style={{ width: 52, textAlign: 'right', flex: 'none', fontSize: 13, fontWeight: 600, color: t.tone }}>{t.doh}</span>
+                {/* Bug fix (accessibility): this cell used to be a bare color-coded number with
+                    nothing else distinguishing "วิกฤต" from "ปกติ" — the same color-only signal
+                    Qty.tsx's own severityIcon() was added to close everywhere else, just not
+                    applied here since this table renders the tone inline instead of via <Qty>. */}
+                <span style={{ width: 52, textAlign: 'right', flex: 'none', fontSize: 13, fontWeight: 600, color: t.tone }}>
+                  {severityIcon(t.tone) && <span aria-hidden="true" style={{ marginRight: 2 }}>{severityIcon(t.tone)}</span>}
+                  {t.doh}
+                </span>
               </button>
             ))}
           </div>

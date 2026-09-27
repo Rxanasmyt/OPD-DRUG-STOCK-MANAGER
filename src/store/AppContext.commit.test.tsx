@@ -1,12 +1,18 @@
-// Regression tests for two named historical bug fixes deep inside AppContext.tsx's commit
-// functions that, until now, had zero test coverage of their own — both fixes are undone by a
-// one-line revert, so nothing here would have caught a regression before this file existed.
+// Regression tests for named historical bug fixes deep inside AppContext.tsx's commit
+// functions that, until now, had zero test coverage of their own — every fix here is undone by
+// a one-line revert, so nothing would have caught a regression before this file existed.
 //
 // 1. commitTransfer's FEFO fix: a lot doc with no `exp` field must sort LAST (treated as "no
 //    known urgency"), never first — see the `?? Infinity` comment at its call site.
 // 2. lastAdminGuardedWrite's fix: the last-admin headcount must re-check each OTHER admin's
 //    live `role`, not just `active` — an admin concurrently demoted (still active, no longer
 //    role:'admin') must not count toward the "at least one other admin" total.
+// 3. commitAdjust's ledger-accuracy fix: the tx-log entry must record the applied delta
+//    (after - before, clamped at 0 floor), not the raw typed amount — see its own "Bug fix
+//    (ledger accuracy)" comment.
+// 4. scrapLot's data-integrity fix: the write-off qty logged must come from the lot's live
+//    (transaction-read) qty, not the stale client-cached one — see its own "Bug fix (data
+//    integrity)" comment.
 import { describe, it, expect } from 'vitest';
 import { useEffect } from 'react';
 import { screen, waitFor } from '@testing-library/react';
@@ -103,5 +109,85 @@ describe('lastAdminGuardedWrite — role re-check regression', () => {
     // Without the role re-check fix, adminX (still active:true) would be miscounted as a
     // second live admin and this disable would silently succeed instead of being blocked.
     await screen.findByText('ปิดใช้งานไม่ได้ — นี่คือ Admin ที่ใช้งานอยู่คนสุดท้าย ต้องมี Admin อย่างน้อย 1 คนเสมอ');
+  });
+});
+
+// Drives the whole pick-type/pick-med/qty/reason sequence one state update at a time (each
+// setter is a separate patch(); calling them back-to-back in one handler would have
+// commitAdjust close over the pre-update state — see the FEFO test's SeedCart for the same
+// "wait for the effect that consumes the previous state update" shape) then exposes a single
+// enabled button once the form is actually ready to commit, same as a real user filling it in.
+function AdjustHarness() {
+  const { state, pickAdjType, pickAdjMed, setAdjQty, setAdjReason, commitAdjust } = useApp();
+  useEffect(() => { if (!state.adjType) pickAdjType('damaged'); }, [state.adjType, pickAdjType]);
+  useEffect(() => { if (state.adjType && !state.adjMed) pickAdjMed(MED.id); }, [state.adjType, state.adjMed, pickAdjMed]);
+  useEffect(() => { if (state.adjMed && !state.adjQty) setAdjQty('10'); }, [state.adjMed, state.adjQty, setAdjQty]);
+  useEffect(() => { if (state.adjQty && !state.adjReason) setAdjReason('ชำรุด'); }, [state.adjQty, state.adjReason, setAdjReason]);
+  return <button disabled={!state.adjReason} onClick={commitAdjust}>commit-adjust</button>;
+}
+
+describe('commitAdjust — ledger-accuracy regression', () => {
+  it('logs the actual applied delta (clamped at floor 0), not the raw typed amount', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<AdjustHarness />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+
+    // Live floor is only 3 — already partly dispensed since the last sync — while the form
+    // above types "damaged 10" for what was physically found on the shelf.
+    seedDoc('meds/m1', { floor: 3 });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'commit-adjust' })).not.toBeDisabled());
+    await user.click(screen.getByRole('button', { name: 'commit-adjust' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+    const writes = getLastTransactionWrites();
+    const medWrite = writes.find((w) => w.path === 'meds/m1');
+    const txWrite = writes.find((w) => w.path === '');
+    // floor clamps at 0 (3 - 10 would go negative), so the real applied delta is -3, not -10.
+    expect(medWrite?.data).toEqual({ floor: 0 });
+    expect(txWrite?.data.qty).toBe(-3);
+  });
+});
+
+function ScrapHarness() {
+  const { scrapLot, state } = useApp();
+  return <button onClick={() => scrapLot('lotKnown')} disabled={!state.lots.length}>scrap-lotKnown</button>;
+}
+
+// scrapLot's confirmAsync() shows an in-app dialog (ConfirmDialog.tsx) rather than a real
+// window.confirm() — nothing here renders that dialog, so this answers it directly the same way
+// ConfirmDialog's own onClick would, via the same respondConfirm() the real UI calls.
+function AutoConfirmYes() {
+  const { state, respondConfirm } = useApp();
+  useEffect(() => { if (state.confirmDialog) respondConfirm(true); }, [state.confirmDialog, respondConfirm]);
+  return null;
+}
+
+describe('scrapLot — data-integrity regression', () => {
+  it('logs the write-off using the live (transaction-read) qty, not the stale cached one', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ScrapHarness /><AutoConfirmYes /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    // Client cache (l.qty scrapLot's closure reads before the transaction) says 10 — stale.
+    fireCollection('lots', [{ id: 'lotKnown', medId: MED.id, qty: 10, lotNo: 'LK', exp: Date.now() + 86400000 }]);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'scrap-lotKnown' })).not.toBeDisabled());
+
+    // Someone else's count/transfer already dropped this lot to 4 by the time the transaction
+    // actually reads it live — the logged write-off must reflect that, not the stale cache's 10.
+    seedDoc('lots/lotKnown', { qty: 4, lotNo: 'LK' });
+
+    await user.click(screen.getByRole('button', { name: 'scrap-lotKnown' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+    const writes = getLastTransactionWrites();
+    const lotWrite = writes.find((w) => w.path === 'lots/lotKnown');
+    const txWrite = writes.find((w) => w.path === '');
+    expect(lotWrite?.data).toEqual({ qty: 0 });
+    expect(txWrite?.data.qty).toBe(-4);
   });
 });
