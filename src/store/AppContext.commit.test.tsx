@@ -45,6 +45,9 @@
 //     for the same med) as an existing ACTIVE lot must merge into it (increment qty), never
 //     create a second lot doc for what's one real stack on the shelf — see its own "Bug fix
 //     (lot duplication)" comment.
+// 15. commitWardMove's unit-mismatch fix: moving stock between two meds with different
+//     dispensing units (e.g. เม็ด vs ขวด) must be blocked outright — see its own "Bug fix
+//     (data integrity)" comment.
 import { describe, it, expect, vi } from 'vitest';
 import { useEffect } from 'react';
 import { screen, waitFor } from '@testing-library/react';
@@ -646,5 +649,61 @@ describe('commitReceive — lot duplication regression', () => {
     const lotCreates = writes.filter((w) => w.kind === 'set' && !!w.data && 'lotNo' in w.data);
     expect(lotCreates.length).toBe(1);
     expect(lotCreates[0].data?.qty).toBe(10);
+  });
+});
+
+const MED_BOTTLE = {
+  id: 'm2', code: 'MED-0002', name: 'Ventolin inhaler', unit: 'ขวด', dosageForm: 'พ่น',
+  price: 100, had: false, active: true, parSub: 20, parFloor: 5, floor: 3, bin: 'B1',
+  used30: 0, usedPrev30: 0, volatility: 0,
+};
+
+function WardMoveHarness() {
+  const { pickWmFromMed, pickWmToMed, setWmQty, setWmReason, commitWardMove } = useApp();
+  return (
+    <div>
+      <button onClick={() => pickWmFromMed('m1')}>pick-from</button>
+      <button onClick={() => pickWmToMed('m2')}>pick-to</button>
+      <button onClick={() => { setWmQty('5'); setWmReason('เติม stat drawer'); }}>fill-form</button>
+      <button onClick={commitWardMove}>commit-wardmove</button>
+    </div>
+  );
+}
+
+describe('commitWardMove — unit-mismatch regression', () => {
+  it('blocks a move between two meds with different dispensing units', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><WardMoveHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    // MED is dispensed in เม็ด (tablets), MED_BOTTLE in ขวด (bottles) — moving "5" between them
+    // has no valid meaning without a conversion the app can't compute.
+    fireCollection('meds', [MED, MED_BOTTLE]);
+
+    await user.click(screen.getByRole('button', { name: 'pick-from' }));
+    await user.click(screen.getByRole('button', { name: 'pick-to' }));
+    await user.click(screen.getByRole('button', { name: 'fill-form' }));
+    await user.click(screen.getByRole('button', { name: 'commit-wardmove' }));
+
+    await screen.findByText(/หน่วยยาไม่ตรงกัน/);
+    expect(getLastTransactionWrites().length).toBe(0);
+  });
+
+  it('allows a move between two meds sharing the same unit', async () => {
+    const user = userEvent.setup();
+    const MED2 = { ...MED, id: 'm2', code: 'MED-0002', name: 'Amoxicillin 250mg' };
+    renderWithApp(<><WardMoveHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED, MED2]);
+    seedDoc('meds/m1', { floor: MED.floor });
+
+    await user.click(screen.getByRole('button', { name: 'pick-from' }));
+    await user.click(screen.getByRole('button', { name: 'pick-to' }));
+    await user.click(screen.getByRole('button', { name: 'fill-form' }));
+    await user.click(screen.getByRole('button', { name: 'commit-wardmove' }));
+
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+    expect(screen.queryByText(/หน่วยยาไม่ตรงกัน/)).not.toBeInTheDocument();
   });
 });

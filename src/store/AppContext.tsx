@@ -1847,6 +1847,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const q = parseIntSafe(state.wmQty);
     if (!from || !to || !q) { toast('เลือกยาต้นทาง ปลายทาง และจำนวนให้ครบ'); return; }
     if (from.id === to.id) { toast('ต้นทางและปลายทางต้องเป็นคนละรายการ'); return; }
+    // Bug fix (data integrity): this screen (see its own doc comment) deliberately allows
+    // moving between ANY two active meds, not just an OPD/IPD ward pair of the same drug — but
+    // nothing checked that the two meds share the same dispensing unit before applying the same
+    // raw integer `q` to both sides. Moving "50" from a med tracked in เม็ด (tablets) into one
+    // tracked in ขวด (bottles) would silently add 50 BOTTLES to the destination's floor for 50
+    // TABLETS actually removed from the source — a real on-hand-count corruption with no
+    // conversion the app has any way to compute, and nothing in the confirm UI ever shows the
+    // destination's unit to catch it by eye (only fromMed.unit is displayed).
+    if (from.unit !== to.unit) { toast('หน่วยยาไม่ตรงกัน (' + from.unit + ' ≠ ' + to.unit + ') — ย้ายข้ามหน่วยไม่ได้'); return; }
     if (!state.wmReason.trim()) { toast('กรอกเหตุผลก่อนบันทึก'); return; }
     // Escapes the transaction closure below so the "ไม่พอ" error message can report the
     // real just-read floor instead of the stale value from before the transaction ran —
