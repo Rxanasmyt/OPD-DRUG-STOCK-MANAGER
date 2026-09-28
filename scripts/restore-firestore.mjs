@@ -49,7 +49,31 @@ async function main() {
   }
 
   console.log(confirm ? 'RESTORING (writes are live)' : 'DRY RUN (pass --confirm to actually write)');
-  console.log(`Source file: ${filePath}\n`);
+  console.log(`Source file: ${filePath}`);
+  // Bug fix (operational safety): this used to print the file path and nothing else about it —
+  // an operator who tab-completes or pastes the WRONG dated backup during a real incident (e.g.
+  // last week's file instead of today's) got no signal at all that the source is stale, and
+  // every write here is set()/overwrite for any doc id the backup shares with live data. Every
+  // real backup file this repo's own backup-firestore.mjs produces embeds its UTC creation time
+  // in the filename (firestore-backup-<UTC timestamp>.json) — parsing it back out and printing
+  // how old it is turns a silent trap into a hard-to-miss warning before any write happens.
+  const stampMatch = filePath.match(/(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z/);
+  if (stampMatch) {
+    const [, datePart, hh, mm, ss, ms] = stampMatch;
+    const backupTime = new Date(`${datePart}T${hh}:${mm}:${ss}.${ms}Z`);
+    const ageHours = (Date.now() - backupTime.getTime()) / 3600000;
+    const ageLabel = ageHours < 48 ? `${ageHours.toFixed(1)} hours` : `${(ageHours / 24).toFixed(1)} days`;
+    console.log(`Backup age: ${ageLabel} old (created ${backupTime.toISOString()})`);
+    if (ageHours > 24) {
+      console.log(`\n⚠️  WARNING: this backup is over a day old. Restoring it will OVERWRITE any newer\n`
+        + `   live data for every doc id the backup shares with the current database — including\n`
+        + `   real transactions/stock changes made since ${backupTime.toISOString()}. Make sure this\n`
+        + `   is really the file you meant to restore before passing --confirm.\n`);
+    }
+  } else {
+    console.log('Backup age: unknown (filename doesn\'t match the expected firestore-backup-<UTC timestamp>.json pattern — double-check this is really the intended file).');
+  }
+  console.log('');
 
   const serviceAccount = JSON.parse(keyJson);
   initializeApp({ credential: cert(serviceAccount) });
