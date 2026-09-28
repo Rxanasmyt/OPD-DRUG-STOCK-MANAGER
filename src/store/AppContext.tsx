@@ -369,7 +369,7 @@ export interface AppCtx {
 
   // hosxp reconcile
   setHosxpText: (v: string) => void;
-  processHosxp: () => void;
+  processHosxp: () => Promise<void>;
   processHosxpFile: (file: File) => void;
   setHosxpConfirmFuzzy: (v: boolean) => void;
   setHosxpConfirmSingleDay: (v: boolean) => void;
@@ -520,37 +520,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // approving two different pending receives) don't block each other, only a genuine repeat
   // of the exact same action.
   const busyKeys = useRef<Set<string>>(new Set());
-  const guardOnce = useCallback(<A extends unknown[], R>(key: string, fn: (...args: A) => Promise<R>) => {
-    return async (...args: A): Promise<R | undefined> => {
-      // Bug fix: the ':' + String(args[0]) suffix exists so per-item actions (scrapLot(lotId),
-      // commitCount(medId), approveReceive(id)) key on that one item and don't block unrelated
-      // items — but String() on anything that isn't already a primitive silently does the
-      // wrong thing instead of erroring. deleteAllInactiveMeds(medIds: string[]) is the real
-      // case this bit: args[0] is an ARRAY, and String(anArray) joins it with commas — a
-      // formulary-sized cleanup call turned into a single busyKeys/state.busy entry keyed on a
-      // multi-hundred-character comma-joined id list. Not a crash, but it defeated the whole
-      // point of a stable, referenceable key (no screen could show busy state for it) and
-      // bloated state.busy for no reason. Only a genuine scalar id (string/number) gets the
-      // per-item suffix now; anything else (an array, object, undefined) falls back to the
-      // plain action key, same as a zero-arg bulk action like mergeAllWardPairs/shareAllMeds.
-      const first = args[0];
-      const isScalarId = typeof first === 'string' || typeof first === 'number';
-      const k = isScalarId ? key + ':' + first : key;
-      if (busyKeys.current.has(k)) return;
-      busyKeys.current.add(k);
-      // Bug fix: guardOnce already prevented a double-tap from running the same commit twice
-      // (see the comment above) — but nothing about that busy state was ever REACTIVE, so a
-      // commit button gave zero visual feedback while its real Firestore round trip was in
-      // flight on a slow connection. Mirroring the same key into state.busy lets any screen
-      // show "กำลังบันทึก…"/disable the button for exactly as long as guardOnce is actually
-      // blocking a repeat — same lifetime, just made visible.
-      patch((st) => ({ busy: { ...st.busy, [k]: true } }));
-      try { return await fn(...args); } finally {
-        busyKeys.current.delete(k);
-        patch((st) => { const b = { ...st.busy }; delete b[k]; return { busy: b }; });
-      }
-    };
-  }, [patch]);
+  // Bug fix (double-submit on network timeout) support state — declared here (rather than
+  // right next to guardOnce/toastErr below, which each need to be defined elsewhere for their
+  // own reasons — see their own comments) so both can close over the same refs regardless of
+  // definition order. activeGuardKeys tracks which guardOnce key(s) are actively running their
+  // wrapped fn() right now; toastErr reads it to attribute a TimeoutError to the right key even
+  // though every commit function catches/handles that error INSIDE its own fn body and never
+  // rethrows to guardOnce's own try/catch — there'd be nothing for guardOnce to catch otherwise.
+  const activeGuardKeys = useRef<string[]>([]);
+  const recentTimeouts = useRef<Map<string, number>>(new Map());
+  const TIMEOUT_RETRY_WINDOW_MS = 60000;
+  // guardOnce itself is defined further down (right after confirmAsync/respondConfirm), since
+  // its own timeout-retry-warning fix needs confirmAsync in scope.
 
   // ---------- network status (real, not simulated) ----------
   useEffect(() => {
@@ -775,6 +756,68 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (resolve) resolve(v);
   }, [patch]);
 
+  // Bug fix (double-submit on network timeout): withTimeout's ~15s clock only stops the CLIENT
+  // from waiting on a hung Firestore call (runTransaction/batch.commit/etc.) — it has no way to
+  // actually cancel that call, so the real write can still land on the server seconds after the
+  // client gives up and shows an error toast. guardOnce's busy-guard (below) has to clear the
+  // instant that timeout fires, or the button would stay stuck "กำลังบันทึก…" forever on a
+  // connection that never recovers — but that means an immediate retry after the error runs as
+  // a fully independent write. For an absolute-value write derived from a client-held DELTA
+  // (e.g. commitAdjust's floor = before + sign*qty, not a Firestore increment()), a retry that
+  // lands on top of an original write that also eventually lands double-applies the delta
+  // silently — a real stock-count corruption, not just a duplicate log row. Tracks the most
+  // recent timeout per guardOnce key (via activeGuardKeys/recentTimeouts, declared up near
+  // busyKeys — see that comment for why toastErr, not this catch block, is what actually
+  // records the timeout: every commit function catches/handles its own errors internally and
+  // never rethrows here) and asks for confirmation before letting that exact action fire again
+  // within a short window — a soft check (only the user knows whether a "บันทึกแล้ว" toast
+  // actually landed moments after the error), not a hard block that could itself strand a
+  // legitimate retry after a connection that's now fine.
+  const guardOnce = useCallback(<A extends unknown[], R>(key: string, fn: (...args: A) => Promise<R>) => {
+    return async (...args: A): Promise<R | undefined> => {
+      // Bug fix: the ':' + String(args[0]) suffix exists so per-item actions (scrapLot(lotId),
+      // commitCount(medId), approveReceive(id)) key on that one item and don't block unrelated
+      // items — but String() on anything that isn't already a primitive silently does the
+      // wrong thing instead of erroring. deleteAllInactiveMeds(medIds: string[]) is the real
+      // case this bit: args[0] is an ARRAY, and String(anArray) joins it with commas — a
+      // formulary-sized cleanup call turned into a single busyKeys/state.busy entry keyed on a
+      // multi-hundred-character comma-joined id list. Not a crash, but it defeated the whole
+      // point of a stable, referenceable key (no screen could show busy state for it) and
+      // bloated state.busy for no reason. Only a genuine scalar id (string/number) gets the
+      // per-item suffix now; anything else (an array, object, undefined) falls back to the
+      // plain action key, same as a zero-arg bulk action like mergeAllWardPairs/shareAllMeds.
+      const first = args[0];
+      const isScalarId = typeof first === 'string' || typeof first === 'number';
+      const k = isScalarId ? key + ':' + first : key;
+      if (busyKeys.current.has(k)) return;
+      const lastTimeout = recentTimeouts.current.get(k);
+      if (lastTimeout !== undefined && Date.now() - lastTimeout < TIMEOUT_RETRY_WINDOW_MS) {
+        const ok = await confirmAsync('รายการก่อนหน้าอาจยังไม่เสร็จสมบูรณ์ (การเชื่อมต่อช้า/หลุด) ระบบตรวจสอบไม่ได้ว่าบันทึกไปแล้วหรือยัง ถ้าเพิ่งเห็นข้อความ "บันทึกแล้ว" ไม่ต้องทำซ้ำ — ต้องการทำรายการนี้อีกครั้งหรือไม่?');
+        if (!ok) return;
+      }
+      recentTimeouts.current.delete(k);
+      busyKeys.current.add(k);
+      // Makes `k` visible to toastErr while fn() is running (see the fix's own comment up near
+      // busyKeys) — toastErr is what actually calls recentTimeouts.current.set(k, ...) on a
+      // TimeoutError, since fn() itself never rethrows one out to this level.
+      activeGuardKeys.current.push(k);
+      // Bug fix: guardOnce already prevented a double-tap from running the same commit twice
+      // (see the comment above) — but nothing about that busy state was ever REACTIVE, so a
+      // commit button gave zero visual feedback while its real Firestore round trip was in
+      // flight on a slow connection. Mirroring the same key into state.busy lets any screen
+      // show "กำลังบันทึก…"/disable the button for exactly as long as guardOnce is actually
+      // blocking a repeat — same lifetime, just made visible.
+      patch((st) => ({ busy: { ...st.busy, [k]: true } }));
+      try {
+        return await fn(...args);
+      } finally {
+        activeGuardKeys.current = activeGuardKeys.current.filter((x) => x !== k);
+        busyKeys.current.delete(k);
+        patch((st) => { const b = { ...st.busy }; delete b[k]; return { busy: b }; });
+      }
+    };
+  }, [patch, confirmAsync]);
+
   // Same reasoning as confirmAsync above, for window.prompt() — also unreliable inside the
   // same embedded contexts, also with no visible error when it silently no-ops. Resolves the
   // trimmed text on confirm, null on cancel (matching window.prompt()'s own null-on-cancel
@@ -801,6 +844,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // vite.config.ts): the new service worker still downloads in the background exactly the
   // same, it just waits for updateSWRef.current() to be called instead of firing itself.
   const updateSWRef = useRef<((reloadPage?: boolean) => Promise<void>) | null>(null);
+  // Bug fix (stability): registerSW() only ever checks for a new service worker once, at the
+  // moment this hook mounts. This app is a client-routed SPA meant to be opened once on a ward
+  // tablet and left on for an entire multi-day shift rotation (see this comment's sibling note
+  // on registerType: 'prompt') — with no full-page navigation ever happening, nothing after that
+  // first check would ever notice a new deploy, so a stale tablet could run an already-superseded
+  // build (missing a since-shipped safety fix) indefinitely with the "มีแอพเวอร์ชันใหม่" banner
+  // never appearing. registration.update() re-checks the SW script against the network; calling
+  // it hourly and whenever the tab becomes visible again catches a new deploy within one shift
+  // without polling so often it's wasteful.
+  const swRegistrationRef = useRef<ServiceWorkerRegistration | null>(null);
   useEffect(() => {
     let cancelled = false;
     // Loaded lazily and only in the actual built PWA — this virtual module doesn't exist in
@@ -810,11 +863,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
         updateSWRef.current = registerSW({
           onNeedRefresh() { patch({ updateAvailable: true }); },
+          onRegisteredSW(_swUrl, registration) { swRegistrationRef.current = registration ?? null; },
         });
       })
       .catch(() => { /* not running as an installed/built PWA (e.g. plain dev server) — no-op */ });
     return () => { cancelled = true; };
   }, [patch]);
+  useEffect(() => {
+    const checkForUpdate = () => { swRegistrationRef.current?.update().catch(() => {}); };
+    const intervalId = setInterval(checkForUpdate, 60 * 60 * 1000);
+    const onVisible = () => { if (document.visibilityState === 'visible') checkForUpdate(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(intervalId); document.removeEventListener('visibilitychange', onVisible); };
+  }, []);
   const applyUpdate = useCallback(() => {
     patch({ updateAvailable: false });
     updateSWRef.current?.(true);
@@ -914,8 +975,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (state.authStatus !== 'signedIn' || !state.dbReady || !notifyEnabled) return;
     const activeLots = state.lots.filter((l) => l.qty > 0 && state.meds.some((m) => m.id === l.medId && m.active));
-    const expiredCount = activeLots.filter((l) => daysUntil(l.exp) < 0).length;
-    const nearCount = activeLots.filter((l) => { const d = daysUntil(l.exp); return d >= 0 && d < state.expiryWarnDays; }).length;
+    // Bug fix (consistency): matches the aging report's own "หมดอายุแล้ว" bucket boundary (`<=
+    // hi` with hi=0) — a lot expiring TODAY is already counted as expired there, but this
+    // notification used `< 0`, so a lot that just crossed into "expired" on the report could
+    // still be silently bucketed as "near expiry" here and never get the more urgent notice.
+    const expiredCount = activeLots.filter((l) => daysUntil(l.exp) <= 0).length;
+    const nearCount = activeLots.filter((l) => { const d = daysUntil(l.exp); return d > 0 && d < state.expiryWarnDays; }).length;
     void maybeNotifyExpiring(nearCount, expiredCount);
   }, [state.authStatus, state.dbReady, state.meds, state.lots, state.expiryWarnDays, notifyEnabled]);
 
@@ -1056,7 +1121,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     console.error(e);
     hapticError();
     const code = (e as { code?: string } | null)?.code;
-    if (e instanceof TimeoutError) toast(e.message);
+    if (e instanceof TimeoutError) {
+      // Bug fix (double-submit on network timeout): attributes this timeout to whichever
+      // guardOnce-wrapped commit function is currently running (see activeGuardKeys' own
+      // comment up near busyKeys) so a retry of that SAME action gets the confirm-before-retry
+      // warning — this is the only place that error is actually observed, since every commit
+      // function's own try/catch handles it right here instead of rethrowing to guardOnce.
+      activeGuardKeys.current.forEach((k) => recentTimeouts.current.set(k, Date.now()));
+      toast(e.message);
+    }
     else if (code === 'unavailable' || code === 'failed-precondition') toast('ไม่มีสัญญาณอินเทอร์เน็ต — ยังไม่ได้บันทึก ลองใหม่อีกครั้งเมื่อเชื่อมต่อได้');
     else toast(fallback);
   }, [toast]);
@@ -1132,7 +1205,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state.authUsername, state.authPassword, state.authName, state.authDept, patch]);
 
-  const logout = useCallback(() => { signOut(auth); patch({ cart: {}, authUsername: '', authPassword: '' }); }, [patch]);
+  // Bug fix (shared-device data leak): this used to reset only cart/authUsername/authPassword
+  // — every OTHER in-progress form field (recvItems, adjQty/adjNote, wmReason, search/filter,
+  // hosxpText, usageRows, ...) stayed live in this context state straight through to the next
+  // person's session on the same tab. This app is routinely handed off between staff on one
+  // shared tablet (shift change, mid-task interruption) — a real risk that the next person opens
+  // Receive/Adjust/WardMove and finds the previous person's half-entered lot/qty/reason still
+  // sitting there, then commits a transaction under their own name using someone else's stale
+  // data. Resets every ephemeral form/filter/selection field a screen can leave populated;
+  // deliberately leaves meds/lots/txs/users (repopulated by the same live listeners regardless
+  // of who's signed in) and settings like expiryWarnDays/device untouched.
+  const logout = useCallback(() => {
+    signOut(auth);
+    patch({
+      cart: {}, authUsername: '', authPassword: '',
+      search: '', filter: 'low', wardFilter: 'all',
+      wmFromSearch: '', wmFromMed: null, wmToSearch: '', wmToMed: null, wmQty: '', wmReason: '',
+      recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
+      adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '',
+      qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: null, scanConfirmMedId: null, hadOk: {},
+      countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpConfirmSingleDay: false,
+      usageDateFrom: '', usageDateTo: '', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
+      labelSelected: {}, medsFocusId: null, substockFocusId: null, doneKind: null, doneRows: [],
+    });
+  }, [patch]);
   const setDevice = useCallback((d: 'phone' | 'tablet') => patch({ device: d }), [patch]);
 
   // Bug fix: this was the only bulk-write action in the app neither wrapped in guardOnce nor
@@ -1564,6 +1660,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }));
         return;
       }
+      // Bug fix (lot duplication): a delivery of the exact same physical batch (same lotNo +
+      // same exp date, for the same med) that arrives on a later date than an earlier one still
+      // sitting on the shelf used to always create a BRAND NEW lots doc rather than adding into
+      // the one already there — the pharmacist merges both boxes under one paper lot card on
+      // the physical shelf, but the database kept two independently-drifting rows for what's one
+      // real stack, which is exactly the kind of split a substock-card (บัตรคุมยา) reconciliation
+      // would catch as a mismatch against the physical count. Live-queried once per distinct med
+      // right before building the batch (writeBatch can't read inside itself, same limitation
+      // runTx's own query-then-get workaround elsewhere in this file already works around) —
+      // only merges into a lot that's still genuinely active (qty > 0), never resurrects an old
+      // zeroed-out lot kept around purely for its own history (see scrapLot's own comment on why
+      // depleted lots aren't deleted).
+      const substockMedIds = [...new Set(items.filter((it) => !(liveMeds.get(it.medId)?.noSubstock)).map((it) => it.medId))];
+      const liveLotEntries = await Promise.all(substockMedIds.map(async (medId) => {
+        const snap = await getDocs(query(collection(db, 'lots'), where('medId', '==', medId)));
+        return [medId, snap.docs.map((d) => ({ id: d.id, ...(d.data() as { lotNo?: string; exp?: number; qty?: number }) }))] as const;
+      }));
+      const liveLotsByMed = new Map(liveLotEntries);
+      // Also merges two rows of THIS SAME receipt sharing a lotNo/exp for one med — the live
+      // query above can't see a lot this same batch is about to create, so track it locally too.
+      const stagedLotRefs = new Map<string, ReturnType<typeof doc>>();
       items.forEach((it) => {
         // Liquids/inhalers/sprays — some meds skip substock entirely and go straight from
         // the central warehouse to the shelf (see noSubstock on Med). No lot is created for
@@ -1580,8 +1697,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           });
           return;
         }
-        const lotRef = doc(collection(db, 'lots'));
-        batch.set(lotRef, { code: genLotCode(m?.code, it.medId, lotRef.id), medId: it.medId, lotNo: it.lotNo, exp: it.exp, qty: it.qty, loc: 'ชั้น bulk' });
+        const key = it.medId + '|' + it.lotNo + '|' + it.exp;
+        const staged = stagedLotRefs.get(key);
+        const existing = (liveLotsByMed.get(it.medId) || []).find((l) => l.lotNo === it.lotNo && l.exp === it.exp && (l.qty || 0) > 0);
+        if (staged) {
+          batch.update(staged, { qty: increment(it.qty) });
+        } else if (existing) {
+          const ref = doc(db, 'lots', existing.id);
+          batch.update(ref, { qty: increment(it.qty) });
+          stagedLotRefs.set(key, ref);
+        } else {
+          const lotRef = doc(collection(db, 'lots'));
+          batch.set(lotRef, { code: genLotCode(m?.code, it.medId, lotRef.id), medId: it.medId, lotNo: it.lotNo, exp: it.exp, qty: it.qty, loc: 'ชั้น bulk' });
+          stagedLotRefs.set(key, lotRef);
+        }
         batch.set(doc(collection(db, 'txs')), {
           type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'substock',
           note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp), by: userName(), ts: Date.now(),
@@ -1630,8 +1759,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + ' — ไม่มี substock ขึ้นหน้างานทันที — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
           });
         } else {
-          const lotRef = doc(collection(db, 'lots'));
-          trx.set(lotRef, { code: genLotCode(m?.code, pr.medId, lotRef.id), medId: pr.medId, lotNo: pr.lotNo, exp: pr.exp, qty: pr.qty, loc: 'ชั้น bulk' });
+          // Bug fix (lot duplication): same fix as commitReceive's own — merge into an existing
+          // ACTIVE lot with the same lotNo/exp for this med instead of always creating a new lot
+          // doc for what's physically the same batch. Transactions can only trx.get() a ref
+          // already known, not run a query, so the lookup runs untransacted right here (fresh on
+          // every retry, same query-then-get workaround commitTransfer's FEFO lot lookup already
+          // uses above) and only the one candidate doc it finds gets a proper trx.get() to
+          // confirm it's still live before writing to it.
+          const liveLotDocs = (await getDocs(query(collection(db, 'lots'), where('medId', '==', pr.medId)))).docs;
+          const candidate = liveLotDocs.find((d) => { const l = d.data() as { lotNo?: string; exp?: number; qty?: number }; return l.lotNo === pr.lotNo && l.exp === pr.exp && (l.qty || 0) > 0; });
+          let merged = false;
+          if (candidate) {
+            const lotSnap = await trx.get(doc(db, 'lots', candidate.id));
+            const existing = lotSnap.data() as { qty?: number } | undefined;
+            if (existing && (existing.qty || 0) > 0) {
+              trx.update(doc(db, 'lots', candidate.id), { qty: increment(pr.qty) });
+              merged = true;
+            }
+          }
+          if (!merged) {
+            const lotRef = doc(collection(db, 'lots'));
+            trx.set(lotRef, { code: genLotCode(m?.code, pr.medId, lotRef.id), medId: pr.medId, lotNo: pr.lotNo, exp: pr.exp, qty: pr.qty, loc: 'ชั้น bulk' });
+          }
           trx.set(doc(collection(db, 'txs')), {
             type: 'receive_from_central' as TxType, name: pr.name, medId: pr.medId, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'substock',
             note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + ' — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
@@ -1698,6 +1847,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const q = parseIntSafe(state.wmQty);
     if (!from || !to || !q) { toast('เลือกยาต้นทาง ปลายทาง และจำนวนให้ครบ'); return; }
     if (from.id === to.id) { toast('ต้นทางและปลายทางต้องเป็นคนละรายการ'); return; }
+    // Bug fix (data integrity): this screen (see its own doc comment) deliberately allows
+    // moving between ANY two active meds, not just an OPD/IPD ward pair of the same drug — but
+    // nothing checked that the two meds share the same dispensing unit before applying the same
+    // raw integer `q` to both sides. Moving "50" from a med tracked in เม็ด (tablets) into one
+    // tracked in ขวด (bottles) would silently add 50 BOTTLES to the destination's floor for 50
+    // TABLETS actually removed from the source — a real on-hand-count corruption with no
+    // conversion the app has any way to compute, and nothing in the confirm UI ever shows the
+    // destination's unit to catch it by eye (only fromMed.unit is displayed).
+    if (from.unit !== to.unit) { toast('หน่วยยาไม่ตรงกัน (' + from.unit + ' ≠ ' + to.unit + ') — ย้ายข้ามหน่วยไม่ได้'); return; }
     if (!state.wmReason.trim()) { toast('กรอกเหตุผลก่อนบันทึก'); return; }
     // Escapes the transaction closure below so the "ไม่พอ" error message can report the
     // real just-read floor instead of the stale value from before the transaction ran —
@@ -1851,35 +2009,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // that tab in favor of exportDailyMetricsCsv on its own fetched date range — but the map
     // still needs every ReportTab key to satisfy state.reportTab's type below.
     const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', exec: 'executive_summary.csv', kpi: 'kpi_metrics.csv' };
-    // Matches whatever ward tab is open on screen — exporting "everything" while the screen
-    // shows only OPD (or vice versa) would be a silently misleading report.
-    const wardMeds = st.meds.filter((m) => matchesWard(m, st.wardFilter));
-    const wardMedIds = new Set(wardMeds.map((m) => m.id));
-    const wardNames = new Set(wardMeds.map((m) => m.name));
-    // A name in wardNames isn't necessarily ward-exclusive — OPD and IPD versions of the same
-    // drug deliberately share a name (see wardOf/Ward), so a plain name-set filter would also
-    // pull in the OTHER ward's tx rows for any name that happens to exist on both shelves.
-    // Only drop into name-matching for a name that's genuinely unambiguous; an ambiguous name
-    // is trusted only via its tagged medId (see Tx.medId — older rows predating that field
-    // just won't appear for an ambiguous name, same tradeoff as the substock ledger).
-    const otherWardNames = new Set(st.meds.filter((m) => st.wardFilter !== 'all' && !isSharedMed(m) && wardOf(m) !== st.wardFilter).map((m) => m.name));
+    // Bug fix (report accuracy): ReportScreen.tsx dropped OPD/IPD ward tabs a while back ("reports
+    // always cover the whole formulary" — see its own comment) and every on-screen computation
+    // there (aging/category/turn/insights/exec/disc) reads straight from state.meds.filter(active)
+    // or state.txs with NO ward filtering at all — but this export kept scoping every branch to
+    // st.wardFilter, a value ReportScreen.tsx itself never reads or sets. That value is just
+    // whatever wardFilter happens to be left over from another screen (e.g. MedsScreen) — a
+    // pharmacist could open Report, look at the whole-formulary aging/category/turnover numbers
+    // on screen, click "Export CSV", and get a spreadsheet silently re-scoped to only OPD (or
+    // only IPD) because that's what wardFilter happened to be set to elsewhere, with no visual
+    // cue on this screen that anything was filtered. Matching the on-screen source of truth
+    // exactly: every branch now uses the same plain active-med set ReportScreen.tsx computes.
+    const meds = st.meds.filter((m) => m.active);
     let outcome: Awaited<ReturnType<typeof downloadCsv>>;
     if (st.reportTab === 'aging') {
+      const medIds = new Set(meds.map((m) => m.id));
       const bDef: [string, number, number][] = [['หมดอายุแล้ว', -99999, 0], ['เหลือ ≤ 30 วัน', 0, 30], ['31–90 วัน', 30, 90], ['91–180 วัน', 90, 180], ['มากกว่า 180 วัน', 180, 99999]];
       const rows = bDef.map(([label, lo, hi]) => {
-        const ls = st.lots.filter((l) => wardMedIds.has(l.medId) && l.qty > 0 && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
-        const val = ls.reduce((s, l) => s + l.qty * (st.meds.find((m) => m.id === l.medId)?.price || 0), 0);
+        const ls = st.lots.filter((l) => medIds.has(l.medId) && l.qty > 0 && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
+        const val = ls.reduce((s, l) => s + l.qty * (meds.find((m) => m.id === l.medId)?.price || 0), 0);
         return [label, ls.length, Math.round(val)];
       });
       outcome = await downloadCsv([['bucket', 'lots', 'value_thb'], ...rows], names.aging);
     } else if (st.reportTab === 'category') {
       // Same categoryStats() the on-screen table renders from — one source of truth, so an
       // exported spreadsheet can never quietly disagree with what the pharmacist just read.
-      const rows = categoryStats(st, wardMeds.filter((m) => m.active), st.expiryWarnDays)
+      const rows = categoryStats(st, meds, st.expiryWarnDays)
         .map((r) => [r.label, r.meds, r.low, Math.round(r.value), Math.round(r.atRisk), r.used30]);
       outcome = await downloadCsv([['category', 'medications', 'below_min', 'stock_value_thb', 'expiry_risk_value_thb', 'used_30d'], ...rows], names.category);
     } else if (st.reportTab === 'turn') {
-      const rows = wardMeds.filter((m) => m.active).map((m) => {
+      const rows = meds.map((m) => {
         const oh = m.floor + subQty(st, m.id);
         // A drug with no recorded usage yet (used30 === 0 — new, or never HOSxP-reconciled)
         // divides by zero here; the on-screen "รายงาน" tab already guards this with
@@ -1890,14 +2049,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       outcome = await downloadCsv([['medication', 'unit', 'on_hand', 'used_30d', 'days_on_hand'], ...rows], names.turn);
     } else if (st.reportTab === 'insights') {
-      const anomalies = usageAnomalies(wardMeds);
+      const anomalies = usageAnomalies(meds);
       const rows = anomalies.map((a) => [
         a.med.name, a.med.used30, a.med.usedPrev30, Math.round(a.changePct * 100),
         daysOfStockLeft(st, a.med) ?? '',
       ]);
       outcome = await downloadCsv([['medication', 'used_30d', 'used_prev_30d', 'change_pct', 'days_of_stock_left'], ...rows], names.insights);
     } else if (st.reportTab === 'exec') {
-      const rows = wardMeds.filter((m) => m.active).map((m) => {
+      const rows = meds.map((m) => {
         const oh = m.floor + subQty(st, m.id);
         return [m.name, m.unit, oh, Math.round(oh * m.price), m.used30];
       }).sort((a, b) => (b[3] as number) - (a[3] as number));
@@ -1913,12 +2072,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const snap = await withTimeout(getDocs(query(collection(db, 'txs'), orderBy('ts', 'desc'))));
         rows = snap.docs
           .map((d) => d.data() as { type: string; ts: number; name: string; qty: number; unit: string; loc?: string; reason?: string; note?: string; by: string; medId?: string })
-          .filter((x) => {
-            if (types.indexOf(x.type) < 0) return false;
-            if (st.wardFilter === 'all') return true;
-            if (x.medId) return wardMedIds.has(x.medId);
-            return wardNames.has(x.name) && !otherWardNames.has(x.name);
-          })
+          .filter((x) => types.indexOf(x.type) >= 0)
           .map((x) => [isoDate(x.ts), x.name, x.type, x.qty, x.unit, x.loc || '', x.reason || '', x.note || '', x.by]);
       } catch (e) { toastErr(e, 'ดึงประวัติไม่สำเร็จ ลองใหม่อีกครั้ง'); return; }
       outcome = await downloadCsv([['date', 'medication', 'type', 'qty', 'unit', 'location', 'reason', 'note', 'performed_by'], ...rows], names.disc);
@@ -2001,10 +2155,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       };
 
       // 1) Stock aging (มูลค่ายาตามช่วงอายุคงเหลือ)
+      // Bug fix (report accuracy): used to scan st.lots with no medId/active filtering at all —
+      // a lot belonging to a discontinued med (active:false, unscrapped stock still physically
+      // sitting on a shelf) would count here even though the on-screen aging report (and the
+      // per-tab CSV export, fixed the same way above) both restrict to active meds only. Same
+      // activeMeds set every other sheet in this export already uses.
+      const activeMedIds = new Set(activeMeds.map((m) => m.id));
       const bDef: [string, number, number][] = [['หมดอายุแล้ว', -99999, 0], ['เหลือ ≤ 30 วัน', 0, 30], ['31–90 วัน', 30, 90], ['91–180 วัน', 90, 180], ['มากกว่า 180 วัน', 180, 99999]];
       addSheet('stock_aging', [['bucket', 'lots', 'value_thb'], ...bDef.map(([label, lo, hi]) => {
-        const ls = st.lots.filter((l) => l.qty > 0 && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
-        const val = ls.reduce((s, l) => s + l.qty * (st.meds.find((m) => m.id === l.medId)?.price || 0), 0);
+        const ls = st.lots.filter((l) => activeMedIds.has(l.medId) && l.qty > 0 && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
+        const val = ls.reduce((s, l) => s + l.qty * (activeMeds.find((m) => m.id === l.medId)?.price || 0), 0);
         return [label, ls.length, Math.round(val)];
       })]);
 
@@ -3170,6 +3330,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // there's nothing to read. commitTransfer/commitReceive already toast a clear, specific
     // message for this exact same "deleted-med" gap; this one never got the equivalent.
     if (!m) { toast('รายการนี้ถูกลบออกจากระบบไปแล้ว — ลบแถวนี้ออกจากหน้านับสต็อกแล้วรีเฟรชหน้าจอ'); return; }
+    // Bug fix (typo safety net): nothing here ever checked the typed count against anything —
+    // digitsOnly() only guards against overflow/corruption (caps at 9 digits), not plausibility.
+    // Typing several rows quickly on a shelf walk is exactly the situation an extra digit (e.g.
+    // "990" instead of "90") slips in unnoticed, and the old flow committed it with the same
+    // zero friction as a correct entry, logging a wildly wrong "discrepancy" tx with no warning
+    // at all. Flags (not blocks) a count that implies a delta far outside anything this med's
+    // own par level would ever plausibly produce — cheap for a legitimate large count (one
+    // extra tap), but catches the real, common typo case.
+    const implausible = Math.abs(q - m.floor) > Math.max(m.parFloor, 20) * 8;
+    if (implausible && !(await confirmAsync(
+      'นับได้ ' + nf(q) + ' ' + m.unit + ' — ต่างจากยอดระบบ (' + nf(m.floor) + ') มากผิดปกติเมื่อเทียบกับ par ('
+      + nf(m.parFloor) + ') ของ ' + m.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
+    ))) return;
     try {
       let delta = 0;
       let note = '';
@@ -3193,7 +3366,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       patch((st) => { const ci = { ...st.countInputs }; delete ci[medId]; return { countInputs: ci }; });
       toast(m.name + ' — ' + note);
     } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }), [state.countInputs, state.meds, userName, toast, toastErr, patch, guardOnce]);
+  }), [state.countInputs, state.meds, userName, toast, toastErr, patch, guardOnce, confirmAsync]);
 
   // Batch version of commitCount() for a real cycle count: someone walks the shelf typing
   // numbers into 20-40 rows, then commits the lot in one tap. Deliberately NOT one big
@@ -3275,6 +3448,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Bug fix (silent no-op): same class of gap as commitCount's own fix — this used to just
     // `return` here with no toast, leaving a tap on a deleted med's row do nothing at all.
     if (!m) { toast('รายการนี้ถูกลบออกจากระบบไปแล้ว — ลบแถวนี้ออกจากหน้านับสต็อกแล้วรีเฟรชหน้าจอ'); return; }
+    // Bug fix (typo safety net): same gap as commitCount's own fix above — nothing here ever
+    // checked the typed count against anything plausible before committing it.
+    const curSub = subQty(state, medId);
+    const implausible = Math.abs(q - curSub) > Math.max(m.parSub, 20) * 8;
+    if (implausible && !(await confirmAsync(
+      'นับได้ ' + nf(q) + ' ' + m.unit + ' — ต่างจากยอดระบบ (' + nf(curSub) + ') มากผิดปกติเมื่อเทียบกับ par ('
+      + nf(m.parSub) + ') ของ ' + m.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
+    ))) return;
     try {
       let delta = 0;
       let note = '';
@@ -3328,7 +3509,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       patch((st) => { const ci = { ...st.subCountInputs }; delete ci[medId]; return { subCountInputs: ci }; });
       toast(m.name + ' — ' + note);
     } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }), [state.subCountInputs, state.meds, userName, toast, toastErr, patch, guardOnce]);
+  }), [state, userName, toast, toastErr, patch, guardOnce, confirmAsync]);
 
   /** Batch version of commitSubCount(), mirroring commitAllCounts() — sequential per-med
    * transactions (never one lumped write) for the same reason: each has to re-read its own
@@ -3402,7 +3583,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---------- hosxp reconcile ----------
   const setHosxpText = useCallback((v: string) => patch({ hosxpText: v }), [patch]);
 
-  const processHosxp = useCallback(() => {
+  const processHosxp = useCallback(async () => {
     const lines = state.hosxpText.split('\n').map((l) => l.trim()).filter(Boolean);
     // Bug fix (data integrity): see splitNameQty's own doc comment (usageImport.ts) — a plain
     // lastIndexOf(',') split here broke the moment a day's dispensed qty itself had a Thai-
@@ -3416,8 +3597,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return { name: split.name, qty, match: matchHosxpMed(state.meds, split.name) };
     }).filter((x): x is { name: string; qty: number; match: ReturnType<typeof matchHosxpMed> } => !!x);
     if (!rows.length) { toast('วางข้อมูล CSV รูปแบบ "ชื่อยา,จำนวน" ก่อนประมวลผล'); return; }
+    // Bug fix (paste-mistake safety net): nothing here ever checked the pasted block itself for
+    // two real, common mistakes — accidentally pasting the same content twice (a doubled
+    // clipboard paste), or pasting an entire multi-sheet/multi-day report instead of just one
+    // day's usage rows. Every resulting row is still gated by matchHosxpMed on commit, but that
+    // only catches "this drug doesn't exist," not "this whole paste looks wrong." Flags (not
+    // blocks) both: an exact repeat of the first half in the second half (the specific,
+    // unambiguous signature of a doubled paste — vanishingly unlikely to occur from real,
+    // once-only usage data), and a row count well beyond this formulary's own size (~580 meds)
+    // for what's supposed to be a single day's dispense list.
+    const half = Math.floor(lines.length / 2);
+    const isDoublePaste = lines.length >= 4 && lines.length % 2 === 0 && lines.slice(0, half).join('\n') === lines.slice(half).join('\n');
+    const tooManyRows = rows.length > 300;
+    if ((isDoublePaste || tooManyRows) && !(await confirmAsync(
+      isDoublePaste
+        ? 'ข้อมูลที่วางดูเหมือนถูกวางซ้ำ 2 รอบ (' + nf(rows.length) + ' แถว) — วางซ้ำโดยไม่ตั้งใจหรือไม่? กด "ตกลง" เพื่อประมวลผลต่อตามที่วางไว้จริง'
+        : 'ข้อมูลที่วางมี ' + nf(rows.length) + ' แถว มากกว่าปกติมาก (ยาทั้งฟอร์มูลารีมีประมาณ 580 รายการ) — ตรวจสอบว่าวางถูกไฟล์/ถูกช่วงวันที่ (ควรเป็นวันเดียว) แล้วใช่ไหม?'
+    ))) return;
     patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpConfirmSingleDay: false });
-  }, [state.hosxpText, state.meds, patch, toast]);
+  }, [state.hosxpText, state.meds, patch, toast, confirmAsync]);
 
   // Lets the daily floor-deduction workflow attach the actual HOSxP "รายงานการใช้ยา" export
   // (.xls/.xlsx) directly instead of hand-copying it into the "ชื่อยา,จำนวน" textarea above —

@@ -21,10 +21,21 @@ interface Registered { path: string; cb: CollectionCb | DocCb }
 const listeners: Registered[] = [];
 let authListener: ((user: { uid: string } | null) => void) | null = null;
 
-// A real doc/collection ref only needs to be an opaque, comparable token here — nothing in
-// AppContext inspects its shape, it just threads it through to onSnapshot/getDoc/etc., all of
-// which are mocked below to key off this same `.path` string instead of any real SDK internals.
-function ref(path: string) { return { path }; }
+// A real doc/collection ref only needs to be an opaque, comparable token here — almost nothing
+// in AppContext inspects its shape beyond `.path` (threaded through to onSnapshot/getDoc/etc.,
+// all mocked below to key off that string instead of any real SDK internals) — except genLotCode
+// (AppContext.tsx), which reads a freshly created lot ref's own `.id` to build a human-readable
+// lot code. `.id` here is just the path's last segment, matching how the real SDK's DocumentReference
+// exposes it.
+function ref(path: string) { return { path, id: path.split('/').pop() ?? path }; }
+
+// `doc(collection(db, 'x'))` (no id argument) auto-generates a new, unique doc reference in the
+// real SDK — the mock below used to always resolve this to the same empty path/id for every call,
+// which collapsed every "create a new doc" write in one commit onto the same fake path and gave
+// genLotCode an empty `.id` to build a lot code from. A monotonic counter is enough here (tests
+// don't need real Firestore-style random IDs, just distinct, non-empty ones).
+let autoIdCounter = 0;
+function autoId(): string { return 'auto-' + (++autoIdCounter); }
 
 // Backing store for one-shot reads (getDoc/getDocs, and a transaction's own trx.get()) — a
 // SEPARATE thing from the onSnapshot listeners above, since AppContext's live-correctness fixes
@@ -45,6 +56,7 @@ export function resetFirebaseTestDouble() {
   collectionStore.clear();
   lastTransactionWrites = [];
   batchWrites = [];
+  autoIdCounter = 0;
 }
 
 /** Seeds what a one-shot `getDoc(doc(db, ...segments))` or a transaction's `trx.get(...)` on
@@ -167,7 +179,12 @@ vi.mock('firebase/auth', () => ({
 
 vi.mock('firebase/firestore', () => ({
   collection: (_db: unknown, path: string) => ref(path),
-  doc: (_dbOrColl: unknown, ...segs: string[]) => ref(segs.join('/')),
+  doc: (dbOrColl: unknown, ...segs: string[]) => {
+    if (segs.length) return ref(segs.join('/'));
+    // Auto-id form: doc(collection(db, 'x')) — dbOrColl here is the collection ref itself.
+    const collPath = (dbOrColl as { path?: string } | undefined)?.path ?? '';
+    return ref(collPath + '/' + autoId());
+  },
   // query/where/orderBy/limit are no-ops here — tests supply exactly the rows they want via
   // fireCollection()/fireDoc() rather than exercising real filter/sort logic (that's what
   // selectors.test.ts already covers at the unit level).

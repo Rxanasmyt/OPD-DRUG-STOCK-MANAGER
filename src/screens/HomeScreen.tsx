@@ -86,7 +86,12 @@ export default function HomeScreen() {
   const expLots = wardLots
     .filter((l) => l.qty > 0 && daysUntil(l.exp) < W)
     .sort((a, b) => a.exp - b.exp);
-  const expiredCount = wardLots.filter((l) => l.qty > 0 && daysUntil(l.exp) < 0).length;
+  // Bug fix (consistency): a lot expiring TODAY (daysUntil===0) is already unsafe to dispense —
+  // the aging/turnover report's "หมดอายุแล้ว" bucket already counts it as expired (its `<= hi`
+  // bound with hi=0) — but this tile used `< 0`, so the SAME lot read as "already expired" on
+  // the Report screen and merely "near expiry, not yet due" here, and the quick-scrap shortcut
+  // below funneled it into the wrong flow (ordinary transfer instead of expired write-off).
+  const expiredCount = wardLots.filter((l) => l.qty > 0 && daysUntil(l.exp) <= 0).length;
   // Bug fix: daysUntil() computes days remaining until a *future* timestamp (right for
   // expiry dates) — for a tx.ts, which is always in the past, it was always negative, so
   // this tile silently showed 0 for every transaction ever logged. Compare calendar dates.
@@ -294,8 +299,8 @@ export default function HomeScreen() {
           return (
             <div key={l.id} className="row-interactive" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: '1px solid var(--border-soft)' }}>
               <div style={{ width: 52, flex: 'none', textAlign: 'center', background: d < 30 ? 'var(--red-bg)' : 'var(--amber-bg)', color: d < 30 ? 'var(--red)' : 'var(--amber-ink)', borderRadius: 11, padding: '6px 2px' }}>
-                <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1 }}>{d < 0 ? Math.abs(d) : d}</div>
-                <div style={{ fontSize: 10, lineHeight: 1.3 }}>{d < 0 ? 'วันที่เกิน' : 'วัน'}</div>
+                <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1 }}>{d <= 0 ? Math.abs(d) : d}</div>
+                <div style={{ fontSize: 10, lineHeight: 1.3 }}>{d <= 0 ? 'วันที่เกิน' : 'วัน'}</div>
               </div>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
@@ -305,11 +310,11 @@ export default function HomeScreen() {
                 <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>lot {l.lotNo} · exp {thDate(l.exp)} · เหลือ {nf(l.qty)} {m.unit}</div>
               </div>
               <button
-                onClick={() => { if (d < 0) { pickAdjType('expired'); go('adjust'); } else { bump(m.id, 1); go('transfer'); } }}
+                onClick={() => { if (d <= 0) { pickAdjType('expired'); go('adjust'); } else { bump(m.id, 1); go('transfer'); } }}
                 className="press-spring"
                 style={{ border: '1px solid var(--border)', background: 'var(--bg-subtle)', color: 'var(--ink)', padding: '8px 11px', borderRadius: 10, fontSize: 12.5, fontWeight: 600, flex: 'none', minHeight: 44 }}
               >
-                {d < 0 ? 'ตัดออก' : 'ใช้ก่อน'}
+                {d <= 0 ? 'ตัดออก' : 'ใช้ก่อน'}
               </button>
             </div>
           );

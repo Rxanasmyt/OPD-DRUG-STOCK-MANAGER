@@ -104,7 +104,15 @@ export default function ReportScreen() {
   // uses, so the exported spreadsheet can never disagree with what's on screen.
   const catRows = categoryStats(state, meds, state.expiryWarnDays);
   const catMaxValue = Math.max(1, ...catRows.map((r) => r.value));
-  const catTotalValue = catRows.reduce((s2, r) => s2 + r.value, 0);
+  // Bug fix (report accuracy): each row displays nf(r.value) — Math.round to the nearest whole
+  // baht — but the footer used to sum the RAW, unrounded values and round only that final sum.
+  // Real seed data hits this exactly: a ฿1.50 med × qty 7 = ฿10.50 (displayed "11 บาท") in one
+  // category, a ฿2.25 med × qty 2 = ฿4.50 (displayed "5 บาท") in another — rows read 11 + 5 = 16,
+  // but the raw sum 10.50 + 4.50 = 15.00 rounds to "15 บาท" in the footer. A PTC/pharmacy-head
+  // reviewer adding up the printed rows by hand gets a different total than the report itself.
+  // Summing the already-rounded per-row values instead guarantees the footer always equals
+  // exactly what a reader would get by adding up the rows they can actually see.
+  const catTotalValue = catRows.reduce((s2, r) => s2 + Math.round(r.value), 0);
 
   const discQ = discSearch.trim().toLowerCase();
   const discRows = state.txs

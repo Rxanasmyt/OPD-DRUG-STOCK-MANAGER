@@ -118,7 +118,15 @@ export default function TConfirmScreen() {
       </div>
 
       {hadPending.length > 0 && (
-        <button onClick={() => startHadScan(hadPending[0])} style={{ width: '100%', border: 0, background: 'var(--had)', color: '#fff', padding: 16, borderRadius: 12, fontSize: 16, fontWeight: 600, minHeight: 54, marginBottom: 9 }}>
+        // Bug fix (dark-mode contrast): same class of bug already fixed for btn-primary/
+        // ErrorBoundary's button — a hardcoded '#fff' assumed --had's LIGHT-mode value (a dark
+        // maroon, #8f1f4f), but dark mode's --had is a much lighter pink (#e8639e), where white
+        // text measures only ~3.1:1 contrast (WCAG AA needs 4.5:1) — washed-out, hard-to-read
+        // text on the one button that gates high-alert-drug scan confirmation, a real
+        // dispensing-safety control. --ink-soft is the token that already flips per-theme to
+        // stay readable against a saturated brand-color fill (near-white in light mode, near-
+        // black in dark mode) for exactly this reason.
+        <button onClick={() => startHadScan(hadPending[0])} style={{ width: '100%', border: 0, background: 'var(--had)', color: 'var(--ink-soft)', padding: 16, borderRadius: 12, fontSize: 16, fontWeight: 600, minHeight: 54, marginBottom: 9 }}>
           สแกน QR ยา high alert ({hadPending.length} รายการ)
         </button>
       )}

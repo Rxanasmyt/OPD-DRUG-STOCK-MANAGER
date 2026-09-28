@@ -27,14 +27,39 @@
 //    request for a med that no longer exists — see its own "Bug fix (data integrity)" comment.
 // 9. commitCount/commitSubCount's silent-no-op fix: a deleted med must produce a clear toast,
 //    not a silent do-nothing — see their own "Bug fix (silent no-op)" comments.
-import { describe, it, expect } from 'vitest';
+// 10. logout's shared-device data-leak fix: every in-progress form field (not just cart) must
+//     reset on logout, or the next person signing in on the same shared tablet can find the
+//     previous person's half-entered lot/qty/reason still sitting there — see logout's own
+//     "Bug fix (shared-device data leak)" comment.
+// 11. commitCount/commitSubCount's typo-safety-net fix: a wildly implausible count (relative to
+//     the med's own par level) must ask for confirmation before committing — see their own "Bug
+//     fix (typo safety net)" comments.
+// 12. processHosxp's paste-mistake safety net: an exact doubled-paste or a suspiciously large
+//     row count must ask for confirmation before staging rows for reconcile — see its own "Bug
+//     fix (paste-mistake safety net)" comment.
+// 13. guardOnce's double-submit-on-timeout fix: after a TimeoutError, guardOnce must ask for
+//     confirmation before letting that same guarded action fire again within the retry window,
+//     since the original write may still land on the server — see guardOnce's own "Bug fix
+//     (double-submit on network timeout)" comment.
+// 14. commitReceive's lot-duplication fix: receiving the same physical batch (same lotNo + exp
+//     for the same med) as an existing ACTIVE lot must merge into it (increment qty), never
+//     create a second lot doc for what's one real stack on the shelf — see its own "Bug fix
+//     (lot duplication)" comment.
+// 15. commitWardMove's unit-mismatch fix: moving stock between two meds with different
+//     dispensing units (e.g. เม็ด vs ขวด) must be blocked outright — see its own "Bug fix
+//     (data integrity)" comment.
+import { describe, it, expect, vi } from 'vitest';
 import { useEffect } from 'react';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { runTransaction } from 'firebase/firestore';
 import TConfirmScreen from '../screens/TConfirmScreen';
+import AdjustScreen from '../screens/AdjustScreen';
 import { useApp } from './AppContext';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import Toast from '../components/Toast';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { TimeoutError } from '../utils/timeout';
 import {
   signInAs, fireCollection, hasListener, seedDoc, seedCollection, getLastTransactionWrites,
   getLastBatchWrites,
@@ -159,7 +184,7 @@ describe('commitAdjust — ledger-accuracy regression', () => {
 
     const writes = getLastTransactionWrites();
     const medWrite = writes.find((w) => w.path === 'meds/m1');
-    const txWrite = writes.find((w) => w.path === '');
+    const txWrite = writes.find((w) => w.path.startsWith('txs/'));
     // floor clamps at 0 (3 - 10 would go negative), so the real applied delta is -3, not -10.
     expect(medWrite?.data).toEqual({ floor: 0 });
     expect(txWrite?.data.qty).toBe(-3);
@@ -201,7 +226,7 @@ describe('scrapLot — data-integrity regression', () => {
 
     const writes = getLastTransactionWrites();
     const lotWrite = writes.find((w) => w.path === 'lots/lotKnown');
-    const txWrite = writes.find((w) => w.path === '');
+    const txWrite = writes.find((w) => w.path.startsWith('txs/'));
     expect(lotWrite?.data).toEqual({ qty: 0 });
     expect(txWrite?.data.qty).toBe(-4);
   });
@@ -334,6 +359,38 @@ describe('approvePendingReceive — data-integrity regression', () => {
     // landed during the transaction's own retries.
     expect(getLastTransactionWrites().find((w) => w.path === 'pendingReceives/pr1')).toBeUndefined();
   });
+
+  it('merges into an existing active lot with the same lotNo/exp instead of creating a new one', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ApproveReceiveHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+
+    seedDoc('pendingReceives/pr1', {
+      recvNo: 'RX1', medId: MED.id, name: MED.name, unit: MED.unit, lotNo: 'LOT1',
+      exp: new Date('2027-01-01').getTime(), qty: 10, requestedBy: 'เทค หนึ่ง', requestedByUid: 'tech1',
+      ts: Date.now(), status: 'pending',
+    });
+    seedDoc('meds/m1', {});
+    // An existing, still-active lot for the exact same physical batch this pending request is
+    // for (same lotNo + exp) — e.g. an earlier delivery already approved and sitting on the
+    // shelf. Seeded both as a collection row (for the live getDocs() lookup) and as an
+    // individual doc (for the transaction's own trx.get() re-check of that one candidate) —
+    // AppContext.commit.test.tsx's own test double keeps those two stores separate.
+    const existingLot = { medId: MED.id, lotNo: 'LOT1', exp: new Date('2027-01-01').getTime(), qty: 20 };
+    seedCollection('lots', [{ id: 'existing-lot-1', ...existingLot }]);
+    seedDoc('lots/existing-lot-1', existingLot);
+
+    await user.click(screen.getByRole('button', { name: 'approve-pr1' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+    const writes = getLastTransactionWrites();
+    // Without the fix, this would be a `set` creating a brand-new lot doc (data has a lotNo
+    // field) instead of an `update` incrementing the existing one.
+    const lotCreates = writes.filter((w) => w.kind === 'set' && !!w.data && 'lotNo' in w.data);
+    expect(lotCreates.length).toBe(0);
+    const merge = writes.find((w) => w.kind === 'update' && w.path === 'lots/existing-lot-1');
+    expect(merge?.data?.qty).toBe(10);
+  });
 });
 
 function CountHarness() {
@@ -376,5 +433,277 @@ describe('commitCount / commitSubCount — silent-no-op regression', () => {
     await user.click(screen.getByRole('button', { name: 'commit-subcount' }));
     await screen.findByText('รายการนี้ถูกลบออกจากระบบไปแล้ว — ลบแถวนี้ออกจากหน้านับสต็อกแล้วรีเฟรชหน้าจอ');
     expect(getLastTransactionWrites().length).toBe(0);
+  });
+});
+
+function LogoutHarness() {
+  const { state, setAdjQty, setAdjNote, setRecvQty, logout } = useApp();
+  return (
+    <div>
+      <button onClick={() => { setAdjQty('37'); setAdjNote('นับได้ต่างจากระบบมาก'); setRecvQty('99'); }}>fill-forms</button>
+      <button onClick={logout}>logout</button>
+      <div data-testid="adjQty">{state.adjQty}</div>
+      <div data-testid="adjNote">{state.adjNote}</div>
+      <div data-testid="recvQty">{state.recvQty}</div>
+    </div>
+  );
+}
+
+describe('logout — shared-device data-leak regression', () => {
+  it('clears in-progress form fields, not just the cart, so the next person on a shared device starts clean', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<LogoutHarness />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+
+    await user.click(screen.getByRole('button', { name: 'fill-forms' }));
+    expect(screen.getByTestId('adjQty').textContent).toBe('37');
+    expect(screen.getByTestId('adjNote').textContent).toBe('นับได้ต่างจากระบบมาก');
+    expect(screen.getByTestId('recvQty').textContent).toBe('99');
+
+    await user.click(screen.getByRole('button', { name: 'logout' }));
+
+    // Without the fix, these would still show the previous user's half-entered values —
+    // exactly what the next person signing in on this same shared tablet would see.
+    expect(screen.getByTestId('adjQty').textContent).toBe('');
+    expect(screen.getByTestId('adjNote').textContent).toBe('');
+    expect(screen.getByTestId('recvQty').textContent).toBe('');
+  });
+});
+
+function CountPlausibilityHarness({ value }: { value: string }) {
+  const { setCountInput, commitCount } = useApp();
+  useEffect(() => { setCountInput('m1', value); }, [setCountInput, value]);
+  return <button onClick={() => commitCount('m1')}>commit-count</button>;
+}
+
+describe('commitCount — plausibility-check regression', () => {
+  it('asks for confirmation before committing a wildly implausible count, and blocks on cancel', async () => {
+    const user = userEvent.setup();
+    // MED.floor=40, MED.parFloor=100 → threshold = max(100,20)*8 = 800; 5000 is well past it.
+    renderWithApp(<><CountPlausibilityHarness value="5000" /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    seedDoc('meds/m1', { floor: MED.floor });
+
+    await user.click(screen.getByRole('button', { name: 'commit-count' }));
+    await screen.findByText(/ต่างจากยอดระบบ.*มากผิดปกติ/);
+    await user.click(screen.getByRole('button', { name: 'ยกเลิก' }));
+
+    expect(getLastTransactionWrites().length).toBe(0);
+  });
+
+  it('commits directly with no confirm prompt when the count is plausible', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><CountPlausibilityHarness value="45" /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    seedDoc('meds/m1', { floor: MED.floor });
+
+    await user.click(screen.getByRole('button', { name: 'commit-count' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+    expect(screen.queryByText(/มากผิดปกติ/)).not.toBeInTheDocument();
+  });
+});
+
+function HosxpHarness() {
+  const { state, setHosxpText, processHosxp } = useApp();
+  return (
+    <div>
+      <button onClick={() => setHosxpText('Paracetamol 500mg,10\nAmoxicillin 250mg,5\nParacetamol 500mg,10\nAmoxicillin 250mg,5')}>paste-doubled</button>
+      <button onClick={processHosxp}>process</button>
+      <div data-testid="rowCount">{state.hosxpRows?.length ?? 'none'}</div>
+    </div>
+  );
+}
+
+describe('processHosxp — paste-mistake safety net regression', () => {
+  it('asks for confirmation when the pasted block is an exact doubled paste, and blocks on cancel', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><HosxpHarness /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+
+    await user.click(screen.getByRole('button', { name: 'paste-doubled' }));
+    await user.click(screen.getByRole('button', { name: 'process' }));
+    await screen.findByText(/วางซ้ำ 2 รอบ/);
+    await user.click(screen.getByRole('button', { name: 'ยกเลิก' }));
+
+    // Blocked before hosxpRows was ever populated — still "none".
+    expect(screen.getByTestId('rowCount').textContent).toBe('none');
+  });
+});
+
+describe('guardOnce — double-submit-on-timeout regression', () => {
+  it('asks for confirmation before letting a timed-out action retry, and skips the retry write on cancel', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><AdjustScreen /><Toast /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+
+    await user.click(await screen.findByRole('button', { name: /^ปรับยอด/ }));
+    const search = await screen.findByPlaceholderText('ค้นหาชื่อยา');
+    await user.type(search, 'Paracetamol');
+    await user.click(await screen.findByRole('button', { name: new RegExp(MED.name) }));
+    await user.click(screen.getByRole('button', { name: 'บันทึกจ่ายผิดรายการ' }));
+    await screen.findByText(/ส่วนต่างที่จะลบออกจากยอดระบบ/);
+    const qty = screen.getAllByRole('textbox').find((el) => el.getAttribute('inputmode') === 'numeric')!;
+    await user.type(qty, '5');
+
+    // First tap: the underlying transaction hangs long enough that withTimeout gives up —
+    // simulated directly by rejecting with the same TimeoutError withTimeout itself throws,
+    // rather than waiting out the real 15s clock.
+    vi.mocked(runTransaction).mockRejectedValueOnce(new TimeoutError());
+    await user.click(screen.getByRole('button', { name: 'บันทึกปรับยอด' }));
+    await screen.findByText(/การเชื่อมต่อช้าเกินไปหรือขาดหาย/);
+    expect(getLastTransactionWrites().length).toBe(0);
+
+    // Second tap (retry) within the window: without the fix, this would go straight through to
+    // a second, fully independent transaction — the exact double-apply risk this fix closes.
+    await user.click(screen.getByRole('button', { name: 'บันทึกปรับยอด' }));
+    await screen.findByText(/รายการก่อนหน้าอาจยังไม่เสร็จสมบูรณ์/);
+    await user.click(screen.getByRole('button', { name: 'ยกเลิก' }));
+
+    expect(getLastTransactionWrites().length).toBe(0);
+  });
+
+  it('proceeds with the retry once confirmed, running the transaction normally', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><AdjustScreen /><Toast /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    seedDoc('meds/m1', { floor: MED.floor });
+
+    await user.click(await screen.findByRole('button', { name: /^ปรับยอด/ }));
+    const search = await screen.findByPlaceholderText('ค้นหาชื่อยา');
+    await user.type(search, 'Paracetamol');
+    await user.click(await screen.findByRole('button', { name: new RegExp(MED.name) }));
+    await user.click(screen.getByRole('button', { name: 'บันทึกจ่ายผิดรายการ' }));
+    await screen.findByText(/ส่วนต่างที่จะลบออกจากยอดระบบ/);
+    const qty = screen.getAllByRole('textbox').find((el) => el.getAttribute('inputmode') === 'numeric')!;
+    await user.type(qty, '5');
+
+    vi.mocked(runTransaction).mockRejectedValueOnce(new TimeoutError());
+    await user.click(screen.getByRole('button', { name: 'บันทึกปรับยอด' }));
+    await screen.findByText(/การเชื่อมต่อช้าเกินไปหรือขาดหาย/);
+
+    await user.click(screen.getByRole('button', { name: 'บันทึกปรับยอด' }));
+    await screen.findByText(/รายการก่อนหน้าอาจยังไม่เสร็จสมบูรณ์/);
+    await user.click(screen.getByRole('button', { name: 'ยืนยัน' }));
+
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+  });
+});
+
+describe('commitReceive — lot duplication regression', () => {
+  it('merges into an existing active lot with the same lotNo/exp instead of creating a new one', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ReceiveHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    seedDoc('meds/m1', {});
+    // An existing, still-active lot for the exact same physical batch ReceiveHarness fills in
+    // (lotNo 'LOT1', exp '2027-01-01', qty 10) — e.g. an earlier delivery of this exact batch
+    // still sitting on the shelf.
+    const existingExp = new Date('2027-01-01').getTime();
+    seedCollection('lots', [{ id: 'existing-lot-1', medId: 'm1', lotNo: 'LOT1', exp: existingExp, qty: 20 }]);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'commit-receive' })).not.toBeDisabled());
+
+    await user.click(screen.getByRole('button', { name: 'commit-receive' }));
+
+    const writes = await waitFor(() => {
+      const w = getLastBatchWrites();
+      expect(w.length).toBeGreaterThan(0);
+      return w;
+    });
+    // Without the fix, this would be a `set` creating a brand-new lot doc (data has a lotNo
+    // field) instead of an `update` incrementing the existing one.
+    const lotCreates = writes.filter((w) => w.kind === 'set' && !!w.data && 'lotNo' in w.data);
+    expect(lotCreates.length).toBe(0);
+    const merge = writes.find((w) => w.kind === 'update' && w.path === 'lots/existing-lot-1');
+    expect(merge?.data?.qty).toBe(10);
+  });
+
+  it('creates a new lot when no existing active lot shares the same lotNo/exp for that med', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ReceiveHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    seedDoc('meds/m1', {});
+    seedCollection('lots', []);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'commit-receive' })).not.toBeDisabled());
+
+    await user.click(screen.getByRole('button', { name: 'commit-receive' }));
+
+    const writes = await waitFor(() => {
+      const w = getLastBatchWrites();
+      expect(w.length).toBeGreaterThan(0);
+      return w;
+    });
+    const lotCreates = writes.filter((w) => w.kind === 'set' && !!w.data && 'lotNo' in w.data);
+    expect(lotCreates.length).toBe(1);
+    expect(lotCreates[0].data?.qty).toBe(10);
+  });
+});
+
+const MED_BOTTLE = {
+  id: 'm2', code: 'MED-0002', name: 'Ventolin inhaler', unit: 'ขวด', dosageForm: 'พ่น',
+  price: 100, had: false, active: true, parSub: 20, parFloor: 5, floor: 3, bin: 'B1',
+  used30: 0, usedPrev30: 0, volatility: 0,
+};
+
+function WardMoveHarness() {
+  const { pickWmFromMed, pickWmToMed, setWmQty, setWmReason, commitWardMove } = useApp();
+  return (
+    <div>
+      <button onClick={() => pickWmFromMed('m1')}>pick-from</button>
+      <button onClick={() => pickWmToMed('m2')}>pick-to</button>
+      <button onClick={() => { setWmQty('5'); setWmReason('เติม stat drawer'); }}>fill-form</button>
+      <button onClick={commitWardMove}>commit-wardmove</button>
+    </div>
+  );
+}
+
+describe('commitWardMove — unit-mismatch regression', () => {
+  it('blocks a move between two meds with different dispensing units', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><WardMoveHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    // MED is dispensed in เม็ด (tablets), MED_BOTTLE in ขวด (bottles) — moving "5" between them
+    // has no valid meaning without a conversion the app can't compute.
+    fireCollection('meds', [MED, MED_BOTTLE]);
+
+    await user.click(screen.getByRole('button', { name: 'pick-from' }));
+    await user.click(screen.getByRole('button', { name: 'pick-to' }));
+    await user.click(screen.getByRole('button', { name: 'fill-form' }));
+    await user.click(screen.getByRole('button', { name: 'commit-wardmove' }));
+
+    await screen.findByText(/หน่วยยาไม่ตรงกัน/);
+    expect(getLastTransactionWrites().length).toBe(0);
+  });
+
+  it('allows a move between two meds sharing the same unit', async () => {
+    const user = userEvent.setup();
+    const MED2 = { ...MED, id: 'm2', code: 'MED-0002', name: 'Amoxicillin 250mg' };
+    renderWithApp(<><WardMoveHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED, MED2]);
+    seedDoc('meds/m1', { floor: MED.floor });
+
+    await user.click(screen.getByRole('button', { name: 'pick-from' }));
+    await user.click(screen.getByRole('button', { name: 'pick-to' }));
+    await user.click(screen.getByRole('button', { name: 'fill-form' }));
+    await user.click(screen.getByRole('button', { name: 'commit-wardmove' }));
+
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+    expect(screen.queryByText(/หน่วยยาไม่ตรงกัน/)).not.toBeInTheDocument();
   });
 });

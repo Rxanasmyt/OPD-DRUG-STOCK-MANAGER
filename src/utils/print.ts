@@ -275,7 +275,23 @@ export function printLabelSheet(labels: PrintLabel[], heading: string): boolean 
 </style></head>
 <body>
   <div class="sheet">${items}</div>
-  <script>window.onload = function () { window.print(); };</script>
+  <script>window.onload = function () {
+    // Bug fix (print timing): window.onload fires once the Google Fonts stylesheet LINK has
+    // loaded and the CSSOM is built — it does NOT wait for the @font-face glyph files (Sarabun
+    // woff2) referenced inside that stylesheet to actually finish downloading, since font
+    // loading is asynchronous and decoupled from the page's own load event. Calling print()
+    // right on load could fire while Sarabun is still downloading on a slow/first-load device,
+    // silently falling back to the declared fallback font for that print job instead of the
+    // intended official Sarabun (the typeface Thai government documents are supposed to use —
+    // see this sheet's own comment on that). document.fonts.ready resolves once every font
+    // actually used on the page has finished loading; raced against a short timeout in case a
+    // browser's Font Loading API support is flaky, so a real failure still prints rather than
+    // hanging forever.
+    var go = function () { window.print(); };
+    if (window.document && document.fonts && document.fonts.ready) {
+      Promise.race([document.fonts.ready, new Promise(function (r) { setTimeout(r, 1500); })]).then(go, go);
+    } else { go(); }
+  };</script>
 </body></html>`;
 
   const win = window.open('', '_blank');
@@ -365,7 +381,11 @@ export function printPickListSheet(
   .metabox .k { background: #eef6f6; font-weight: 700; color: #245a59; width: 24mm; white-space: nowrap; }
   .metabox .v { width: 63mm; }
 
+  // Bug fix (print pagination): a genuinely long pick/replenish list (this formulary runs
+  // ~580 meds) can span many pages — nothing here kept a single row's own top/bottom halves
+  // from splitting across the page cut. Same fix as the other print sheets' tables in this file.
   table.rows { width: 100%; border-collapse: collapse; font-size: 11pt; }
+  table.rows tr { break-inside: avoid; }
   table.rows th { text-align: left; font-size: 9.5pt; font-weight: 700; color: #14211a; background: #eef6f6; border: 0.6pt solid #9fb8b8; padding: 2.2mm 3mm; }
   table.rows td { padding: 2.4mm 3mm; border: 0.5pt solid #cdd6d1; }
   table.rows tbody tr:nth-child(even) { background: #f8faf9; }
@@ -411,7 +431,23 @@ export function printPickListSheet(
       <div class="sig"><div class="line"></div><div class="lbl">${escapeHtml(signoffLabels[2])}</div><div class="date">วันที่ ____ /____ /______</div></div>
     </div>
   </div>
-  <script>window.onload = function () { window.print(); };</script>
+  <script>window.onload = function () {
+    // Bug fix (print timing): window.onload fires once the Google Fonts stylesheet LINK has
+    // loaded and the CSSOM is built — it does NOT wait for the @font-face glyph files (Sarabun
+    // woff2) referenced inside that stylesheet to actually finish downloading, since font
+    // loading is asynchronous and decoupled from the page's own load event. Calling print()
+    // right on load could fire while Sarabun is still downloading on a slow/first-load device,
+    // silently falling back to the declared fallback font for that print job instead of the
+    // intended official Sarabun (the typeface Thai government documents are supposed to use —
+    // see this sheet's own comment on that). document.fonts.ready resolves once every font
+    // actually used on the page has finished loading; raced against a short timeout in case a
+    // browser's Font Loading API support is flaky, so a real failure still prints rather than
+    // hanging forever.
+    var go = function () { window.print(); };
+    if (window.document && document.fonts && document.fonts.ready) {
+      Promise.race([document.fonts.ready, new Promise(function (r) { setTimeout(r, 1500); })]).then(go, go);
+    } else { go(); }
+  };</script>
 </body></html>`;
 
   const win = window.open('', '_blank');
@@ -535,6 +571,13 @@ export function printSubstockCardSheet(
   .field .lbl { flex: none; font-size: 8.5pt; color: #245a59; font-weight: 700; width: 24mm; }
   .field .val { font-size: 10.5pt; font-weight: 600; }
   table { width: 100%; border-collapse: collapse; font-size: 10.5pt; }
+  /* Bug fix (print pagination): every OTHER "keep this together" block on this sheet (.field,
+     .band, ...) already uses break-inside: avoid — a real ledger table (a fiscal year's worth
+     of transactions) can run to many pages, and without this a browser is free to split a
+     single row's own top/bottom halves across the page cut instead of pushing the whole row
+     to the next page. <thead> itself already repeats on every printed page natively (Chrome/
+     Firefox both treat it as a table-header-group), so this is the one piece that was missing. */
+  tr { break-inside: avoid; }
   th { text-align: center; font-size: 8.5pt; color: #14211a; background: #eef6f6; border: 0.6pt solid #9fb8b8; padding: 2mm 2mm; font-weight: 700; }
   th.num, td.num { text-align: right; }
   td { padding: 1.8mm 2.6mm; border: 0.4pt solid #cdd6d1; text-align: left; }
@@ -609,7 +652,23 @@ export function printSubstockCardSheet(
       <div class="foot"><span>ห้องยา ${med.ward === 'ipd' ? 'IPD' : 'OPD'} · รพ.กรงปินัง · จัดพิมพ์โดย: ${escapeHtml(meta.printedBy || '—')}</span><span>จัดพิมพ์จากระบบเมื่อวันที่ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
     </div>
   </div>
-  <script>window.onload = function () { window.print(); };</script>
+  <script>window.onload = function () {
+    // Bug fix (print timing): window.onload fires once the Google Fonts stylesheet LINK has
+    // loaded and the CSSOM is built — it does NOT wait for the @font-face glyph files (Sarabun
+    // woff2) referenced inside that stylesheet to actually finish downloading, since font
+    // loading is asynchronous and decoupled from the page's own load event. Calling print()
+    // right on load could fire while Sarabun is still downloading on a slow/first-load device,
+    // silently falling back to the declared fallback font for that print job instead of the
+    // intended official Sarabun (the typeface Thai government documents are supposed to use —
+    // see this sheet's own comment on that). document.fonts.ready resolves once every font
+    // actually used on the page has finished loading; raced against a short timeout in case a
+    // browser's Font Loading API support is flaky, so a real failure still prints rather than
+    // hanging forever.
+    var go = function () { window.print(); };
+    if (window.document && document.fonts && document.fonts.ready) {
+      Promise.race([document.fonts.ready, new Promise(function (r) { setTimeout(r, 1500); })]).then(go, go);
+    } else { go(); }
+  };</script>
 </body></html>`;
 
   const win = window.open('', '_blank');
@@ -683,7 +742,14 @@ export function printExecutiveSummarySheet(
   .sectitle { font-size: 12pt; font-weight: 700; margin: 6mm 0 2.5mm; padding-top: 4mm; border-top: 0.6pt solid #cdd6d1; }
   .sectitle:first-of-type { border-top: none; padding-top: 0; }
 
-  table.rows { width: 100%; border-collapse: collapse; font-size: 10pt; break-inside: avoid; }
+  // Bug fix (print pagination): break-inside: avoid used to sit on the TABLE itself, not its
+  // rows — for a table this could actually run to several pages (top-10-by-value/by-usage
+  // tables can still be long), that forces the whole table to try to fit on one page (or the
+  // browser just overrides the constraint), instead of the real goal: never split a single
+  // ROW's own top/bottom halves across a page cut. Moved to the "tr" rule below, same fix as the
+  // sibling ledger print sheet's table.
+  table.rows { width: 100%; border-collapse: collapse; font-size: 10pt; }
+  table.rows tr { break-inside: avoid; }
   table.rows th { text-align: left; font-size: 9pt; font-weight: 700; color: #14211a; background: #eef6f6; border: 0.6pt solid #9fb8b8; padding: 1.8mm 2.6mm; }
   table.rows td { padding: 2mm 2.6mm; border: 0.5pt solid #cdd6d1; }
   table.rows tbody tr:nth-child(even) { background: #f8faf9; }
@@ -719,7 +785,23 @@ export function printExecutiveSummarySheet(
 
     <div class="foot"><span>จัดทำโดย: ${escapeHtml(meta.printedBy || '—')}</span><span>จัดพิมพ์จากระบบเมื่อวันที่ ${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
   </div>
-  <script>window.onload = function () { window.print(); };</script>
+  <script>window.onload = function () {
+    // Bug fix (print timing): window.onload fires once the Google Fonts stylesheet LINK has
+    // loaded and the CSSOM is built — it does NOT wait for the @font-face glyph files (Sarabun
+    // woff2) referenced inside that stylesheet to actually finish downloading, since font
+    // loading is asynchronous and decoupled from the page's own load event. Calling print()
+    // right on load could fire while Sarabun is still downloading on a slow/first-load device,
+    // silently falling back to the declared fallback font for that print job instead of the
+    // intended official Sarabun (the typeface Thai government documents are supposed to use —
+    // see this sheet's own comment on that). document.fonts.ready resolves once every font
+    // actually used on the page has finished loading; raced against a short timeout in case a
+    // browser's Font Loading API support is flaky, so a real failure still prints rather than
+    // hanging forever.
+    var go = function () { window.print(); };
+    if (window.document && document.fonts && document.fonts.ready) {
+      Promise.race([document.fonts.ready, new Promise(function (r) { setTimeout(r, 1500); })]).then(go, go);
+    } else { go(); }
+  };</script>
 </body></html>`;
 
   const win = window.open('', '_blank');
@@ -859,7 +941,13 @@ export function printKpiReportSheet(rows: DailyMetrics[], meta: { fromDate: stri
   .sectitle:first-of-type { border-top: none; padding-top: 0; }
   .chartbox { border: 0.6pt solid #b8c4bd; border-radius: 2mm; padding: 3mm; background: #fff; break-inside: avoid; margin-bottom: 4mm; }
 
+  // Bug fix (print pagination): this table can carry up to 90 daily rows (a 90-day KPI range)
+  // — real risk of spanning several pages, but nothing here kept a single row's own top/bottom
+  // halves from splitting across the page cut. Every other "keep together" block elsewhere in
+  // this file (.stat, .chartbox) already uses break-inside: avoid; this table's rows never got
+  // it. <thead> itself already repeats on every printed page natively.
   table.rows { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+  table.rows tr { break-inside: avoid; }
   table.rows th { text-align: left; font-size: 8.8pt; font-weight: 700; color: #14211a; background: #eef6f6; border: 0.6pt solid #9fb8b8; padding: 1.8mm 2.4mm; }
   table.rows td { padding: 1.8mm 2.4mm; border: 0.5pt solid #cdd6d1; }
   table.rows tbody tr:nth-child(even) { background: #f8faf9; }
@@ -903,7 +991,23 @@ export function printKpiReportSheet(rows: DailyMetrics[], meta: { fromDate: stri
 
     <div class="foot"><span>จัดทำโดย: ${escapeHtml(meta.printedBy || '—')}</span><span>จัดพิมพ์จากระบบเมื่อวันที่ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
   </div>
-  <script>window.onload = function () { window.print(); };</script>
+  <script>window.onload = function () {
+    // Bug fix (print timing): window.onload fires once the Google Fonts stylesheet LINK has
+    // loaded and the CSSOM is built — it does NOT wait for the @font-face glyph files (Sarabun
+    // woff2) referenced inside that stylesheet to actually finish downloading, since font
+    // loading is asynchronous and decoupled from the page's own load event. Calling print()
+    // right on load could fire while Sarabun is still downloading on a slow/first-load device,
+    // silently falling back to the declared fallback font for that print job instead of the
+    // intended official Sarabun (the typeface Thai government documents are supposed to use —
+    // see this sheet's own comment on that). document.fonts.ready resolves once every font
+    // actually used on the page has finished loading; raced against a short timeout in case a
+    // browser's Font Loading API support is flaky, so a real failure still prints rather than
+    // hanging forever.
+    var go = function () { window.print(); };
+    if (window.document && document.fonts && document.fonts.ready) {
+      Promise.race([document.fonts.ready, new Promise(function (r) { setTimeout(r, 1500); })]).then(go, go);
+    } else { go(); }
+  };</script>
 </body></html>`;
 
   const win = window.open('', '_blank');

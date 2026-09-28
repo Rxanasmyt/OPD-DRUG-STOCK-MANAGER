@@ -78,9 +78,26 @@ service cloud.firestore {
       // inconsistent with the `lots` rule right below which type-checks every field it allows.
       // A malformed value here (string/null from a client bug or stale cache) would corrupt the
       // "days since last count" staleness calculations reports/selectors read from these fields.
+      //
+      // Bug fix (privilege escalation): every LEGITIMATE non-admin write to these fields
+      // (commitCount/commitSubCount in AppContext.tsx) sets lastCountTs/lastSubCountTs to a
+      // real Date.now() number — the only place that ever DELETES them is
+      // resetAllQuantities(), which is admin-gated client-side (double confirm + typed "RESET"
+      // + a pre-write backup to _preResetSnapshots) precisely because it's a hospital-wide,
+      // unaudited wipe. But this rule only checked the TYPE of these fields when present —
+      // deleteField() removes a field entirely, so resetAllQuantities' own exact payload
+      // (`{floor: 0, lastCountTs: deleteField(), lastSubCountTs: deleteField()}`) satisfied
+      // this branch just as well as a real tech's single-med count, with no role check at all.
+      // Any active tech, calling the Firestore SDK directly from devtools (bypassing the admin
+      // gate, the confirmations, AND the backup snapshot), could batch-zero every med's floor
+      // hospital-wide with zero audit trail. Requiring that a field which already existed on
+      // the med can never be REMOVED by this branch closes that exact payload shape — a
+      // resetAllQuantities-style bulk wipe (or any single-doc equivalent) now needs isAdmin().
       allow update: if isAdmin()
                     || (isActive() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['floor', 'lastCountTs', 'lastSubCountTs'])
                         && isNonNegNum(request.resource.data.floor)
+                        && (!('lastCountTs' in resource.data) || 'lastCountTs' in request.resource.data)
+                        && (!('lastSubCountTs' in resource.data) || 'lastSubCountTs' in request.resource.data)
                         && (!('lastCountTs' in request.resource.data) || request.resource.data.lastCountTs is number)
                         && (!('lastSubCountTs' in request.resource.data) || request.resource.data.lastSubCountTs is number));
     }
