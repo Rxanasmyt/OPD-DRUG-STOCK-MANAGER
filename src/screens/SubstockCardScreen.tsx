@@ -233,13 +233,23 @@ export default function SubstockCardScreen() {
     // ยอดยกมา — the balance right before this printed period's first row, backed out of that
     // row's own signed qty (same math the running balance itself uses).
     const openingBalance = viewRows.length ? viewRows[0].balance - viewRows[0].qty : undefined;
+    // Bug fix (false mismatch on printed sheet): the tie-out block compares the LAST ROW OF
+    // THE PRINTED (year-filtered) PERIOD against today's real-time balance — correct only when
+    // the period printed is the most recent one with activity. Printing an archival PAST fiscal
+    // year (e.g. pulling last year's card for a file, after this year already has its own
+    // transactions) would otherwise always show "ไม่สอดคล้องกัน" even though nothing is
+    // actually wrong — the two numbers are for different points in time by construction, not a
+    // real discrepancy. Only include the live-balance comparison when printing the current/most
+    // recent year (or the full unfiltered history), where "last row's balance" and "right now"
+    // really are supposed to be the same number.
+    const isMostRecentYear = year === 'all' || year === years[0];
     const ok = printSubstockCardSheet(
       hasSub
         ? { code: med.code, name: med.name, parSub: med.parSub, unit: med.unit, ward: wardOf(med) }
         : { code: med.code, name: med.name, parSub: med.parFloor, unit: med.unit, ward: wardOf(med), parLabel: 'par หน้างาน (Max)', heading: 'บัตรคุมยา (ไม่มี substock)' },
       cardRows,
       year,
-      { totals: yearTotals ? { received: yearTotals.received, dispensed: yearTotals.dispensed } : undefined, openingBalance, liveBalance, printedBy: userName() },
+      { totals: yearTotals ? { received: yearTotals.received, dispensed: yearTotals.dispensed } : undefined, openingBalance, liveBalance: isMostRecentYear ? liveBalance : undefined, printedBy: userName() },
     );
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   };

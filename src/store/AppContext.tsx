@@ -2338,7 +2338,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // riskValue at line 1944) uses `<=`, so a lot exactly `expiryWarnDays` days out counts
         // as at-risk in every KPI/report total — this one used `<`, silently excluding that
         // same lot from the printed "ใกล้หมดอายุ" label tag on its boundary day.
-        return { payload: encodeQr('lot', l.code), id: l.code, title: m.name, sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: daysUntil(l.exp) <= state.expiryWarnDays ? 'ใกล้หมดอายุ' : undefined, ward: wardOf(m) };
+        // Bug fix (patient safety): this only ever showed the near-expiry tag, silently dropping
+        // HIGH ALERT status entirely for a lot label — unlike the med-label branch above (see
+        // printTag()), which always combines HAD with fridge. A lot label is what staff actually
+        // see while physically picking stock off the shelf; a high-alert drug's lot label used
+        // to look identical to any ordinary drug's, with the one visual safety cue this app
+        // deliberately built for shelf labels simply missing on this specific print path.
+        const lotTag = [m.had ? 'HIGH ALERT' : '', daysUntil(l.exp) <= state.expiryWarnDays ? 'ใกล้หมดอายุ' : ''].filter(Boolean).join(' · ') || undefined;
+        return { payload: encodeQr('lot', l.code), id: l.code, title: m.name, sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: lotTag, ward: wardOf(m) };
       });
     } else if (state.locScope === 'sub') {
       // Bug fix: the first cut of this (v3.12.0) printed a generic, drug-less location sheet
@@ -2565,6 +2572,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // can be called with just the one field that changed without clobbering the other two.
   const updateGlobalSettings = useCallback(async (patchFields: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => {
     if (!canEditMeds) return;
+    // Bug fix (data integrity): parFloorCoverDays/parSubCoverDays feed suggestPar()'s
+    // `roundStep(daily * coverDays * volatility)` for the WHOLE shared formulary (this is
+    // meta/settings — one doc for the entire hospital, not per-device) — SettingsScreen's own
+    // input only strips non-digit characters (digitsOnly), so "0" saves through untouched.
+    // roundStep(0) always returns 1 regardless of a drug's real usage rate, so a 0 here
+    // (an easy fat-finger while clearing the field to retype) would make "ใช้ค่าแนะนำทั้งหมด"
+    // silently overwrite every substock-backed med's suggested par ceiling to 1 unit, with no
+    // confirmation gating that specific save. expiryWarnDays has no equivalent failure mode —
+    // 0 there just narrows "near expiry" to lots already expired, so it's left unclamped.
+    if (patchFields.parFloorCoverDays !== undefined) patchFields = { ...patchFields, parFloorCoverDays: Math.max(1, patchFields.parFloorCoverDays) };
+    if (patchFields.parSubCoverDays !== undefined) patchFields = { ...patchFields, parSubCoverDays: Math.max(1, patchFields.parSubCoverDays) };
     try {
       await withTimeout(setDoc(doc(db, 'meta', 'settings'), patchFields, { merge: true }));
       logAudit({ type: 'par_updated', note: 'แก้ไขการตั้งค่า: ' + Object.entries(patchFields).map(([k, v]) => k + '=' + v).join(', ') });
@@ -2592,6 +2610,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       'มียา "' + name + '" ที่เปิดใช้งานอยู่แล้วในฝั่ง' + wardLabel(wardOf(nameConflict))
       + ' (' + nameConflict.code + ') — เพิ่มรายการใหม่จะเป็นคนละ record แยกจากของเดิม (รวมกันไม่ได้ทีหลัง '
       + 'เพราะไม่ใช่คู่ OPD/IPD คนละฝั่ง) ยืนยันว่าต้องการเพิ่มยาตัวใหม่จริงหรือไม่?'
+    ))) return false;
+    // Bug fix (patient-safety-adjacent data integrity): nothing ever checked whether a bin/
+    // binIpd code being saved already belongs to a DIFFERENT active med — a shelf bin should
+    // map to exactly one drug, but a fat-fingered/misread handwritten shelf list could give two
+    // unrelated meds the same code with zero warning. A staffer picking "bin A12" during a
+    // count/transfer, or the auto-generated pick list, would have no way to tell them apart. A
+    // soft confirm (not a hard block) since a genuine intentional reuse — e.g. retiring one
+    // drug's bin for a replacement on the same shelf slot before deactivating the old record —
+    // is rare but not impossible.
+    const normBinVal = normBin(input.bin);
+    const binConflict = normBinVal && state.meds.find((x) => x.active && normBin(x.bin) === normBinVal);
+    if (binConflict && !(await confirmAsync(
+      'รหัสชั้นวาง "' + normBinVal + '" ถูกใช้กับยา "' + binConflict.name + '" (' + binConflict.code + ') อยู่แล้ว — '
+      + 'ใช้ซ้ำเสี่ยงหยิบยาผิดตัวตอนนับ/เบิก ยืนยันว่าต้องการใช้รหัสนี้ซ้ำจริงหรือไม่?'
+    ))) return false;
+    const normBinIpdVal = input.binIpd ? normBin(input.binIpd) : '';
+    const binIpdConflict = normBinIpdVal && state.meds.find((x) => x.active && normBin(x.binIpd || '') === normBinIpdVal);
+    if (binIpdConflict && !(await confirmAsync(
+      'รหัสชั้นวาง IPD "' + normBinIpdVal + '" ถูกใช้กับยา "' + binIpdConflict.name + '" (' + binIpdConflict.code + ') อยู่แล้ว — '
+      + 'ใช้ซ้ำเสี่ยงหยิบยาผิดตัวตอนนับ/เบิก ยืนยันว่าต้องการใช้รหัสนี้ซ้ำจริงหรือไม่?'
     ))) return false;
     try {
       // The QR printed on a shelf label encodes this `code` — two meds ever ending up with
@@ -2668,6 +2706,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
     const binIpd = input.binIpd ? normBin(input.binIpd) : '';
     const binSub = input.binSub ? normBin(input.binSub) : '';
+    // Bug fix (patient-safety-adjacent data integrity): same gap as addMed's own fix — check
+    // the new bin/binIpd against every OTHER active med before saving, so editing a med's
+    // shelf code can't silently collide with a different, unrelated drug's bin. Excludes this
+    // med's own current record (medId) since re-saving its own unchanged bin isn't a conflict.
+    const normBinVal = normBin(input.bin);
+    const binConflict = normBinVal && state.meds.find((x) => x.id !== medId && x.active && normBin(x.bin) === normBinVal);
+    if (binConflict && !(await confirmAsync(
+      'รหัสชั้นวาง "' + normBinVal + '" ถูกใช้กับยา "' + binConflict.name + '" (' + binConflict.code + ') อยู่แล้ว — '
+      + 'ใช้ซ้ำเสี่ยงหยิบยาผิดตัวตอนนับ/เบิก ยืนยันว่าต้องการใช้รหัสนี้ซ้ำจริงหรือไม่?'
+    ))) return false;
+    const binIpdConflict = binIpd && state.meds.find((x) => x.id !== medId && x.active && normBin(x.binIpd || '') === binIpd);
+    if (binIpdConflict && !(await confirmAsync(
+      'รหัสชั้นวาง IPD "' + binIpd + '" ถูกใช้กับยา "' + binIpdConflict.name + '" (' + binIpdConflict.code + ') อยู่แล้ว — '
+      + 'ใช้ซ้ำเสี่ยงหยิบยาผิดตัวตอนนับ/เบิก ยืนยันว่าต้องการใช้รหัสนี้ซ้ำจริงหรือไม่?'
+    ))) return false;
     const patch = {
       name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
       price: input.price || 0, had: input.had,
@@ -2692,7 +2745,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast('บันทึกข้อมูล ' + name + ' แล้ว');
       return true;
     } catch (e) { console.error(e); toast('บันทึกไม่สำเร็จ'); return false; }
-  }), [canEditMeds, logAudit, toast, guardOnce]);
+  }), [canEditMeds, state.meds, logAudit, toast, guardOnce, confirmAsync]);
 
   // Merges a still-separate OPD/IPD ward pair (same name — see the "ยาตัวเดียวกันที่วางทั้งสอง
   // ชั้น" note in MedsScreen) into one pooled record, for the real workflow at this hospital:
@@ -3382,6 +3435,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .map(([medId, raw]) => ({ medId, q: parseInt(raw, 10) }))
       .filter((e) => !isNaN(e.q));
     if (!entries.length) { toast('ยังไม่ได้กรอกจำนวนที่นับได้สักรายการ'); return; }
+    // Bug fix (typo safety net — bulk gap): commitCount's own plausibility check (flags a count
+    // implying a delta far outside anything the med's own par level would plausibly produce)
+    // never applied here — a shelf walk that fills 20-40 rows then hits ONE "บันทึกทั้งหมด"
+    // button, arguably the more common real path than committing row by row, had zero
+    // protection against the exact fat-finger typo (an extra digit) that button was built to
+    // catch. One summary confirm for the whole batch, not one popup per row, since asking N
+    // separate times for a single bulk action would defeat the point of batching it.
+    const implausibleRows = entries
+      .map((e) => ({ ...e, m: state.meds.find((x) => x.id === e.medId) }))
+      .filter((e): e is typeof e & { m: NonNullable<typeof e.m> } => !!e.m && Math.abs(e.q - e.m.floor) > Math.max(e.m.parFloor, 20) * 8);
+    if (implausibleRows.length && !(await confirmAsync(
+      implausibleRows.length + ' จาก ' + entries.length + ' รายการ มีจำนวนที่นับได้ต่างจากยอดระบบมากผิดปกติเทียบกับ par เช่น '
+      + implausibleRows.slice(0, 3).map((e) => e.m.name + ' (นับได้ ' + nf(e.q) + ' ยอดระบบ ' + nf(e.m.floor) + ')').join(', ')
+      + (implausibleRows.length > 3 ? ' และอีก ' + (implausibleRows.length - 3) + ' รายการ' : '')
+      + ' — พิมพ์จำนวนถูกต้องแล้วใช่ไหม? ต้องการบันทึกทั้งหมดนี้ต่อหรือไม่?'
+    ))) return;
     let ok = 0;
     let diffs = 0;
     let failed = 0;
@@ -3421,7 +3490,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toast(failed > 0
       ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
       : 'บันทึกครบ ' + ok + ' รายการ' + (diffs > 0 ? ' · มีส่วนต่าง ' + diffs + ' รายการ (ดูได้ใน Discrepancy log)' : ' · ตรงกับระบบทุกรายการ'));
-  }), [state.countInputs, state.meds, toast, patch, guardOnce]);
+  }), [state.countInputs, state.meds, toast, patch, guardOnce, confirmAsync]);
 
   // ---------- substock count ----------
   const setSubCountInput = useCallback((medId: string, v: string) => patch((st) => ({ subCountInputs: { ...st.subCountInputs, [medId]: digitsOnly(v) } })), [patch]);
@@ -3520,6 +3589,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .map(([medId, raw]) => ({ medId, q: parseInt(raw, 10) }))
       .filter((e) => !isNaN(e.q));
     if (!entries.length) { toast('ยังไม่ได้กรอกจำนวนที่นับได้สักรายการ'); return; }
+    // Bug fix (typo safety net — bulk gap): same gap as commitAllCounts's own fix — commitSubCount's
+    // plausibility check never applied to the "บันทึกทั้งหมด" bulk path. One summary confirm for
+    // the whole batch rather than one popup per row.
+    const implausibleSubRows = entries
+      .map((e) => ({ ...e, m: state.meds.find((x) => x.id === e.medId), curSub: subQty(state, e.medId) }))
+      .filter((e): e is typeof e & { m: NonNullable<typeof e.m> } => !!e.m && Math.abs(e.q - e.curSub) > Math.max(e.m.parSub, 20) * 8);
+    if (implausibleSubRows.length && !(await confirmAsync(
+      implausibleSubRows.length + ' จาก ' + entries.length + ' รายการ มีจำนวนที่นับได้ต่างจากยอดระบบมากผิดปกติเทียบกับ par เช่น '
+      + implausibleSubRows.slice(0, 3).map((e) => e.m.name + ' (นับได้ ' + nf(e.q) + ' ยอดระบบ ' + nf(e.curSub) + ')').join(', ')
+      + (implausibleSubRows.length > 3 ? ' และอีก ' + (implausibleSubRows.length - 3) + ' รายการ' : '')
+      + ' — พิมพ์จำนวนถูกต้องแล้วใช่ไหม? ต้องการบันทึกทั้งหมดนี้ต่อหรือไม่?'
+    ))) return;
     let ok = 0;
     let diffs = 0;
     let failed = 0;
@@ -3578,7 +3659,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toast(failed > 0
       ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
       : 'บันทึกครบ ' + ok + ' รายการ' + (diffs > 0 ? ' · มีส่วนต่าง ' + diffs + ' รายการ (ดูได้ใน Discrepancy log)' : ' · ตรงกับระบบทุกรายการ'));
-  }), [state.subCountInputs, state.meds, userName, toast, patch, guardOnce]);
+  }), [state, userName, toast, patch, guardOnce, confirmAsync]);
 
   // ---------- hosxp reconcile ----------
   const setHosxpText = useCallback((v: string) => patch({ hosxpText: v }), [patch]);

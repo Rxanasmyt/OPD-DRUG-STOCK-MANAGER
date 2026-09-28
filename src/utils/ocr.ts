@@ -31,12 +31,11 @@ function toIso(y: number, mo: number, d: number): string | null {
   return year + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0');
 }
 
-/** Best-effort expiry-date extraction from raw OCR text — tries the shapes actually seen on
- * drug packaging, most specific first: DD/MM/YYYY or DD-MM-YYYY, MM/YYYY (day defaults to the
- * last day of that month, matching how a month-only expiry is conventionally treated), and
- * "DD MON YYYY" with an English month abbreviation. Returns null rather than a wrong guess when
- * nothing matches — an empty date field prompting manual entry beats a confidently wrong one. */
-function extractExpiry(text: string): string | null {
+/** Tries the date shapes actually seen on drug packaging, most specific first: DD/MM/YYYY or
+ * DD-MM-YYYY, MM/YYYY (day defaults to the last day of that month, matching how a month-only
+ * expiry is conventionally treated), and "DD MON YYYY" with an English month abbreviation.
+ * Returns null rather than a wrong guess when nothing matches. */
+function tryDatePatterns(text: string): string | null {
   const dmy = text.match(/\b(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})\b/);
   if (dmy) {
     const iso = toIso(parseInt(dmy[3], 10), parseInt(dmy[2], 10), parseInt(dmy[1], 10));
@@ -61,6 +60,29 @@ function extractExpiry(text: string): string | null {
     }
   }
   return null;
+}
+
+// Bug fix (data integrity): none of tryDatePatterns' regexes were anchored to any "this is the
+// expiry" keyword — they just matched the first date-shaped substring anywhere in the whole OCR
+// text. Real packaging routinely prints an MFG (manufacture) date ahead of the EXP date on the
+// same label, and MFG is conventionally listed first — so a DD/MM/YYYY match could silently
+// grab the manufacture date instead. A hyphenated LOT/batch code (e.g. "LOT 12-08-25") is
+// date-shaped too and could pre-empt the real EXP text elsewhere on the label. Searching a short
+// window right after an "EXP"/"EXPIRY" keyword FIRST — where a real expiry date is always
+// printed immediately following that word — skips over an earlier MFG date or a stray lot code;
+// only falls back to a blind whole-text scan (the old behavior) when no such keyword is found at
+// all, so a poorly-printed label without one still gets a best-effort guess.
+const EXP_KEYWORD = /EXP(?:IRY|IRE|\.|:)?/i;
+// Exported for direct unit testing (see ocr.test.ts) — a pure function, not the tesseract.js
+// entry point itself, which is the only part of this file that actually touches the camera/OCR
+// engine.
+export function extractExpiry(text: string): string | null {
+  const kw = text.match(EXP_KEYWORD);
+  if (kw && kw.index !== undefined) {
+    const nearKeyword = tryDatePatterns(text.slice(kw.index, kw.index + 40));
+    if (nearKeyword) return nearKeyword;
+  }
+  return tryDatePatterns(text);
 }
 
 /** Best-effort lot number extraction — looks for "LOT"/"L/N"/"BATCH" (case-insensitive, the

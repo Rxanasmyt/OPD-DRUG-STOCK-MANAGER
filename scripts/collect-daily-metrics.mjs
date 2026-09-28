@@ -166,7 +166,12 @@ async function main() {
     const expStartMs = bangkokDayStartMs(bangkokIsoDate(l.exp || 0));
     const daysLeft = Math.round((expStartMs - todayStartMs) / DAY);
     const value = l.qty * (m.price || 0);
-    if (daysLeft < 0) expiredValue += value;
+    // Bug fix (consistency): a lot expiring TODAY (daysLeft===0) is already unsafe to dispense —
+    // the app's own aging report and HomeScreen tile both already treat day 0 as expired (see
+    // that fix's own "Bug fix (consistency)" comments in AppContext.tsx/HomeScreen.tsx), but
+    // this script still used the pre-fix `< 0` boundary, so the daily KPI history this writes
+    // would silently disagree with what the app itself shows for the exact same day.
+    if (daysLeft <= 0) expiredValue += value;
     else if (daysLeft < expiryWarnDays) nearExpiryValue += value;
   }
 

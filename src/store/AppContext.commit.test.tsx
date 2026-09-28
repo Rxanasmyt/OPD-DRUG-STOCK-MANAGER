@@ -48,11 +48,24 @@
 // 15. commitWardMove's unit-mismatch fix: moving stock between two meds with different
 //     dispensing units (e.g. เม็ด vs ขวด) must be blocked outright — see its own "Bug fix
 //     (data integrity)" comment.
+// 16. updateGlobalSettings' zero-cover-days fix: parFloorCoverDays/parSubCoverDays must clamp
+//     to a minimum of 1 before being persisted to the shared meta/settings doc — see its own
+//     "Bug fix (data integrity)" comment.
+// 17. addMed/updateMedFull's bin-collision fix: saving a bin/binIpd code that already belongs
+//     to a different active med must ask for confirmation first — see their own "Bug fix
+//     (patient-safety-adjacent data integrity)" comments.
+// 18. commitAllCounts/commitAllSubCounts' bulk plausibility-check fix: the same typo-safety-net
+//     check commitCount/commitSubCount apply per-row must also apply to the "บันทึกทั้งหมด" bulk
+//     path, which previously had zero such check — see their own "Bug fix (typo safety net —
+//     bulk gap)" comments.
+// 19. printLabels' lot-label HIGH ALERT fix: a "ฉลาก lot" label for a high-alert (had) med must
+//     carry the same HIGH ALERT tag the med-label branch already does, not silently drop it —
+//     see its own "Bug fix (patient safety)" comment.
 import { describe, it, expect, vi } from 'vitest';
 import { useEffect } from 'react';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { runTransaction } from 'firebase/firestore';
+import { runTransaction, setDoc } from 'firebase/firestore';
 import TConfirmScreen from '../screens/TConfirmScreen';
 import AdjustScreen from '../screens/AdjustScreen';
 import { useApp } from './AppContext';
@@ -60,10 +73,18 @@ import { renderWithApp } from '../test-utils/renderWithApp';
 import Toast from '../components/Toast';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { TimeoutError } from '../utils/timeout';
+import * as printModule from '../utils/print';
 import {
   signInAs, fireCollection, hasListener, seedDoc, seedCollection, getLastTransactionWrites,
   getLastBatchWrites,
 } from '../test-utils/firebaseTestDouble';
+
+// printLabelSheet actually opens a real browser print window — mocked here so printLabels()'s
+// own label-building logic can be exercised (and its arguments inspected) without a DOM popup.
+vi.mock('../utils/print', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../utils/print')>();
+  return { ...actual, printLabelSheet: vi.fn(() => true) };
+});
 
 const MED = {
   id: 'm1', code: 'MED-0001', name: 'Paracetamol 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
@@ -705,5 +726,135 @@ describe('commitWardMove — unit-mismatch regression', () => {
 
     await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
     expect(screen.queryByText(/หน่วยยาไม่ตรงกัน/)).not.toBeInTheDocument();
+  });
+});
+
+function SettingsHarness() {
+  const { updateGlobalSettings } = useApp();
+  return <button onClick={() => updateGlobalSettings({ parFloorCoverDays: 0, parSubCoverDays: 0 })}>save-zero</button>;
+}
+
+describe('updateGlobalSettings — zero-cover-days regression', () => {
+  it('clamps parFloorCoverDays/parSubCoverDays to a minimum of 1 before saving', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<SettingsHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+
+    await user.click(screen.getByRole('button', { name: 'save-zero' }));
+
+    await waitFor(() => expect(vi.mocked(setDoc).mock.calls.length).toBeGreaterThan(0));
+    const savedFields = vi.mocked(setDoc).mock.calls[0][1] as Record<string, unknown>;
+    // Without the fix, these would be saved as literal 0 — which makes suggestPar() compute
+    // every substock-backed med's suggested par ceiling as 1, regardless of real usage.
+    expect(savedFields.parFloorCoverDays).toBe(1);
+    expect(savedFields.parSubCoverDays).toBe(1);
+  });
+});
+
+function AddMedHarness() {
+  const { addMed } = useApp();
+  return (
+    <button onClick={() => addMed({
+      name: 'Cefixime 400mg', unit: 'เม็ด', dosageForm: 'เม็ด', price: 5, had: false,
+      bin: 'A1', parSub: 100, parFloor: 50, floorMin: 10, ward: 'opd', noSubstock: false,
+    })}>
+      add-med
+    </button>
+  );
+}
+
+describe('addMed — bin-collision regression', () => {
+  it('asks for confirmation before saving a bin code that already belongs to a different active med', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><AddMedHarness /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    // MED already occupies bin 'A1' — AddMedHarness tries to save a NEW, different-named med
+    // to that exact same bin.
+    fireCollection('meds', [MED]);
+
+    await user.click(screen.getByRole('button', { name: 'add-med' }));
+    await screen.findByText(/รหัสชั้นวาง.*A1.*ถูกใช้กับยา/);
+    await user.click(screen.getByRole('button', { name: 'ยกเลิก' }));
+
+    // Blocked before the transaction (which mints the new med code and writes the doc) ran.
+    expect(getLastTransactionWrites().length).toBe(0);
+  });
+});
+
+function CountAllPlausibilityHarness({ value }: { value: string }) {
+  const { setCountInput, commitAllCounts } = useApp();
+  useEffect(() => { setCountInput('m1', value); }, [setCountInput, value]);
+  return <button onClick={commitAllCounts}>commit-all-counts</button>;
+}
+
+describe('commitAllCounts — bulk plausibility-check regression', () => {
+  it('asks for one summary confirmation before committing a batch containing a wildly implausible count', async () => {
+    const user = userEvent.setup();
+    // MED.floor=40, MED.parFloor=100 → threshold = max(100,20)*8 = 800; 5000 is well past it.
+    // Without the fix, commitAllCounts (the "บันทึกทั้งหมด" bulk path) applies zero plausibility
+    // check at all, unlike commitCount (the single-row path) — a real, more commonly used gap.
+    renderWithApp(<><CountAllPlausibilityHarness value="5000" /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    seedDoc('meds/m1', { floor: MED.floor });
+
+    await user.click(screen.getByRole('button', { name: 'commit-all-counts' }));
+    await screen.findByText(/มีจำนวนที่นับได้ต่างจากยอดระบบมากผิดปกติ/);
+    await user.click(screen.getByRole('button', { name: 'ยกเลิก' }));
+
+    expect(getLastTransactionWrites().length).toBe(0);
+  });
+
+  it('commits directly with no confirm prompt when every count in the batch is plausible', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><CountAllPlausibilityHarness value="45" /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    seedDoc('meds/m1', { floor: MED.floor });
+
+    await user.click(screen.getByRole('button', { name: 'commit-all-counts' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+    expect(screen.queryByText(/มากผิดปกติ/)).not.toBeInTheDocument();
+  });
+});
+
+const HAD_MED = {
+  id: 'm-had', code: 'MED-0099', name: 'Heparin 5000U', unit: 'ขวด', dosageForm: 'ฉีด',
+  price: 200, had: true, active: true, parSub: 20, parFloor: 5, floor: 3, bin: 'C9',
+  used30: 0, usedPrev30: 0, volatility: 0,
+};
+const HAD_LOT = { id: 'lot-had-1', medId: 'm-had', code: 'LOT-HAD1', lotNo: 'H1', qty: 10, exp: Date.now() + 300 * 86400000 };
+
+function PrintLotLabelsHarness() {
+  const { setLabelType, printLabels } = useApp();
+  return (
+    <div>
+      <button onClick={() => setLabelType('lot')}>set-lot-type</button>
+      <button onClick={printLabels}>print-labels</button>
+    </div>
+  );
+}
+
+describe('printLabels — lot-label HIGH ALERT regression', () => {
+  it('carries a HIGH ALERT tag for a high-alert med\'s lot label', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<PrintLotLabelsHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [HAD_MED]);
+    fireCollection('lots', [HAD_LOT]);
+
+    await user.click(screen.getByRole('button', { name: 'set-lot-type' }));
+    await user.click(screen.getByRole('button', { name: 'print-labels' }));
+
+    await waitFor(() => expect(vi.mocked(printModule.printLabelSheet).mock.calls.length).toBeGreaterThan(0));
+    const labels = vi.mocked(printModule.printLabelSheet).mock.calls[0][0];
+    const lotLabel = labels.find((l) => l.id === HAD_LOT.code);
+    // Without the fix, a lot label's tag only ever carried a near-expiry marker — HIGH ALERT
+    // status was silently dropped entirely for this print path.
+    expect(lotLabel?.tag).toContain('HIGH ALERT');
   });
 });
