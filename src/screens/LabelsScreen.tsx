@@ -203,7 +203,14 @@ export default function LabelsScreen() {
     : state.labelType === 'lot'
     ? wardLots.slice(0, 8).map((l) => {
         const m = meds.find((x) => x.id === l.medId);
-        return { code: l.code, bin: undefined as string | undefined, payload: encodeQr('lot', l.code), title: m ? m.name : '—', sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: daysUntil(l.exp) < warn() ? 'ใกล้หมดอายุ' : '', tagColor: 'var(--amber)', ward: m && !isSharedMed(m) ? wardOf(m) : undefined };
+        // Bug fix (patient safety, preview parity): mirrors AppContext.tsx's printLabels() own
+        // matching fix — the preview must show the same combined "HIGH ALERT · ใกล้หมดอายุ" tag
+        // the real printout now does, not silently drop HAD status for a lot label. Also fixed
+        // the boundary to `<=`, matching every other near-expiry check in the app (was `<`,
+        // excluding a lot exactly `expiryWarnDays` days out that every KPI/report total already
+        // counts as at-risk).
+        const lotTag = [m?.had ? 'HIGH ALERT' : '', daysUntil(l.exp) <= warn() ? 'ใกล้หมดอายุ' : ''].filter(Boolean).join(' · ');
+        return { code: l.code, bin: undefined as string | undefined, payload: encodeQr('lot', l.code), title: m ? m.name : '—', sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: lotTag, tagColor: m?.had ? 'var(--had)' : 'var(--amber)', ward: m && !isSharedMed(m) ? wardOf(m) : undefined };
       })
     : state.locScope === 'sub'
     ? subMeds.slice(0, 8).map((m) => ({ code: m.code, bin: m.binSub, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · substock ' + m.binSub, tag: printTag(m), tagColor: m.had ? 'var(--had)' : 'var(--fridge)', ward: undefined as Ward | undefined }))

@@ -58,6 +58,9 @@
 //     check commitCount/commitSubCount apply per-row must also apply to the "บันทึกทั้งหมด" bulk
 //     path, which previously had zero such check — see their own "Bug fix (typo safety net —
 //     bulk gap)" comments.
+// 19. printLabels' lot-label HIGH ALERT fix: a "ฉลาก lot" label for a high-alert (had) med must
+//     carry the same HIGH ALERT tag the med-label branch already does, not silently drop it —
+//     see its own "Bug fix (patient safety)" comment.
 import { describe, it, expect, vi } from 'vitest';
 import { useEffect } from 'react';
 import { screen, waitFor } from '@testing-library/react';
@@ -70,10 +73,18 @@ import { renderWithApp } from '../test-utils/renderWithApp';
 import Toast from '../components/Toast';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { TimeoutError } from '../utils/timeout';
+import * as printModule from '../utils/print';
 import {
   signInAs, fireCollection, hasListener, seedDoc, seedCollection, getLastTransactionWrites,
   getLastBatchWrites,
 } from '../test-utils/firebaseTestDouble';
+
+// printLabelSheet actually opens a real browser print window — mocked here so printLabels()'s
+// own label-building logic can be exercised (and its arguments inspected) without a DOM popup.
+vi.mock('../utils/print', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../utils/print')>();
+  return { ...actual, printLabelSheet: vi.fn(() => true) };
+});
 
 const MED = {
   id: 'm1', code: 'MED-0001', name: 'Paracetamol 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
@@ -807,5 +818,43 @@ describe('commitAllCounts — bulk plausibility-check regression', () => {
     await user.click(screen.getByRole('button', { name: 'commit-all-counts' }));
     await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
     expect(screen.queryByText(/มากผิดปกติ/)).not.toBeInTheDocument();
+  });
+});
+
+const HAD_MED = {
+  id: 'm-had', code: 'MED-0099', name: 'Heparin 5000U', unit: 'ขวด', dosageForm: 'ฉีด',
+  price: 200, had: true, active: true, parSub: 20, parFloor: 5, floor: 3, bin: 'C9',
+  used30: 0, usedPrev30: 0, volatility: 0,
+};
+const HAD_LOT = { id: 'lot-had-1', medId: 'm-had', code: 'LOT-HAD1', lotNo: 'H1', qty: 10, exp: Date.now() + 300 * 86400000 };
+
+function PrintLotLabelsHarness() {
+  const { setLabelType, printLabels } = useApp();
+  return (
+    <div>
+      <button onClick={() => setLabelType('lot')}>set-lot-type</button>
+      <button onClick={printLabels}>print-labels</button>
+    </div>
+  );
+}
+
+describe('printLabels — lot-label HIGH ALERT regression', () => {
+  it('carries a HIGH ALERT tag for a high-alert med\'s lot label', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<PrintLotLabelsHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [HAD_MED]);
+    fireCollection('lots', [HAD_LOT]);
+
+    await user.click(screen.getByRole('button', { name: 'set-lot-type' }));
+    await user.click(screen.getByRole('button', { name: 'print-labels' }));
+
+    await waitFor(() => expect(vi.mocked(printModule.printLabelSheet).mock.calls.length).toBeGreaterThan(0));
+    const labels = vi.mocked(printModule.printLabelSheet).mock.calls[0][0];
+    const lotLabel = labels.find((l) => l.id === HAD_LOT.code);
+    // Without the fix, a lot label's tag only ever carried a near-expiry marker — HIGH ALERT
+    // status was silently dropped entirely for this print path.
+    expect(lotLabel?.tag).toContain('HIGH ALERT');
   });
 });

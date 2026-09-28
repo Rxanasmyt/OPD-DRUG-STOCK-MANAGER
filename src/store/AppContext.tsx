@@ -2338,7 +2338,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // riskValue at line 1944) uses `<=`, so a lot exactly `expiryWarnDays` days out counts
         // as at-risk in every KPI/report total — this one used `<`, silently excluding that
         // same lot from the printed "ใกล้หมดอายุ" label tag on its boundary day.
-        return { payload: encodeQr('lot', l.code), id: l.code, title: m.name, sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: daysUntil(l.exp) <= state.expiryWarnDays ? 'ใกล้หมดอายุ' : undefined, ward: wardOf(m) };
+        // Bug fix (patient safety): this only ever showed the near-expiry tag, silently dropping
+        // HIGH ALERT status entirely for a lot label — unlike the med-label branch above (see
+        // printTag()), which always combines HAD with fridge. A lot label is what staff actually
+        // see while physically picking stock off the shelf; a high-alert drug's lot label used
+        // to look identical to any ordinary drug's, with the one visual safety cue this app
+        // deliberately built for shelf labels simply missing on this specific print path.
+        const lotTag = [m.had ? 'HIGH ALERT' : '', daysUntil(l.exp) <= state.expiryWarnDays ? 'ใกล้หมดอายุ' : ''].filter(Boolean).join(' · ') || undefined;
+        return { payload: encodeQr('lot', l.code), id: l.code, title: m.name, sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: lotTag, ward: wardOf(m) };
       });
     } else if (state.locScope === 'sub') {
       // Bug fix: the first cut of this (v3.12.0) printed a generic, drug-less location sheet
