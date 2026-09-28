@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { nf } from '../utils/format';
+import { nf, digitsOnly, parseIntSafe } from '../utils/format';
 import { SearchInput } from '../components/SearchInput';
 import { categoryOf, subQty, usesSubstock, binDisplayAll } from '../store/selectors';
 import { DRUG_CATEGORIES } from '../data/categories';
@@ -24,6 +24,15 @@ type Scope = 'all' | 'never' | 'typed';
  * (the system-calculated number shown, which input map is read/written, which staleness clock,
  * which commit function) has to branch on this instead of being one shared code path. */
 type Loc = 'floor' | 'sub';
+/** Real-world request: "ปรับการนับสต็อคให้เป็นรูปแบบนับกล่องได้ แต่ให้มีรายละเอียดว่า 1 กล่อง กี่
+ * เม็ด" — someone physically counting a shelf full of boxed stock naturally counts "3 กล่อง + 5
+ * เม็ดเศษ", not a pre-multiplied total; making them do that multiplication in their head (or on
+ * a separate calculator) before typing it in is exactly the kind of friction this screen exists
+ * to remove. 'unit' is the original single-number entry (unchanged, still the only option for a
+ * med with no box size set at all); 'box' swaps the input for a boxCapable med (see below) to a
+ * กล่อง+เศษ pair that gets multiplied out into the same underlying countInputs/subCountInputs
+ * value commitCount/commitAllCounts already read — no change needed on the commit side. */
+type EntryMode = 'unit' | 'box';
 
 export default function CountScreen() {
   const { state, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts } = useApp();
@@ -32,6 +41,13 @@ export default function CountScreen() {
   const [sort, setSort] = useState<Sort>('stale');
   const [scope, setScope] = useState<Scope>('all');
   const [catTab, setCatTab] = useState<'all' | string>('all');
+  const [entryMode, setEntryMode] = useState<EntryMode>('unit');
+  // Per-row กล่อง/เศษ breakdown, kept purely as local UI state (never sent anywhere on its
+  // own) — the actual value that gets committed is always the multiplied-out total written into
+  // countInputs/subCountInputs via setInput(), exactly like a typed unit total always was. Keyed
+  // by loc+medId since floor and substock counts for the same med are entered independently and
+  // shouldn't share a breakdown.
+  const [boxInputs, setBoxInputs] = useState<Record<string, { box: string; rem: string }>>({});
 
   // Substock counting only makes sense for a med that actually keeps a separate substock at
   // all — a noSubstock med (see usesSubstock()) goes straight from the central warehouse to
@@ -120,6 +136,21 @@ export default function CountScreen() {
         <button className="chip" style={{ ...chip(loc === 'sub'), flex: 1, minHeight: 40 }} onClick={() => setLoc('sub')}>นับ substock</button>
       </div>
 
+      {/* Only meaningful for a med with "จำนวนต่อกล่อง" set at the หน้าจัดการยา screen
+          (Med.packSize) — a med with none just keeps showing the plain unit input either way
+          (see boxCapable below), so switching this on never breaks counting for the rest of the
+          formulary. */}
+      <div style={{ display: 'flex', gap: 7, marginBottom: 10 }}>
+        <button className="chip" style={{ ...chip(entryMode === 'unit'), flex: 1, minHeight: 38 }} onClick={() => setEntryMode('unit')}>นับเป็นหน่วย</button>
+        <button className="chip" style={{ ...chip(entryMode === 'box'), flex: 1, minHeight: 38 }} onClick={() => setEntryMode('box')}>นับเป็นกล่อง</button>
+      </div>
+      {entryMode === 'box' && (
+        <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.5, marginBottom: 12 }}>
+          กรอกจำนวนกล่อง + เศษที่เหลือ ระบบคูณรวมเป็นจำนวนหน่วยให้อัตโนมัติ — ใช้ได้เฉพาะยาที่ตั้ง
+          "จำนวนต่อกล่อง" ไว้แล้ว (หน้าจัดการยา) ยาที่ยังไม่ตั้งจะกรอกเป็นหน่วยตามปกติ
+        </div>
+      )}
+
       {loc === 'floor' ? (
         <div style={{ background: 'var(--green-tint)', borderRadius: 12, padding: '12px 13px', fontSize: 12.5, lineHeight: 1.6, marginBottom: 12 }}>
           ฟังก์ชันเสริม — ใช้เมื่อสงสัยว่ายอดคลาดเคลื่อนมาก หรือเมื่อมีกำลังคนพอ ไม่จำเป็นต้องทำเป็นประจำ ("นำเข้า HOSxP" ในเมนูหลักเป็นวิธีหลักที่ใช้เวลาน้อยกว่า) นับของจริงแล้วกรอก ระบบจะแก้ยอดให้ตรงและบันทึกส่วนต่างลง discrepancy log ให้อัตโนมัติ
@@ -193,6 +224,24 @@ export default function CountScreen() {
           const ts = lastTsOf(m);
           const daysSince = ts ? Math.floor((Date.now() - ts) / DAY) : null;
           const stale = daysSince === null || daysSince >= 90;
+          // A med with no packSize set has no "1 กล่อง = กี่หน่วย" conversion to offer at all —
+          // it always keeps the plain unit input, in either screen mode.
+          const boxCapable = !!m.packSize && m.packSize > 1;
+          const useBox = entryMode === 'box' && boxCapable;
+          const boxKey = loc + ':' + m.id;
+          // Reconciles with `typed` rather than trusting its own leftover state: once this
+          // row's countInputs entry is cleared (committed, or manually cleared), typed becomes
+          // '' and the box/เศษ fields fall back to blank right along with it — without this, a
+          // just-committed row would keep showing its old 3+5 breakdown even though the
+          // underlying value it fed is gone.
+          const bi = typed === '' ? { box: '', rem: '' } : (boxInputs[boxKey] ?? { box: '', rem: '' });
+          const setBoxField = (which: 'box' | 'rem', v: string) => {
+            const cleaned = digitsOnly(v);
+            const next = { ...bi, [which]: cleaned };
+            setBoxInputs((s) => ({ ...s, [boxKey]: next }));
+            const total = next.box === '' && next.rem === '' ? '' : String(parseIntSafe(next.box) * (m.packSize as number) + parseIntSafe(next.rem));
+            setInput(m.id, total);
+          };
           return (
             <div key={m.id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', background: has ? 'var(--green-tint)' : undefined }}>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -204,7 +253,7 @@ export default function CountScreen() {
                     <span>{m.name}</span>
                   </div>
                   <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
-                    ระบบคำนวณ {nf(sysQty)} {m.unit} · <span style={stale ? { color: 'var(--amber-ink)', fontWeight: 700 } : undefined}>นับล่าสุด {daysSince === null ? 'ยังไม่เคยนับ' : daysSince <= 0 ? 'วันนี้' : daysSince + ' วันก่อน'}</span>
+                    ระบบคำนวณ {nf(sysQty)} {m.unit}{boxCapable && <> (กล่องละ {nf(m.packSize as number)} {m.unit})</>} · <span style={stale ? { color: 'var(--amber-ink)', fontWeight: 700 } : undefined}>นับล่าสุด {daysSince === null ? 'ยังไม่เคยนับ' : daysSince <= 0 ? 'วันนี้' : daysSince + ' วันก่อน'}</span>
                   </div>
                   {has && delta !== 0 && (
                     <div style={{ fontSize: 11.5, marginTop: 2, fontWeight: 600, color: delta < 0 ? 'var(--red)' : 'var(--amber)' }}>
@@ -217,17 +266,41 @@ export default function CountScreen() {
                     <div style={{ fontSize: 11.5, marginTop: 2, fontWeight: 600, color: 'var(--green)' }}>ตรงกับระบบ</div>
                   )}
                 </div>
-                <input
-                  value={typed}
-                  onChange={(e) => setInput(m.id, e.target.value)}
-                  inputMode="numeric"
-                  aria-label={'จำนวนที่นับได้ ' + m.name}
-                  placeholder="นับได้"
-                  // Bug fix (mobile fit): under 16px, iOS Safari zooms the whole page in the
-                  // moment this field is focused — a real problem on a screen meant for
-                  // walking the shelf and typing a count into row after row quickly.
-                  style={{ width: 78, flex: 'none', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 6px', fontSize: 16, fontWeight: 600, textAlign: 'center', minHeight: 42 }}
-                />
+                {useBox ? (
+                  <div style={{ flex: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <input
+                        value={bi.box}
+                        onChange={(e) => setBoxField('box', e.target.value)}
+                        inputMode="numeric"
+                        aria-label={'จำนวนกล่องที่นับได้ ' + m.name}
+                        placeholder="กล่อง"
+                        style={{ width: 52, border: '1px solid var(--border)', borderRadius: 9, padding: '9px 4px', fontSize: 16, fontWeight: 600, textAlign: 'center', minHeight: 42 }}
+                      />
+                      <input
+                        value={bi.rem}
+                        onChange={(e) => setBoxField('rem', e.target.value)}
+                        inputMode="numeric"
+                        aria-label={'จำนวนเศษที่นับได้ ' + m.name}
+                        placeholder="เศษ"
+                        style={{ width: 52, border: '1px solid var(--border)', borderRadius: 9, padding: '9px 4px', fontSize: 16, fontWeight: 600, textAlign: 'center', minHeight: 42 }}
+                      />
+                    </div>
+                    {has && <span className="muted" style={{ fontSize: 10 }}>= {nf(parsed)} {m.unit}</span>}
+                  </div>
+                ) : (
+                  <input
+                    value={typed}
+                    onChange={(e) => setInput(m.id, e.target.value)}
+                    inputMode="numeric"
+                    aria-label={'จำนวนที่นับได้ ' + m.name}
+                    placeholder="นับได้"
+                    // Bug fix (mobile fit): under 16px, iOS Safari zooms the whole page in the
+                    // moment this field is focused — a real problem on a screen meant for
+                    // walking the shelf and typing a count into row after row quickly.
+                    style={{ width: 78, flex: 'none', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 6px', fontSize: 16, fontWeight: 600, textAlign: 'center', minHeight: 42 }}
+                  />
+                )}
                 <button
                   disabled={!has || !!state.busy[oneBusyKey(m.id)]}
                   onClick={() => commitOne(m.id)}
