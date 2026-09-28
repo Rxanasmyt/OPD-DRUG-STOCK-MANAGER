@@ -54,6 +54,10 @@
 // 17. addMed/updateMedFull's bin-collision fix: saving a bin/binIpd code that already belongs
 //     to a different active med must ask for confirmation first — see their own "Bug fix
 //     (patient-safety-adjacent data integrity)" comments.
+// 18. commitAllCounts/commitAllSubCounts' bulk plausibility-check fix: the same typo-safety-net
+//     check commitCount/commitSubCount apply per-row must also apply to the "บันทึกทั้งหมด" bulk
+//     path, which previously had zero such check — see their own "Bug fix (typo safety net —
+//     bulk gap)" comments.
 import { describe, it, expect, vi } from 'vitest';
 import { useEffect } from 'react';
 import { screen, waitFor } from '@testing-library/react';
@@ -764,5 +768,44 @@ describe('addMed — bin-collision regression', () => {
 
     // Blocked before the transaction (which mints the new med code and writes the doc) ran.
     expect(getLastTransactionWrites().length).toBe(0);
+  });
+});
+
+function CountAllPlausibilityHarness({ value }: { value: string }) {
+  const { setCountInput, commitAllCounts } = useApp();
+  useEffect(() => { setCountInput('m1', value); }, [setCountInput, value]);
+  return <button onClick={commitAllCounts}>commit-all-counts</button>;
+}
+
+describe('commitAllCounts — bulk plausibility-check regression', () => {
+  it('asks for one summary confirmation before committing a batch containing a wildly implausible count', async () => {
+    const user = userEvent.setup();
+    // MED.floor=40, MED.parFloor=100 → threshold = max(100,20)*8 = 800; 5000 is well past it.
+    // Without the fix, commitAllCounts (the "บันทึกทั้งหมด" bulk path) applies zero plausibility
+    // check at all, unlike commitCount (the single-row path) — a real, more commonly used gap.
+    renderWithApp(<><CountAllPlausibilityHarness value="5000" /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    seedDoc('meds/m1', { floor: MED.floor });
+
+    await user.click(screen.getByRole('button', { name: 'commit-all-counts' }));
+    await screen.findByText(/มีจำนวนที่นับได้ต่างจากยอดระบบมากผิดปกติ/);
+    await user.click(screen.getByRole('button', { name: 'ยกเลิก' }));
+
+    expect(getLastTransactionWrites().length).toBe(0);
+  });
+
+  it('commits directly with no confirm prompt when every count in the batch is plausible', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><CountAllPlausibilityHarness value="45" /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    seedDoc('meds/m1', { floor: MED.floor });
+
+    await user.click(screen.getByRole('button', { name: 'commit-all-counts' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+    expect(screen.queryByText(/มากผิดปกติ/)).not.toBeInTheDocument();
   });
 });

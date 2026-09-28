@@ -3428,6 +3428,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .map(([medId, raw]) => ({ medId, q: parseInt(raw, 10) }))
       .filter((e) => !isNaN(e.q));
     if (!entries.length) { toast('ยังไม่ได้กรอกจำนวนที่นับได้สักรายการ'); return; }
+    // Bug fix (typo safety net — bulk gap): commitCount's own plausibility check (flags a count
+    // implying a delta far outside anything the med's own par level would plausibly produce)
+    // never applied here — a shelf walk that fills 20-40 rows then hits ONE "บันทึกทั้งหมด"
+    // button, arguably the more common real path than committing row by row, had zero
+    // protection against the exact fat-finger typo (an extra digit) that button was built to
+    // catch. One summary confirm for the whole batch, not one popup per row, since asking N
+    // separate times for a single bulk action would defeat the point of batching it.
+    const implausibleRows = entries
+      .map((e) => ({ ...e, m: state.meds.find((x) => x.id === e.medId) }))
+      .filter((e): e is typeof e & { m: NonNullable<typeof e.m> } => !!e.m && Math.abs(e.q - e.m.floor) > Math.max(e.m.parFloor, 20) * 8);
+    if (implausibleRows.length && !(await confirmAsync(
+      implausibleRows.length + ' จาก ' + entries.length + ' รายการ มีจำนวนที่นับได้ต่างจากยอดระบบมากผิดปกติเทียบกับ par เช่น '
+      + implausibleRows.slice(0, 3).map((e) => e.m.name + ' (นับได้ ' + nf(e.q) + ' ยอดระบบ ' + nf(e.m.floor) + ')').join(', ')
+      + (implausibleRows.length > 3 ? ' และอีก ' + (implausibleRows.length - 3) + ' รายการ' : '')
+      + ' — พิมพ์จำนวนถูกต้องแล้วใช่ไหม? ต้องการบันทึกทั้งหมดนี้ต่อหรือไม่?'
+    ))) return;
     let ok = 0;
     let diffs = 0;
     let failed = 0;
@@ -3467,7 +3483,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toast(failed > 0
       ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
       : 'บันทึกครบ ' + ok + ' รายการ' + (diffs > 0 ? ' · มีส่วนต่าง ' + diffs + ' รายการ (ดูได้ใน Discrepancy log)' : ' · ตรงกับระบบทุกรายการ'));
-  }), [state.countInputs, state.meds, toast, patch, guardOnce]);
+  }), [state.countInputs, state.meds, toast, patch, guardOnce, confirmAsync]);
 
   // ---------- substock count ----------
   const setSubCountInput = useCallback((medId: string, v: string) => patch((st) => ({ subCountInputs: { ...st.subCountInputs, [medId]: digitsOnly(v) } })), [patch]);
@@ -3566,6 +3582,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .map(([medId, raw]) => ({ medId, q: parseInt(raw, 10) }))
       .filter((e) => !isNaN(e.q));
     if (!entries.length) { toast('ยังไม่ได้กรอกจำนวนที่นับได้สักรายการ'); return; }
+    // Bug fix (typo safety net — bulk gap): same gap as commitAllCounts's own fix — commitSubCount's
+    // plausibility check never applied to the "บันทึกทั้งหมด" bulk path. One summary confirm for
+    // the whole batch rather than one popup per row.
+    const implausibleSubRows = entries
+      .map((e) => ({ ...e, m: state.meds.find((x) => x.id === e.medId), curSub: subQty(state, e.medId) }))
+      .filter((e): e is typeof e & { m: NonNullable<typeof e.m> } => !!e.m && Math.abs(e.q - e.curSub) > Math.max(e.m.parSub, 20) * 8);
+    if (implausibleSubRows.length && !(await confirmAsync(
+      implausibleSubRows.length + ' จาก ' + entries.length + ' รายการ มีจำนวนที่นับได้ต่างจากยอดระบบมากผิดปกติเทียบกับ par เช่น '
+      + implausibleSubRows.slice(0, 3).map((e) => e.m.name + ' (นับได้ ' + nf(e.q) + ' ยอดระบบ ' + nf(e.curSub) + ')').join(', ')
+      + (implausibleSubRows.length > 3 ? ' และอีก ' + (implausibleSubRows.length - 3) + ' รายการ' : '')
+      + ' — พิมพ์จำนวนถูกต้องแล้วใช่ไหม? ต้องการบันทึกทั้งหมดนี้ต่อหรือไม่?'
+    ))) return;
     let ok = 0;
     let diffs = 0;
     let failed = 0;
@@ -3624,7 +3652,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toast(failed > 0
       ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
       : 'บันทึกครบ ' + ok + ' รายการ' + (diffs > 0 ? ' · มีส่วนต่าง ' + diffs + ' รายการ (ดูได้ใน Discrepancy log)' : ' · ตรงกับระบบทุกรายการ'));
-  }), [state.subCountInputs, state.meds, userName, toast, patch, guardOnce]);
+  }), [state, userName, toast, patch, guardOnce, confirmAsync]);
 
   // ---------- hosxp reconcile ----------
   const setHosxpText = useCallback((v: string) => patch({ hosxpText: v }), [patch]);
