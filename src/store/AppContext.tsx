@@ -2565,6 +2565,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // can be called with just the one field that changed without clobbering the other two.
   const updateGlobalSettings = useCallback(async (patchFields: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => {
     if (!canEditMeds) return;
+    // Bug fix (data integrity): parFloorCoverDays/parSubCoverDays feed suggestPar()'s
+    // `roundStep(daily * coverDays * volatility)` for the WHOLE shared formulary (this is
+    // meta/settings — one doc for the entire hospital, not per-device) — SettingsScreen's own
+    // input only strips non-digit characters (digitsOnly), so "0" saves through untouched.
+    // roundStep(0) always returns 1 regardless of a drug's real usage rate, so a 0 here
+    // (an easy fat-finger while clearing the field to retype) would make "ใช้ค่าแนะนำทั้งหมด"
+    // silently overwrite every substock-backed med's suggested par ceiling to 1 unit, with no
+    // confirmation gating that specific save. expiryWarnDays has no equivalent failure mode —
+    // 0 there just narrows "near expiry" to lots already expired, so it's left unclamped.
+    if (patchFields.parFloorCoverDays !== undefined) patchFields = { ...patchFields, parFloorCoverDays: Math.max(1, patchFields.parFloorCoverDays) };
+    if (patchFields.parSubCoverDays !== undefined) patchFields = { ...patchFields, parSubCoverDays: Math.max(1, patchFields.parSubCoverDays) };
     try {
       await withTimeout(setDoc(doc(db, 'meta', 'settings'), patchFields, { merge: true }));
       logAudit({ type: 'par_updated', note: 'แก้ไขการตั้งค่า: ' + Object.entries(patchFields).map(([k, v]) => k + '=' + v).join(', ') });
@@ -2592,6 +2603,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       'มียา "' + name + '" ที่เปิดใช้งานอยู่แล้วในฝั่ง' + wardLabel(wardOf(nameConflict))
       + ' (' + nameConflict.code + ') — เพิ่มรายการใหม่จะเป็นคนละ record แยกจากของเดิม (รวมกันไม่ได้ทีหลัง '
       + 'เพราะไม่ใช่คู่ OPD/IPD คนละฝั่ง) ยืนยันว่าต้องการเพิ่มยาตัวใหม่จริงหรือไม่?'
+    ))) return false;
+    // Bug fix (patient-safety-adjacent data integrity): nothing ever checked whether a bin/
+    // binIpd code being saved already belongs to a DIFFERENT active med — a shelf bin should
+    // map to exactly one drug, but a fat-fingered/misread handwritten shelf list could give two
+    // unrelated meds the same code with zero warning. A staffer picking "bin A12" during a
+    // count/transfer, or the auto-generated pick list, would have no way to tell them apart. A
+    // soft confirm (not a hard block) since a genuine intentional reuse — e.g. retiring one
+    // drug's bin for a replacement on the same shelf slot before deactivating the old record —
+    // is rare but not impossible.
+    const normBinVal = normBin(input.bin);
+    const binConflict = normBinVal && state.meds.find((x) => x.active && normBin(x.bin) === normBinVal);
+    if (binConflict && !(await confirmAsync(
+      'รหัสชั้นวาง "' + normBinVal + '" ถูกใช้กับยา "' + binConflict.name + '" (' + binConflict.code + ') อยู่แล้ว — '
+      + 'ใช้ซ้ำเสี่ยงหยิบยาผิดตัวตอนนับ/เบิก ยืนยันว่าต้องการใช้รหัสนี้ซ้ำจริงหรือไม่?'
+    ))) return false;
+    const normBinIpdVal = input.binIpd ? normBin(input.binIpd) : '';
+    const binIpdConflict = normBinIpdVal && state.meds.find((x) => x.active && normBin(x.binIpd || '') === normBinIpdVal);
+    if (binIpdConflict && !(await confirmAsync(
+      'รหัสชั้นวาง IPD "' + normBinIpdVal + '" ถูกใช้กับยา "' + binIpdConflict.name + '" (' + binIpdConflict.code + ') อยู่แล้ว — '
+      + 'ใช้ซ้ำเสี่ยงหยิบยาผิดตัวตอนนับ/เบิก ยืนยันว่าต้องการใช้รหัสนี้ซ้ำจริงหรือไม่?'
     ))) return false;
     try {
       // The QR printed on a shelf label encodes this `code` — two meds ever ending up with
@@ -2668,6 +2699,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
     const binIpd = input.binIpd ? normBin(input.binIpd) : '';
     const binSub = input.binSub ? normBin(input.binSub) : '';
+    // Bug fix (patient-safety-adjacent data integrity): same gap as addMed's own fix — check
+    // the new bin/binIpd against every OTHER active med before saving, so editing a med's
+    // shelf code can't silently collide with a different, unrelated drug's bin. Excludes this
+    // med's own current record (medId) since re-saving its own unchanged bin isn't a conflict.
+    const normBinVal = normBin(input.bin);
+    const binConflict = normBinVal && state.meds.find((x) => x.id !== medId && x.active && normBin(x.bin) === normBinVal);
+    if (binConflict && !(await confirmAsync(
+      'รหัสชั้นวาง "' + normBinVal + '" ถูกใช้กับยา "' + binConflict.name + '" (' + binConflict.code + ') อยู่แล้ว — '
+      + 'ใช้ซ้ำเสี่ยงหยิบยาผิดตัวตอนนับ/เบิก ยืนยันว่าต้องการใช้รหัสนี้ซ้ำจริงหรือไม่?'
+    ))) return false;
+    const binIpdConflict = binIpd && state.meds.find((x) => x.id !== medId && x.active && normBin(x.binIpd || '') === binIpd);
+    if (binIpdConflict && !(await confirmAsync(
+      'รหัสชั้นวาง IPD "' + binIpd + '" ถูกใช้กับยา "' + binIpdConflict.name + '" (' + binIpdConflict.code + ') อยู่แล้ว — '
+      + 'ใช้ซ้ำเสี่ยงหยิบยาผิดตัวตอนนับ/เบิก ยืนยันว่าต้องการใช้รหัสนี้ซ้ำจริงหรือไม่?'
+    ))) return false;
     const patch = {
       name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
       price: input.price || 0, had: input.had,
@@ -2692,7 +2738,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast('บันทึกข้อมูล ' + name + ' แล้ว');
       return true;
     } catch (e) { console.error(e); toast('บันทึกไม่สำเร็จ'); return false; }
-  }), [canEditMeds, logAudit, toast, guardOnce]);
+  }), [canEditMeds, state.meds, logAudit, toast, guardOnce, confirmAsync]);
 
   // Merges a still-separate OPD/IPD ward pair (same name — see the "ยาตัวเดียวกันที่วางทั้งสอง
   // ชั้น" note in MedsScreen) into one pooled record, for the real workflow at this hospital:

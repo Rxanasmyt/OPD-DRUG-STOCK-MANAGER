@@ -48,11 +48,17 @@
 // 15. commitWardMove's unit-mismatch fix: moving stock between two meds with different
 //     dispensing units (e.g. เม็ด vs ขวด) must be blocked outright — see its own "Bug fix
 //     (data integrity)" comment.
+// 16. updateGlobalSettings' zero-cover-days fix: parFloorCoverDays/parSubCoverDays must clamp
+//     to a minimum of 1 before being persisted to the shared meta/settings doc — see its own
+//     "Bug fix (data integrity)" comment.
+// 17. addMed/updateMedFull's bin-collision fix: saving a bin/binIpd code that already belongs
+//     to a different active med must ask for confirmation first — see their own "Bug fix
+//     (patient-safety-adjacent data integrity)" comments.
 import { describe, it, expect, vi } from 'vitest';
 import { useEffect } from 'react';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { runTransaction } from 'firebase/firestore';
+import { runTransaction, setDoc } from 'firebase/firestore';
 import TConfirmScreen from '../screens/TConfirmScreen';
 import AdjustScreen from '../screens/AdjustScreen';
 import { useApp } from './AppContext';
@@ -705,5 +711,58 @@ describe('commitWardMove — unit-mismatch regression', () => {
 
     await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
     expect(screen.queryByText(/หน่วยยาไม่ตรงกัน/)).not.toBeInTheDocument();
+  });
+});
+
+function SettingsHarness() {
+  const { updateGlobalSettings } = useApp();
+  return <button onClick={() => updateGlobalSettings({ parFloorCoverDays: 0, parSubCoverDays: 0 })}>save-zero</button>;
+}
+
+describe('updateGlobalSettings — zero-cover-days regression', () => {
+  it('clamps parFloorCoverDays/parSubCoverDays to a minimum of 1 before saving', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<SettingsHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+
+    await user.click(screen.getByRole('button', { name: 'save-zero' }));
+
+    await waitFor(() => expect(vi.mocked(setDoc).mock.calls.length).toBeGreaterThan(0));
+    const savedFields = vi.mocked(setDoc).mock.calls[0][1] as Record<string, unknown>;
+    // Without the fix, these would be saved as literal 0 — which makes suggestPar() compute
+    // every substock-backed med's suggested par ceiling as 1, regardless of real usage.
+    expect(savedFields.parFloorCoverDays).toBe(1);
+    expect(savedFields.parSubCoverDays).toBe(1);
+  });
+});
+
+function AddMedHarness() {
+  const { addMed } = useApp();
+  return (
+    <button onClick={() => addMed({
+      name: 'Cefixime 400mg', unit: 'เม็ด', dosageForm: 'เม็ด', price: 5, had: false,
+      bin: 'A1', parSub: 100, parFloor: 50, floorMin: 10, ward: 'opd', noSubstock: false,
+    })}>
+      add-med
+    </button>
+  );
+}
+
+describe('addMed — bin-collision regression', () => {
+  it('asks for confirmation before saving a bin code that already belongs to a different active med', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><AddMedHarness /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    // MED already occupies bin 'A1' — AddMedHarness tries to save a NEW, different-named med
+    // to that exact same bin.
+    fireCollection('meds', [MED]);
+
+    await user.click(screen.getByRole('button', { name: 'add-med' }));
+    await screen.findByText(/รหัสชั้นวาง.*A1.*ถูกใช้กับยา/);
+    await user.click(screen.getByRole('button', { name: 'ยกเลิก' }));
+
+    // Blocked before the transaction (which mints the new med code and writes the doc) ran.
+    expect(getLastTransactionWrites().length).toBe(0);
   });
 });
