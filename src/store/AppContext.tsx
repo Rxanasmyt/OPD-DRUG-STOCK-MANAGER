@@ -1660,6 +1660,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }));
         return;
       }
+      // Bug fix (lot duplication): a delivery of the exact same physical batch (same lotNo +
+      // same exp date, for the same med) that arrives on a later date than an earlier one still
+      // sitting on the shelf used to always create a BRAND NEW lots doc rather than adding into
+      // the one already there — the pharmacist merges both boxes under one paper lot card on
+      // the physical shelf, but the database kept two independently-drifting rows for what's one
+      // real stack, which is exactly the kind of split a substock-card (บัตรคุมยา) reconciliation
+      // would catch as a mismatch against the physical count. Live-queried once per distinct med
+      // right before building the batch (writeBatch can't read inside itself, same limitation
+      // runTx's own query-then-get workaround elsewhere in this file already works around) —
+      // only merges into a lot that's still genuinely active (qty > 0), never resurrects an old
+      // zeroed-out lot kept around purely for its own history (see scrapLot's own comment on why
+      // depleted lots aren't deleted).
+      const substockMedIds = [...new Set(items.filter((it) => !(liveMeds.get(it.medId)?.noSubstock)).map((it) => it.medId))];
+      const liveLotEntries = await Promise.all(substockMedIds.map(async (medId) => {
+        const snap = await getDocs(query(collection(db, 'lots'), where('medId', '==', medId)));
+        return [medId, snap.docs.map((d) => ({ id: d.id, ...(d.data() as { lotNo?: string; exp?: number; qty?: number }) }))] as const;
+      }));
+      const liveLotsByMed = new Map(liveLotEntries);
+      // Also merges two rows of THIS SAME receipt sharing a lotNo/exp for one med — the live
+      // query above can't see a lot this same batch is about to create, so track it locally too.
+      const stagedLotRefs = new Map<string, ReturnType<typeof doc>>();
       items.forEach((it) => {
         // Liquids/inhalers/sprays — some meds skip substock entirely and go straight from
         // the central warehouse to the shelf (see noSubstock on Med). No lot is created for
@@ -1676,8 +1697,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           });
           return;
         }
-        const lotRef = doc(collection(db, 'lots'));
-        batch.set(lotRef, { code: genLotCode(m?.code, it.medId, lotRef.id), medId: it.medId, lotNo: it.lotNo, exp: it.exp, qty: it.qty, loc: 'ชั้น bulk' });
+        const key = it.medId + '|' + it.lotNo + '|' + it.exp;
+        const staged = stagedLotRefs.get(key);
+        const existing = (liveLotsByMed.get(it.medId) || []).find((l) => l.lotNo === it.lotNo && l.exp === it.exp && (l.qty || 0) > 0);
+        if (staged) {
+          batch.update(staged, { qty: increment(it.qty) });
+        } else if (existing) {
+          const ref = doc(db, 'lots', existing.id);
+          batch.update(ref, { qty: increment(it.qty) });
+          stagedLotRefs.set(key, ref);
+        } else {
+          const lotRef = doc(collection(db, 'lots'));
+          batch.set(lotRef, { code: genLotCode(m?.code, it.medId, lotRef.id), medId: it.medId, lotNo: it.lotNo, exp: it.exp, qty: it.qty, loc: 'ชั้น bulk' });
+          stagedLotRefs.set(key, lotRef);
+        }
         batch.set(doc(collection(db, 'txs')), {
           type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'substock',
           note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp), by: userName(), ts: Date.now(),
@@ -1726,8 +1759,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + ' — ไม่มี substock ขึ้นหน้างานทันที — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
           });
         } else {
-          const lotRef = doc(collection(db, 'lots'));
-          trx.set(lotRef, { code: genLotCode(m?.code, pr.medId, lotRef.id), medId: pr.medId, lotNo: pr.lotNo, exp: pr.exp, qty: pr.qty, loc: 'ชั้น bulk' });
+          // Bug fix (lot duplication): same fix as commitReceive's own — merge into an existing
+          // ACTIVE lot with the same lotNo/exp for this med instead of always creating a new lot
+          // doc for what's physically the same batch. Transactions can only trx.get() a ref
+          // already known, not run a query, so the lookup runs untransacted right here (fresh on
+          // every retry, same query-then-get workaround commitTransfer's FEFO lot lookup already
+          // uses above) and only the one candidate doc it finds gets a proper trx.get() to
+          // confirm it's still live before writing to it.
+          const liveLotDocs = (await getDocs(query(collection(db, 'lots'), where('medId', '==', pr.medId)))).docs;
+          const candidate = liveLotDocs.find((d) => { const l = d.data() as { lotNo?: string; exp?: number; qty?: number }; return l.lotNo === pr.lotNo && l.exp === pr.exp && (l.qty || 0) > 0; });
+          let merged = false;
+          if (candidate) {
+            const lotSnap = await trx.get(doc(db, 'lots', candidate.id));
+            const existing = lotSnap.data() as { qty?: number } | undefined;
+            if (existing && (existing.qty || 0) > 0) {
+              trx.update(doc(db, 'lots', candidate.id), { qty: increment(pr.qty) });
+              merged = true;
+            }
+          }
+          if (!merged) {
+            const lotRef = doc(collection(db, 'lots'));
+            trx.set(lotRef, { code: genLotCode(m?.code, pr.medId, lotRef.id), medId: pr.medId, lotNo: pr.lotNo, exp: pr.exp, qty: pr.qty, loc: 'ชั้น bulk' });
+          }
           trx.set(doc(collection(db, 'txs')), {
             type: 'receive_from_central' as TxType, name: pr.name, medId: pr.medId, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'substock',
             note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + ' — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),

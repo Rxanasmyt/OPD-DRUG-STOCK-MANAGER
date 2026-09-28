@@ -41,6 +41,10 @@
 //     confirmation before letting that same guarded action fire again within the retry window,
 //     since the original write may still land on the server — see guardOnce's own "Bug fix
 //     (double-submit on network timeout)" comment.
+// 14. commitReceive's lot-duplication fix: receiving the same physical batch (same lotNo + exp
+//     for the same med) as an existing ACTIVE lot must merge into it (increment qty), never
+//     create a second lot doc for what's one real stack on the shelf — see its own "Bug fix
+//     (lot duplication)" comment.
 import { describe, it, expect, vi } from 'vitest';
 import { useEffect } from 'react';
 import { screen, waitFor } from '@testing-library/react';
@@ -177,7 +181,7 @@ describe('commitAdjust — ledger-accuracy regression', () => {
 
     const writes = getLastTransactionWrites();
     const medWrite = writes.find((w) => w.path === 'meds/m1');
-    const txWrite = writes.find((w) => w.path === '');
+    const txWrite = writes.find((w) => w.path.startsWith('txs/'));
     // floor clamps at 0 (3 - 10 would go negative), so the real applied delta is -3, not -10.
     expect(medWrite?.data).toEqual({ floor: 0 });
     expect(txWrite?.data.qty).toBe(-3);
@@ -219,7 +223,7 @@ describe('scrapLot — data-integrity regression', () => {
 
     const writes = getLastTransactionWrites();
     const lotWrite = writes.find((w) => w.path === 'lots/lotKnown');
-    const txWrite = writes.find((w) => w.path === '');
+    const txWrite = writes.find((w) => w.path.startsWith('txs/'));
     expect(lotWrite?.data).toEqual({ qty: 0 });
     expect(txWrite?.data.qty).toBe(-4);
   });
@@ -351,6 +355,38 @@ describe('approvePendingReceive — data-integrity regression', () => {
     // the old client-cache check ran before the transaction and couldn't catch a delete that
     // landed during the transaction's own retries.
     expect(getLastTransactionWrites().find((w) => w.path === 'pendingReceives/pr1')).toBeUndefined();
+  });
+
+  it('merges into an existing active lot with the same lotNo/exp instead of creating a new one', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ApproveReceiveHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+
+    seedDoc('pendingReceives/pr1', {
+      recvNo: 'RX1', medId: MED.id, name: MED.name, unit: MED.unit, lotNo: 'LOT1',
+      exp: new Date('2027-01-01').getTime(), qty: 10, requestedBy: 'เทค หนึ่ง', requestedByUid: 'tech1',
+      ts: Date.now(), status: 'pending',
+    });
+    seedDoc('meds/m1', {});
+    // An existing, still-active lot for the exact same physical batch this pending request is
+    // for (same lotNo + exp) — e.g. an earlier delivery already approved and sitting on the
+    // shelf. Seeded both as a collection row (for the live getDocs() lookup) and as an
+    // individual doc (for the transaction's own trx.get() re-check of that one candidate) —
+    // AppContext.commit.test.tsx's own test double keeps those two stores separate.
+    const existingLot = { medId: MED.id, lotNo: 'LOT1', exp: new Date('2027-01-01').getTime(), qty: 20 };
+    seedCollection('lots', [{ id: 'existing-lot-1', ...existingLot }]);
+    seedDoc('lots/existing-lot-1', existingLot);
+
+    await user.click(screen.getByRole('button', { name: 'approve-pr1' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+    const writes = getLastTransactionWrites();
+    // Without the fix, this would be a `set` creating a brand-new lot doc (data has a lotNo
+    // field) instead of an `update` incrementing the existing one.
+    const lotCreates = writes.filter((w) => w.kind === 'set' && !!w.data && 'lotNo' in w.data);
+    expect(lotCreates.length).toBe(0);
+    const merge = writes.find((w) => w.kind === 'update' && w.path === 'lots/existing-lot-1');
+    expect(merge?.data?.qty).toBe(10);
   });
 });
 
@@ -557,5 +593,58 @@ describe('guardOnce — double-submit-on-timeout regression', () => {
     await user.click(screen.getByRole('button', { name: 'ยืนยัน' }));
 
     await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+  });
+});
+
+describe('commitReceive — lot duplication regression', () => {
+  it('merges into an existing active lot with the same lotNo/exp instead of creating a new one', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ReceiveHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    seedDoc('meds/m1', {});
+    // An existing, still-active lot for the exact same physical batch ReceiveHarness fills in
+    // (lotNo 'LOT1', exp '2027-01-01', qty 10) — e.g. an earlier delivery of this exact batch
+    // still sitting on the shelf.
+    const existingExp = new Date('2027-01-01').getTime();
+    seedCollection('lots', [{ id: 'existing-lot-1', medId: 'm1', lotNo: 'LOT1', exp: existingExp, qty: 20 }]);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'commit-receive' })).not.toBeDisabled());
+
+    await user.click(screen.getByRole('button', { name: 'commit-receive' }));
+
+    const writes = await waitFor(() => {
+      const w = getLastBatchWrites();
+      expect(w.length).toBeGreaterThan(0);
+      return w;
+    });
+    // Without the fix, this would be a `set` creating a brand-new lot doc (data has a lotNo
+    // field) instead of an `update` incrementing the existing one.
+    const lotCreates = writes.filter((w) => w.kind === 'set' && !!w.data && 'lotNo' in w.data);
+    expect(lotCreates.length).toBe(0);
+    const merge = writes.find((w) => w.kind === 'update' && w.path === 'lots/existing-lot-1');
+    expect(merge?.data?.qty).toBe(10);
+  });
+
+  it('creates a new lot when no existing active lot shares the same lotNo/exp for that med', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ReceiveHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    seedDoc('meds/m1', {});
+    seedCollection('lots', []);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'commit-receive' })).not.toBeDisabled());
+
+    await user.click(screen.getByRole('button', { name: 'commit-receive' }));
+
+    const writes = await waitFor(() => {
+      const w = getLastBatchWrites();
+      expect(w.length).toBeGreaterThan(0);
+      return w;
+    });
+    const lotCreates = writes.filter((w) => w.kind === 'set' && !!w.data && 'lotNo' in w.data);
+    expect(lotCreates.length).toBe(1);
+    expect(lotCreates[0].data?.qty).toBe(10);
   });
 });
