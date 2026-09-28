@@ -11,6 +11,19 @@ import { cleanup } from '@testing-library/react';
 // real production Firestore project.
 import { resetFirebaseTestDouble } from './test-utils/firebaseTestDouble';
 
+// jsdom has no ResizeObserver implementation at all — real browsers do, so this only ever
+// surfaces here. LabelsScreen's AutoFitText/AutoFitTitle (font-size-to-fit-box measurement)
+// construct one on mount, which throws "ResizeObserver is not defined" and crashes any test
+// that renders that screen without this stub. A no-op is fine: these tests never resize the
+// jsdom viewport mid-test, so the fit-callback firing once on mount (main.tsx's real code
+// still reads clientWidth itself) is all any test here needs.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+(globalThis as unknown as { ResizeObserver: typeof ResizeObserverStub }).ResizeObserver = ResizeObserverStub;
+
 // @testing-library/react's auto-cleanup-after-each-test only self-registers when it detects a
 // Jest-style global `afterEach` — this project's vitest config doesn't set `globals: true`
 // (each test file explicitly imports describe/it/expect instead), so that auto-registration

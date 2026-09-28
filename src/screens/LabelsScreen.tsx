@@ -134,6 +134,19 @@ export default function LabelsScreen() {
   const selectedSet = new Set(selectedIds);
   const meds = selectedSet.size === 0 ? activeMeds : activeMeds.filter((m) => selectedSet.has(m.id));
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
+  // The real physical shelf sides this med prints a label for — mirrors printLabels()'s own
+  // sides/scoping logic in AppContext.tsx exactly (see labelWardScope's doc comment there). A
+  // shared med with a distinct binIpd has TWO real sides (OPD + IPD); a non-shared med has
+  // exactly one. 'all' scope keeps both; scoped to one ward keeps only the side(s) that match —
+  // a med whose only side doesn't match contributes nothing at all. Moved above binOf/
+  // binCodesOf (was originally declared only for the row/count computation further down) so
+  // the picker's own search/display can be scoped by ward too — see the bug fix on binOf below.
+  const medSides = (m: (typeof meds)[number]) => {
+    const sides: { ward: Ward; bin: string }[] = isSharedMed(m) && m.binIpd
+      ? [{ ward: 'opd', bin: m.bin }, { ward: 'ipd', bin: m.binIpd }]
+      : [{ ward: wardOf(m), bin: binFor(m, wardOf(m)) }];
+    return state.labelWardScope === 'all' ? sides : sides.filter((s) => s.ward === state.labelWardScope);
+  };
   // Real-world request: "อยากเลือกยาที่ปริ้นตามรหัสชั้นวางยาได้" — printing a whole shelf/bin's
   // worth of QR labels in one batch (e.g. re-organizing shelf "J4", or printing every code for
   // one aisle) needs picking meds by shelf code, not just by name. The bin code shown here
@@ -141,13 +154,27 @@ export default function LabelsScreen() {
   // shelf-strip tab (ฉลากชั้นวาง → substock), `binDisplayAll` (both OPD/IPD sides, e.g. "A1/B2")
   // everywhere else — so typing a bin code here selects exactly what a person standing at that
   // physical shelf would expect, never a code some OTHER tab happens to use for the same med.
-  const binOf = (m: (typeof activeMeds)[number]) => state.labelType === 'loc' && state.locScope === 'sub' ? (m.binSub || '') : binDisplayAll(m);
+  // Bug fix: "พอเลือก a1 ตอนนี้จะโชว์ทั้ง a1 ของชั้นวาง OPD และ IPD อยากให้เลือกได้ว่าจะให้โชว์
+  // ชั้นวาง OPD หรือ IPD" — a shared med's OPD-side and IPD-side bin can be the SAME literal
+  // code (e.g. both called "A1") even though they're two unrelated physical shelves, so a plain
+  // combined binDisplayAll() ("M6/A1") made searching "a1" surface both sides regardless of the
+  // เฉพาะ OPD/เฉพาะ IPD chips above — those chips already existed and already scope what
+  // actually prints (see medSides()), they just never reached this picker's own search/display.
+  // Routing through medSides() here scopes both to match: with เฉพาะ OPD selected, a med whose
+  // only matching side is its IPD "A1" now shows no bin at all here (and won't match "a1").
+  const binOf = (m: (typeof activeMeds)[number]) =>
+    state.labelType === 'loc' && state.locScope === 'sub' ? (m.binSub || '')
+    : state.labelType === 'med' ? medSides(m).map((s) => s.bin).join('/')
+    : binDisplayAll(m);
   // Every individual real bin code `m` sits in, kept SEPARATE (unlike binOf()'s combined
   // "A1/B2" display string) — a range check needs to test each side on its own, since a shared
   // med's OPD/IPD codes are two unrelated shelf positions that just happen to print on one row.
+  // Same ward-scoping fix as binOf() above, for the same reason.
   const binCodesOf = (m: (typeof activeMeds)[number]): string[] =>
     state.labelType === 'loc' && state.locScope === 'sub'
       ? (m.binSub ? [m.binSub] : [])
+      : state.labelType === 'med'
+      ? medSides(m).map((s) => s.bin)
       : [m.bin, ...(m.binIpd ? [m.binIpd] : [])].filter(Boolean);
   const pickerQ = pickerQuery.trim().toLowerCase();
   // Real-world request: "อยากให้เลือกเป็นชุดชั้นวางยาได้ครับ เช่น A1-A7" — picking a whole run of
@@ -179,18 +206,8 @@ export default function LabelsScreen() {
 
   const medIds = new Set(meds.map((m) => m.id));
   const wardLots = state.lots.filter((l) => medIds.has(l.medId));
-  // The real physical shelf sides this med prints a label for — mirrors printLabels()'s own
-  // sides/scoping logic in AppContext.tsx exactly (see labelWardScope's doc comment there) so
-  // this preview can never show/count something different from what the print button below
-  // actually produces. A shared med with a distinct binIpd has TWO real sides (OPD + IPD); a
-  // non-shared med has exactly one. 'all' scope keeps both; scoped to one ward keeps only the
-  // side(s) that match — a med whose only side doesn't match contributes nothing at all.
-  const medSides = (m: (typeof meds)[number]) => {
-    const sides: { ward: Ward; bin: string }[] = isSharedMed(m) && m.binIpd
-      ? [{ ward: 'opd', bin: m.bin }, { ward: 'ipd', bin: m.binIpd }]
-      : [{ ward: wardOf(m), bin: binFor(m, wardOf(m)) }];
-    return state.labelWardScope === 'all' ? sides : sides.filter((s) => s.ward === state.labelWardScope);
-  };
+  // medSides() itself now lives above, next to binOf/binCodesOf (see the bug-fix note there) —
+  // reused as-is here for the row/count computation below.
   // Bug fix: this used to hide the OPD/IPD badge specifically for a shared med ("no single real
   // ward, showing one would misrepresent it") — true when this rendered ONE row per med, but
   // print.ts's real output already puts a distinct row per SIDE with a real, unambiguous ward
