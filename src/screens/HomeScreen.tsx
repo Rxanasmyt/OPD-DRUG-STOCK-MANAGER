@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { useApp } from '../store/AppContext';
-import { toneFor, subTone, daysUntil, usesSubstock, floorMinOf, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso } from '../store/selectors';
+import { toneFor, subTone, daysUntil, usesSubstock, floorMinOf, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, suggestTransferQty } from '../store/selectors';
 import { nf, thDate, isoDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge } from '../components/Qty';
@@ -238,7 +238,18 @@ export default function HomeScreen() {
                 className="btn-outline press-spring"
                 style={{ padding: '9px 13px', borderRadius: 10, fontSize: 13, fontWeight: 700, flex: 'none', minHeight: 40, border: '1px solid var(--green)' }}
               >
-                {state.cart[m.id] ? 'ในรายการ' : '+ ' + nf(Math.max(0, Math.min(sub(m.id), m.parFloor - m.floor)))}
+                {/* Bug fix (value-mismatch): this used to show the raw, unrounded deficit
+                    (parFloor - floor, capped by substock) — but tapping this button calls
+                    bump(m.id, 1), which for an empty cart sets the quantity to
+                    suggestTransferQty() instead, rounding the deficit UP to this med's pack/
+                    magnitude step (packStep() in selectors.ts — e.g. any med with a boxed
+                    packSize, or any med with parFloor ≥ 100 rounding to a step of 10). A med
+                    with e.g. parFloor 120, floor 85 showed "+ 35" here, but tapping it landed
+                    40 in the cart on TransferScreen/TConfirmScreen — a real, visible mismatch
+                    between what was tapped and what actually gets committed. Now shows the
+                    same suggestTransferQty() value bump() itself uses, so the number on this
+                    button always matches what lands in the cart. */}
+                {state.cart[m.id] ? 'ในรายการ' : '+ ' + nf(suggestTransferQty(state, m))}
               </button>
             ) : (
               <button

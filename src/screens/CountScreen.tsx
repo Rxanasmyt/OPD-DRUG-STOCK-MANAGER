@@ -229,12 +229,34 @@ export default function CountScreen() {
           const boxCapable = !!m.packSize && m.packSize > 1;
           const useBox = entryMode === 'box' && boxCapable;
           const boxKey = loc + ':' + m.id;
-          // Reconciles with `typed` rather than trusting its own leftover state: once this
-          // row's countInputs entry is cleared (committed, or manually cleared), typed becomes
-          // '' and the box/เศษ fields fall back to blank right along with it — without this, a
-          // just-committed row would keep showing its old 3+5 breakdown even though the
-          // underlying value it fed is gone.
-          const bi = typed === '' ? { box: '', rem: '' } : (boxInputs[boxKey] ?? { box: '', rem: '' });
+          // Reconciles with `typed`/`m.packSize` rather than trusting its own leftover state —
+          // two real staleness gaps this closes:
+          // 1) Once this row's countInputs entry is cleared (committed, or manually cleared),
+          //    typed becomes '' and the box/เศษ fields fall back to blank right along with it —
+          //    without this, a just-committed row would keep showing its old 3+5 breakdown even
+          //    though the underlying value it fed is gone.
+          // 2) A cached {box,rem} that no longer multiplies out (under the med's CURRENT
+          //    packSize) to the currently-stored total is stale, not authoritative — either
+          //    because packSize was edited on another device/tab mid-count (Med.packSize comes
+          //    from a live onSnapshot, so this can change under a half-typed row with zero
+          //    warning), or because the row already had a plain unit total typed in 'unit' mode
+          //    before switching to 'box' mode (boxInputs never had an entry for it at all).
+          //    Left unreconciled, the screen would show a self-contradictory row — e.g. "กล่องละ
+          //    20 หน่วย" up top with "3 กล่อง + 5 เศษ = 35" underneath (3×20+5=65, not 35) — and a
+          //    tap of "บันทึก" would commit the stale, physically-wrong 35. Falling back to
+          //    splitting the actual stored total under the CURRENT packSize keeps every render
+          //    self-consistent; a genuinely stale breakdown just gets its box/เศษ split redrawn
+          //    (nothing here can silently under/over-count what's committed).
+          const bi = (() => {
+            if (typed === '' || !boxCapable) return { box: '', rem: '' };
+            const cached = boxInputs[boxKey];
+            if (cached) {
+              const cachedTotal = cached.box === '' && cached.rem === '' ? '' : String(parseIntSafe(cached.box) * (m.packSize as number) + parseIntSafe(cached.rem));
+              if (cachedTotal === typed) return cached;
+            }
+            const totalNum = parseIntSafe(typed);
+            return { box: String(Math.floor(totalNum / (m.packSize as number))), rem: String(totalNum % (m.packSize as number)) };
+          })();
           const setBoxField = (which: 'box' | 'rem', v: string) => {
             const cleaned = digitsOnly(v);
             const next = { ...bi, [which]: cleaned };

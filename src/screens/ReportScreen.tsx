@@ -52,7 +52,19 @@ export default function ReportScreen() {
     return { label, fg, lots: ls.length, value };
   });
   const maxVal = Math.max(1, ...buckets.map((b) => b.value));
-  const riskValue = buckets[0].value + buckets[1].value + buckets[2].value;
+  // Bug fix (data correctness): this used to always sum the first 3 fixed AGING_BUCKETS
+  // (expired + ≤30 + 31–90 days), regardless of what state.expiryWarnDays actually is — the
+  // exec tile's own label right next to this number ("มูลค่าเสี่ยงหมดอายุ ≤ {expiryWarnDays}
+  // วัน") already reads the real, admin-configurable setting, so changing it in Settings moved
+  // the label but silently left the number still fixed at "≤90 days", over/undercounting real
+  // near-expiry risk value by however far the setting differs from 90. Every other consumer of
+  // this exact same "at-risk" concept — categoryStats()'s atRisk field, printExecutiveSummary()'s
+  // own riskValue (AppContext.tsx) — already scopes to `daysUntil(l.exp) <= expiryWarnDays`;
+  // this is the one place that didn't, so it silently disagreed with both.
+  const riskValue = wardLots.reduce((s, l) => {
+    const m = meds.find((x) => x.id === l.medId);
+    return m && l.qty > 0 && daysUntil(l.exp) <= state.expiryWarnDays ? s + l.qty * m.price : s;
+  }, 0);
 
   // ---------- ภาพรวมผู้บริหาร (exec tab) ----------
   // Same underlying numbers aging/turn/category already compute above — this just rolls them
@@ -287,7 +299,7 @@ export default function ReportScreen() {
               ))}
             </div>
             <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, padding: '0 2px' }}>
-              มูลค่าที่เสี่ยงหมดอายุใน 90 วัน <b style={{ color: 'var(--amber-ink)' }}>{nf(riskValue)} บาท</b> — ใช้ประกอบรายงาน PTC เรื่องการบริหารยาใกล้หมดอายุ
+              มูลค่าที่เสี่ยงหมดอายุใน {state.expiryWarnDays} วัน <b style={{ color: 'var(--amber-ink)' }}>{nf(riskValue)} บาท</b> — ใช้ประกอบรายงาน PTC เรื่องการบริหารยาใกล้หมดอายุ
             </div>
           </>
         )}
