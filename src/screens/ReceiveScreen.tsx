@@ -60,12 +60,19 @@ export default function ReceiveScreen() {
   // here even when its shelf genuinely needed requesting. Judge it against floor/parFloor
   // instead (its shelf IS its substock for this purpose); a substock-backed med is judged
   // against substock/parSub as before — every active med falls into exactly one check.
-  const needsReceive = !state.recvMed && !state.recvSearch.trim()
+  // Bug fix (undercount): the header ("ควรเบิกจากคลังใหญ่ (N)") and this list used to read the
+  // SAME N off the already-`.slice(0, 20)`'d array — with more than 20 real meds below their
+  // central-warehouse-request threshold (an ordinary busy day, not a rare edge case), the header
+  // silently showed only 20 instead of the true total, with nothing on screen hinting more
+  // existed (every other capped list in this screen family — CountScreen's "แสดง 150 รายการแรก"
+  // — already discloses its own cap; this one just didn't). Compute the real total first, slice
+  // only for what actually renders, and expose both.
+  const needsReceiveAll = !state.recvMed && !state.recvSearch.trim()
     ? state.meds
         .filter((m) => m.active && needsWarehouseRequest(m, sub(m.id)))
         .sort((a, b) => needsReceiveRatio(a, sub(a.id)) - needsReceiveRatio(b, sub(b.id)))
-        .slice(0, 20)
     : [];
+  const needsReceive = needsReceiveAll.slice(0, 20);
   // "ล่าสุด" quick-pick chips — same idea as TransferScreen's (see its own doc comment): the
   // handful of drugs actually received most delivery days shouldn't need typing their name
   // every time. Still can't skip the lot/exp/qty entry itself (nothing on a shelf label can
@@ -211,7 +218,19 @@ export default function ReceiveScreen() {
                     <MedDot code={m.code} /> {m.name} <WardBadge med={m} />
                     {recvItemCountByMed[m.id] > 0 && <span className="muted" style={{ fontSize: 11 }}>· เพิ่มแล้ว {recvItemCountByMed[m.id]} lot</span>}
                   </span>
-                  <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={11.5} /> · par {nf(m.parSub)}</span>
+                  {/* Bug fix (misleading number): this used to show "substock 0 · par N" for a
+                      noSubstock med unconditionally — a real number since noSubstock meds never
+                      get lots (sub(m.id) is always 0), reading as a critical shortage in a stage
+                      that doesn't exist for that drug at all. The "ควรเบิกจากคลังใหญ่" list below
+                      already branches on usesSubstock() correctly for this exact reason (see its
+                      own comment) — this search-result list just never got the same fix, so
+                      which of the two paths someone used to reach the same drug decided which
+                      (correct or misleading) number they saw. */}
+                  {usesSubstock(m) ? (
+                    <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={11.5} /> · par {nf(m.parSub)}</span>
+                  ) : (
+                    <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>ไม่มี substock · หน้างาน <Qty value={m.floor} tone={subTone(m.floor, m.parFloor)} size={11.5} /> · par {nf(m.parFloor)}</span>
+                  )}
                   <div style={{ marginTop: 3 }}><DaysLeftBadge days={daysOfStockLeft(state, m)} /></div>
                 </div>
                 <CardPeekButton medId={m.id} name={m.name} onOpen={goSubstockCardFor} />
@@ -220,9 +239,12 @@ export default function ReceiveScreen() {
           </div>
         )}
 
-        {needsReceive.length > 0 && (
+        {needsReceiveAll.length > 0 && (
           <div style={{ marginBottom: 9 }}>
-            <div className="muted" style={{ fontSize: 11.5, fontWeight: 600, margin: '2px 2px 6px' }}>ควรเบิกจากคลังใหญ่ ({needsReceive.length})</div>
+            <div className="muted" style={{ fontSize: 11.5, fontWeight: 600, margin: '2px 2px 6px' }}>ควรเบิกจากคลังใหญ่ ({needsReceiveAll.length})</div>
+            {needsReceiveAll.length > needsReceive.length && (
+              <div className="muted" style={{ fontSize: 11, margin: '0 2px 6px' }}>แสดง {needsReceive.length} จาก {needsReceiveAll.length} รายการ — ค้นหาชื่อยาด้านบนเพื่อดูรายการอื่น</div>
+            )}
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 260, overflowY: 'auto' }}>
               {needsReceive.map((m) => (
                 <div key={m.id} role="button" tabIndex={0} onClick={() => pickRecvMed(m.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickRecvMed(m.id); } }} style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 8px 10px 12px', minHeight: 44, cursor: 'pointer' }}>

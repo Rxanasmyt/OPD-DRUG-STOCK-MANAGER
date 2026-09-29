@@ -282,7 +282,16 @@ export default function CountScreen() {
                       ReceiveScreen — a count that comes in low is more or less urgent to escalate
                       depending on how much real runway the drug actually has left, not just
                       whether the typed number is below par. */}
-                  <div style={{ marginTop: 3 }}><DaysLeftBadge days={daysOfStockLeft(state, m)} /></div>
+                  {/* Bug fix: project runway off the count just TYPED (not yet committed), not
+                      the stale live system quantity, once something's actually typed — see
+                      daysOfStockLeft()'s own "CountScreen regression" comment for why the two can
+                      disagree right at the moment it matters most (deciding whether to escalate
+                      before tapping "บันทึก"). Substitutes only the side actually being counted
+                      (floor or substock) into the same floor+substock total the untyped default
+                      already uses — the other side's live value is untouched either way. */}
+                  <div style={{ marginTop: 3 }}>
+                    <DaysLeftBadge days={daysOfStockLeft(state, m, has ? (loc === 'floor' ? parsed + subQty(state, m.id) : m.floor + parsed) : undefined)} />
+                  </div>
                   {has && delta !== 0 && (
                     <div style={{ fontSize: 11.5, marginTop: 2, fontWeight: 600, color: delta < 0 ? 'var(--red)' : 'var(--amber)' }}>
                       {delta < 0

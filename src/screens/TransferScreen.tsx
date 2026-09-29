@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, binDisplayAll, daysOfStockLeft } from '../store/selectors';
-import { nf, thDate, digitsOnly, isoDate } from '../utils/format';
+import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, binDisplayAll, daysOfStockLeft, expTone } from '../store/selectors';
+import { nf, thDate, digitsOnly, isoDate, daysUntil } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge, DaysLeftBadge } from '../components/Qty';
@@ -243,10 +243,27 @@ export default function TransferScreen() {
                   <div className="bar-track" style={{ height: 4, background: 'var(--border-soft)', borderRadius: 2, marginTop: 5 }}>
                     <div className="bar-fill" style={{ height: '100%', transform: 'scaleX(' + Math.max(3, Math.min(100, Math.round((m.floor / Math.max(1, m.parFloor)) * 100))) / 100 + ')', background: toneFor(m), borderRadius: 2 }} />
                   </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--green)', marginTop: 5 }}>
-                    FEFO: lot {f ? f.lotNo : '—'} · exp {f ? thDate(f.exp) : 'ไม่มีของใน substock'}
-                    {f && <span className="muted"> (เหลือ {nf(f.qty)})</span>}
-                  </div>
+                  {/* Bug fix (patient safety): this line always rendered flat green — FEFO's
+                      own sort-by-soonest-expiry was already correct, but "sorts by expiry" and
+                      "warns you when the soonest-expiring lot is itself already expired or
+                      about to be" are two different things, and only the first existed.
+                      Nothing here ever purges/blocks an expired lot (that's scrapLot's own
+                      manual job) — a FEFO transfer will still draw from it, so this is the one
+                      moment before that write actually happens to flag it. expTone() already
+                      existed in selectors.ts for exactly this color scale but had no call site
+                      anywhere in the app until now. */}
+                  {(() => {
+                    const fefoDays = f ? daysUntil(f.exp) : null;
+                    const tone = fefoDays !== null ? expTone(fefoDays, state.expiryWarnDays) : 'var(--green)';
+                    return (
+                      <div style={{ fontSize: 11.5, color: tone, marginTop: 5, fontWeight: fefoDays !== null && fefoDays < 30 ? 700 : undefined }}>
+                        FEFO: lot {f ? f.lotNo : '—'} · exp {f ? thDate(f.exp) : 'ไม่มีของใน substock'}
+                        {f && <span className="muted" style={{ color: 'inherit', opacity: fefoDays !== null && fefoDays < 30 ? 1 : undefined }}> (เหลือ {nf(f.qty)})</span>}
+                        {fefoDays !== null && fefoDays < 0 && <span> — ⚠ หมดอายุแล้ว ควรตัดออกก่อนเติม</span>}
+                        {fefoDays !== null && fefoDays >= 0 && fefoDays < 30 && <span> — ⚠ ใกล้หมดอายุมาก</span>}
+                      </div>
+                    );
+                  })()}
                   <div style={{ marginTop: 5, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={isUrgentLow(m)} />
                     <DaysLeftBadge days={daysOfStockLeft(state, m)} />

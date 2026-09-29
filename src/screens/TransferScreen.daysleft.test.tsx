@@ -41,3 +41,41 @@ describe('TransferScreen — days-of-stock-left badge regression', () => {
     expect(screen.queryAllByText(/เหลือใช้/)).toHaveLength(1);
   });
 });
+
+// Regression test for the FEFO-line fix: expTone() (selectors.ts) existed but had zero call
+// sites before this fix — the FEFO line always rendered flat green regardless of how urgent the
+// soonest-expiring lot actually was. See TransferScreen.tsx's own "Bug fix (patient safety)"
+// comment right above the FEFO line's IIFE.
+const EXPIRED_MED = {
+  id: 'm3', code: 'MED-0003', name: 'Cefixime 400mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 10, bin: 'A3',
+  used30: 0, usedPrev30: 0, volatility: 0,
+};
+const NEAR_EXPIRY_MED = {
+  id: 'm4', code: 'MED-0004', name: 'Domperidone 10mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 10, bin: 'A4',
+  used30: 0, usedPrev30: 0, volatility: 0,
+};
+const HEALTHY_MED = {
+  id: 'm5', code: 'MED-0005', name: 'Metformin 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 10, bin: 'A5',
+  used30: 0, usedPrev30: 0, volatility: 0,
+};
+
+describe('TransferScreen — FEFO expiry-urgency regression', () => {
+  it('flags an already-expired lot and a near-expiry lot, and stays quiet for a healthy one', async () => {
+    renderWithApp(<TransferScreen />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [EXPIRED_MED, NEAR_EXPIRY_MED, HEALTHY_MED]);
+    fireCollection('lots', [
+      { id: 'l3', medId: EXPIRED_MED.id, qty: 5, lotNo: 'LE', exp: Date.now() - 5 * 86400000 },
+      { id: 'l4', medId: NEAR_EXPIRY_MED.id, qty: 5, lotNo: 'LN', exp: Date.now() + 10 * 86400000 },
+      { id: 'l5', medId: HEALTHY_MED.id, qty: 5, lotNo: 'LH', exp: Date.now() + 200 * 86400000 },
+    ]);
+
+    await screen.findByText(/หมดอายุแล้ว ควรตัดออกก่อนเติม/);
+    expect(screen.getAllByText(/หมดอายุแล้ว ควรตัดออกก่อนเติม/)).toHaveLength(1);
+    expect(screen.getAllByText(/ใกล้หมดอายุมาก/)).toHaveLength(1);
+  });
+});

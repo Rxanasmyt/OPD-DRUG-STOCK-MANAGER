@@ -858,3 +858,128 @@ describe('printLabels — lot-label HIGH ALERT regression', () => {
     expect(lotLabel?.tag).toContain('HIGH ALERT');
   });
 });
+
+const MED2_ACTIVE = { ...MED_BOTTLE, id: 'm2', code: 'MED-0002', name: 'Ventolin inhaler', floor: 3, active: true };
+
+function CountAllInactiveMedHarness() {
+  const { setCountInput, commitAllCounts } = useApp();
+  useEffect(() => { setCountInput('m1', '45'); setCountInput('m2', '10'); }, [setCountInput]);
+  return <button onClick={commitAllCounts}>commit-all-counts</button>;
+}
+
+describe('commitAllCounts — inactive-med-skip regression', () => {
+  it('skips (and tallies as failed) a row whose med was deactivated mid-batch, without writing for it', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><CountAllInactiveMedHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED, MED2_ACTIVE]);
+    seedDoc('meds/m1', { floor: MED.floor });
+
+    // Another device deactivates m2 (not deleted — commitAllCounts's old `!m`-only check would
+    // still pass for a merely-deactivated med) in the gap between typing both counts and tapping
+    // "บันทึกทั้งหมด" — CountScreen's own active/typedIds filtering would already have hidden it
+    // from the operator's screen by this point.
+    fireCollection('meds', [MED, { ...MED2_ACTIVE, active: false }]);
+
+    await user.click(screen.getByRole('button', { name: 'commit-all-counts' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+    // Without the fix, this would still carry a real floor write for m2 — a drug the operator
+    // could no longer even see on their own screen.
+    expect(getLastTransactionWrites().find((w) => w.path === 'meds/m2')).toBeUndefined();
+    expect(getLastTransactionWrites().find((w) => w.path === 'meds/m1')).toBeDefined();
+    await screen.findByText(/ไม่สำเร็จ 1 รายการ/);
+  });
+});
+
+function ReceivePlausibilityHarness({ exp, qty }: { exp: string; qty: string }) {
+  const { state, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv } = useApp();
+  useEffect(() => { if (!state.recvMed && !state.recvItems.length) pickRecvMed(MED.id); }, [state.recvMed, state.recvItems.length, pickRecvMed]);
+  useEffect(() => { if (state.recvMed && !state.recvLot) setRecvLot('LOT1'); }, [state.recvMed, state.recvLot, setRecvLot]);
+  useEffect(() => { if (state.recvLot && !state.recvExp) setRecvExp(exp); }, [state.recvLot, state.recvExp, setRecvExp, exp]);
+  useEffect(() => { if (state.recvExp && !state.recvQty) setRecvQty(qty); }, [state.recvExp, state.recvQty, setRecvQty, qty]);
+  return (
+    <div>
+      <button disabled={!state.recvQty} onClick={() => addRecv()}>add-recv</button>
+      <div data-testid="itemCount">{state.recvItems.length}</div>
+    </div>
+  );
+}
+
+describe('addRecv — past-expiry-date regression', () => {
+  it('asks for confirmation before adding a lot whose typed expiry date is already in the past, and blocks on cancel', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ReceivePlausibilityHarness exp="2020-01-01" qty="10" /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'add-recv' })).not.toBeDisabled());
+
+    await user.click(screen.getByRole('button', { name: 'add-recv' }));
+    await screen.findByText(/เป็นวันที่ผ่านไปแล้ว/);
+    await user.click(screen.getByRole('button', { name: 'ยกเลิก' }));
+
+    expect(screen.getByTestId('itemCount').textContent).toBe('0');
+  });
+
+  it('adds the item once confirmed, despite the past expiry date', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ReceivePlausibilityHarness exp="2020-01-01" qty="10" /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'add-recv' })).not.toBeDisabled());
+
+    await user.click(screen.getByRole('button', { name: 'add-recv' }));
+    await screen.findByText(/เป็นวันที่ผ่านไปแล้ว/);
+    await user.click(screen.getByRole('button', { name: 'ยืนยัน' }));
+
+    await waitFor(() => expect(screen.getByTestId('itemCount').textContent).toBe('1'));
+  });
+
+  it('adds directly with no confirm prompt for a normal future expiry date', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ReceivePlausibilityHarness exp="2027-01-01" qty="10" /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'add-recv' })).not.toBeDisabled());
+
+    await user.click(screen.getByRole('button', { name: 'add-recv' }));
+    await waitFor(() => expect(screen.getByTestId('itemCount').textContent).toBe('1'));
+    expect(screen.queryByText(/เป็นวันที่ผ่านไปแล้ว/)).not.toBeInTheDocument();
+  });
+});
+
+describe('addRecv — implausible-quantity regression', () => {
+  it('asks for confirmation before adding a wildly implausible quantity, and blocks on cancel', async () => {
+    const user = userEvent.setup();
+    // MED.parSub=500 (MED uses substock — noSubstock is unset) → threshold = max(500,20)*8 =
+    // 4000; 5000 is well past it.
+    renderWithApp(<><ReceivePlausibilityHarness exp="2027-01-01" qty="5000" /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'add-recv' })).not.toBeDisabled());
+
+    await user.click(screen.getByRole('button', { name: 'add-recv' }));
+    await screen.findByText(/มากผิดปกติเมื่อเทียบกับ par/);
+    await user.click(screen.getByRole('button', { name: 'ยกเลิก' }));
+
+    expect(screen.getByTestId('itemCount').textContent).toBe('0');
+  });
+
+  it('adds directly with no confirm prompt for a plausible quantity', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ReceivePlausibilityHarness exp="2027-01-01" qty="10" /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'add-recv' })).not.toBeDisabled());
+
+    await user.click(screen.getByRole('button', { name: 'add-recv' }));
+    await waitFor(() => expect(screen.getByTestId('itemCount').textContent).toBe('1'));
+    expect(screen.queryByText(/มากผิดปกติ/)).not.toBeInTheDocument();
+  });
+});
