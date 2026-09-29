@@ -57,4 +57,61 @@ describe('CountScreen — box-counting regression', () => {
     await user.type(input, '30');
     expect(screen.getByText(/มากกว่าระบบ 30 เม็ด/)).toBeInTheDocument();
   });
+
+  // Regression test for a real staleness gap: switching a row that already has a plain unit
+  // total typed (in 'unit' mode) over to 'box' mode used to show BLANK กล่อง/เศษ fields (since
+  // boxInputs never had a cached breakdown for it) while the row was still fully typed/
+  // committable at the old total — a person could reasonably believe nothing had been entered
+  // for that med and skip it, while it was actually queued to commit. See CountScreen.tsx's
+  // own "Reconciles with `typed`/`m.packSize`" comment.
+  it('derives a correct กล่อง+เศษ breakdown from an existing unit-mode total when switching into box mode', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<CountScreen />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [BOXED_MED]);
+    fireCollection('lots', []);
+
+    // Type a plain unit total (37) while still in 'unit' mode.
+    await user.type(await screen.findByLabelText('จำนวนที่นับได้ ' + BOXED_MED.name), '37');
+    await user.click(screen.getByRole('button', { name: 'นับเป็นกล่อง' }));
+
+    // packSize 10: 37 = 3 กล่อง + 7 เศษ — not blank, and still the same total (37) underneath.
+    expect(screen.getByLabelText('จำนวนกล่องที่นับได้ ' + BOXED_MED.name)).toHaveValue('3');
+    expect(screen.getByLabelText('จำนวนเศษที่นับได้ ' + BOXED_MED.name)).toHaveValue('7');
+    expect(screen.getByText('= 37 เม็ด')).toBeInTheDocument();
+  });
+
+  // Regression test for a real cross-device staleness gap: Med.packSize comes from a live
+  // onSnapshot, so it can change under a half-typed box-mode row with zero warning (e.g.
+  // another device corrects a supplier's repackaged box size mid-count). A cached {box,rem}
+  // computed under the OLD packSize no longer multiplies out to the currently-stored total
+  // under the NEW packSize — left unreconciled, the row would show a self-contradictory
+  // "กล่องละ 20 หน่วย" next to a stale "3 กล่อง + 5 เศษ = 35" (3×20+5=65, not 35). The fix
+  // re-derives the breakdown from the actual stored total under the CURRENT packSize whenever
+  // the cached breakdown no longer matches it.
+  it('re-derives a self-consistent กล่อง+เศษ breakdown when packSize changes mid-count on another device', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<CountScreen />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [BOXED_MED]);
+    fireCollection('lots', []);
+
+    await screen.findByText(BOXED_MED.name);
+    await user.click(screen.getByRole('button', { name: 'นับเป็นกล่อง' }));
+    await user.type(screen.getByLabelText('จำนวนกล่องที่นับได้ ' + BOXED_MED.name), '3');
+    await user.type(screen.getByLabelText('จำนวนเศษที่นับได้ ' + BOXED_MED.name), '5');
+    await screen.findByText('= 35 เม็ด');
+
+    // Another device edits this med's packSize from 10 to 20 mid-count.
+    fireCollection('meds', [{ ...BOXED_MED, packSize: 20 }]);
+
+    // The stored total (35) is unchanged, but its breakdown under the NEW packSize (20) is
+    // 1 กล่อง + 15 เศษ (1×20+15=35) — self-consistent, never the stale/wrong 3+5 pairing that
+    // would silently imply 65 units while only 35 is actually queued to commit.
+    await waitFor(() => expect(screen.getByLabelText('จำนวนกล่องที่นับได้ ' + BOXED_MED.name)).toHaveValue('1'));
+    expect(screen.getByLabelText('จำนวนเศษที่นับได้ ' + BOXED_MED.name)).toHaveValue('15');
+    expect(screen.getByText('= 35 เม็ด')).toBeInTheDocument();
+  });
 });
