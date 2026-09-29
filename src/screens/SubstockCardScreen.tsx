@@ -422,6 +422,15 @@ export default function SubstockCardScreen() {
             )}
           </div>
 
+          {/* Real-world request: "ควรมีกราฟมั้ย หรือแผนภูมิ" — screen-only (never printed: the
+              official paper card stays a plain, audit-friendly table — see printCard() below,
+              untouched). A quick visual read of the trend that the flat ledger table doesn't
+              give at a glance, using the SAME viewRows/fiscal-year filter as everything else on
+              this screen so it never disagrees with the totals right above it. */}
+          {viewRows && viewRows.length >= 2 && (
+            <BalanceTrendChart rows={viewRows} unit={med.unit} tone={balanceTone} periodLabel={year === 'all' ? 'ทุกปี' : 'ปีงบ ' + year} />
+          )}
+
           {/* Type-icon legend — the ledger table below packs each row's type into a single
               icon (📥🚚🗑️🔢🧾⚖️↩️💥↘️↗️) to keep the grid narrow enough for a phone screen; the
               only place their meaning used to live was each row's `title` attribute, which
@@ -488,6 +497,117 @@ export default function SubstockCardScreen() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// Fixed drawing area — a compact glance-sparkline, not a full analytical chart (the real,
+// exact numbers are one scroll away in the ledger table right below it). Width is measured
+// live via ResizeObserver since this sits in a responsive card, not a fixed-mm print sheet.
+const CHART_H = 72;
+const CHART_PAD = 8;
+
+/** Screen-only balance-over-time trend line for the currently viewed period (see its call
+ * site's own "Real-world request" comment) — plotted by TRANSACTION INDEX, not real calendar
+ * spacing, since substock movements land irregularly (some drugs move daily, some monthly);
+ * an evenly-spaced x-axis reads as a clean trend line at a glance, which is this chart's only
+ * job — the exact date of any point is one tap (or the ledger table right below) away. Single
+ * series, so no legend (the caption above already names it) — just a thin line, a soft area
+ * fill, and a highlighted end point in the SAME tone the live-balance number above already
+ * uses, so the color means the same thing here as it does everywhere else on this screen. */
+function BalanceTrendChart({ rows, unit, tone, periodLabel }: { rows: LedgerRow[]; unit: string; tone: string; periodLabel: string }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const measure = () => setWidth(el.clientWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const balances = rows.map((r) => r.balance);
+  const minB = Math.min(...balances);
+  const maxB = Math.max(...balances);
+  // A perfectly flat run (every row the same balance) would divide by zero below — treat it as
+  // its own tiny range so the line still draws as one flat, readable stroke instead of NaN.
+  const span = Math.max(1, maxB - minB);
+  const innerW = Math.max(1, width - CHART_PAD * 2);
+  const innerH = CHART_H - CHART_PAD * 2;
+  const xAt = (i: number) => CHART_PAD + (rows.length === 1 ? 0 : (i / (rows.length - 1)) * innerW);
+  const yAt = (v: number) => CHART_PAD + innerH - ((v - minB) / span) * innerH;
+  const points = rows.map((r, i) => [xAt(i), yAt(r.balance)] as const);
+  const linePath = points.map(([x, y], i) => (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1)).join(' ');
+  const areaPath = linePath + ` L${points[points.length - 1][0].toFixed(1)},${CHART_H - CHART_PAD} L${points[0][0].toFixed(1)},${CHART_H - CHART_PAD} Z`;
+  const gradId = 'sparkfill-' + tone.replace(/[^a-z0-9]/gi, '');
+
+  const pointerToIndex = (clientX: number) => {
+    const el = wrapRef.current;
+    if (!el || rows.length < 2) return 0;
+    const rect = el.getBoundingClientRect();
+    const rel = clientX - rect.left - CHART_PAD;
+    const frac = Math.min(1, Math.max(0, rel / innerW));
+    return Math.round(frac * (rows.length - 1));
+  };
+
+  const hovered = hoverIdx !== null ? rows[hoverIdx] : null;
+  // Clamp the tooltip's own horizontal position so it never overflows the card's left/right
+  // edge for a hovered point right near either end.
+  const tooltipLeftPct = hoverIdx !== null ? Math.min(88, Math.max(12, (hoverIdx / (rows.length - 1)) * 100)) : 0;
+
+  return (
+    <div style={{ border: '1px solid var(--border-soft)', borderRadius: 12, background: 'var(--bg-subtle)', padding: '10px 12px 8px', marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+        <span style={{ fontSize: 11.5, fontWeight: 700 }}>แนวโน้มยอดคงเหลือ</span>
+        <span className="muted" style={{ fontSize: 10.5 }}>{periodLabel} · {nf(rows.length)} รายการ</span>
+      </div>
+      <div ref={wrapRef} style={{ position: 'relative', height: CHART_H }}>
+        {hovered && (
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute', left: tooltipLeftPct + '%', transform: 'translateX(-50%)', top: -2,
+              background: 'var(--ink)', color: 'var(--ink-soft)', borderRadius: 8, padding: '4px 8px',
+              fontSize: 10.5, lineHeight: 1.4, whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 1, boxShadow: 'var(--shadow-sm)',
+            }}
+          >
+            <div>{thDate(hovered.ts)}</div>
+            <div style={{ fontWeight: 800, color: tone }}>{nf(hovered.balance)} {unit}</div>
+          </div>
+        )}
+        {width > 0 && (
+          <svg
+            width="100%"
+            height={CHART_H}
+            viewBox={`0 0 ${width} ${CHART_H}`}
+            style={{ display: 'block', touchAction: 'none' }}
+            onPointerMove={(e) => setHoverIdx(pointerToIndex(e.clientX))}
+            onPointerLeave={() => setHoverIdx(null)}
+          >
+            <defs>
+              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={tone} stopOpacity={0.22} />
+                <stop offset="100%" stopColor={tone} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <path d={areaPath} fill={`url(#${gradId})`} stroke="none" />
+            <path d={linePath} fill="none" stroke={tone} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            {/* End point — always shown, unhovered, so the chart reads correctly even before
+                any pointer interaction (a touch device may never "hover" at all). */}
+            <circle cx={points[points.length - 1][0]} cy={points[points.length - 1][1]} r={3.5} fill={tone} stroke="var(--bg-card)" strokeWidth={1.5} />
+            {hoverIdx !== null && (
+              <>
+                <line x1={points[hoverIdx][0]} x2={points[hoverIdx][0]} y1={CHART_PAD} y2={CHART_H - CHART_PAD} stroke="var(--border)" strokeWidth={1} />
+                <circle cx={points[hoverIdx][0]} cy={points[hoverIdx][1]} r={4} fill={tone} stroke="var(--bg-card)" strokeWidth={1.5} />
+              </>
+            )}
+          </svg>
+        )}
+      </div>
     </div>
   );
 }
