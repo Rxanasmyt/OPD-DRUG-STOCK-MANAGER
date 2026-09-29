@@ -39,7 +39,24 @@ function toneTint(tone?: string): string {
 const surface: React.CSSProperties = { background: 'var(--bg-card)', borderRadius: 18, boxShadow: 'var(--shadow-xs)' };
 
 export default function HomeScreen() {
-  const { state, myProfile, sub, fefo, bump, goReceiveFor, go, warn, pickAdjType, seedDatabase, roleLabel } = useApp();
+  const { state, myProfile, sub, fefo, bump, goReceiveFor, go, warn, pickAdjType, seedDatabase, roleLabel, goSubstockCardFor } = useApp();
+  // Bug fix (flow clarity): every med row in the three lists below (ต้องเติมหน้างาน/ควรเบิกจาก
+  // คลังยาใหญ่/ใกล้หมดอายุ) already carries the "row-interactive" class — the same hover-
+  // highlight + press-scale styling ReportScreen's own goSubstockCardFor() rows use to signal
+  // "tap me" — but had no onClick of their own at all; only the small action button inside each
+  // row did anything. A person scanning the dashboard's most-used lists could tap the drug's
+  // NAME expecting its ledger/บัตรสต็อก (exactly what the identical styling on ReportScreen
+  // already does) and get nothing. `rowToCard(medId)` wires that tap through to
+  // goSubstockCardFor() everywhere below; `stopRowNav` on each nested action button keeps a tap
+  // on THAT button from also firing the row's own click (button clicks bubble to the row div).
+  const rowToCard = (medId: string) => ({
+    role: 'button' as const,
+    tabIndex: 0,
+    onClick: () => goSubstockCardFor(medId),
+    onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goSubstockCardFor(medId); } },
+    title: 'ดูบัตรสต็อกยานี้',
+  });
+  const stopRowNav = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
   const expRef = useRef<HTMLDivElement>(null);
   const now = new Date();
   const greeting = greetingFor(now.getHours());
@@ -214,7 +231,7 @@ export default function HomeScreen() {
       <SectionHeader title="ต้องเติมหน้างาน" actionLabel="ดูทั้งหมด" onAction={() => go('transfer')} accent="var(--red)" />
       <div className="stagger" style={{ ...surface, overflow: 'hidden', marginBottom: 22 }}>
         {low.slice(0, 5).map((m) => (
-          <div key={m.id} className="row-interactive" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: '1px solid var(--border-soft)' }}>
+          <div key={m.id} className="row-interactive" {...rowToCard(m.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: '1px solid var(--border-soft)', cursor: 'pointer' }}>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
                 <MedDot code={m.code} />
@@ -234,7 +251,7 @@ export default function HomeScreen() {
             </div>
             {usesSubstock(m) ? (
               <button
-                onClick={() => { bump(m.id, 1); go('transfer'); }}
+                onClick={stopRowNav(() => { bump(m.id, 1); go('transfer'); })}
                 className="btn-outline press-spring"
                 style={{ padding: '9px 13px', borderRadius: 10, fontSize: 13, fontWeight: 700, flex: 'none', minHeight: 40, border: '1px solid var(--green)' }}
               >
@@ -253,7 +270,7 @@ export default function HomeScreen() {
               </button>
             ) : (
               <button
-                onClick={() => goReceiveFor(m.id)}
+                onClick={stopRowNav(() => goReceiveFor(m.id))}
                 className="btn-outline press-spring"
                 title="ยานี้ไม่มี substock — รับเข้าแล้วขึ้นหน้างานทันที"
                 style={{ padding: '9px 13px', borderRadius: 10, fontSize: 13, fontWeight: 700, flex: 'none', minHeight: 40, border: '1px solid var(--amber)', color: 'var(--amber-ink)' }}
@@ -269,7 +286,7 @@ export default function HomeScreen() {
       <SectionHeader title="ควรเบิกจากคลังยาใหญ่" actionLabel="ไปหน้ารับเข้า" onAction={() => go('receive')} accent="var(--amber)" />
       <div className="stagger" style={{ ...surface, overflow: 'hidden', marginBottom: 22 }}>
         {lowSub.slice(0, 5).map((m) => (
-          <div key={m.id} className="row-interactive" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: '1px solid var(--border-soft)' }}>
+          <div key={m.id} className="row-interactive" {...rowToCard(m.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: '1px solid var(--border-soft)', cursor: 'pointer' }}>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
                 <MedDot code={m.code} />
@@ -284,7 +301,7 @@ export default function HomeScreen() {
                 <DeficitBadge amount={Math.max(0, m.parSub - sub(m.id))} unit={m.unit} urgent={sub(m.id) === 0} />
               </div>
             </div>
-            <button onClick={() => goReceiveFor(m.id)} className="btn-outline press-spring" style={{ padding: '9px 13px', borderRadius: 10, fontSize: 13, fontWeight: 700, flex: 'none', minHeight: 40, border: '1px solid var(--green)' }}>รับเข้า</button>
+            <button onClick={stopRowNav(() => goReceiveFor(m.id))} className="btn-outline press-spring" style={{ padding: '9px 13px', borderRadius: 10, fontSize: 13, fontWeight: 700, flex: 'none', minHeight: 40, border: '1px solid var(--green)' }}>รับเข้า</button>
           </div>
         ))}
         {lowSub.length === 0 && <div style={{ padding: 18, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>substock ยังสูงกว่า par ทุกรายการ</div>}
@@ -308,7 +325,7 @@ export default function HomeScreen() {
           if (!m) return null;
           const d = daysUntil(l.exp);
           return (
-            <div key={l.id} className="row-interactive" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: '1px solid var(--border-soft)' }}>
+            <div key={l.id} className="row-interactive" {...rowToCard(m.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: '1px solid var(--border-soft)', cursor: 'pointer' }}>
               <div style={{ width: 52, flex: 'none', textAlign: 'center', background: d < 30 ? 'var(--red-bg)' : 'var(--amber-bg)', color: d < 30 ? 'var(--red)' : 'var(--amber-ink)', borderRadius: 11, padding: '6px 2px' }}>
                 <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1 }}>{d <= 0 ? Math.abs(d) : d}</div>
                 <div style={{ fontSize: 10, lineHeight: 1.3 }}>{d <= 0 ? 'วันที่เกิน' : 'วัน'}</div>
@@ -321,7 +338,7 @@ export default function HomeScreen() {
                 <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>lot {l.lotNo} · exp {thDate(l.exp)} · เหลือ {nf(l.qty)} {m.unit}</div>
               </div>
               <button
-                onClick={() => { if (d <= 0) { pickAdjType('expired'); go('adjust'); } else { bump(m.id, 1); go('transfer'); } }}
+                onClick={stopRowNav(() => { if (d <= 0) { pickAdjType('expired'); go('adjust'); } else { bump(m.id, 1); go('transfer'); } })}
                 className="press-spring"
                 style={{ border: '1px solid var(--border)', background: 'var(--bg-subtle)', color: 'var(--ink)', padding: '8px 11px', borderRadius: 10, fontSize: 12.5, fontWeight: 600, flex: 'none', minHeight: 44 }}
               >
