@@ -863,7 +863,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
         updateSWRef.current = registerSW({
           onNeedRefresh() { patch({ updateAvailable: true }); },
-          onRegisteredSW(_swUrl, registration) { swRegistrationRef.current = registration ?? null; },
+          // Real-world request: "หากมีการอัพเดตเวอชั่นในแอพ ช่วยแจ้งเตือนให้เดตเป็นเวอร์ชั่นใหม่
+          // ให้รวดเร็ว" — the OLD behavior only ever checked for a new deploy on the hourly
+          // timer/visibility-change effect below, so opening the app fresh (the single most
+          // common moment a new version has actually just shipped, since this app redeploys via
+          // ci.yml on every push to main) could sit for up to a full hour before the very first
+          // re-check even happened — a genuinely slow "มีแอพเวอร์ชันใหม่" banner, not a fast one.
+          // registration.update() re-checks the SW script against the network the moment the
+          // registration itself resolves, so a deploy that already landed before this tab opened
+          // (or during the time it was loading) surfaces the banner immediately instead of
+          // waiting for the next scheduled poll.
+          onRegisteredSW(_swUrl, registration) {
+            swRegistrationRef.current = registration ?? null;
+            registration?.update().catch(() => {});
+          },
         });
       })
       .catch(() => { /* not running as an installed/built PWA (e.g. plain dev server) — no-op */ });
@@ -871,7 +884,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [patch]);
   useEffect(() => {
     const checkForUpdate = () => { swRegistrationRef.current?.update().catch(() => {}); };
-    const intervalId = setInterval(checkForUpdate, 60 * 60 * 1000);
+    // Bug fix (same real-world request as onRegisteredSW's immediate check above): 60 minutes
+    // between polls meant a deploy landing mid-shift could still take up to an hour to surface
+    // on a tablet already open and idle on one screen (no visibilitychange to piggyback on).
+    // 15 minutes catches a new deploy within a quarter-hour of it actually going live — still
+    // infrequent enough not to matter for bandwidth/battery on a device left on all shift, but a
+    // real, felt improvement over "maybe next hour" for a hospital pharmacy that may need a
+    // just-shipped safety fix (e.g. a HIGH ALERT label bug) running as soon as possible.
+    const intervalId = setInterval(checkForUpdate, 15 * 60 * 1000);
     const onVisible = () => { if (document.visibilityState === 'visible') checkForUpdate(); };
     document.addEventListener('visibilitychange', onVisible);
     return () => { clearInterval(intervalId); document.removeEventListener('visibilitychange', onVisible); };
