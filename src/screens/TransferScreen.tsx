@@ -44,7 +44,22 @@ function dismissToday(key: string) {
 }
 
 export default function TransferScreen() {
-  const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, fillUrgent, clearCart, printPickList, printTodayReplenishList, go, openScanSearch } = useApp();
+  const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, fillUrgent, clearCart, printPickList, printTodayReplenishList, go, openScanSearch, goSubstockCardFor } = useApp();
+  // Real-world request: "ให้ทุกหน้าที่แสดงชื่อยาจำนวนยา...ให้สามารถดูบัตรสต็อคได้" — this screen
+  // already had an indirect path (tap "ดูภาพรวม" to expand MedMiniCard, which has its own "ดู
+  // บัตรสต็อกเต็ม →" link at the bottom), but that's an extra tap before the extra tap. Making
+  // the whole row itself open the card directly — same rowToCard/stopRowNav pattern
+  // HomeScreen's own rows use (see its "Bug fix (flow clarity)" comment) — gets there in one
+  // tap instead of two. stopRowNav keeps the −/qty input/+ buttons and "ดูภาพรวม" toggle working
+  // exactly as before (a tap on any of THEM must not also navigate away).
+  const rowToCard = (medId: string) => ({
+    role: 'button' as const,
+    tabIndex: 0,
+    onClick: () => goSubstockCardFor(medId),
+    onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goSubstockCardFor(medId); } },
+    title: 'ดูบัตรสต็อกยานี้',
+  });
+  const stopRowNav = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
   // Only one row's "เคลื่อนไหวล่าสุด" panel expanded at a time (opt-in, not automatic) — the
   // list can render up to 60 rows, and MedMiniCard fetches a real Firestore query per drug, so
   // expanding all of them at once would fire dozens of queries for a screen someone's trying
@@ -204,10 +219,11 @@ export default function TransferScreen() {
           return (
             <div
               key={m.id}
-              className="card"
+              className="card row-interactive"
+              {...rowToCard(m.id)}
               style={{
                 padding: '11px 12px 11px 14px', marginBottom: 8, borderColor: inCart ? 'var(--green)' : 'var(--border)',
-                borderLeft: '4px solid ' + medColor(m.code), animation: 'pop .22s var(--ease-out) both', animationDelay: Math.min(i, 10) * 18 + 'ms',
+                borderLeft: '4px solid ' + medColor(m.code), animation: 'pop .22s var(--ease-out) both', animationDelay: Math.min(i, 10) * 18 + 'ms', cursor: 'pointer',
               }}
             >
               <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
@@ -234,7 +250,7 @@ export default function TransferScreen() {
                   <div style={{ marginTop: 5, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={isUrgentLow(m)} />
                     <button
-                      onClick={() => setExpandedId(expandedId === m.id ? null : m.id)}
+                      onClick={stopRowNav(() => setExpandedId(expandedId === m.id ? null : m.id))}
                       style={{ border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 11, fontWeight: 600, padding: '2px 0' }}
                     >
                       {expandedId === m.id ? 'ซ่อนภาพรวม ▲' : 'ดูภาพรวม ▾'}
@@ -242,7 +258,10 @@ export default function TransferScreen() {
                   </div>
                   {expandedId === m.id && <MedMiniCard medId={m.id} unit={m.unit} />}
                 </div>
-                <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+                {/* stopPropagation here (not per-button) since it also covers the plain qty
+                    <input> in between, which has no click handler of its own to wrap — a tap to
+                    focus it and type a quantity must never also fire the row's own onClick. */}
+                <div onClick={(e) => e.stopPropagation()} style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
                   {/* Bug fix (accessibility): these two were 40px, under the 44px minimum touch
                       target — tapped repeatedly per line item while building a transfer, unlike
                       every other actionable button on this screen (scan/clear/print/submit),

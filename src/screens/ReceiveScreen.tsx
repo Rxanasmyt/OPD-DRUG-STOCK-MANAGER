@@ -19,8 +19,27 @@ export default function ReceiveScreen() {
   const {
     state, sub, setRecvNo, setRecvSearch, pickRecvMed,
     removeRecvItem, commitReceive, approvePendingReceive, rejectPendingReceive, openScanSearch,
-    printWarehouseRequestList, promptAsync,
+    printWarehouseRequestList, promptAsync, goSubstockCardFor,
   } = useApp();
+  // Real-world request: "ให้ทุกหน้าที่แสดงชื่อยาจำนวนยา...ให้สามารถดูบัตรสต็อคได้" — every med
+  // row on this screen used to be action-only (pick it to receive / remove it / approve/reject
+  // it), with zero way to peek at that drug's real substock history BEFORE committing to a
+  // receipt for it (a real, useful check before typing a lot/exp/qty for a drug someone isn't
+  // 100% sure about). Two different affordances, since the rows themselves aren't one shape:
+  // - stopRowNav(fn): for a row that's a plain (non-button) div ALREADY wrapped with its own
+  //   goSubstockCardFor onClick (see rowToCard below) — stops a tap on a nested action button
+  //   (approve/reject/ลบ) from also navigating away, same pattern as HomeScreen's own rows.
+  // - CardPeekButton: for a row that's itself the PRIMARY action (tapping it picks the drug for
+  //   receiving — pickRecvMed) — can't repurpose the whole row for navigation without breaking
+  //   that, so this adds a small, separate, stopPropagation'd icon button instead.
+  const rowToCard = (medId: string) => ({
+    role: 'button' as const,
+    tabIndex: 0,
+    onClick: () => goSubstockCardFor(medId),
+    onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goSubstockCardFor(medId); } },
+    title: 'ดูบัตรสต็อกยานี้',
+  });
+  const stopRowNav = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
 
   // OPD/IPD ward tabs removed — one combined picker across the whole formulary.
   const options = !state.recvMed && state.recvSearch.trim()
@@ -104,7 +123,7 @@ export default function ReceiveScreen() {
             {(canApprove ? pending : myPending).map((r) => {
               const rMed = state.meds.find((m) => m.id === r.medId);
               return (
-              <div key={r.id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}>
+              <div key={r.id} className="row-interactive" {...rowToCard(r.medId)} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', cursor: 'pointer' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                   <span style={{ fontSize: 13.5, fontWeight: 600, minWidth: 0, display: 'flex', alignItems: 'center', gap: 7 }}>{r.name} {rMed && <WardBadge med={rMed} />}</span>
                   <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--green)', flex: 'none' }}>{nf(r.qty)} {r.unit}</span>
@@ -116,11 +135,11 @@ export default function ReceiveScreen() {
                   const rowBusy = !!state.busy[`approveReceive:${r.id}`] || !!state.busy[`rejectReceive:${r.id}`];
                   return (
                   <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                    <button onClick={() => approvePendingReceive(r.id)} disabled={rowBusy} className="btn-primary" style={{ flex: 1, padding: '8px 10px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, minHeight: 44, opacity: rowBusy ? 0.7 : 1 }}>
+                    <button onClick={stopRowNav(() => approvePendingReceive(r.id))} disabled={rowBusy} className="btn-primary" style={{ flex: 1, padding: '8px 10px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, minHeight: 44, opacity: rowBusy ? 0.7 : 1 }}>
                       {state.busy[`approveReceive:${r.id}`] ? 'กำลังบันทึก…' : 'อนุมัติ'}
                     </button>
                     <button
-                      onClick={async () => { const reason = await promptAsync('เหตุผลที่ปฏิเสธ (จะบันทึกลง audit log)'); if (reason !== null) rejectPendingReceive(r.id, reason.trim()); }}
+                      onClick={stopRowNav(async () => { const reason = await promptAsync('เหตุผลที่ปฏิเสธ (จะบันทึกลง audit log)'); if (reason !== null) rejectPendingReceive(r.id, reason.trim()); })}
                       disabled={rowBusy}
                       style={{ flex: 1, border: '1px solid var(--red)', background: 'var(--bg-card)', color: 'var(--red)', padding: '8px 10px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, minHeight: 44, opacity: rowBusy ? 0.7 : 1 }}
                     >
@@ -183,13 +202,19 @@ export default function ReceiveScreen() {
         {options.length > 0 && (
           <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 172, overflowY: 'auto', marginBottom: 9 }}>
             {options.map((m) => (
-              <button key={m.id} onClick={() => pickRecvMed(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
-                <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}>
-                  <MedDot code={m.code} /> {m.name} <WardBadge med={m} />
-                  {recvItemCountByMed[m.id] > 0 && <span className="muted" style={{ fontSize: 11 }}>· เพิ่มแล้ว {recvItemCountByMed[m.id]} lot</span>}
-                </span>
-                <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={11.5} /> · par {nf(m.parSub)}</span>
-              </button>
+              // A plain <div role="button"> (not a real <button>) — picking this med to receive
+              // is still this row's own primary action (onClick below), but a real <button>
+              // can't contain the nested CardPeekButton <button> (invalid, un-clickable HTML).
+              <div key={m.id} role="button" tabIndex={0} onClick={() => pickRecvMed(m.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickRecvMed(m.id); } }} style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 8px 10px 12px', minHeight: 44, cursor: 'pointer' }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <MedDot code={m.code} /> {m.name} <WardBadge med={m} />
+                    {recvItemCountByMed[m.id] > 0 && <span className="muted" style={{ fontSize: 11 }}>· เพิ่มแล้ว {recvItemCountByMed[m.id]} lot</span>}
+                  </span>
+                  <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={11.5} /> · par {nf(m.parSub)}</span>
+                </div>
+                <CardPeekButton medId={m.id} name={m.name} onOpen={goSubstockCardFor} />
+              </div>
             ))}
           </div>
         )}
@@ -199,21 +224,24 @@ export default function ReceiveScreen() {
             <div className="muted" style={{ fontSize: 11.5, fontWeight: 600, margin: '2px 2px 6px' }}>ควรเบิกจากคลังใหญ่ ({needsReceive.length})</div>
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 260, overflowY: 'auto' }}>
               {needsReceive.map((m) => (
-                <button key={m.id} onClick={() => pickRecvMed(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
-                  <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}>
-                    <MedDot code={m.code} /> {m.name} <WardBadge med={m} />
-                    {recvItemCountByMed[m.id] > 0 && <span className="muted" style={{ fontSize: 11 }}>· เพิ่มแล้ว {recvItemCountByMed[m.id]} lot</span>}
-                  </span>
-                  {/* A noSubstock med has no real substock number to show (always 0) — its
-                      shelf (floor/parFloor) IS the number that matters for "should this be on
-                      the warehouse request" here, so show that instead — see needsReceive's
-                      doc comment above for why it's judged the same way. */}
-                  {usesSubstock(m) ? (
-                    <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={11.5} /> · par {nf(m.parSub)}</span>
-                  ) : (
-                    <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>ไม่มี substock · หน้างาน <Qty value={m.floor} tone={subTone(m.floor, m.parFloor)} size={11.5} /> · par {nf(m.parFloor)}</span>
-                  )}
-                </button>
+                <div key={m.id} role="button" tabIndex={0} onClick={() => pickRecvMed(m.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickRecvMed(m.id); } }} style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 8px 10px 12px', minHeight: 44, cursor: 'pointer' }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}>
+                      <MedDot code={m.code} /> {m.name} <WardBadge med={m} />
+                      {recvItemCountByMed[m.id] > 0 && <span className="muted" style={{ fontSize: 11 }}>· เพิ่มแล้ว {recvItemCountByMed[m.id]} lot</span>}
+                    </span>
+                    {/* A noSubstock med has no real substock number to show (always 0) — its
+                        shelf (floor/parFloor) IS the number that matters for "should this be on
+                        the warehouse request" here, so show that instead — see needsReceive's
+                        doc comment above for why it's judged the same way. */}
+                    {usesSubstock(m) ? (
+                      <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={11.5} /> · par {nf(m.parSub)}</span>
+                    ) : (
+                      <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>ไม่มี substock · หน้างาน <Qty value={m.floor} tone={subTone(m.floor, m.parFloor)} size={11.5} /> · par {nf(m.parFloor)}</span>
+                    )}
+                  </div>
+                  <CardPeekButton medId={m.id} name={m.name} onOpen={goSubstockCardFor} />
+                </div>
               ))}
             </div>
           </div>
@@ -227,12 +255,12 @@ export default function ReceiveScreen() {
             {state.recvItems.map((it, i) => {
               const itMed = state.meds.find((m) => m.id === it.medId);
               return (
-                <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                <div key={i} className="row-interactive" {...rowToCard(it.medId)} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>{it.name} {itMed && <WardBadge med={itMed} />}</div>
                     <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>lot {it.lotNo} · exp {thDate(it.exp)} · {nf(it.qty)} {it.unit}</div>
                   </div>
-                  <button onClick={() => removeRecvItem(i)} style={{ border: 0, background: 'transparent', color: 'var(--red)', fontSize: 12.5, flex: 'none' }}>ลบ</button>
+                  <button onClick={stopRowNav(() => removeRecvItem(i))} style={{ border: 0, background: 'transparent', color: 'var(--red)', fontSize: 12.5, flex: 'none' }}>ลบ</button>
                 </div>
               );
             })}
@@ -258,3 +286,21 @@ import type { CSSProperties } from 'react';
 // this screen (lot no., expiry, qty, ใบเบิก no.) went through this const at 14px, so tapping
 // any of them mid-receive zoomed the layout out of "fits the screen" until tapping away again.
 const inputStyle: CSSProperties = { width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 16, minHeight: 44 };
+
+// Small, separate "view stock card" affordance for a row whose own tap already does something
+// else (picking the drug for receiving) — see ReceiveScreen's own "Real-world request" comment
+// on rowToCard/stopRowNav above for why this can't just be the whole row like HomeScreen's own
+// rows. stopPropagation is baked in here (not left to each call site) since every call site
+// needs it for the same reason: this button always sits inside a row that has its own onClick.
+function CardPeekButton({ medId, name, onOpen }: { medId: string; name: string; onOpen: (medId: string) => void }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onOpen(medId); }}
+      title={'ดูบัตรสต็อก ' + name}
+      aria-label={'ดูบัตรสต็อก ' + name}
+      style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--green)', fontSize: 16, padding: '4px 6px', minWidth: 30, minHeight: 30 }}
+    >
+      📋
+    </button>
+  );
+}
