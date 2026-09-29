@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
 import { useApp } from '../store/AppContext';
-import { usesSubstock, needsWarehouseRequest, subTone } from '../store/selectors';
+import { usesSubstock, needsWarehouseRequest, subTone, daysOfStockLeft } from '../store/selectors';
 import { nf, thDate, thTime } from '../utils/format';
 import { MedDot } from '../components/MedDot';
-import { Qty } from '../components/Qty';
+import { Qty, DaysLeftBadge } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
 import { StepIndicator, RECEIVE_STEPS } from '../components/StepIndicator';
 import { SearchInput } from '../components/SearchInput';
@@ -212,6 +212,7 @@ export default function ReceiveScreen() {
                     {recvItemCountByMed[m.id] > 0 && <span className="muted" style={{ fontSize: 11 }}>· เพิ่มแล้ว {recvItemCountByMed[m.id]} lot</span>}
                   </span>
                   <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={11.5} /> · par {nf(m.parSub)}</span>
+                  <div style={{ marginTop: 3 }}><DaysLeftBadge days={daysOfStockLeft(state, m)} /></div>
                 </div>
                 <CardPeekButton medId={m.id} name={m.name} onOpen={goSubstockCardFor} />
               </div>
@@ -239,6 +240,7 @@ export default function ReceiveScreen() {
                     ) : (
                       <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>ไม่มี substock · หน้างาน <Qty value={m.floor} tone={subTone(m.floor, m.parFloor)} size={11.5} /> · par {nf(m.parFloor)}</span>
                     )}
+                    <div style={{ marginTop: 3 }}><DaysLeftBadge days={daysOfStockLeft(state, m)} /></div>
                   </div>
                   <CardPeekButton medId={m.id} name={m.name} onOpen={goSubstockCardFor} />
                 </div>

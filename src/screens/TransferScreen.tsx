@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, binDisplayAll } from '../store/selectors';
+import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, binDisplayAll, daysOfStockLeft } from '../store/selectors';
 import { nf, thDate, digitsOnly, isoDate } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
-import { Qty, DeficitBadge } from '../components/Qty';
+import { Qty, DeficitBadge, DaysLeftBadge } from '../components/Qty';
 import { HadTag } from '../components/Badge';
 import { MedMiniCard } from '../components/MedMiniCard';
 import { EmptyState } from '../components/EmptyState';
@@ -249,6 +249,7 @@ export default function TransferScreen() {
                   </div>
                   <div style={{ marginTop: 5, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={isUrgentLow(m)} />
+                    <DaysLeftBadge days={daysOfStockLeft(state, m)} />
                     <button
                       onClick={stopRowNav(() => setExpandedId(expandedId === m.id ? null : m.id))}
                       style={{ border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 11, fontWeight: 600, padding: '2px 0' }}

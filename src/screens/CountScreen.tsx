@@ -2,9 +2,10 @@ import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly, parseIntSafe } from '../utils/format';
 import { SearchInput } from '../components/SearchInput';
-import { categoryOf, subQty, usesSubstock, binDisplayAll } from '../store/selectors';
+import { categoryOf, subQty, usesSubstock, binDisplayAll, daysOfStockLeft } from '../store/selectors';
 import { DRUG_CATEGORIES } from '../data/categories';
 import { EmptyState } from '../components/EmptyState';
+import { DaysLeftBadge } from '../components/Qty';
 import type { Med } from '../types';
 
 const DAY = 86400000;
@@ -277,6 +278,11 @@ export default function CountScreen() {
                   <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
                     ระบบคำนวณ {nf(sysQty)} {m.unit}{boxCapable && <> (กล่องละ {nf(m.packSize as number)} {m.unit})</>} · <span style={stale ? { color: 'var(--amber-ink)', fontWeight: 700 } : undefined}>นับล่าสุด {daysSince === null ? 'ยังไม่เคยนับ' : daysSince <= 0 ? 'วันนี้' : daysSince + ' วันก่อน'}</span>
                   </div>
+                  {/* Real-world request: same daysOfStockLeft() addition as TransferScreen/
+                      ReceiveScreen — a count that comes in low is more or less urgent to escalate
+                      depending on how much real runway the drug actually has left, not just
+                      whether the typed number is below par. */}
+                  <div style={{ marginTop: 3 }}><DaysLeftBadge days={daysOfStockLeft(state, m)} /></div>
                   {has && delta !== 0 && (
                     <div style={{ fontSize: 11.5, marginTop: 2, fontWeight: 600, color: delta < 0 ? 'var(--red)' : 'var(--amber)' }}>
                       {delta < 0
