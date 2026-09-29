@@ -207,7 +207,15 @@ export default function SubstockCardScreen() {
 
   const liveBalance = med ? (hasSub ? subQty(state, med.id) : med.floor) : 0;
   const balanceTone = med ? (hasSub ? subTone(liveBalance, med.parSub) : toneFor(med)) : 'var(--green)';
-  const balancePct = med ? Math.round((liveBalance / Math.max(1, hasSub ? med.parSub : med.parFloor)) * 100) : 0;
+  // Bug fix (misleading number): Math.max(1, par) only guarded the divide-by-zero crash, not a
+  // misleading RESULT — a med with no par configured (a real, common state; see
+  // parAnomaliesFor's own no_par_sub/no_par_floor checks) silently divided by 1 instead, so a
+  // med sitting at 50 units with par 0 showed "5000% ของ par" in bold next to the one number
+  // this whole screen exists to show clearly. null (no percentage to show at all), same idea as
+  // daysOfStockLeft() returning null rather than a misleading number when there's no real basis
+  // for one.
+  const par = med ? (hasSub ? med.parSub : med.parFloor) : 0;
+  const balancePct = med && par > 0 ? Math.round((liveBalance / par) * 100) : null;
   const lastLedgerBalance = rows && rows.length ? rows[rows.length - 1].balance : 0;
   // The live balance (from current lots) and the ledger's computed running total should
   // always agree — if they don't, something in the tx history is incomplete or a lot was
@@ -348,11 +356,11 @@ export default function SubstockCardScreen() {
               <div style={{ flex: 1, background: 'var(--bg-subtle)', border: '1px solid var(--border-soft)', borderRadius: 12, padding: '11px 13px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
                   <span className="muted" style={{ fontSize: 11 }}>{hasSub ? 'substock คงเหลือตอนนี้ (real-time)' : 'หน้างานคงเหลือตอนนี้ (real-time)'}</span>
-                  <span style={{ fontSize: 11, fontWeight: 800, color: balanceTone }}>{balancePct}% ของ par</span>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: balanceTone }}>{balancePct === null ? 'ยังไม่ตั้ง par' : balancePct + '% ของ par'}</span>
                 </div>
                 <div style={{ lineHeight: 1.15, marginTop: 2 }}><Qty value={liveBalance} tone={balanceTone} size={30} /> <span style={{ fontSize: 13, fontWeight: 600, color: balanceTone }}>{med.unit}</span></div>
                 <div className="bar-track" style={{ height: 5, background: 'var(--border-soft)', borderRadius: 3, marginTop: 8 }}>
-                  <div className="bar-fill" style={{ height: '100%', transform: 'scaleX(' + Math.max(3, Math.min(100, balancePct)) / 100 + ')', background: balanceTone, borderRadius: 3 }} />
+                  <div className="bar-fill" style={{ height: '100%', transform: 'scaleX(' + Math.max(3, Math.min(100, balancePct ?? 0)) / 100 + ')', background: balanceTone, borderRadius: 3 }} />
                 </div>
               </div>
               <div style={{ flex: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
