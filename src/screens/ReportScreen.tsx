@@ -1,5 +1,5 @@
 import { useApp } from '../store/AppContext';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor } from '../store/selectors';
 import { nf, thDate, isoDate, DAY } from '../utils/format';
 import type { ReportTab, DailyMetrics } from '../types';
@@ -41,16 +41,30 @@ export default function ReportScreen() {
   const [discFilter, setDiscFilter] = useState<string>('all');
   const [discSearch, setDiscSearch] = useState('');
   // OPD/IPD ward tabs removed — reports always cover the whole formulary.
-  const meds = state.meds.filter((m) => m.active);
+  // Memoized so buckets/riskValue's own useMemo below actually holds across an unrelated
+  // re-render (e.g. typing in discSearch) instead of seeing a new array reference every time.
+  const meds = useMemo(() => state.meds.filter((m) => m.active), [state.meds]);
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
 
-  const medIds = new Set(meds.map((m) => m.id));
-  const wardLots = state.lots.filter((l) => medIds.has(l.medId));
-  const buckets = AGING_BUCKETS.map(([label, lo, hi, fg]) => {
+  // Bug fix (performance): wardLots/buckets/riskValue used to look up each lot's med via
+  // meds.find() — a linear scan of the whole active-meds array PER LOT, across 5 aging buckets
+  // plus riskValue, so effectively O(6 × lots × meds). At real hospital scale (~500+ meds,
+  // 1000+ lots) that's several million comparisons, and none of it was memoized — retyping a
+  // single character in the unrelated Discrepancy-log search box (discSearch, a plain useState
+  // on this same component) re-ran all of it every keystroke even while viewing a completely
+  // different tab. medById (a Map, same fix categoryStats()/subQty() already use elsewhere)
+  // turns each lookup into O(1); wrapping in useMemo keyed on the actual underlying data means
+  // it only recomputes when state.meds/state.lots/expiryWarnDays actually change.
+  const medById = useMemo(() => new Map(meds.map((m) => [m.id, m])), [meds]);
+  const wardLots = useMemo(() => {
+    const medIds = new Set(meds.map((m) => m.id));
+    return state.lots.filter((l) => medIds.has(l.medId));
+  }, [state.lots, meds]);
+  const buckets = useMemo(() => AGING_BUCKETS.map(([label, lo, hi, fg]) => {
     const ls = wardLots.filter((l) => l.qty > 0 && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
-    const value = ls.reduce((s, l) => s + l.qty * (meds.find((m) => m.id === l.medId)?.price || 0), 0);
+    const value = ls.reduce((s, l) => s + l.qty * (medById.get(l.medId)?.price || 0), 0);
     return { label, fg, lots: ls.length, value };
-  });
+  }), [wardLots, medById]);
   const maxVal = Math.max(1, ...buckets.map((b) => b.value));
   // Bug fix (data correctness): this used to always sum the first 3 fixed AGING_BUCKETS
   // (expired + ≤30 + 31–90 days), regardless of what state.expiryWarnDays actually is — the
@@ -61,10 +75,10 @@ export default function ReportScreen() {
   // this exact same "at-risk" concept — categoryStats()'s atRisk field, printExecutiveSummary()'s
   // own riskValue (AppContext.tsx) — already scopes to `daysUntil(l.exp) <= expiryWarnDays`;
   // this is the one place that didn't, so it silently disagreed with both.
-  const riskValue = wardLots.reduce((s, l) => {
-    const m = meds.find((x) => x.id === l.medId);
+  const riskValue = useMemo(() => wardLots.reduce((s, l) => {
+    const m = medById.get(l.medId);
     return m && l.qty > 0 && daysUntil(l.exp) <= state.expiryWarnDays ? s + l.qty * m.price : s;
-  }, 0);
+  }, 0), [wardLots, medById, state.expiryWarnDays]);
 
   // ---------- ภาพรวมผู้บริหาร (exec tab) ----------
   // Same underlying numbers aging/turn/category already compute above — this just rolls them
