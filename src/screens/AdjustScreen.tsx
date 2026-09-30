@@ -42,6 +42,7 @@ const QTY_LABEL: Record<AdjType, string> = {
 export default function AdjustScreen() {
   const {
     state, pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot, go,
+    goSubstockCardFor,
   } = useApp();
   const meds = state.meds.filter((m) => m.active);
   const adjMed = state.adjMed ? meds.find((m) => m.id === state.adjMed) : null;
@@ -111,10 +112,17 @@ export default function AdjustScreen() {
           {options.length > 0 && (
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 158, overflowY: 'auto', marginBottom: 9 }}>
               {options.map((m) => (
-                <button key={m.id} onClick={() => pickAdjMed(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
-                  <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name} <WardBadge med={m} /></span>
-                  <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={11.5} /> · substock <Qty value={subQty(state, m.id)} tone={subTone(subQty(state, m.id), m.parSub)} unit={m.unit} size={11.5} /></span>
-                </button>
+                // Real-world request: same "ดูบัตรสต็อก" pattern ReceiveScreen's own search
+                // results already have — a plain <div role="button"> (not a real <button>) since
+                // picking this med to adjust is still this row's own primary action, and a real
+                // <button> can't contain the nested CardPeekButton <button>.
+                <div key={m.id} role="button" tabIndex={0} onClick={() => pickAdjMed(m.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickAdjMed(m.id); } }} style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 8px 10px 12px', minHeight: 44, cursor: 'pointer' }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name} <WardBadge med={m} /></span>
+                    <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={11.5} /> · substock <Qty value={subQty(state, m.id)} tone={subTone(subQty(state, m.id), m.parSub)} unit={m.unit} size={11.5} /></span>
+                  </div>
+                  <CardPeekButton medId={m.id} name={m.name} onOpen={goSubstockCardFor} />
+                </div>
               ))}
             </div>
           )}
@@ -167,5 +175,20 @@ export default function AdjustScreen() {
         </div>
       )}
     </div>
+  );
+}
+
+// Same shape as ReceiveScreen's own CardPeekButton — a small, separate, stopPropagation'd icon
+// button for a row whose own tap already does something else (picking the drug for adjustment).
+function CardPeekButton({ medId, name, onOpen }: { medId: string; name: string; onOpen: (medId: string) => void }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onOpen(medId); }}
+      title={'ดูบัตรสต็อก ' + name}
+      aria-label={'ดูบัตรสต็อก ' + name}
+      style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--green)', fontSize: 18, padding: '4px 6px', minWidth: 44, minHeight: 44 }}
+    >
+      📋
+    </button>
   );
 }

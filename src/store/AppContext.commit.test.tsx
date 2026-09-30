@@ -569,7 +569,7 @@ describe('guardOnce — double-submit-on-timeout regression', () => {
     await user.click(await screen.findByRole('button', { name: /^ปรับยอด/ }));
     const search = await screen.findByPlaceholderText('ค้นหาชื่อยา');
     await user.type(search, 'Paracetamol');
-    await user.click(await screen.findByRole('button', { name: new RegExp(MED.name) }));
+    await user.click(await screen.findByText(MED.name));
     await user.click(screen.getByRole('button', { name: 'บันทึกจ่ายผิดรายการ' }));
     await screen.findByText(/ส่วนต่างที่จะลบออกจากยอดระบบ/);
     const qty = screen.getAllByRole('textbox').find((el) => el.getAttribute('inputmode') === 'numeric')!;
@@ -603,7 +603,7 @@ describe('guardOnce — double-submit-on-timeout regression', () => {
     await user.click(await screen.findByRole('button', { name: /^ปรับยอด/ }));
     const search = await screen.findByPlaceholderText('ค้นหาชื่อยา');
     await user.type(search, 'Paracetamol');
-    await user.click(await screen.findByRole('button', { name: new RegExp(MED.name) }));
+    await user.click(await screen.findByText(MED.name));
     await user.click(screen.getByRole('button', { name: 'บันทึกจ่ายผิดรายการ' }));
     await screen.findByText(/ส่วนต่างที่จะลบออกจากยอดระบบ/);
     const qty = screen.getAllByRole('textbox').find((el) => el.getAttribute('inputmode') === 'numeric')!;

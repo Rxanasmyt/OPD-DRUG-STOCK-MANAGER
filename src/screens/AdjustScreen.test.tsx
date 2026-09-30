@@ -27,7 +27,9 @@ async function pickMed(user: UserEvent) {
   // first or the new text just appends onto the old.
   await user.clear(search);
   await user.type(search, 'Paracetamol');
-  await user.click(await screen.findByRole('button', { name: new RegExp(MED.name) }));
+  // The search-result row is a <div role="button"> (not a real <button>) since it also nests a
+  // separate CardPeekButton (ดูบัตรสต็อก) — findByText targets the row's own name text instead.
+  await user.click(await screen.findByText(MED.name));
 }
 
 async function setup() {
