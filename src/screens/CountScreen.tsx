@@ -36,7 +36,22 @@ type Loc = 'floor' | 'sub';
 type EntryMode = 'unit' | 'box';
 
 export default function CountScreen() {
-  const { state, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts } = useApp();
+  const { state, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts, goSubstockCardFor } = useApp();
+  // Real-world request: "ให้ทุกหน้าที่แสดงชื่อยาจำนวนยา...ให้สามารถดูบัตรสต็อคได้" — this screen
+  // never got the same treatment HomeScreen/TransferScreen/ReceiveScreen/ReportScreen already
+  // have. A real gap: hitting a row with "มากกว่าระบบ"/"น้อยกว่าระบบ" during a cycle count is
+  // exactly when someone would want to sanity-check that discrepancy against recent transaction
+  // history before committing — every other screen already trained them on "tap the row to see
+  // the stock card", so this one should too. No pre-existing primary action on the row itself
+  // (only the nested inputs/commit button have one), so the whole row is wired directly, same
+  // rowToCard/stopRowNav pattern as HomeScreen/ReceiveScreen's own no-primary-action rows.
+  const rowToCard = (medId: string) => ({
+    role: 'button' as const,
+    tabIndex: 0,
+    onClick: () => goSubstockCardFor(medId),
+    onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goSubstockCardFor(medId); } },
+    title: 'ดูบัตรสต็อกยานี้',
+  });
   const [loc, setLoc] = useState<Loc>('floor');
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<Sort>('stale');
@@ -266,7 +281,7 @@ export default function CountScreen() {
             setInput(m.id, total);
           };
           return (
-            <div key={m.id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', background: has ? 'var(--green-tint)' : undefined }}>
+            <div key={m.id} {...rowToCard(m.id)} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', background: has ? 'var(--green-tint)' : undefined, cursor: 'pointer' }}>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -303,48 +318,53 @@ export default function CountScreen() {
                     <div style={{ fontSize: 11.5, marginTop: 2, fontWeight: 600, color: 'var(--green)' }}>ตรงกับระบบ</div>
                   )}
                 </div>
-                {useBox ? (
-                  <div style={{ flex: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <input
-                        value={bi.box}
-                        onChange={(e) => setBoxField('box', e.target.value)}
-                        inputMode="numeric"
-                        aria-label={'จำนวนกล่องที่นับได้ ' + m.name}
-                        placeholder="กล่อง"
-                        style={{ width: 52, border: '1px solid var(--border)', borderRadius: 9, padding: '9px 4px', fontSize: 16, fontWeight: 600, textAlign: 'center', minHeight: 42 }}
-                      />
-                      <input
-                        value={bi.rem}
-                        onChange={(e) => setBoxField('rem', e.target.value)}
-                        inputMode="numeric"
-                        aria-label={'จำนวนเศษที่นับได้ ' + m.name}
-                        placeholder="เศษ"
-                        style={{ width: 52, border: '1px solid var(--border)', borderRadius: 9, padding: '9px 4px', fontSize: 16, fontWeight: 600, textAlign: 'center', minHeight: 42 }}
-                      />
+                {/* Row itself now navigates to the stock card (rowToCard above) — the inputs
+                    and commit button are the row's OTHER real actions, so their own taps must
+                    not also trigger that navigation. */}
+                <div onClick={(e) => e.stopPropagation()} style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {useBox ? (
+                    <div style={{ flex: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <input
+                          value={bi.box}
+                          onChange={(e) => setBoxField('box', e.target.value)}
+                          inputMode="numeric"
+                          aria-label={'จำนวนกล่องที่นับได้ ' + m.name}
+                          placeholder="กล่อง"
+                          style={{ width: 52, border: '1px solid var(--border)', borderRadius: 9, padding: '9px 4px', fontSize: 16, fontWeight: 600, textAlign: 'center', minHeight: 42 }}
+                        />
+                        <input
+                          value={bi.rem}
+                          onChange={(e) => setBoxField('rem', e.target.value)}
+                          inputMode="numeric"
+                          aria-label={'จำนวนเศษที่นับได้ ' + m.name}
+                          placeholder="เศษ"
+                          style={{ width: 52, border: '1px solid var(--border)', borderRadius: 9, padding: '9px 4px', fontSize: 16, fontWeight: 600, textAlign: 'center', minHeight: 42 }}
+                        />
+                      </div>
+                      {has && <span className="muted" style={{ fontSize: 10 }}>= {nf(parsed)} {m.unit}</span>}
                     </div>
-                    {has && <span className="muted" style={{ fontSize: 10 }}>= {nf(parsed)} {m.unit}</span>}
-                  </div>
-                ) : (
-                  <input
-                    value={typed}
-                    onChange={(e) => setInput(m.id, e.target.value)}
-                    inputMode="numeric"
-                    aria-label={'จำนวนที่นับได้ ' + m.name}
-                    placeholder="นับได้"
-                    // Bug fix (mobile fit): under 16px, iOS Safari zooms the whole page in the
-                    // moment this field is focused — a real problem on a screen meant for
-                    // walking the shelf and typing a count into row after row quickly.
-                    style={{ width: 78, flex: 'none', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 6px', fontSize: 16, fontWeight: 600, textAlign: 'center', minHeight: 42 }}
-                  />
-                )}
-                <button
-                  disabled={!has || !!state.busy[oneBusyKey(m.id)]}
-                  onClick={() => commitOne(m.id)}
-                  style={{ flex: 'none', border: 0, background: has ? 'var(--green)' : 'var(--border-strong)', color: has ? 'var(--ink-soft)' : 'var(--ink)', padding: '9px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 42, opacity: state.busy[oneBusyKey(m.id)] ? 0.7 : 1 }}
-                >
-                  {state.busy[oneBusyKey(m.id)] ? '…' : 'บันทึก'}
-                </button>
+                  ) : (
+                    <input
+                      value={typed}
+                      onChange={(e) => setInput(m.id, e.target.value)}
+                      inputMode="numeric"
+                      aria-label={'จำนวนที่นับได้ ' + m.name}
+                      placeholder="นับได้"
+                      // Bug fix (mobile fit): under 16px, iOS Safari zooms the whole page in the
+                      // moment this field is focused — a real problem on a screen meant for
+                      // walking the shelf and typing a count into row after row quickly.
+                      style={{ width: 78, flex: 'none', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 6px', fontSize: 16, fontWeight: 600, textAlign: 'center', minHeight: 42 }}
+                    />
+                  )}
+                  <button
+                    disabled={!has || !!state.busy[oneBusyKey(m.id)]}
+                    onClick={() => commitOne(m.id)}
+                    style={{ flex: 'none', border: 0, background: has ? 'var(--green)' : 'var(--border-strong)', color: has ? 'var(--ink-soft)' : 'var(--ink)', padding: '9px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 42, opacity: state.busy[oneBusyKey(m.id)] ? 0.7 : 1 }}
+                  >
+                    {state.busy[oneBusyKey(m.id)] ? '…' : 'บันทึก'}
+                  </button>
+                </div>
               </div>
             </div>
           );

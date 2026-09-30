@@ -411,7 +411,15 @@ export default function MedsScreen() {
           disabled={!!state.busy['deleteAllInactiveMeds']}
           style={{ width: '100%', border: '1px solid var(--red)', background: 'var(--red-bg)', color: 'var(--red)', padding: '11px 14px', borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 46, marginBottom: 10, opacity: state.busy['deleteAllInactiveMeds'] ? 0.7 : 1 }}
         >
-          {state.busy['deleteAllInactiveMeds'] ? 'กำลังลบ…' : `ลบยาที่ปิดใช้งานและยอดเป็น 0 ทั้งหมดออกจากระบบถาวร (${meds.length} รายการ)`}
+          {/* Bug fix (misleading count): this used to show meds.length — every inactive med in
+              the current filter, regardless of remaining stock — but deleteAllInactiveMeds()
+              (AppContext.tsx) only ever actually deletes the subset with floor===0 AND
+              subQty===0; a med with leftover stock is silently skipped (the confirm dialog it
+              opens is already correct about this, listing the real removable count and calling
+              out how many are blocked). The BUTTON itself — what an admin reads and decides to
+              tap on before ever reaching that dialog — still overstated how many meds would
+              actually be purged. Mirrors deleteAllInactiveMeds' own `removable` filter exactly. */}
+          {state.busy['deleteAllInactiveMeds'] ? 'กำลังลบ…' : `ลบยาที่ปิดใช้งานและยอดเป็น 0 ทั้งหมดออกจากระบบถาวร (${meds.filter((m) => m.floor === 0 && sub(m.id) === 0).length} รายการ)`}
         </button>
       )}
 
