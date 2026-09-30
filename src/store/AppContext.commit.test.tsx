@@ -65,7 +65,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { useEffect } from 'react';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { runTransaction, setDoc } from 'firebase/firestore';
+import { runTransaction, setDoc, updateDoc } from 'firebase/firestore';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 import TConfirmScreen from '../screens/TConfirmScreen';
 import AdjustScreen from '../screens/AdjustScreen';
 import { useApp } from './AppContext';
@@ -981,5 +982,86 @@ describe('addRecv — implausible-quantity regression', () => {
     await user.click(screen.getByRole('button', { name: 'add-recv' }));
     await waitFor(() => expect(screen.getByTestId('itemCount').textContent).toBe('1'));
     expect(screen.queryByText(/มากผิดปกติ/)).not.toBeInTheDocument();
+  });
+});
+
+function AddMedNegativePriceHarness() {
+  const { addMed } = useApp();
+  return (
+    <button onClick={() => addMed({
+      name: 'Cefixime 400mg', unit: 'เม็ด', dosageForm: 'เม็ด', price: -50, had: false,
+      bin: 'B1', parSub: 100, parFloor: 50, floorMin: 10, ward: 'opd', noSubstock: false,
+    })}>
+      add-med-negative-price
+    </button>
+  );
+}
+
+function UpdateMedNegativePriceHarness() {
+  const { updateMedFull } = useApp();
+  return (
+    <button onClick={() => updateMedFull(MED.id, {
+      name: MED.name, unit: MED.unit, dosageForm: MED.dosageForm, price: -20, had: false,
+      bin: MED.bin, parSub: MED.parSub, parFloor: MED.parFloor, floorMin: 10, ward: 'opd', noSubstock: false, volatility: 1.1,
+    })}>
+      update-med-negative-price
+    </button>
+  );
+}
+
+describe('addMed / updateMedFull — negative-price clamp regression', () => {
+  it('addMed clamps a negative price to 0 instead of saving it as-is', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<AddMedNegativePriceHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', []);
+
+    await user.click(screen.getByRole('button', { name: 'add-med-negative-price' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+    // Without the fix, this would be -50 — every other numeric field (parSub/parFloor/floorMin)
+    // on this same write is already clamped with Math.max(0, ...); price wasn't.
+    const write = getLastTransactionWrites().find((w) => w.kind === 'set' && !!w.data && 'code' in w.data);
+    expect(write?.data?.price).toBe(0);
+  });
+
+  it('updateMedFull clamps a negative price to 0 instead of saving it as-is', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<UpdateMedNegativePriceHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+
+    await user.click(screen.getByRole('button', { name: 'update-med-negative-price' }));
+    await waitFor(() => expect(vi.mocked(updateDoc).mock.calls.length).toBeGreaterThan(0));
+
+    const savedFields = vi.mocked(updateDoc).mock.calls[0][1] as unknown as Record<string, unknown>;
+    expect(savedFields.price).toBe(0);
+  });
+});
+
+function SignInDoubleTapHarness() {
+  const { state, setAuthUsername, setAuthPassword, signIn } = useApp();
+  useEffect(() => { if (!state.authUsername) setAuthUsername('test'); }, [state.authUsername, setAuthUsername]);
+  useEffect(() => { if (!state.authPassword) setAuthPassword('secret1'); }, [state.authPassword, setAuthPassword]);
+  // Two synchronous calls in the same click handler, same shape as a fast double-tap/double-
+  // Enter firing the form's onSubmit twice before React flushes state.authBusy.
+  return <button disabled={!state.authPassword} onClick={() => { signIn(); signIn(); }}>signin-twice</button>;
+}
+
+describe('signIn — double-submit-consistency regression', () => {
+  it('blocks a synchronous double-tap from firing two concurrent sign-in attempts', async () => {
+    const user = userEvent.setup();
+    vi.mocked(signInWithEmailAndPassword).mockResolvedValue({ user: { uid: 'u1' } } as unknown as Awaited<ReturnType<typeof signInWithEmailAndPassword>>);
+    renderWithApp(<SignInDoubleTapHarness />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'signin-twice' })).not.toBeDisabled());
+
+    await user.click(screen.getByRole('button', { name: 'signin-twice' }));
+    await waitFor(() => expect(vi.mocked(signInWithEmailAndPassword).mock.calls.length).toBeGreaterThan(0));
+
+    // Without the fix (signIn wrapped in guardOnce, which blocks synchronously via a ref checked
+    // before any await), this would be 2 — one from each of the two synchronous calls above.
+    expect(vi.mocked(signInWithEmailAndPassword).mock.calls.length).toBe(1);
   });
 });

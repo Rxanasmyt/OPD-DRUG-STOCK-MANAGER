@@ -1162,7 +1162,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setAuthDept = useCallback((v: string) => patch({ authDept: v }), [patch]);
   const setAuthRemember = useCallback((v: boolean) => patch({ authRemember: v }), [patch]);
 
-  const signIn = useCallback(async () => {
+  // Bug fix (double-submit consistency): every other write action in this app is wrapped in
+  // guardOnce, which blocks a repeat call SYNCHRONOUSLY (a ref checked before any await) — this
+  // relied only on state.authBusy (a React state update, applied on next render) to disable the
+  // submit button, so a fast double-tap/double-Enter on the login form (realistic on a laggy
+  // hospital connection — exactly when someone is likely to tap again) could fire two concurrent
+  // sign-in attempts before React ever flushed the disabled state.
+  const signIn = useCallback(guardOnce('signIn', async () => {
     const username = normalizeUsername(state.authUsername);
     const password = state.authPassword;
     if (!username || !password) { patch({ authError: 'กรอกชื่อผู้ใช้และรหัสผ่าน' }); return; }
@@ -1187,9 +1193,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } finally {
       patch({ authBusy: false });
     }
-  }, [state.authUsername, state.authPassword, state.authRemember, patch]);
+  }), [state.authUsername, state.authPassword, state.authRemember, patch, guardOnce]);
 
-  const signUp = useCallback(async () => {
+  // Bug fix (double-submit consistency): same gap as signIn above.
+  const signUp = useCallback(guardOnce('signUp', async () => {
     const username = normalizeUsername(state.authUsername);
     const password = state.authPassword;
     const name = state.authName.trim();
@@ -1223,7 +1230,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } finally {
       patch({ authBusy: false });
     }
-  }, [state.authUsername, state.authPassword, state.authName, state.authDept, patch]);
+  }), [state.authUsername, state.authPassword, state.authName, state.authDept, patch, guardOnce]);
 
   // Bug fix (shared-device data leak): this used to reset only cart/authUsername/authPassword
   // — every OTHER in-progress form field (recvItems, adjQty/adjNote, wmReason, search/filter,
@@ -2705,7 +2712,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const medRef = doc(collection(db, 'meds'));
         trx.set(medRef, {
           code: c, name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
-          price: input.price || 0, had: input.had, active: true,
+          // Bug fix (data integrity): every other numeric field on this same write (parSub,
+          // parFloor, floorMin) is clamped with Math.max(0, ...) — price wasn't, so a typo like
+          // "-50" (parseFloat('-50') is truthy, so `|| 0` never catches it) saved a negative
+          // price with zero warning, silently corrupting every price-dependent number downstream
+          // (มูลค่า figures, printed labels, riskValue/cost totals, AdjustScreen's scrap value).
+          price: Math.max(0, input.price || 0), had: input.had, active: true,
           ...(input.fridge ? { fridge: true } : {}),
           parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0), floor: 0,
           floorMin: Math.max(0, input.floorMin || 0),
@@ -2762,7 +2774,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ))) return false;
     const patch = {
       name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
-      price: input.price || 0, had: input.had,
+      // Bug fix (data integrity): same clamp gap as addMed — see its own comment above.
+      price: Math.max(0, input.price || 0), had: input.had,
       fridge: input.fridge ? true : deleteField(),
       bin: normBin(input.bin),
       parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0),
