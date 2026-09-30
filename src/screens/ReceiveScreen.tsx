@@ -322,7 +322,11 @@ function CardPeekButton({ medId, name, onOpen }: { medId: string; name: string; 
       onClick={(e) => { e.stopPropagation(); onOpen(medId); }}
       title={'ดูบัตรสต็อก ' + name}
       aria-label={'ดูบัตรสต็อก ' + name}
-      style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--green)', fontSize: 16, padding: '4px 6px', minWidth: 30, minHeight: 30 }}
+      // Bug fix (usability): 30px was noticeably under this app's own ~44px tap-target
+      // convention (every other button on this screen — rows, chips, approve/reject — is 44px+)
+      // — a real mis-tap risk on a tablet used one-handed in a hurry, right next to a full-row
+      // tap target with a different action (pickRecvMed).
+      style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--green)', fontSize: 18, padding: '4px 6px', minWidth: 44, minHeight: 44 }}
     >
       📋
     </button>
