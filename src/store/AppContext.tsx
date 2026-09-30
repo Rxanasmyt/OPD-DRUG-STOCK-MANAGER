@@ -1591,11 +1591,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setRecvExp = useCallback((v: string) => patch({ recvExp: v }), [patch]);
   const setRecvQty = useCallback((v: string) => patch({ recvQty: digitsOnly(v) }), [patch]);
 
-  const addRecv = useCallback((opts?: { scanNext?: boolean }) => {
+  const addRecv = useCallback(async (opts?: { scanNext?: boolean }) => {
     const m = state.meds.find((x) => x.id === state.recvMed);
     const q = parseIntSafe(state.recvQty);
     if (!m || !q || !state.recvLot || !state.recvExp) { toast('กรอก lot, วันหมดอายุ และจำนวนให้ครบก่อนเพิ่มรายการ'); return; }
-    const item: RecvItem = { medId: m.id, name: m.name, unit: m.unit, lotNo: state.recvLot, exp: new Date(state.recvExp).getTime(), qty: q };
+    const expMs = new Date(state.recvExp).getTime();
+    // Bug fix (typo safety net): receiving is the one place in this app's stock flows that
+    // creates a brand-new lot from scratch with no live number to sanity-check it against — a
+    // NEW lot arriving today should never legitimately have an expiry already in the past, but
+    // nothing here ever caught a mistyped year (e.g. 2024 instead of 2026) or a misread faded
+    // label before this. commitCount/commitAllCounts/commitAllSubCounts already confirm an
+    // implausible number before committing; this exact flow had no equivalent at all, even
+    // though a wrong expiry here goes straight into FEFO's own pick order (see TransferScreen's
+    // own expTone fix) with no further checkpoint downstream.
+    if (daysUntil(expMs) < 0 && !(await confirmAsync(
+      'วันหมดอายุที่กรอก (' + thDate(expMs) + ') เป็นวันที่ผ่านไปแล้ว — ยานี้เพิ่งรับเข้าใหม่วันนี้ พิมพ์วันถูกต้องแล้วใช่ไหม?'
+    ))) return;
+    // Same typo-safety-net idea as the expiry check above, sized off this med's own par — a
+    // fat-fingered extra digit in the quantity (digitsOnly only caps total length, not
+    // plausibility) sails into a committed lot otherwise, unlike the equivalent count flows.
+    const par = usesSubstock(m) ? m.parSub : m.parFloor;
+    if (q > Math.max(par, 20) * 8 && !(await confirmAsync(
+      'จำนวนที่กรอก (' + nf(q) + ' ' + m.unit + ') มากผิดปกติเมื่อเทียบกับ par (' + nf(par) + ') ของ ' + m.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
+    ))) return;
+    const item: RecvItem = { medId: m.id, name: m.name, unit: m.unit, lotNo: state.recvLot, exp: expMs, qty: q };
     patch((st) => ({
       recvItems: [...st.recvItems, item], recvLot: '', recvExp: '', recvQty: '', recvSearch: '',
       // scanNext: real-world request, same reasoning as ScanConfirmSheet's "ยืนยัน · สแกนตัวต่อไป"
@@ -1605,7 +1624,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ? { recvMed: null, qrOpen: true, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: 'receive' }
         : { recvMed: null }),
     }));
-  }, [state, patch, toast]);
+  }, [state, patch, toast, confirmAsync]);
 
   const cancelReceivePick = useCallback(() => {
     patch({ recvMed: null, recvSearch: '', recvLot: '', recvExp: '', recvQty: '' });
@@ -3481,7 +3500,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // toast's tally undercounted with no indication that row even existed. Counting it as
       // failed at least surfaces it, instead of the total quietly not adding up to what was
       // actually typed on screen.
-      if (!m) { failed++; continue; }
+      // Bug fix (data integrity): this checked only `!m` (the med doc deleted outright) — a med
+      // DEACTIVATED (not deleted) on another device/tab while this batch was being typed out
+      // still passes that check, so a stock write for a drug the operator can no longer even see
+      // on their own screen (CountScreen's `active`/`typedIds` already filter it out of the UI
+      // the moment it goes inactive) still silently landed, with the "บันทึกทั้งหมด" button's own
+      // displayed count having already dropped by one to reflect the disappearance — the write
+      // that happens disagrees with what the UI just told the operator would happen.
+      if (!m || !m.active) { failed++; continue; }
       try {
         let delta = 0;
         // Bug fix (data integrity): tx-log write folded into the same per-med transaction —
@@ -3628,7 +3654,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const m = state.meds.find((x) => x.id === medId);
       // Bug fix (silent no-op): same fix as commitAllCounts's own sibling gap — a deleted med's
       // row used to silently drop out of both the "ok" and "failed" tallies here too.
-      if (!m) { failed++; continue; }
+      // Bug fix (data integrity): same sibling gap as commitAllCounts's own fix above — a med
+      // DEACTIVATED (not deleted) mid-batch still passed the old `!m` check alone and got a real
+      // lot write for a drug no longer visible on the operator's own screen.
+      if (!m || !m.active) { failed++; continue; }
       try {
         let delta = 0;
         // Bug fix (data integrity — fabricated stock): see commitSubCount's matching note

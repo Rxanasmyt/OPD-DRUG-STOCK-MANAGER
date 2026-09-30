@@ -78,3 +78,31 @@ export function DeficitBadge({ amount, unit, urgent }: { amount: number; unit?: 
     </span>
   );
 }
+
+/**
+ * Real-world request: "ควรปรับปรุงอะไรเพิ่มเติมอีกมั้ยครับในการเติมยาหน้างาน เติมยาเข้าคลัง
+ * การนับสต็อกยา" — TransferScreen/ReceiveScreen/CountScreen all show Min/Max/par (fixed
+ * targets), but none of them ever surfaced daysOfStockLeft() (selectors.ts) — a number this app
+ * already computes from real usage (ReportScreen's turnover/insights tabs) but never carried
+ * over to the three screens someone actually decides "what to fill/request/expect right now"
+ * from. A fast-moving drug sitting just above Min reads as "fine" by the bar alone even with
+ * only a few days of real runway left; a slow-moving one further below Min can have weeks to
+ * spare — Min/Max alone can't tell those apart, only the real usage rate can. null (no usage
+ * data yet — used30<=0) renders nothing, same "don't show a number this can't back up" rule
+ * every other conditional badge here already follows.
+ */
+export function DaysLeftBadge({ days }: { days: number | null }) {
+  if (days === null) return null;
+  // Thresholds keyed to how these three screens actually work: floor gets refilled on demand
+  // (เติมหน้างาน, effectively daily), substock on the ~2-week central-warehouse request cycle
+  // (see ReceiveScreen's own "รอบ 2 สัปดาห์" comment) — ≤3 days is "won't make it to the next
+  // routine top-up," ≤7 is "cutting it close," anything past that is informational, not urgent
+  // (no red/amber alarm competing with the real Min/Max severity color already on the row).
+  const tone = days <= 3 ? 'var(--red)' : days <= 7 ? 'var(--amber)' : 'var(--muted)';
+  const bg = days <= 3 ? 'var(--red-bg)' : days <= 7 ? 'var(--amber-bg)' : 'var(--bg-subtle)';
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: bg, color: tone, fontWeight: 700, fontSize: 11, padding: '2.5px 8px', borderRadius: 20, whiteSpace: 'nowrap' }}>
+      ⏳ เหลือใช้ ~{nf(Math.max(0, days))} วัน
+    </span>
+  );
+}

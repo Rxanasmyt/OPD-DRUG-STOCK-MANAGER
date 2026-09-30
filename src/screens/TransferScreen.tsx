@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, binDisplayAll } from '../store/selectors';
-import { nf, thDate, digitsOnly, isoDate } from '../utils/format';
+import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, binDisplayAll, daysOfStockLeft, expTone } from '../store/selectors';
+import { nf, thDate, digitsOnly, isoDate, daysUntil } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
-import { Qty, DeficitBadge } from '../components/Qty';
+import { Qty, DeficitBadge, DaysLeftBadge } from '../components/Qty';
 import { HadTag } from '../components/Badge';
 import { MedMiniCard } from '../components/MedMiniCard';
 import { EmptyState } from '../components/EmptyState';
@@ -44,7 +44,22 @@ function dismissToday(key: string) {
 }
 
 export default function TransferScreen() {
-  const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, fillUrgent, clearCart, printPickList, printTodayReplenishList, go, openScanSearch } = useApp();
+  const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, fillUrgent, clearCart, printPickList, printTodayReplenishList, go, openScanSearch, goSubstockCardFor } = useApp();
+  // Real-world request: "ให้ทุกหน้าที่แสดงชื่อยาจำนวนยา...ให้สามารถดูบัตรสต็อคได้" — this screen
+  // already had an indirect path (tap "ดูภาพรวม" to expand MedMiniCard, which has its own "ดู
+  // บัตรสต็อกเต็ม →" link at the bottom), but that's an extra tap before the extra tap. Making
+  // the whole row itself open the card directly — same rowToCard/stopRowNav pattern
+  // HomeScreen's own rows use (see its "Bug fix (flow clarity)" comment) — gets there in one
+  // tap instead of two. stopRowNav keeps the −/qty input/+ buttons and "ดูภาพรวม" toggle working
+  // exactly as before (a tap on any of THEM must not also navigate away).
+  const rowToCard = (medId: string) => ({
+    role: 'button' as const,
+    tabIndex: 0,
+    onClick: () => goSubstockCardFor(medId),
+    onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goSubstockCardFor(medId); } },
+    title: 'ดูบัตรสต็อกยานี้',
+  });
+  const stopRowNav = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
   // Only one row's "เคลื่อนไหวล่าสุด" panel expanded at a time (opt-in, not automatic) — the
   // list can render up to 60 rows, and MedMiniCard fetches a real Firestore query per drug, so
   // expanding all of them at once would fire dozens of queries for a screen someone's trying
@@ -204,10 +219,11 @@ export default function TransferScreen() {
           return (
             <div
               key={m.id}
-              className="card"
+              className="card row-interactive"
+              {...rowToCard(m.id)}
               style={{
                 padding: '11px 12px 11px 14px', marginBottom: 8, borderColor: inCart ? 'var(--green)' : 'var(--border)',
-                borderLeft: '4px solid ' + medColor(m.code), animation: 'pop .22s var(--ease-out) both', animationDelay: Math.min(i, 10) * 18 + 'ms',
+                borderLeft: '4px solid ' + medColor(m.code), animation: 'pop .22s var(--ease-out) both', animationDelay: Math.min(i, 10) * 18 + 'ms', cursor: 'pointer',
               }}
             >
               <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
@@ -227,14 +243,32 @@ export default function TransferScreen() {
                   <div className="bar-track" style={{ height: 4, background: 'var(--border-soft)', borderRadius: 2, marginTop: 5 }}>
                     <div className="bar-fill" style={{ height: '100%', transform: 'scaleX(' + Math.max(3, Math.min(100, Math.round((m.floor / Math.max(1, m.parFloor)) * 100))) / 100 + ')', background: toneFor(m), borderRadius: 2 }} />
                   </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--green)', marginTop: 5 }}>
-                    FEFO: lot {f ? f.lotNo : '—'} · exp {f ? thDate(f.exp) : 'ไม่มีของใน substock'}
-                    {f && <span className="muted"> (เหลือ {nf(f.qty)})</span>}
-                  </div>
+                  {/* Bug fix (patient safety): this line always rendered flat green — FEFO's
+                      own sort-by-soonest-expiry was already correct, but "sorts by expiry" and
+                      "warns you when the soonest-expiring lot is itself already expired or
+                      about to be" are two different things, and only the first existed.
+                      Nothing here ever purges/blocks an expired lot (that's scrapLot's own
+                      manual job) — a FEFO transfer will still draw from it, so this is the one
+                      moment before that write actually happens to flag it. expTone() already
+                      existed in selectors.ts for exactly this color scale but had no call site
+                      anywhere in the app until now. */}
+                  {(() => {
+                    const fefoDays = f ? daysUntil(f.exp) : null;
+                    const tone = fefoDays !== null ? expTone(fefoDays, state.expiryWarnDays) : 'var(--green)';
+                    return (
+                      <div style={{ fontSize: 11.5, color: tone, marginTop: 5, fontWeight: fefoDays !== null && fefoDays < 30 ? 700 : undefined }}>
+                        FEFO: lot {f ? f.lotNo : '—'} · exp {f ? thDate(f.exp) : 'ไม่มีของใน substock'}
+                        {f && <span className="muted" style={{ color: 'inherit', opacity: fefoDays !== null && fefoDays < 30 ? 1 : undefined }}> (เหลือ {nf(f.qty)})</span>}
+                        {fefoDays !== null && fefoDays < 0 && <span> — ⚠ หมดอายุแล้ว ควรตัดออกก่อนเติม</span>}
+                        {fefoDays !== null && fefoDays >= 0 && fefoDays < 30 && <span> — ⚠ ใกล้หมดอายุมาก</span>}
+                      </div>
+                    );
+                  })()}
                   <div style={{ marginTop: 5, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={isUrgentLow(m)} />
+                    <DaysLeftBadge days={daysOfStockLeft(state, m)} />
                     <button
-                      onClick={() => setExpandedId(expandedId === m.id ? null : m.id)}
+                      onClick={stopRowNav(() => setExpandedId(expandedId === m.id ? null : m.id))}
                       style={{ border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 11, fontWeight: 600, padding: '2px 0' }}
                     >
                       {expandedId === m.id ? 'ซ่อนภาพรวม ▲' : 'ดูภาพรวม ▾'}
@@ -242,7 +276,10 @@ export default function TransferScreen() {
                   </div>
                   {expandedId === m.id && <MedMiniCard medId={m.id} unit={m.unit} />}
                 </div>
-                <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+                {/* stopPropagation here (not per-button) since it also covers the plain qty
+                    <input> in between, which has no click handler of its own to wrap — a tap to
+                    focus it and type a quantity must never also fire the row's own onClick. */}
+                <div onClick={(e) => e.stopPropagation()} style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
                   {/* Bug fix (accessibility): these two were 40px, under the 44px minimum touch
                       target — tapped repeatedly per line item while building a transfer, unlike
                       every other actionable button on this screen (scan/clear/print/submit),

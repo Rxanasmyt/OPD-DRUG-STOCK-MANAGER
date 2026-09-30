@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from 'react';
 import { useApp } from './store/AppContext';
 import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
@@ -78,6 +78,30 @@ export default function App() {
   const prevDepthRef = useRef(state.navStack.length);
   const navDir = state.navStack.length >= prevDepthRef.current ? 'fwd' : 'back';
   prevDepthRef.current = state.navStack.length;
+
+  // Real-world request: "สามารถกดถอยย้อนกลับได้แบบสะดวก ถอยกลับไปยังหน้าเดิมจุดเดิมได้อย่าง
+  // รวดเร็ว" — every screen switch swaps the whole `<div key={state.screen}>` subtree inside
+  // this one never-unmounted `<main>`, so nothing ever told the browser to keep/restore a
+  // scroll position per screen. Bug this caused: `<main>`'s scrollTop is a raw pixel value that
+  // survives the swap untouched by React — landing back on TRANSFER after having been 800px
+  // down a long list, by way of an intermediate screen shorter than 800px (e.g. บัตรสต็อก for a
+  // med with little history), silently clamps that value down to whatever that shorter screen's
+  // max scrollTop was. The person taps back expecting the exact shelf-list spot they left, and
+  // lands somewhere else on the same list instead — a real "same page, wrong point" bug, not
+  // just "always starts at the top" (which would at least be predictable). Recording each
+  // screen's scrollTop on the way out and restoring it on the way back in fixes both: a screen
+  // shorter than where you left it no longer corrupts the saved value, and one that's at least
+  // as tall lands you back exactly where you were.
+  const mainRef = useRef<HTMLElement>(null);
+  const scrollPositions = useRef<Partial<Record<Screen, number>>>({});
+  useLayoutEffect(() => {
+    const el = mainRef.current;
+    if (el) el.scrollTop = scrollPositions.current[state.screen] ?? 0;
+  }, [state.screen]);
+  const saveScroll = () => {
+    const el = mainRef.current;
+    if (el) scrollPositions.current[state.screen] = el.scrollTop;
+  };
 
   // Bug fix (accessibility): document.title never changed on navigation — every screen switch
   // in this SPA left the browser tab/history entry, and more importantly a screen reader's
@@ -202,7 +226,7 @@ export default function App() {
         </div>
       )}
 
-      <main style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+      <main ref={mainRef} onScroll={saveScroll} style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
         <div key={state.screen} className={navDir === 'fwd' ? 'nav-slide-fwd' : 'nav-slide-back'}>
           <Suspense fallback={<ScreenLoading />}>
             <Screens screen={state.screen} />

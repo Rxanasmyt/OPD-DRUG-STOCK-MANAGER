@@ -308,9 +308,16 @@ export function dailyUsageRate(m: Med): number {
  * would give. Same "how much runway is left" math already used in ReportScreen's turnover tab,
  * factored out so the insights tab (and anything else) can reuse it without duplicating the
  * divide-by-zero guard. */
-export function daysOfStockLeft(state: AppState, m: Med): number | null {
+// Bug fix (CountScreen regression): `onHandOverride` lets a caller project runway off a number
+// that ISN'T what's live in Firestore yet — specifically, a just-typed (not-yet-committed) count.
+// Without it, CountScreen's own days-left badge kept showing the runway computed off the STALE
+// system quantity right up until "บันทึก" was tapped — e.g. still reading "~12 วัน" (off a stale
+// floor of 40) while someone had just typed "5" and the row's own delta line already said
+// "น้อยกว่าระบบ 35" — answering the wrong question at the exact moment (weighing whether to
+// escalate right now) the real, just-verified number matters most.
+export function daysOfStockLeft(state: AppState, m: Med, onHandOverride?: number): number | null {
   if (!(m.used30 > 0)) return null;
-  const onHand = m.floor + subQty(state, m.id);
+  const onHand = onHandOverride ?? (m.floor + subQty(state, m.id));
   return Math.round(onHand / dailyUsageRate(m));
 }
 
