@@ -1429,7 +1429,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return 'บรรจุกล่องละ ' + nf(m.packSize) + ' ' + m.unit + ' — หยิบ ' + boxesLabel;
         })();
         const note = [boxNote, shortNote].filter(Boolean).join(' · ') || undefined;
-        return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note };
+        // Real-world request: this sheet already says where the qty is headed (bin, the floor
+        // shelf) but gave no clue where to physically go pick it from — add the substock shelf
+        // code (Med.binSub) so the person walking the floor also knows where in substock to go.
+        return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note, pickBin: m.binSub || undefined };
       })
       .filter((r) => r.qty > 0);
     if (!rows.length) { toast('รายการที่ต่ำกว่า Min ไม่มีของเหลือใน substock ให้เติมเลยสักรายการ — ต้องเบิกจากคลังใหญ่ก่อน'); return; }
@@ -1472,9 +1475,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const step = packStep(m);
       const qty = Math.ceil(need / step) * step;
       const note = m.packSize && m.packSize > 1 ? 'เบิกเป็นกล่อง กล่องละ ' + nf(m.packSize) + ' ' + m.unit + ' (' + nf(qty / m.packSize) + ' กล่อง)' : undefined;
-      return { bin: m.code, name: m.name + (short ? '' : ' (ไม่มี substock)'), qty, unit: m.unit, note };
+      // Real-world request: รหัสยา (m.code, e.g. MED-0002) isn't actually used in practice — what
+      // staff actually need on this sheet is where to put the stock once the warehouse releases
+      // it, i.e. the substock shelf code. A med with its own substock stage uses that shelf
+      // (Med.binSub); a noSubstock med has no substock stage at all — its floor shelf IS the
+      // place this requisition lands (see this function's own comment above on why noSubstock
+      // meds are judged against floor par here), so fall back to its floor bin for those.
+      return { bin: short ? (m.binSub || '—') : binDisplayAll(m), name: m.name + (short ? '' : ' (ไม่มี substock)'), qty, unit: m.unit, note };
     });
-    const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการยาที่มีปริมาณคงคลังต่ำกว่าเกณฑ์มาตรฐาน (Par) ทั้งระบบ รวมถึงรายการยาที่ไม่มีการสำรองคลังย่อย (Substock)', { bin: 'รหัสยา', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() }, ['ผู้จัดทำคำขอ (ห้องยา)', 'ผู้อนุมัติคำขอ (ห้องยา)', 'ผู้จ่ายยา (คลังใหญ่)']);
+    const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการยาที่มีปริมาณคงคลังต่ำกว่าเกณฑ์มาตรฐาน (Par) ทั้งระบบ รวมถึงรายการยาที่ไม่มีการสำรองคลังย่อย (Substock)', { bin: 'ชั้นวาง substock', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() }, ['ผู้จัดทำคำขอ (ห้องยา)', 'ผู้อนุมัติคำขอ (ห้องยา)', 'ผู้จ่ายยา (คลังใหญ่)']);
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state, toast, userName]);
 
