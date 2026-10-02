@@ -80,11 +80,12 @@ import {
   getLastBatchWrites,
 } from '../test-utils/firebaseTestDouble';
 
-// printLabelSheet actually opens a real browser print window — mocked here so printLabels()'s
-// own label-building logic can be exercised (and its arguments inspected) without a DOM popup.
+// printLabelSheet/printPickListSheet actually open a real browser print window — mocked here so
+// the row-building logic of printLabels()/printTodayReplenishList()/printWarehouseRequestList()
+// can be exercised (and its arguments inspected) without a DOM popup.
 vi.mock('../utils/print', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../utils/print')>();
-  return { ...actual, printLabelSheet: vi.fn(() => true) };
+  return { ...actual, printLabelSheet: vi.fn(() => true), printPickListSheet: vi.fn(() => true) };
 });
 
 const MED = {
@@ -1203,5 +1204,102 @@ describe('applyOnePar — stale-Min-above-new-Max regression', () => {
     const savedFields = vi.mocked(updateDoc).mock.calls[callsBefore][1] as unknown as Record<string, unknown>;
     expect(savedFields.parFloor).toBe(110);
     expect(savedFields.floorMin).toBeUndefined();
+  });
+});
+
+// Real-world request (user-reported, with screenshots of the actual printed documents):
+// ใบเติมหน้างานประจำวัน should also show the substock shelf code to pick FROM (not just the
+// floor shelf the stock is headed TO), and ใบขอเบิกจากคลังใหญ่'s "รหัสยา" (med code) column —
+// never actually used in practice — should be replaced with the substock shelf code too.
+const REPL_MED = {
+  id: 'm5', code: 'MED-0005', name: 'Amoxicillin 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  price: 1, had: false, active: true, parSub: 500, parFloor: 100, floorMin: 50, floor: 10,
+  bin: 'A5', binSub: 'S12', noSubstock: false, used30: 0, usedPrev30: 0, volatility: 0,
+};
+const REPL_LOT = { id: 'lot-repl-1', medId: REPL_MED.id, code: 'LOT-R1', lotNo: 'R1', qty: 200, exp: Date.now() + 300 * 86400000 };
+
+function PrintTodayReplenishHarness() {
+  const { printTodayReplenishList } = useApp();
+  return <button onClick={printTodayReplenishList}>print-today-replenish</button>;
+}
+
+describe('printTodayReplenishList — substock pick-location regression', () => {
+  it('adds each row\'s substock shelf code (where to pick from) alongside the floor bin it is headed to', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<PrintTodayReplenishHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [REPL_MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', [REPL_LOT]);
+
+    // printPickListSheet's mock call history accumulates across every it() in this file (the
+    // test double's own listeners/doc-store get reset between tests, but vi.fn() call history
+    // does not), so index by what's newly appended by THIS test's own click, not calls[0].
+    const callsBefore = vi.mocked(printModule.printPickListSheet).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'print-today-replenish' }));
+    await waitFor(() => expect(vi.mocked(printModule.printPickListSheet).mock.calls.length).toBeGreaterThan(callsBefore));
+    const rows = vi.mocked(printModule.printPickListSheet).mock.calls[callsBefore][0];
+    const row = rows.find((r) => r.name === REPL_MED.name);
+    // Without the fix, pickBin was never set at all — the sheet only ever said where the stock
+    // was headed (bin, the floor shelf), never where to physically go pick it from.
+    expect(row?.pickBin).toBe(REPL_MED.binSub);
+    expect(row?.bin).toBe(REPL_MED.bin);
+  });
+});
+
+const WH_SUB_MED = {
+  id: 'm6', code: 'MED-0006', name: 'Cefazolin 1g', unit: 'Vial', dosageForm: 'ฉีด',
+  price: 1, had: false, active: true, parSub: 500, parFloor: 100, floorMin: 50, floor: 80,
+  bin: 'B6', binSub: 'S20', noSubstock: false, used30: 0, usedPrev30: 0, volatility: 0,
+};
+const WH_NOSUB_MED = {
+  id: 'm7', code: 'MED-0007', name: 'Normal saline 1000ml', unit: 'ถุง', dosageForm: 'น้ำเกลือ',
+  price: 1, had: false, active: true, parSub: 0, parFloor: 50, floorMin: 25, floor: 10,
+  bin: 'C7', noSubstock: true, used30: 0, usedPrev30: 0, volatility: 0,
+};
+
+function PrintWarehouseRequestHarness() {
+  const { printWarehouseRequestList } = useApp();
+  return <button onClick={printWarehouseRequestList}>print-warehouse-request</button>;
+}
+
+describe('printWarehouseRequestList — substock-bin-instead-of-med-code regression', () => {
+  it('shows the substock shelf code (not the unused med code) for a med that has a substock stage', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<PrintWarehouseRequestHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [WH_SUB_MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', []);
+
+    const callsBefore = vi.mocked(printModule.printPickListSheet).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'print-warehouse-request' }));
+    await waitFor(() => expect(vi.mocked(printModule.printPickListSheet).mock.calls.length).toBeGreaterThan(callsBefore));
+    const rows = vi.mocked(printModule.printPickListSheet).mock.calls[callsBefore][0];
+    const row = rows.find((r) => r.name === WH_SUB_MED.name);
+    // Without the fix, bin here was m.code (e.g. "MED-0006") — a column the user reports is
+    // never actually consulted in practice.
+    expect(row?.bin).toBe(WH_SUB_MED.binSub);
+    expect(row?.bin).not.toBe(WH_SUB_MED.code);
+  });
+
+  it('falls back to the floor bin for a noSubstock med, which has no substock shelf of its own', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<PrintWarehouseRequestHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [WH_NOSUB_MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', []);
+
+    const callsBefore = vi.mocked(printModule.printPickListSheet).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'print-warehouse-request' }));
+    await waitFor(() => expect(vi.mocked(printModule.printPickListSheet).mock.calls.length).toBeGreaterThan(callsBefore));
+    const rows = vi.mocked(printModule.printPickListSheet).mock.calls[callsBefore][0];
+    const row = rows.find((r) => r.name?.startsWith(WH_NOSUB_MED.name));
+    expect(row?.bin).toBe(WH_NOSUB_MED.bin);
+    expect(row?.bin).not.toBe(WH_NOSUB_MED.code);
   });
 });

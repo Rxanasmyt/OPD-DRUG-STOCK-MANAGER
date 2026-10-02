@@ -312,6 +312,12 @@ export interface PickListRow {
   // after every row on this sheet is picked. Absent for every existing caller (unset renders
   // nothing extra), so this is additive, not a breaking change to the pick-list layout.
   note?: string;
+  // Real-world request: the printed sheet already says WHERE a row's qty is headed (`bin`),
+  // but gave no clue where to physically go pick it FROM — someone carrying ใบเติมหน้างาน had
+  // to separately look up each drug's substock shelf code themselves. Optional and additive:
+  // a column for it only appears on sheets whose rows actually set it (see printPickListSheet
+  // below), so the cart-based ใบจัดยาเติมชั้น (which never sets this) keeps its current layout.
+  pickBin?: string;
 }
 
 /**
@@ -331,7 +337,7 @@ export function printPickListSheet(
   rows: PickListRow[],
   heading: string,
   subheading: string,
-  colLabels: { bin: string; qty: string } = { bin: 'ชั้น', qty: 'จำนวนที่ต้องหยิบ' },
+  colLabels: { bin: string; qty: string; pickBin?: string } = { bin: 'ชั้น', qty: 'จำนวนที่ต้องหยิบ', pickBin: 'หยิบจาก (substock)' },
   meta: { printedBy?: string } = {},
   // Bug fix: all three callers (ใบจัดยาเติมชั้น, ใบเติมหน้างานประจำวัน, ใบขอเบิกจากคลังใหญ่) used
   // to share the same hardcoded 3-signature block ("ผู้จัดทำรายการ" / "ผู้ตรวจสอบ / ผู้รับของ" /
@@ -345,10 +351,14 @@ export function printPickListSheet(
 ): boolean {
   const sorted = rows.slice().sort((a, b) => a.bin.localeCompare(b.bin));
   const now = Date.now();
+  // Only show the "pick from" column when at least one row actually sets it — the cart-based
+  // ใบจัดยาเติมชั้น (printPickList) never does, so it keeps its original layout unchanged.
+  const showPickBin = sorted.some((r) => r.pickBin);
   const body = sorted
     .map((r, i) => `<tr>
       <td class="n">${i + 1}</td>
       <td class="bin">${escapeHtml(r.bin || '—')}</td>
+      ${showPickBin ? `<td class="pickbin">${escapeHtml(r.pickBin || '—')}</td>` : ''}
       <td class="name">${escapeHtml(r.name)}${r.note ? `<div class="note">หมายเหตุ: ${escapeHtml(r.note)}</div>` : ''}</td>
       <td class="qty">${r.qty.toLocaleString('en-US')} ${escapeHtml(r.unit)}</td>
       <td class="check">☐</td>
@@ -391,6 +401,7 @@ export function printPickListSheet(
   table.rows tbody tr:nth-child(even) { background: #f8faf9; }
   .n { width: 8mm; color: #667; text-align: center; }
   .bin { width: 24mm; font-weight: 700; white-space: nowrap; }
+  .pickbin { width: 24mm; font-weight: 700; white-space: nowrap; color: #245a59; }
   .qty { width: 34mm; font-weight: 700; text-align: right; }
   .check { width: 12mm; text-align: center; font-size: 13pt; }
   .note { font-size: 8.5pt; color: #a15c00; font-weight: 600; margin-top: 0.5mm; }
@@ -422,7 +433,7 @@ export function printPickListSheet(
       <tr><td class="k">ผู้จัดทำรายการ</td><td class="v">${escapeHtml(meta.printedBy || '—')}</td><td class="k">วันที่จัดพิมพ์เอกสาร</td><td class="v">${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }))}</td></tr>
     </table>
     <table class="rows">
-      <thead><tr><th class="n">ลำดับ</th><th class="bin">${escapeHtml(colLabels.bin)}</th><th class="name">รายการยา</th><th class="qty">${escapeHtml(colLabels.qty)}</th><th class="check">✓</th></tr></thead>
+      <thead><tr><th class="n">ลำดับ</th><th class="bin">${escapeHtml(colLabels.bin)}</th>${showPickBin ? `<th class="pickbin">${escapeHtml(colLabels.pickBin || 'หยิบจาก (substock)')}</th>` : ''}<th class="name">รายการยา</th><th class="qty">${escapeHtml(colLabels.qty)}</th><th class="check">✓</th></tr></thead>
       <tbody>${body}</tbody>
     </table>
     <div class="signoff">
