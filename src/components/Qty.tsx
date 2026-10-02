@@ -68,13 +68,28 @@ export function Qty({ value, unit, tone, size = 13 }: { value: number; unit?: st
  * a fully-stocked row just doesn't show one rather than showing "+0". Red/amber by how
  * urgent, matching the same severity language as toneFor()'s bar-fill color elsewhere.
  */
-export function DeficitBadge({ amount, unit, urgent }: { amount: number; unit?: string; urgent?: boolean }) {
+export function DeficitBadge({ amount, unit, urgent, packSize }: { amount: number; unit?: string; urgent?: boolean; packSize?: number }) {
   if (amount <= 0) return null;
   const tone = urgent ? 'var(--red)' : 'var(--amber)';
   const bg = urgent ? 'var(--red-bg)' : 'var(--amber-bg)';
+  // Real-world request: "...ถ้ามีหน่วยเป็นกล่อง บอกรายละเอียดกล่องละเท่าไร ต้องเติมกี่กล่อง...
+  // เนื่องจากการทำงานจริงเบิกยาและเติมหน้างานเป็นกล่องๆ" — a box-only med (Med.packSize set) is
+  // physically picked/counted in whole boxes, not loose units; showing only the raw unit deficit
+  // (e.g. "ต้องเติม 75 เม็ด") leaves the real mental math (how many boxes, how many loose) to
+  // whoever's actually filling the shelf, every single time. Exact split, never rounded away —
+  // same reasoning as printTodayReplenishList's own "Bug fix" comment on this class of gap — the
+  // deficit itself isn't guaranteed to land on a clean multiple of packSize.
+  const boxNote = packSize && packSize > 1 ? (() => {
+    const boxes = Math.floor(amount / packSize);
+    const rem = amount % packSize;
+    const u = unit || '';
+    return boxes > 0
+      ? nf(boxes) + ' กล่อง' + (rem > 0 ? ' + ' + nf(rem) + ' ' + u : '')
+      : nf(rem) + ' ' + u + ' (ไม่ครบ 1 กล่อง — กล่องละ ' + nf(packSize) + ')';
+  })() : null;
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: bg, color: tone, fontWeight: 800, fontSize: 11, padding: '2.5px 8px', borderRadius: 20, whiteSpace: 'nowrap' }}>
-      ▲ ต้องเติม {nf(amount)}{unit ? ' ' + unit : ''}
+      ▲ ต้องเติม {nf(amount)}{unit ? ' ' + unit : ''}{boxNote ? ' (' + boxNote + ')' : ''}
     </span>
   );
 }

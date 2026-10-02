@@ -246,7 +246,7 @@ export default function HomeScreen() {
                 <div className="bar-fill" style={{ height: '100%', transform: 'scaleX(' + Math.max(3, Math.min(100, Math.round((m.floor / Math.max(1, m.parFloor)) * 100))) / 100 + ')', background: toneFor(m), borderRadius: 2 }} />
               </div>
               <div style={{ marginTop: 6 }}>
-                <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={isUrgentLow(m)} />
+                <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={isUrgentLow(m)} packSize={m.packSize} />
               </div>
             </div>
             {usesSubstock(m) ? (
@@ -298,7 +298,7 @@ export default function HomeScreen() {
                 substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={12.5} /> / par {nf(m.parSub)}
               </div>
               <div style={{ marginTop: 6 }}>
-                <DeficitBadge amount={Math.max(0, m.parSub - sub(m.id))} unit={m.unit} urgent={sub(m.id) === 0} />
+                <DeficitBadge amount={Math.max(0, m.parSub - sub(m.id))} unit={m.unit} urgent={sub(m.id) === 0} packSize={m.packSize} />
               </div>
             </div>
             <button onClick={stopRowNav(() => goReceiveFor(m.id))} className="btn-outline press-spring" style={{ padding: '9px 13px', borderRadius: 10, fontSize: 13, fontWeight: 700, flex: 'none', minHeight: 40, border: '1px solid var(--green)' }}>รับเข้า</button>

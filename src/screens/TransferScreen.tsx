@@ -265,7 +265,7 @@ export default function TransferScreen() {
                     );
                   })()}
                   <div style={{ marginTop: 5, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={isUrgentLow(m)} />
+                    <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={isUrgentLow(m)} packSize={m.packSize} />
                     <DaysLeftBadge days={daysOfStockLeft(state, m)} />
                     <button
                       onClick={stopRowNav(() => setExpandedId(expandedId === m.id ? null : m.id))}
