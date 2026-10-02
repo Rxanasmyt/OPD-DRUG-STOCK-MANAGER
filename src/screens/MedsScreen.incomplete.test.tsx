@@ -3,9 +3,10 @@
 // missing its floor bin, substock bin (only for meds that have a substock stage), or category
 // without opening each med's edit form one by one. See MedsScreen.tsx's own missingFields() doc
 // comment for exactly what counts (never packSize — no reliable "should have one" signal).
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { updateDoc } from 'firebase/firestore';
 import MedsScreen from './MedsScreen';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import { signInAs, fireCollection, hasListener } from '../test-utils/firebaseTestDouble';
@@ -46,5 +47,29 @@ describe('MedsScreen — data-completeness diagnostic regression', () => {
     expect(screen.queryByText(NOSUBSTOCK_COMPLETE_MED.name)).not.toBeInTheDocument();
     // Shows exactly what's missing, not just a bare count.
     expect(screen.getByText(/ขาด: ชั้นหน้างาน · หมวดกลุ่มยา/)).toBeInTheDocument();
+  });
+
+  it('lets an admin fix a missing floor bin and category inline, without opening the full edit form', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<MedsScreen />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MISSING_BIN_MED]);
+    fireCollection('lots', []);
+
+    await user.click(await screen.findByRole('button', { name: /ข้อมูลยังไม่ครบ \(1\)/ }));
+    await screen.findByText(MISSING_BIN_MED.name);
+
+    // The full "แก้ไขข้อมูล" form must never have been opened for this to work.
+    expect(screen.queryByText('บันทึกการแก้ไข')).not.toBeInTheDocument();
+
+    const binInput = screen.getByPlaceholderText('เช่น A1 หรือ ตู้ยา-1');
+    await user.type(binInput, 'C9');
+    // setMedBin debounces its write 500ms — wait past that for the real Firestore call.
+    await waitFor(() => expect(vi.mocked(updateDoc).mock.calls.some((c) => (c[1] as unknown as Record<string, unknown>).bin === 'C9')).toBe(true), { timeout: 2000 });
+
+    const categorySelect = screen.getByDisplayValue('— ยังไม่ระบุหมวด —');
+    await user.selectOptions(categorySelect, 'antimicrobial');
+    await waitFor(() => expect(vi.mocked(updateDoc).mock.calls.some((c) => (c[1] as unknown as Record<string, unknown>).category === 'antimicrobial')).toBe(true));
   });
 });

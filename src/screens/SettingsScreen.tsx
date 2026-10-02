@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { suggestPar, halfOfMaxRounded, floorMinOf, parAnomalies } from '../store/selectors';
+import { suggestPar, halfOfMaxRounded, floorMinOf, parAnomalies, usageAnomalies } from '../store/selectors';
 import { nf, digitsOnly, parseIntSafe, isoDate, fiscalYearStartIso, DAY } from '../utils/format';
 import { notificationsSupported } from '../utils/notify';
 import { StatusDot } from '../components/Badge';
@@ -35,10 +35,20 @@ export default function SettingsScreen() {
   const coverDirty = (floorDraft !== '' && parseIntSafe(floorDraft) !== state.parFloorCoverDays)
     || (subDraft !== '' && parseIntSafe(subDraft) !== state.parSubCoverDays);
 
-  const suggestDiffCount = meds.filter((m) => {
+  const suggestDiff = meds.filter((m) => {
     const s = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
     return !!s && (s.sub !== m.parSub || s.floor !== m.parFloor);
-  }).length;
+  });
+  const suggestDiffCount = suggestDiff.length;
+  // Real-world request: "ทำข้อ...3 แบบดีที่สุด" (ตรวจสอบความแม่นยำของตัวเลขแนะนำ par) — suggestPar()
+  // bases its whole calculation purely on the most recent 30-day window (used30), with no check
+  // against how stable that number actually is. usageAnomalies() (ReportScreen's insights tab)
+  // already flags a ≥40% swing vs the PRIOR 30-day window (usedPrev30) as worth a second look —
+  // but "ใช้ค่าแนะนำทั้งหมด" below never cross-referenced it at all, so one click could silently
+  // bake a par number sized off a data blip (a one-time bulk dispensing event, an import glitch)
+  // into the live Min/Max for the whole formulary, with nobody ever having seen a warning.
+  const suggestDiffIds = new Set(suggestDiff.map((m) => m.id));
+  const unstableSuggestions = usageAnomalies(meds).filter((a) => suggestDiffIds.has(a.med.id));
   const minHalfDiffCount = meds.filter((m) => halfOfMaxRounded(m.parFloor) !== floorMinOf(m)).length;
 
   // Real-world request: Min/Max/par substock are hand-typed numbers — an extra/missing zero,
@@ -184,6 +194,25 @@ export default function SettingsScreen() {
         )}
         {!canEdit && (
           <div style={{ fontSize: 12.5, marginBottom: 9 }}>par หน้างานสำรอง {state.parFloorCoverDays} วัน, par substock สำรอง {state.parSubCoverDays} วัน</div>
+        )}
+        {canEdit && unstableSuggestions.length > 0 && (
+          <div style={{ fontSize: 11.5, lineHeight: 1.6, marginBottom: 10, background: 'var(--amber-bg)', color: 'var(--amber-ink)', borderRadius: 10, padding: '9px 11px' }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>
+              ⚠ {unstableSuggestions.length} จาก {suggestDiffCount} รายการที่จะเปลี่ยน มีอัตราการใช้ผันผวนมาก (เปลี่ยน ≥40% จากช่วง 30 วันก่อนหน้า)
+            </div>
+            <div style={{ marginBottom: unstableSuggestions.length > 0 ? 6 : 0 }}>
+              ค่าแนะนำของรายการเหล่านี้อิงจากแค่ 30 วันล่าสุด — ถ้าช่วงนั้นมีเหตุการณ์ผิดปกติ (จ่ายยาครั้งใหญ่ครั้งเดียว, นำเข้าข้อมูลผิดช่วง) ค่าที่แนะนำอาจสูง/ต่ำเกินจริง ควรตรวจสอบรายตัวก่อนกด "ใช้ค่าแนะนำทั้งหมด" ด้านล่าง
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {unstableSuggestions.slice(0, 8).map((a) => (
+                <div key={a.med.id} style={{ fontSize: 11, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.med.name}</span>
+                  <span style={{ flex: 'none', fontWeight: 600 }}>{nf(a.med.usedPrev30)} → {nf(a.med.used30)} ({a.direction === 'up' ? '+' : ''}{Math.round(a.changePct * 100)}%)</span>
+                </div>
+              ))}
+              {unstableSuggestions.length > 8 && <div className="muted">และอีก {unstableSuggestions.length - 8} รายการ</div>}
+            </div>
+          </div>
         )}
         {canEdit && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

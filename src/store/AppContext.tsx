@@ -293,6 +293,11 @@ export interface AppCtx {
   setParSub: (medId: string, v: string) => void;
   setParFloor: (medId: string, v: string) => void;
   setMedBin: (medId: string, v: string) => void;
+  /** Quick-fix counterpart to setMedBin for the substock shelf code — see its own doc comment
+   * at the implementation. Used by MedsScreen's "ข้อมูลยังไม่ครบ" filtered list. */
+  setMedBinSub: (medId: string, v: string) => void;
+  /** Quick-fix counterpart for category — see its own doc comment at the implementation. */
+  setMedCategory: (medId: string, categoryId: string) => void;
   recomputeUsageStats: () => void;
   updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => void;
 
@@ -472,6 +477,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const lastScanConfirm = useRef<{ medId: string; prevQty: number } | null>(null);
   const parDebounce = useRef<Record<string, number>>({});
   const binDebounce = useRef<Record<string, number>>({});
+  const binSubDebounce = useRef<Record<string, number>>({});
   // par/bin edits are debounced 500ms so typing a new number doesn't fire a write per
   // keystroke — but a debounce is a real data-loss window: someone types a new par level,
   // taps back or locks the phone within that 500ms, and on many mobile browsers a
@@ -2646,6 +2652,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     binDebounce.current[medId] = window.setTimeout(fire, 500);
   }, [canEditMeds, toast]);
 
+  // Real-world request: "ข้อมูลยังไม่ครบ" diagnostic filter (MedsScreen) needs a fast way to fill
+  // in a missing substock shelf code right from that filtered list, without opening the full
+  // edit form — same debounced-write-with-rollback shape as setMedBin above, just for binSub.
+  const setMedBinSub = useCallback((medId: string, v: string) => {
+    if (!canEditMeds) return;
+    const val = normBin(v);
+    setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, binSub: val || undefined } : x)) }));
+    const key = 'binSub:' + medId;
+    window.clearTimeout(binSubDebounce.current[medId]);
+    const fire = () => {
+      delete pendingFlush.current[key];
+      updateDoc(doc(db, 'meds', medId), { binSub: val ? val : deleteField() }).catch(async () => {
+        toast('บันทึกชั้นวาง substock ไม่สำเร็จ — กำลังดึงค่าจริงกลับมาแสดง');
+        try {
+          const snap = await getDoc(doc(db, 'meds', medId));
+          const real = (snap.data() as { binSub?: string } | undefined)?.binSub;
+          setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, binSub: real } : x)) }));
+        } catch { /* best-effort rollback; the live meds listener will eventually correct it too */ }
+      });
+    };
+    pendingFlush.current[key] = fire;
+    binSubDebounce.current[medId] = window.setTimeout(fire, 500);
+  }, [canEditMeds, toast]);
+
+  // Same "ข้อมูลยังไม่ครบ" quick-fix need as setMedBinSub above, for category — a single select
+  // choice rather than typed text, so written immediately (no debounce needed: there's no
+  // keystroke-by-keystroke churn to coalesce for a dropdown pick).
+  const setMedCategory = useCallback(async (medId: string, categoryId: string) => {
+    if (!canEditMeds) return;
+    const m = state.meds.find((x) => x.id === medId);
+    if (!m) return;
+    const prevCategory = m.category;
+    setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, category: categoryId || undefined } : x)) }));
+    try {
+      await withTimeout(updateDoc(doc(db, 'meds', medId), categoryId ? { category: categoryId } : { category: deleteField() }));
+    } catch (e) {
+      console.error(e);
+      toast('บันทึกหมวดกลุ่มยาไม่สำเร็จ — กำลังดึงค่าจริงกลับมาแสดง');
+      setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, category: prevCategory } : x)) }));
+    }
+  }, [canEditMeds, state.meds, toast]);
+
   /**
    * `used30`/`usedPrev30` (the daily-usage stats behind "แนะนำ par" and the turnover report)
    * come from the seed data and are never touched again on their own — there's no server to
@@ -4456,7 +4504,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
-    applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
+    applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, recomputeUsageStats, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, fetchFloorLedger, fetchDailyMetrics, exportDailyMetricsCsv, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
