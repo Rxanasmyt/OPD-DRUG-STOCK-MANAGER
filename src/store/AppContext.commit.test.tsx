@@ -141,36 +141,88 @@ const BOXED_MED = {
   price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 10, bin: 'A1', packSize: 10,
   used30: 0, usedPrev30: 0, volatility: 0,
 };
+// setCartQty now rounds a typed quantity for a box-only med UP to the next whole box (see its
+// own "Real-world request" comment, AppContext.tsx) — ample substock here (100) so that
+// rounding never gets folded back down by the cap, isolating just the up-rounding behavior.
 function SeedBoxCart() {
   const { setCartQty, sub } = useApp();
   const qty = sub(BOXED_MED.id);
-  useEffect(() => { if (qty > 0) setCartQty(BOXED_MED.id, '25'); }, [setCartQty, qty]);
+  useEffect(() => { if (qty > 0) setCartQty(BOXED_MED.id, '23'); }, [setCartQty, qty]);
   return null;
 }
 
 describe('commitTransfer — box-breakdown tx-note regression', () => {
-  it('logs the real box+loose split for a box-only med, not just the raw unit total', async () => {
+  it('logs the real box count for a box-only med (23 typed → rounded up to 30 → 3 กล่อง)', async () => {
     const user = userEvent.setup();
     renderWithApp(<><SeedBoxCart /><TConfirmScreen /></>);
     await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
     fireCollection('meds', [BOXED_MED]);
     await waitFor(() => expect(hasListener('lots')).toBe(true));
-    fireCollection('lots', [{ id: 'lot1', medId: BOXED_MED.id, qty: 25, lotNo: 'L1', exp: Date.now() + 30 * 86400000 }]);
+    fireCollection('lots', [{ id: 'lot1', medId: BOXED_MED.id, qty: 100, lotNo: 'L1', exp: Date.now() + 30 * 86400000 }]);
     await screen.findByText(BOXED_MED.name);
 
     seedDoc('meds/m2', { floor: BOXED_MED.floor });
-    seedCollection('lots', [{ id: 'lot1', medId: BOXED_MED.id, qty: 25, exp: Date.now() + 30 * 86400000 }]);
-    seedDoc('lots/lot1', { qty: 25, lotNo: 'L1', exp: Date.now() + 30 * 86400000 });
+    seedCollection('lots', [{ id: 'lot1', medId: BOXED_MED.id, qty: 100, exp: Date.now() + 30 * 86400000 }]);
+    seedDoc('lots/lot1', { qty: 100, lotNo: 'L1', exp: Date.now() + 30 * 86400000 });
 
     await user.click(screen.getByRole('button', { name: /ยืนยันการเติมหน้างาน/ }));
     await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
 
     const writes = getLastTransactionWrites();
     const txWrite = writes.find((w) => w.path.startsWith('txs/'));
-    // 25 units at packSize 10 → 2 กล่อง+5, not a clean multiple — the note must show the real
-    // split, not silently round it away.
-    expect(txWrite?.data?.note).toContain('2 กล่อง+5 (กล่องละ 10)');
+    expect(txWrite?.data?.qty).toBe(30);
+    expect(txWrite?.data?.note).toContain('3 กล่อง (กล่องละ 10)');
+  });
+});
+
+function SetBoxCartQtyHarness({ medId, raw }: { medId: string; raw: string }) {
+  const { state, setCartQty } = useApp();
+  return (
+    <div>
+      <button onClick={() => setCartQty(medId, raw)}>set-qty</button>
+      <div data-testid="cartQty">{state.cart[medId] ?? ''}</div>
+    </div>
+  );
+}
+
+describe('setCartQty — box-rounding regression', () => {
+  it('rounds a typed quantity UP to the next whole box for a box-only med', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<SetBoxCartQtyHarness medId={BOXED_MED.id} raw="23" />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [BOXED_MED]);
+    fireCollection('lots', [{ id: 'lot1', medId: BOXED_MED.id, qty: 100, lotNo: 'L1', exp: Date.now() + 30 * 86400000 }]);
+
+    await user.click(screen.getByRole('button', { name: 'set-qty' }));
+    // Without the fix, this would be 23 — a non-whole-box quantity nothing caught.
+    await waitFor(() => expect(screen.getByTestId('cartQty').textContent).toBe('30'));
+  });
+
+  it('folds back down to the largest whole box that fits when rounding up would exceed substock', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<SetBoxCartQtyHarness medId={BOXED_MED.id} raw="23" />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [BOXED_MED]);
+    // Only 25 on hand — rounding 23 up to 30 would ask for more than substock actually has.
+    fireCollection('lots', [{ id: 'lot1', medId: BOXED_MED.id, qty: 25, lotNo: 'L1', exp: Date.now() + 30 * 86400000 }]);
+
+    await user.click(screen.getByRole('button', { name: 'set-qty' }));
+    await waitFor(() => expect(screen.getByTestId('cartQty').textContent).toBe('20'));
+  });
+
+  it('leaves a non-boxed med\'s typed quantity untouched', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<SetBoxCartQtyHarness medId={MED.id} raw="23" />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    fireCollection('lots', [{ id: 'lotM', medId: MED.id, qty: 100, lotNo: 'LM', exp: Date.now() + 30 * 86400000 }]);
+
+    await user.click(screen.getByRole('button', { name: 'set-qty' }));
+    await waitFor(() => expect(screen.getByTestId('cartQty').textContent).toBe('23'));
   });
 });
 
