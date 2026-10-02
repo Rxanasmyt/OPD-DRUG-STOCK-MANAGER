@@ -230,6 +230,14 @@ export default function TransferScreen() {
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
                     <MedDot code={m.code} />
+                    {/* Real-world request: "รายการที่ต้องเติมหน้างานอยากให้มีชั้นวางโชว์ด้วยครับ
+                        เพื่อหาตำแหน่งของยาได้อย่างถูกต้อง" — this list already sorts by shelf
+                        position ("ตามชั้นวาง", see binDisplayAll's own sort use below) but never
+                        actually PRINTED the bin code on the row itself, leaving someone walking
+                        the shelf with no way to confirm they're at the right spot without
+                        opening the med individually. Same badge style CountScreen's own
+                        shelf-order rows already use. */}
+                    {binDisplayAll(m) && <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 6, padding: '1px 6px' }}>{binDisplayAll(m)}</span>}
                     <span>{m.name}</span>
                     {m.had && <HadTag />}
                     {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}

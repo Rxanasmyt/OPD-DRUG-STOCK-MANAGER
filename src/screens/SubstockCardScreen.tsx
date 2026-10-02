@@ -57,6 +57,14 @@ export default function SubstockCardScreen() {
   // แต่ที่นี่เก็บได้ไม่จำกัดปีแล้วสลับดูย้อนหลังได้ทันทีโดยไม่ต้องโหลดใหม่ — คำนวณคงเหลือสะสม
   // จากประวัติทั้งหมดเสมอ ไม่ว่าจะกรองปีไหนอยู่ ยอดคงเหลือในแต่ละแถวจึงถูกต้องเสมอ)
   const [year, setYear] = useState<number | 'all'>('all');
+  // Real-world request: "ยาหน้างาน ไม่มีประวัติว่าแต่ละวันถูกตัดยอดไปเท่าไร คงเหลือเท่าไร" — a
+  // med WITH a substock stage used to only ever show its substock ledger here; fetchFloorLedger
+  // already existed and already worked for ANY med (it was only ever called for a noSubstock
+  // one) — the gap was purely that this screen never offered a way to switch to it for a
+  // substock-backed med. 'sub' is the default for one (matches the old always-substock
+  // behavior); a noSubstock med is forced to 'floor' in openCard below and has no toggle to
+  // show (there's only one side for it).
+  const [viewSide, setViewSide] = useState<'sub' | 'floor'>('sub');
 
   const med = medId ? state.meds.find((m) => m.id === medId) : null;
   // Real-world request: a noSubstock med (liquids/inhalers/sprays/injectables) has no substock
@@ -86,18 +94,17 @@ export default function SubstockCardScreen() {
   // only ever self-corrected once a SECOND new transaction arrived. See openCard and the effect
   // below for where each end of this fix lives.
   const seenTxTs = useRef(-1);
-  const openCard = async (id: string) => {
-    const m = state.meds.find((x) => x.id === id);
-    if (!m) return;
+  // Shared by openCard (first open) and switchSide (flipping substock ⇄ หน้างาน on an
+  // already-open card) — identical fetch/stale-response-guard/fiscal-year-default logic either
+  // way, just parameterized on which side to pull.
+  const loadLedger = async (id: string, side: 'sub' | 'floor') => {
     const reqId = ++loadReqId.current;
-    setMedId(id);
-    setSearch(m.name);
     setLoading(true);
     setRows(null);
     setYear('all');
     try {
-      const ledger = await (usesSubstock(m) ? fetchSubstockLedger(id) : fetchFloorLedger(id));
-      if (loadReqId.current !== reqId) return; // a newer openCard()/live-refetch has since superseded this
+      const ledger = await (side === 'sub' ? fetchSubstockLedger(id) : fetchFloorLedger(id));
+      if (loadReqId.current !== reqId) return; // a newer openCard()/switchSide()/live-refetch has since superseded this
       setRows(ledger);
       // Bug fix (false mismatch): baseline the "already covered by this fetch" marker off the
       // ledger's OWN last row ts (0 when it has none), not off latestRelevantTxTs computed from
@@ -118,6 +125,24 @@ export default function SubstockCardScreen() {
     } finally {
       if (loadReqId.current === reqId) setLoading(false);
     }
+  };
+  const openCard = async (id: string) => {
+    const m = state.meds.find((x) => x.id === id);
+    if (!m) return;
+    const side = usesSubstock(m) ? 'sub' : 'floor';
+    setMedId(id);
+    setSearch(m.name);
+    setViewSide(side);
+    await loadLedger(id, side);
+  };
+  // Lets a substock-backed med's card flip over to show its หน้างาน history too — see
+  // viewSide's own doc comment. A noSubstock med has only one side (openCard forces 'floor'
+  // and the toggle button never renders for it — see canToggle below), so this never fires
+  // for one in practice.
+  const switchSide = (side: 'sub' | 'floor') => {
+    if (!medId || side === viewSide) return;
+    setViewSide(side);
+    loadLedger(medId, side);
   };
 
   // All fiscal years that have at least one row, newest first — populates the year dropdown.
@@ -171,10 +196,16 @@ export default function SubstockCardScreen() {
   // window), so watch it for a newer row belonging to this med and silently re-pull the ledger
   // when one shows up — no loading spinner, no resetting search/year, just the rows updating
   // under the reader the way the balance already did.
-  const hasSub = med ? usesSubstock(med) : true;
+  // Whether a substock-backed med CAN flip to a floor view — the toggle button only renders
+  // for one of these (a noSubstock med has only one side to show at all).
+  const canToggle = med ? usesSubstock(med) : false;
+  // Which side is actually being DISPLAYED right now — driven by viewSide once a toggle exists,
+  // not just usesSubstock(med) directly (that alone would always force the substock side back
+  // on, defeating the whole point of the toggle).
+  const hasSub = med ? (canToggle && viewSide === 'sub') : true;
   const latestRelevantTxTs = useMemo(() => {
     if (!medId || !med) return 0;
-    const useSub = usesSubstock(med);
+    const useSub = hasSub;
     const types = useSub ? SUBSTOCK_LEDGER_TYPES : FLOOR_LEDGER_TYPES;
     return state.txs.reduce((mx, t) => {
       if (t.medId !== medId || !types.has(t.type)) return mx;
@@ -186,24 +217,31 @@ export default function SubstockCardScreen() {
       }
       return t.ts > mx ? t.ts : mx;
     }, 0);
-  }, [state.txs, medId, med]);
+  }, [state.txs, medId, med, hasSub]);
   useEffect(() => {
     seenTxTs.current = -1; // reset the baseline whenever a different med's card opens — openCard's own fetch will set the real one
   }, [medId]);
+  // Also reset on a side switch — switchSide's own loadLedger call is the authoritative fetch
+  // for the newly-displayed side (and sets the real baseline once it resolves); without this,
+  // this effect could briefly compare the NEW side's latestRelevantTxTs against the OLD side's
+  // leftover baseline right after flipping.
+  useEffect(() => {
+    seenTxTs.current = -1;
+  }, [hasSub]);
   useEffect(() => {
     if (!medId || !latestRelevantTxTs || !med) return;
-    // seenTxTs.current still -1 here means openCard's fetch for this med hasn't resolved yet
-    // (this effect raced ahead of it) — let openCard's own completion set the real baseline
-    // instead of guessing one here, so its stale-response guard (loadReqId) stays the single
-    // source of truth for which fetch's result actually wins.
+    // seenTxTs.current still -1 here means openCard's/switchSide's own fetch for this med/side
+    // hasn't resolved yet (this effect raced ahead of it) — let that fetch's own completion set
+    // the real baseline instead of guessing one here, so its stale-response guard (loadReqId)
+    // stays the single source of truth for which fetch's result actually wins.
     if (seenTxTs.current < 0) return;
     if (latestRelevantTxTs <= seenTxTs.current) return;
     seenTxTs.current = latestRelevantTxTs;
     const reqId = ++loadReqId.current;
-    (usesSubstock(med) ? fetchSubstockLedger(medId) : fetchFloorLedger(medId))
+    (hasSub ? fetchSubstockLedger(medId) : fetchFloorLedger(medId))
       .then((ledger) => { if (loadReqId.current === reqId) setRows(ledger); })
       .catch((e) => console.error(e));
-  }, [latestRelevantTxTs, medId, med, fetchSubstockLedger, fetchFloorLedger]);
+  }, [latestRelevantTxTs, medId, med, hasSub, fetchSubstockLedger, fetchFloorLedger]);
 
   const liveBalance = med ? (hasSub ? subQty(state, med.id) : med.floor) : 0;
   const balanceTone = med ? (hasSub ? subTone(liveBalance, med.parSub) : toneFor(med)) : 'var(--green)';
@@ -318,7 +356,7 @@ export default function SubstockCardScreen() {
             <div style={{ background: 'linear-gradient(135deg, #f0b429 0%, var(--amber) 100%)', color: '#2a1f0a', padding: '12px 15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 14, fontWeight: 800, letterSpacing: '.02em', display: 'flex', alignItems: 'center', gap: 7 }}>
                 <span aria-hidden="true" style={{ width: 26, height: 26, borderRadius: 8, background: 'rgba(255,255,255,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>🗂️</span>
-                {hasSub ? 'บัตรคุมสต็อกยา' : 'บัตรคุมยา (ไม่มี substock)'}
+                {hasSub ? 'บัตรคุมสต็อกยา' : canToggle ? 'บัตรคุมยา (มุมมองหน้างาน)' : 'บัตรคุมยา (ไม่มี substock)'}
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 {/* Multi-year history browser — the paper card needed a new sheet every fiscal
@@ -340,6 +378,30 @@ export default function SubstockCardScreen() {
                 <button onClick={() => { setMedId(null); setSearch(''); setRows(null); }} style={{ border: '1px solid rgba(42,31,10,.35)', background: 'rgba(255,255,255,.4)', color: '#2a1f0a', padding: '5px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 600 }}>เปลี่ยนยา</button>
               </div>
             </div>
+            {/* Real-world request: "ยาหน้างาน ไม่มีประวัติว่าแต่ละวันถูกตัดยอดไปเท่าไร คงเหลือ
+                เท่าไร" — a med with a substock stage used to only ever show its substock
+                ledger here, with no way to also see the SAME picture for its หน้างาน side
+                (daily deduction/balance, รับจาก substock, ปรับยอด, ฯลฯ) — fetchFloorLedger
+                already computed this correctly, it just was never wired up for one. Only
+                rendered when there's actually a second side to switch to (canToggle). */}
+            {canToggle && (
+              <div style={{ display: 'flex', gap: 6, padding: '8px 14px', background: 'var(--amber-bg)', borderTop: '1px solid var(--amber-border)' }}>
+                <button
+                  onClick={() => switchSide('sub')}
+                  className="press-spring"
+                  style={{ flex: 1, border: '1px solid ' + (hasSub ? 'var(--amber-ink)' : 'rgba(42,31,10,.3)'), background: hasSub ? 'rgba(255,255,255,.6)' : 'transparent', color: '#2a1f0a', fontWeight: hasSub ? 800 : 600, padding: '7px 10px', borderRadius: 9, fontSize: 12.5 }}
+                >
+                  substock
+                </button>
+                <button
+                  onClick={() => switchSide('floor')}
+                  className="press-spring"
+                  style={{ flex: 1, border: '1px solid ' + (!hasSub ? 'var(--amber-ink)' : 'rgba(42,31,10,.3)'), background: !hasSub ? 'rgba(255,255,255,.6)' : 'transparent', color: '#2a1f0a', fontWeight: !hasSub ? 800 : 600, padding: '7px 10px', borderRadius: 9, fontSize: 12.5 }}
+                >
+                  หน้างาน
+                </button>
+              </div>
+            )}
             <div style={{ background: 'var(--amber-bg)', display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
               <Field label="ชื่อยา" full><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MedDot code={med.code} size={9} />{med.name} <WardBadge med={med} size="md" /></span></Field>
               <Field label="รหัสยา">{med.code}</Field>
@@ -480,13 +542,30 @@ export default function SubstockCardScreen() {
                   {viewRows.map((r, i) => {
                     const meta = TYPE_META[r.type];
                     const title = (meta ? meta.label : r.type) + (r.note ? ' — ' + r.note : '');
+                    // Real-world request: "ประวัติของการรับยาจาก substock ว่ารับมากี่กล่อง
+                    // จำนวนกี่เม็ด" — a box-only med's รับจาก substock/เติมหน้างาน row (the only
+                    // type that moves between the two sides) shows the real box count it was
+                    // actually moved in, not just the raw unit total — same split addRecv's own
+                    // box-request note and TransferScreen's DeficitBadge already show elsewhere.
+                    const boxLine = r.type === 'transfer_to_floor' && med.packSize && med.packSize > 1 ? (() => {
+                      const abs = Math.abs(r.qty);
+                      const boxes = Math.floor(abs / med.packSize!);
+                      const rem = abs % med.packSize!;
+                      return boxes > 0 ? nf(boxes) + ' กล่อง' + (rem > 0 ? '+' + nf(rem) : '') : null;
+                    })() : null;
                     return (
                       <tr key={i} title={title}>
                         <Td num style={{ color: 'var(--muted)', fontSize: 10.5 }}>{i + 1}</Td>
                         <Td style={{ textAlign: 'center', fontSize: 12 }}>{meta ? meta.icon : ''}</Td>
                         <Td>{thDate(r.ts)}</Td>
-                        <Td num style={{ fontWeight: 700, fontSize: 13, color: 'var(--green)' }}>{r.qty > 0 ? nf(r.qty) : ''}</Td>
-                        <Td num style={{ fontWeight: 700, fontSize: 13, color: 'var(--red)' }}>{r.qty < 0 ? nf(-r.qty) : ''}</Td>
+                        <Td num style={{ fontWeight: 700, fontSize: 13, color: 'var(--green)' }}>
+                          {r.qty > 0 ? nf(r.qty) : ''}
+                          {r.qty > 0 && boxLine && <div className="muted" style={{ fontSize: 9, fontWeight: 500 }}>{boxLine}</div>}
+                        </Td>
+                        <Td num style={{ fontWeight: 700, fontSize: 13, color: 'var(--red)' }}>
+                          {r.qty < 0 ? nf(-r.qty) : ''}
+                          {r.qty < 0 && boxLine && <div className="muted" style={{ fontSize: 9, fontWeight: 500 }}>{boxLine}</div>}
+                        </Td>
                         <Td num style={{ fontWeight: 800, fontSize: 13.5 }}>{nf(r.balance)}</Td>
                         <Td style={{ color: 'var(--muted)', fontSize: 10.5, maxWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.by}</Td>
                       </tr>

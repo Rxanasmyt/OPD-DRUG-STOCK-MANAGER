@@ -136,6 +136,44 @@ describe('commitTransfer — FEFO regression', () => {
   });
 });
 
+const BOXED_MED = {
+  id: 'm2', code: 'MED-0002', name: 'Amoxicillin 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 10, bin: 'A1', packSize: 10,
+  used30: 0, usedPrev30: 0, volatility: 0,
+};
+function SeedBoxCart() {
+  const { setCartQty, sub } = useApp();
+  const qty = sub(BOXED_MED.id);
+  useEffect(() => { if (qty > 0) setCartQty(BOXED_MED.id, '25'); }, [setCartQty, qty]);
+  return null;
+}
+
+describe('commitTransfer — box-breakdown tx-note regression', () => {
+  it('logs the real box+loose split for a box-only med, not just the raw unit total', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><SeedBoxCart /><TConfirmScreen /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [BOXED_MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', [{ id: 'lot1', medId: BOXED_MED.id, qty: 25, lotNo: 'L1', exp: Date.now() + 30 * 86400000 }]);
+    await screen.findByText(BOXED_MED.name);
+
+    seedDoc('meds/m2', { floor: BOXED_MED.floor });
+    seedCollection('lots', [{ id: 'lot1', medId: BOXED_MED.id, qty: 25, exp: Date.now() + 30 * 86400000 }]);
+    seedDoc('lots/lot1', { qty: 25, lotNo: 'L1', exp: Date.now() + 30 * 86400000 });
+
+    await user.click(screen.getByRole('button', { name: /ยืนยันการเติมหน้างาน/ }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+    const writes = getLastTransactionWrites();
+    const txWrite = writes.find((w) => w.path.startsWith('txs/'));
+    // 25 units at packSize 10 → 2 กล่อง+5, not a clean multiple — the note must show the real
+    // split, not silently round it away.
+    expect(txWrite?.data?.note).toContain('2 กล่อง+5 (กล่องละ 10)');
+  });
+});
+
 function AdminActions() {
   const { toggleUserActive } = useApp();
   return <button onClick={() => toggleUserActive('adminX')}>disable-adminX</button>;
