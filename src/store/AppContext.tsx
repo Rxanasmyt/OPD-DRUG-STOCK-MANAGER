@@ -1354,6 +1354,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // 'all' (no ward filter applied) fills everything, matching the old behavior.
       st.meds.forEach((m) => {
         if (!matchesWard(m, st.wardFilter)) return;
+        // Bug fix (user-reported): a med flagged isOnStockHold() ("ยาขาดชั่วคราว") would still
+        // get silently queued into the cart here if it happened to have any leftover substock
+        // — same gap TransferScreen's own list had (see its `meds` filter's own comment).
+        if (isOnStockHold(m)) return;
         // Real min-max: only pick items actually at/below their reorder point (Min), not
         // anything a hair under capacity (Max) — that's the whole point of having the two be
         // different numbers instead of one target chasing two jobs.
@@ -1376,6 +1380,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const cart = { ...st.cart };
       st.meds.forEach((m) => {
         if (!matchesWard(m, st.wardFilter)) return;
+        if (isOnStockHold(m)) return;
         if (isUrgentLow(m)) { const q = suggestTransferQty(st, m); if (q > 0) cart[m.id] = q; }
       });
       return { ...st, cart, filter: 'urgent' };
@@ -1412,8 +1417,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // still be 'opd'/'ipd', which in practice meant "every med" here (harmless) but always
   // showed a shared med's OPD-side bin only, same gap as printPickList above.
   const printTodayReplenishList = useCallback(() => {
-    const items = state.meds.filter((m) => m.active && usesSubstock(m) && m.floor < floorMinOf(m));
-    if (!items.length) { toast('วันนี้ไม่มีรายการที่ต่ำกว่าจุดต้องเติม (Min) — ยังไม่ต้องเติมหน้างาน'); return; }
+    // Bug fix (user-reported): a med flagged isOnStockHold() ("ยาขาดชั่วคราว") still landed in
+    // the main pick rows below whenever it happened to have leftover substock — same gap
+    // TransferScreen's own list had. It belongs in the separate "ยาขาดชั่วคราว" section only
+    // (see heldMeds below), never mixed into today's actionable checklist.
+    const items = state.meds.filter((m) => m.active && usesSubstock(m) && m.floor < floorMinOf(m) && !isOnStockHold(m));
+    // Every active, substock-backed med currently below its own Min — held or not — so the
+    // early-return message below can tell "genuinely nothing to do" apart from "the only
+    // things below Min right now are all on hold" (see heldMeds below).
+    const heldMeds = state.meds.filter((m) => m.active && isOnStockHold(m) && usesSubstock(m) && m.floor < floorMinOf(m));
+    if (!items.length && !heldMeds.length) { toast('วันนี้ไม่มีรายการที่ต่ำกว่าจุดต้องเติม (Min) — ยังไม่ต้องเติมหน้างาน'); return; }
     const rows = items
       .map((m) => {
         const need = Math.max(0, m.parFloor - m.floor);
@@ -1444,12 +1457,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note, pickBin: m.binSub || undefined };
       })
       .filter((r) => r.qty > 0);
-    // Real-world request: a held med (supplier delay/discontinuation, warehouse closed for
-    // fiscal year-end — see isOnStockHold()) that's also below its own Min belongs here as a
-    // heads-up even though it never makes the pick rows above (if it still has SOME substock
-    // left, suggestTransferQty already surfaces it as a normal row — nothing to add there; if
-    // it has none, it's simply absent from `rows` with no explanation at all otherwise).
-    const heldMeds = state.meds.filter((m) => m.active && isOnStockHold(m) && usesSubstock(m) && m.floor < floorMinOf(m));
     // Only bail out with the old "nothing available to transfer" toast when there's truly
     // nothing to show at all — a held med still means there's something worth printing (the
     // heads-up section below), even with zero actual pick rows.

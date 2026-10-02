@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { useApp } from '../store/AppContext';
-import { toneFor, subTone, daysUntil, usesSubstock, floorMinOf, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, suggestTransferQty } from '../store/selectors';
+import { toneFor, subTone, daysUntil, usesSubstock, floorMinOf, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, suggestTransferQty, isOnStockHold } from '../store/selectors';
 import { nf, thDate, isoDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge } from '../components/Qty';
@@ -87,15 +87,19 @@ export default function HomeScreen() {
   // "Min" (reorder point) is a separate number from "Max" (parFloor, the shelf's fill
   // target) — below Min is when it actually needs refilling this morning, not just "any bit
   // under capacity".
-  const low = meds.filter((m) => m.floor < floorMinOf(m));
+  // Bug fix (user-reported): a med flagged isOnStockHold() ("ยาขาดชั่วคราว") still showed up
+  // in these tiles/lists (ต้องเติมหน้างาน, เร่งด่วนวันนี้, ต่ำกว่า par substock) even though
+  // nothing here can actually fix it — same gap TransferScreen's own list had. StockHoldBanner
+  // already surfaces it elsewhere with the reason and a resolve action.
+  const low = meds.filter((m) => m.floor < floorMinOf(m) && !isOnStockHold(m));
   // Meaningless for noSubstock meds (liquids/sprays) — they have no substock stage to be
   // low in; excluded here rather than always showing a permanent, unactionable "0/par" row.
-  const lowSub = meds.filter((m) => usesSubstock(m) && sub(m.id) < m.parSub);
+  const lowSub = meds.filter((m) => usesSubstock(m) && sub(m.id) < m.parSub && !isOnStockHold(m));
   // "สรุปงานวันนี้" checklist — combines the handful of things someone covering this app alone
   // has to currently piece together from several separate screens every morning (เร่งด่วนวันนี้
   // on TransferScreen, pending approvals on ReceiveScreen, ตัดยอด HOSxP status on
   // ReconcileScreen, the warehouse-request count) into one glance here instead.
-  const urgent = meds.filter((m) => usesSubstock(m) && isUrgentLow(m));
+  const urgent = meds.filter((m) => usesSubstock(m) && isUrgentLow(m) && !isOnStockHold(m));
   const needsWarehouse = meds.filter((m) => needsWarehouseRequest(m, sub(m.id)));
   const pendingApprovals = myProfile?.role !== 'tech' ? state.pending : 0;
   const W = warn();
