@@ -95,6 +95,26 @@ export function DeficitBadge({ amount, unit, urgent, packSize }: { amount: numbe
 }
 
 /**
+ * Real-world request: "หน้าเติมยาเข้าขั้นหน้างาน และเบิกเข้า substock อยากให้มีรายละเอียดว่า 1
+ * กล่องมีจำนวนยาเท่าไร...ให้ทุกคนรู้ได้ว่า 1 กล่องจำนวนเท่าไร" — DeficitBadge (above) and
+ * ReceiveScreen's own boxRequestNote already show a box breakdown, but ONLY once there's an
+ * actual deficit/shortfall to fill right now (amount/need <= 0 → neither renders anything) — a
+ * shelf that happens to already be at/above its own reorder point goes back to showing NO
+ * box-size info at all, even though "1 กล่อง = 10 เม็ด" is a fixed fact about the drug, not
+ * something tied to today's stock level, and is exactly the kind of thing anyone picking/
+ * counting this med should be able to see at a glance regardless of whether it's short right
+ * now. Unconditional on need — the only condition is the med actually being a boxed one
+ * (Med.packSize set) at all. */
+export function PackSizeBadge({ packSize, unit }: { packSize?: number; unit: string }) {
+  if (!packSize || packSize <= 1) return null;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, color: 'var(--ink)', background: 'var(--bg-subtle)', padding: '2.5px 8px', borderRadius: 20, whiteSpace: 'nowrap' }}>
+      📦 กล่องละ {nf(packSize)} {unit}
+    </span>
+  );
+}
+
+/**
  * Real-world request: "ควรปรับปรุงอะไรเพิ่มเติมอีกมั้ยครับในการเติมยาหน้างาน เติมยาเข้าคลัง
  * การนับสต็อกยา" — TransferScreen/ReceiveScreen/CountScreen all show Min/Max/par (fixed
  * targets), but none of them ever surfaced daysOfStockLeft() (selectors.ts) — a number this app

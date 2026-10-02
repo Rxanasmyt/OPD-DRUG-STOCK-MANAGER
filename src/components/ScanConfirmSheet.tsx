@@ -1,6 +1,7 @@
 import { useApp } from '../store/AppContext';
 import { BottomSheet } from './BottomSheet';
 import { NumberStepper } from './NumberStepper';
+import { PackSizeBadge } from './Qty';
 import { nf } from '../utils/format';
 
 /**
@@ -36,7 +37,12 @@ export default function ScanConfirmSheet() {
               ? '⚠ substock ไม่มี ' + med.unit + 'เหลือให้เติม — ต้องรับเข้า substock ก่อนถึงจะเติมหน้างานได้'
               : 'เติมจาก substock (มี ' + nf(sub(med.id)) + ' ' + med.unit + ') เข้าชั้นจ่ายยา ' + (med.bin ? '· ชั้น ' + med.bin : '')}
           </div>
-          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>จำนวนที่จะเติม ({med.unit})</div>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+            จำนวนที่จะเติม ({med.unit})
+            {/* Real-world request: "...อยากให้มีรายละเอียดว่า 1 กล่องมีจำนวนยาเท่าไร..." — right
+                where the actual transfer qty gets typed/stepped. */}
+            <PackSizeBadge packSize={med.packSize} unit={med.unit} />
+          </div>
           <NumberStepper
             value={String(state.cart[med.id] || 0)}
             onChange={(v) => setCartQty(med.id, v)}
