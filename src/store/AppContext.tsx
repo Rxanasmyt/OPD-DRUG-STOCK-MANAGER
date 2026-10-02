@@ -1301,8 +1301,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setCartQty = useCallback((id: string, raw: string) => {
     setState((st) => {
+      const m = st.meds.find((x) => x.id === id);
       const cap = subQty(st, id);
-      const v = Math.max(0, Math.min(cap, parseIntSafe(raw)));
+      let v = Math.max(0, Math.min(cap, parseIntSafe(raw)));
+      // Real-world request: "เติมยาหน้างาน...ต้องเติมหรือเบิกเป็นจำนวนกล่อง เพื่อง่ายต่อการหยิบยา
+      // ขนยาเติมยา" — bump()'s own +/- stepper already steps by packStep(m) (a whole box for a
+      // box-only med), but typing a number directly into this field had nothing enforcing the
+      // same rule — a typo or an arbitrary hand-typed number could land a non-whole-box quantity
+      // in the cart with no correction. Rounds UP to the next whole box (never under what was
+      // actually typed), then folds back down to the largest whole-box amount that still fits
+      // within what substock actually has, if rounding up overshot the cap. A non-boxed med
+      // (Med.packSize unset) is untouched — its real/actual unit count IS the quantity to
+      // request, not an artificial box count.
+      if (m && m.packSize && m.packSize > 1) {
+        const boxed = Math.ceil(v / m.packSize) * m.packSize;
+        v = boxed > cap ? Math.floor(cap / m.packSize) * m.packSize : boxed;
+      }
       const cart = { ...st.cart };
       if (v <= 0) delete cart[id]; else cart[id] = v;
       return { ...st, cart };
