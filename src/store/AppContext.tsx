@@ -891,14 +891,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [patch]);
   useEffect(() => {
     const checkForUpdate = () => { swRegistrationRef.current?.update().catch(() => {}); };
-    // Bug fix (same real-world request as onRegisteredSW's immediate check above): 60 minutes
-    // between polls meant a deploy landing mid-shift could still take up to an hour to surface
-    // on a tablet already open and idle on one screen (no visibilitychange to piggyback on).
-    // 15 minutes catches a new deploy within a quarter-hour of it actually going live — still
-    // infrequent enough not to matter for bandwidth/battery on a device left on all shift, but a
-    // real, felt improvement over "maybe next hour" for a hospital pharmacy that may need a
-    // just-shipped safety fix (e.g. a HIGH ALERT label bug) running as soon as possible.
-    const intervalId = setInterval(checkForUpdate, 15 * 60 * 1000);
+    // Real-world request: "อยากให้...update version ได้รวดเร็วครับ" — 15 minutes between polls
+    // (itself a prior fix, down from 60) still meant a deploy landing mid-shift could sit
+    // unnoticed for up to a quarter-hour on a tablet left open and idle on one screen (no
+    // visibilitychange to piggyback on in that case). 3 minutes catches a new deploy within
+    // minutes of it actually going live instead — the "มีแอพเวอร์ชันใหม่" banner still only ever
+    // PROMPTS (see registerType: 'prompt' above — never reloads on its own mid-task), so a
+    // faster check just means that banner itself shows up sooner, not a faster/more disruptive
+    // reload. A single GET of the SW script every 3 minutes is negligible bandwidth/battery
+    // cost for a device left on all shift.
+    const intervalId = setInterval(checkForUpdate, 3 * 60 * 1000);
     const onVisible = () => { if (document.visibilityState === 'visible') checkForUpdate(); };
     document.addEventListener('visibilitychange', onVisible);
     return () => { clearInterval(intervalId); document.removeEventListener('visibilitychange', onVisible); };
