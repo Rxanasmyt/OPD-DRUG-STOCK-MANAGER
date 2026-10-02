@@ -1564,9 +1564,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // any medId that doesn't resolve, so every lookup here is guaranteed to hit.
           const m = meds.find((x) => x.id === medId)!;
           trx.update(doc(db, 'meds', medId), { floor: medReads[medId] + cart[medId] });
+          // Real-world request: "ประวัติของการรับยาจาก substock ว่ารับมากี่กล่อง จำนวนกี่เม็ด" —
+          // the stock-card ledger (fetchSubstockLedger/fetchFloorLedger) reads this exact `note`
+          // field, so a box-only med's history line can show the real box count it was actually
+          // moved in, not just a raw unit total — same split printTodayReplenishList's own print
+          // sheet already shows (boxes, never rounded away since cart[medId] isn't guaranteed to
+          // land on a clean multiple of packSize).
+          const boxNote = m.packSize && m.packSize > 1 ? (() => {
+            const boxes = Math.floor(cart[medId] / m.packSize!);
+            const rem = cart[medId] % m.packSize!;
+            return boxes > 0 ? nf(boxes) + ' กล่อง' + (rem > 0 ? '+' + nf(rem) : '') + ' (กล่องละ ' + nf(m.packSize!) + ')' : undefined;
+          })() : undefined;
           trx.set(doc(collection(db, 'txs')), {
             type: 'transfer_to_floor', name: m.name, medId, qty: cart[medId], unit: m.unit, from: 'substock', to: 'floor',
-            note: 'FEFO lot ' + used.join(', '), by: userName(), ts,
+            note: 'FEFO lot ' + used.join(', ') + (boxNote ? ' · ' + boxNote : ''), by: userName(), ts,
           } satisfies Omit<import('../types').Tx, 'id'>);
           rows.push({ name: m.name, sub: 'lot ' + used.join(', '), qty: nf(cart[medId]) + ' ' + m.unit, medId });
         }
