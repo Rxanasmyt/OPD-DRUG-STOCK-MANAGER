@@ -5,6 +5,7 @@ import { BottomSheet } from './BottomSheet';
 import { NumberStepper } from './NumberStepper';
 import { MedDot } from './MedDot';
 import { WardBadge } from './WardBadge';
+import { PackSizeBadge } from './Qty';
 import { MedMiniCard } from './MedMiniCard';
 import { recognizeLotLabel } from '../utils/ocr';
 
@@ -99,7 +100,13 @@ export default function ReceiveConfirmSheet() {
             </label>
           </div>
           <label style={{ display: 'block', marginBottom: 4 }}>
-            <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>จำนวนที่รับ ({recvMed.unit})</span>
+            <span className="muted" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginBottom: 4 }}>
+              จำนวนที่รับ ({recvMed.unit})
+              {/* Real-world request: "...อยากให้มีรายละเอียดว่า 1 กล่องมีจำนวนยาเท่าไร..." —
+                  right where the real received qty actually gets typed in, not just somewhere
+                  earlier on the page already scrolled past. */}
+              <PackSizeBadge packSize={recvMed.packSize} unit={recvMed.unit} />
+            </span>
             <NumberStepper value={state.recvQty} onChange={setRecvQty} unit={recvMed.unit} />
           </label>
           <button

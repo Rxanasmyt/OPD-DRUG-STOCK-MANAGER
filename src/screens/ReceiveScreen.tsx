@@ -3,7 +3,7 @@ import { useApp } from '../store/AppContext';
 import { usesSubstock, needsWarehouseRequest, subTone, daysOfStockLeft, packStep } from '../store/selectors';
 import { nf, thDate, thTime } from '../utils/format';
 import { MedDot } from '../components/MedDot';
-import { Qty, DaysLeftBadge } from '../components/Qty';
+import { Qty, DaysLeftBadge, PackSizeBadge } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
 import { StepIndicator, RECEIVE_STEPS } from '../components/StepIndicator';
 import { SearchInput } from '../components/SearchInput';
@@ -246,7 +246,14 @@ export default function ReceiveScreen() {
                   ) : (
                     <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>ไม่มี substock · หน้างาน <Qty value={m.floor} tone={subTone(m.floor, m.parFloor)} size={11.5} /> · par {nf(m.parFloor)}</span>
                   )}
-                  <div style={{ marginTop: 3 }}><DaysLeftBadge days={daysOfStockLeft(state, m)} /></div>
+                  <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <DaysLeftBadge days={daysOfStockLeft(state, m)} />
+                    {/* Real-world request: "...อยากให้มีรายละเอียดว่า 1 กล่องมีจำนวนยาเท่าไร...ให้
+                        ทุกคนรู้ได้ว่า 1 กล่องจำนวนเท่าไร" — visible right here, BEFORE picking the
+                        med, so whoever's about to receive a lot already knows the box size going
+                        in — not just after boxRequestNote happens to have something to say. */}
+                    <PackSizeBadge packSize={m.packSize} unit={m.unit} />
+                  </div>
                 </div>
                 <CardPeekButton medId={m.id} name={m.name} onOpen={goSubstockCardFor} />
               </div>
@@ -282,7 +289,10 @@ export default function ReceiveScreen() {
                       const note = boxRequestNote(m, need);
                       return note ? <span className="muted" style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--amber-ink)' }}>{note}</span> : null;
                     })()}
-                    <div style={{ marginTop: 3 }}><DaysLeftBadge days={daysOfStockLeft(state, m)} /></div>
+                    <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <DaysLeftBadge days={daysOfStockLeft(state, m)} />
+                      <PackSizeBadge packSize={m.packSize} unit={m.unit} />
+                    </div>
                   </div>
                   <CardPeekButton medId={m.id} name={m.name} onOpen={goSubstockCardFor} />
                 </div>

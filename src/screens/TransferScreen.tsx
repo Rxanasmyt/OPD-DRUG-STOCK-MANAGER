@@ -4,7 +4,7 @@ import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, bi
 import { nf, thDate, digitsOnly, isoDate, daysUntil } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
-import { Qty, DeficitBadge, DaysLeftBadge } from '../components/Qty';
+import { Qty, DeficitBadge, DaysLeftBadge, PackSizeBadge } from '../components/Qty';
 import { HadTag } from '../components/Badge';
 import { MedMiniCard } from '../components/MedMiniCard';
 import { EmptyState } from '../components/EmptyState';
@@ -290,6 +290,9 @@ export default function TransferScreen() {
                     );
                   })()}
                   <div style={{ marginTop: 5, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    {/* Shown unconditionally (not tied to today's deficit, unlike DeficitBadge's
+                        own box breakdown below) — see PackSizeBadge's own doc comment. */}
+                    <PackSizeBadge packSize={m.packSize} unit={m.unit} />
                     <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={isUrgentLow(m)} packSize={m.packSize} />
                     <DaysLeftBadge days={daysOfStockLeft(state, m)} />
                     <button
