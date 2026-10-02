@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly, thDate } from '../utils/format';
-import { wardOf, wardLabel, floorMinOf, toneFor, subTone, isSharedMed, categoryOf, isOnStockHold } from '../store/selectors';
+import { wardOf, wardLabel, floorMinOf, toneFor, subTone, isSharedMed, categoryOf, isOnStockHold, usesSubstock } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
 import { Badge, HadTag } from '../components/Badge';
 import { BottomSheet } from '../components/BottomSheet';
@@ -9,11 +9,31 @@ import { Qty } from '../components/Qty';
 import type { Med, Ward } from '../types';
 import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
-import { DRUG_CATEGORIES, categoryLabel } from '../data/categories';
+import { DRUG_CATEGORIES, categoryLabel, UNCATEGORIZED } from '../data/categories';
 import { FRIDGE_LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
 
-type Filter = 'active' | 'inactive' | 'all' | 'parOne' | 'onHold';
+type Filter = 'active' | 'inactive' | 'all' | 'parOne' | 'onHold' | 'incomplete';
+
+/** Real-world request: "จาก flow งาน คิดว่าควรพัฒนาอะไรอีกครับ" — ฟีเจอร์ล่าสุดหลายตัว (รหัส
+ * ชั้นวาง substock บนหน้าเติมหน้างาน, ขนาดกล่อง) มีประโยชน์เต็มที่ก็ต่อเมื่อข้อมูลยาแต่ละตัวถูก
+ * กรอกไว้ครบ — ไม่มีทางรู้ได้ว่ายาตัวไหนยังขาดอยู่โดยไม่ต้องไล่เปิดทีละตัว. Checks only fields with
+ * an unambiguous "this med needs it" signal (never packSize — a med with no packSize set might
+ * genuinely be a loose-unit drug, not a data gap, and there is no reliable way to tell those
+ * apart from the data alone):
+ * - floor bin (ชั้นหน้างาน): every active med needs one, no exceptions.
+ * - substock bin (ชั้น substock): only meaningful for a med that HAS a substock stage
+ *   (usesSubstock() — a noSubstock med never gets one, by design, not a gap).
+ * - category (หมวดกลุ่มยา): every active med should have one — categoryOf() itself falls back
+ *   to UNCATEGORIZED, so "ยังไม่ระบุหมวด" never crashes anything, but that fallback is exactly
+ *   the state this diagnostic is for catching and clearing out, not leaving silently forever. */
+function missingFields(m: Med): string[] {
+  const out: string[] = [];
+  if (!m.bin.trim()) out.push('ชั้นหน้างาน');
+  if (usesSubstock(m) && !m.binSub?.trim()) out.push('ชั้น substock');
+  if (categoryOf(m) === UNCATEGORIZED) out.push('หมวดกลุ่มยา');
+  return out;
+}
 
 // Bug fix (mobile fit): iOS Safari auto-zooms the whole page in the instant a text input with
 // a computed font-size under 16px receives focus (it assumes you need it magnified to read) —
@@ -229,6 +249,14 @@ export default function MedsScreen() {
     [state.meds],
   );
 
+  // Count for the "📋 ข้อมูลยังไม่ครบ" diagnostic filter — see missingFields()'s own doc comment
+  // for exactly what counts (floor bin / substock bin / category — never packSize).
+  const incompleteOnly = filter === 'incomplete';
+  const incompleteCount = useMemo(
+    () => state.meds.filter((m) => m.active && missingFields(m).length > 0).length,
+    [state.meds],
+  );
+
   // Bug fix (performance): this whole filter→filter→filter→sort→(20×filter) chain (medsBeforeWard
   // through groups below) used to be plain consts, recomputed from scratch on EVERY render of
   // this screen — not just on a search keystroke or tab change, but on any unrelated context
@@ -238,7 +266,7 @@ export default function MedsScreen() {
   // dependency shape wardCounts/catCounts below already used (and correctly relied on).
   const medsBeforeWard = useMemo(
     () => state.meds
-      .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : filter === 'inactive' ? !m.active : filter === 'onHold' ? isOnStockHold(m) : (m.parFloor === 1 && floorMinOf(m) === 1)))
+      .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : filter === 'inactive' ? !m.active : filter === 'onHold' ? isOnStockHold(m) : filter === 'incomplete' ? missingFields(m).length > 0 : (m.parFloor === 1 && floorMinOf(m) === 1)))
       .filter((m) => { const s = q.trim().toLowerCase(); return !s || m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0; }),
     [state.meds, filter, q],
   );
@@ -416,6 +444,15 @@ export default function MedsScreen() {
             ⏸ ขาดชั่วคราว ({onHoldCount})
           </button>
         )}
+        {incompleteCount > 0 && (
+          <button
+            className="chip"
+            style={{ border: incompleteOnly ? '1px solid var(--amber)' : '1px solid var(--border)', background: incompleteOnly ? 'var(--amber)' : 'var(--bg-card)', color: incompleteOnly ? 'var(--ink-soft)' : 'var(--amber-ink)' }}
+            onClick={() => setFilter(incompleteOnly ? 'active' : 'incomplete')}
+          >
+            📋 ข้อมูลยังไม่ครบ ({incompleteCount})
+          </button>
+        )}
       </div>
       {parOneOnly && (
         <div className="muted" style={{ fontSize: 11, lineHeight: 1.6, marginBottom: 10, background: 'var(--amber-bg)', color: 'var(--amber-ink)', borderRadius: 10, padding: '9px 11px' }}>
@@ -430,6 +467,14 @@ export default function MedsScreen() {
           ยา {onHoldCount} รายการนี้ถูกทำเครื่องหมาย "ขาดชั่วคราว" ไว้ — ระบบจะไม่แนะนำเบิกจากคลังใหญ่
           รายการเหล่านี้จนกว่าจะกด "ยกเลิกขาดชั่วคราว" (เมื่อมีของเข้ามาจริง) แตะยาแต่ละตัวด้านล่างเพื่อ
           ดูเหตุผล/วันที่คาดว่าจะมีของ หรือยกเลิกสถานะได้เลย
+        </div>
+      )}
+      {incompleteOnly && (
+        <div className="muted" style={{ fontSize: 11, lineHeight: 1.6, marginBottom: 10, background: 'var(--amber-bg)', color: 'var(--amber-ink)', borderRadius: 10, padding: '9px 11px' }}>
+          ยา {incompleteCount} รายการนี้ยังขาดข้อมูลสำคัญ — รหัสชั้นหน้างาน, รหัสชั้น substock
+          (เฉพาะยาที่มี substock), หรือหมวดกลุ่มยา ยังไม่ได้กรอกไว้ ทำให้ฟีเจอร์ที่ต้องใช้ข้อมูลนี้
+          (เช่น ป้ายบอกตำแหน่งหยิบบนหน้าเติมหน้างาน) ใช้งานไม่ได้เต็มที่สำหรับยาตัวนี้ — ดูรายละเอียด
+          ว่าขาดอะไรใต้ชื่อยาแต่ละตัวด้านล่าง แล้วแตะ "แก้ไขข้อมูล" เพื่อกรอกให้ครบ
         </div>
       )}
 
@@ -527,6 +572,17 @@ export default function MedsScreen() {
                         {m.outOfStockExpectedReturn ? ' · คาดว่าจะมีของ ' + thDate(m.outOfStockExpectedReturn) : ''}
                       </div>
                     )}
+                    {/* Only surfaced under the "ข้อมูลยังไม่ครบ" diagnostic filter above — same
+                        reasoning as parOneOnly's own inline detail: spot exactly what's missing
+                        without opening each med's edit form one by one. */}
+                    {incompleteOnly && m.active && (() => {
+                      const missing = missingFields(m);
+                      return missing.length > 0 ? (
+                        <div style={{ fontSize: 10.5, marginTop: 3, color: 'var(--amber-ink)', fontWeight: 600 }}>
+                          📋 ขาด: {missing.join(' · ')}
+                        </div>
+                      ) : null;
+                    })()}
                   </div>
                   <Badge flexNone size={10.5} padding="4px 8px" color={m.active ? 'var(--green)' : 'var(--muted)'} bg={m.active ? 'var(--green-tint)' : 'var(--bg-subtle)'}>{m.active ? 'ใช้งานอยู่' : 'ปิดใช้งาน'}</Badge>
                 </div>
