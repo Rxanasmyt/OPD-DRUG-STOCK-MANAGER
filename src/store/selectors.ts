@@ -22,6 +22,15 @@ export function usesSubstock(m: Med): boolean {
   return !m.noSubstock;
 }
 
+/** True while a med's supply chain is flagged as temporarily broken (manufacturer delay,
+ * discontinuation pending a replacement, central warehouse closed for fiscal year-end) — see
+ * Med.outOfStockSince's own doc comment and startStockHold()/endStockHold() in AppContext.tsx.
+ * Always go through this instead of reading `m.outOfStockSince` directly, same convention as
+ * every other optional-field-with-meaning on Med (wardOf, usesSubstock, floorMinOf, ...). */
+export function isOnStockHold(m: Med): boolean {
+  return typeof m.outOfStockSince === 'number';
+}
+
 /** True once a med's OPD and IPD stock have been merged into one pooled record (see
  * mergeWardMeds() in AppContext.tsx and Med.binIpd in types.ts) — the real workflow for most
  * one-day-dose drugs, where IPD just pulls off the OPD shelf rather than keeping its own. */
@@ -123,8 +132,13 @@ export function isUrgentLow(m: Med): boolean {
  * requisitioning purposes (see suggestPar()'s doc comment). Pulled out as one function so the
  * print sheet, the on-screen list, and any summary count (HomeScreen) can't drift apart on the
  * definition of "needs requesting". `curSub` is the caller's already-computed subQty(state, m.id)
- * — passed in rather than recomputed here so this stays a pure, state-independent function. */
+ * — passed in rather than recomputed here so this stays a pure, state-independent function.
+ * Real-world request: a med flagged isOnStockHold() (manufacturer delay/discontinuation,
+ * warehouse closed for fiscal year-end) never belongs on this list — nothing a requisition can
+ * do gets it back on the shelf until supply itself resumes, so requesting it over and over is
+ * pure noise that also buries the requests that CAN actually be fulfilled today. */
 export function needsWarehouseRequest(m: Med, curSub: number): boolean {
+  if (isOnStockHold(m)) return false;
   return usesSubstock(m) ? curSub < m.parSub : m.floor < m.parFloor;
 }
 

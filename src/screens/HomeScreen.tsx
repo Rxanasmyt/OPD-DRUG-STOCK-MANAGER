@@ -6,6 +6,7 @@ import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge } from '../components/Qty';
 import { HadTag } from '../components/Badge';
 import HospitalCrest from '../components/HospitalCrest';
+import StockHoldBanner from '../components/StockHoldBanner';
 
 const GREETING_DATE_FMT: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
 
@@ -143,6 +144,7 @@ export default function HomeScreen() {
           </div>
         </div>
       </div>
+      <StockHoldBanner margin="0 0 16px" />
 
       <div style={{ ...surface, position: 'relative', overflow: 'hidden', padding: '19px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 18 }}>
         <div

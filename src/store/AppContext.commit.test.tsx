@@ -65,7 +65,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { useEffect } from 'react';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { runTransaction, setDoc, updateDoc } from 'firebase/firestore';
+import { runTransaction, setDoc, updateDoc, addDoc } from 'firebase/firestore';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import TConfirmScreen from '../screens/TConfirmScreen';
 import AdjustScreen from '../screens/AdjustScreen';
@@ -1301,5 +1301,127 @@ describe('printWarehouseRequestList — substock-bin-instead-of-med-code regress
     const row = rows.find((r) => r.name?.startsWith(WH_NOSUB_MED.name));
     expect(row?.bin).toBe(WH_NOSUB_MED.bin);
     expect(row?.bin).not.toBe(WH_NOSUB_MED.code);
+  });
+});
+
+// Real-world request: "เพิ่มการตั้งค่ายาหมดชั่วคราว...บริษัทยาไม่มาส่ง ล่าช้า เลิกผลิต คลังปิดช่วง
+// ปลาย/ต้นปีงบประมาณ...แจ้งเตือนทุกๆการเบิก" — startStockHold()/endStockHold() (AppContext.tsx)
+// flag/clear Med.outOfStockSince (+Reason/+ExpectedReturn), suppress the med from
+// needsWarehouseRequest() everywhere that's computed, and log a full permanent history via the
+// audit log (see types.ts's AuditType additions).
+const HOLD_MED = {
+  id: 'm8', code: 'MED-0008', name: 'Cefixime 100mg', unit: 'แคปซูล', dosageForm: 'แคปซูล',
+  price: 1, had: false, active: true, parSub: 200, parFloor: 60, floorMin: 30, floor: 50,
+  bin: 'D8', binSub: 'S30', noSubstock: false, used30: 0, usedPrev30: 0, volatility: 0,
+};
+
+function StockHoldHarness({ medId }: { medId: string }) {
+  const { startStockHold, endStockHold } = useApp();
+  return (
+    <div>
+      <button onClick={() => startStockHold(medId, 'บริษัทเลิกผลิต รอเปลี่ยนยี่ห้อ', new Date('2026-11-15').getTime())}>start-hold</button>
+      <button onClick={() => endStockHold(medId, 'ได้ของจากบริษัทใหม่แล้ว')}>end-hold</button>
+    </div>
+  );
+}
+
+describe('startStockHold / endStockHold — temporary-stockout regression', () => {
+  it('writes outOfStockSince/Reason/ExpectedReturn and logs a stock_hold_started audit entry', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<StockHoldHarness medId={HOLD_MED.id} />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [HOLD_MED]);
+
+    const updateCallsBefore = vi.mocked(updateDoc).mock.calls.length;
+    const auditCallsBefore = vi.mocked(addDoc).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'start-hold' }));
+    await waitFor(() => expect(vi.mocked(updateDoc).mock.calls.length).toBeGreaterThan(updateCallsBefore));
+
+    const savedFields = vi.mocked(updateDoc).mock.calls[updateCallsBefore][1] as unknown as Record<string, unknown>;
+    expect(typeof savedFields.outOfStockSince).toBe('number');
+    expect(savedFields.outOfStockReason).toBe('บริษัทเลิกผลิต รอเปลี่ยนยี่ห้อ');
+    expect(savedFields.outOfStockExpectedReturn).toBe(new Date('2026-11-15').getTime());
+
+    await waitFor(() => expect(vi.mocked(addDoc).mock.calls.length).toBeGreaterThan(auditCallsBefore));
+    const auditEntry = vi.mocked(addDoc).mock.calls[auditCallsBefore][1] as unknown as { type: string; note: string };
+    expect(auditEntry.type).toBe('stock_hold_started');
+    expect(auditEntry.note).toContain(HOLD_MED.name);
+    expect(auditEntry.note).toContain('บริษัทเลิกผลิต');
+  });
+
+  it('clears all three fields and logs a stock_hold_ended audit entry, for a med with an active hold', async () => {
+    const user = userEvent.setup();
+    const med = { ...HOLD_MED, id: 'm9', outOfStockSince: Date.now() - 5 * 86400000, outOfStockReason: 'จัดส่งล่าช้า' };
+    renderWithApp(<StockHoldHarness medId={med.id} />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [med]);
+
+    const updateCallsBefore = vi.mocked(updateDoc).mock.calls.length;
+    const auditCallsBefore = vi.mocked(addDoc).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'end-hold' }));
+    await waitFor(() => expect(vi.mocked(updateDoc).mock.calls.length).toBeGreaterThan(updateCallsBefore));
+
+    const savedFields = vi.mocked(updateDoc).mock.calls[updateCallsBefore][1] as unknown as Record<string, unknown>;
+    // deleteField() sentinels aren't plain `undefined` — just confirm all three keys were
+    // actually targeted by this write, which is what clears them in real Firestore.
+    expect(Object.keys(savedFields)).toEqual(expect.arrayContaining(['outOfStockSince', 'outOfStockReason', 'outOfStockExpectedReturn']));
+
+    await waitFor(() => expect(vi.mocked(addDoc).mock.calls.length).toBeGreaterThan(auditCallsBefore));
+    const auditEntry = vi.mocked(addDoc).mock.calls[auditCallsBefore][1] as unknown as { type: string; note: string };
+    expect(auditEntry.type).toBe('stock_hold_ended');
+    expect(auditEntry.note).toContain('ได้ของจากบริษัทใหม่แล้ว');
+    // 5 days ago → the logged duration should say so, not "0 วัน".
+    expect(auditEntry.note).toMatch(/5 วัน/);
+  });
+});
+
+const HELD_REPL_MED = {
+  id: 'm10', code: 'MED-0010', name: 'Metronidazole 400mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  price: 1, had: false, active: true, parSub: 300, parFloor: 100, floorMin: 50, floor: 10,
+  bin: 'E10', binSub: 'S40', noSubstock: false, used30: 0, usedPrev30: 0, volatility: 0,
+  outOfStockSince: Date.now() - 2 * 86400000, outOfStockReason: 'คลังปิดสิ้นปีงบ',
+};
+
+describe('printTodayReplenishList / printWarehouseRequestList — stock-hold exclusion regression', () => {
+  it('excludes a held, depleted med from the pick rows but lists it in the held section', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<PrintTodayReplenishHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [HELD_REPL_MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', []); // nothing in substock — the genuinely-can't-do-anything case
+
+    const callsBefore = vi.mocked(printModule.printPickListSheet).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'print-today-replenish' }));
+    await waitFor(() => expect(vi.mocked(printModule.printPickListSheet).mock.calls.length).toBeGreaterThan(callsBefore));
+    const call = vi.mocked(printModule.printPickListSheet).mock.calls[callsBefore];
+    const rows = call[0];
+    const heldRows = call[6] as { name: string; reason: string }[] | undefined;
+    expect(rows.find((r) => r.name === HELD_REPL_MED.name)).toBeUndefined();
+    expect(heldRows?.find((r) => r.name === HELD_REPL_MED.name)?.reason).toBe('คลังปิดสิ้นปีงบ');
+  });
+
+  it('excludes a held med from the warehouse-request rows but lists it in the held section', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<PrintWarehouseRequestHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [HELD_REPL_MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', []);
+
+    const callsBefore = vi.mocked(printModule.printPickListSheet).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'print-warehouse-request' }));
+    await waitFor(() => expect(vi.mocked(printModule.printPickListSheet).mock.calls.length).toBeGreaterThan(callsBefore));
+    const call = vi.mocked(printModule.printPickListSheet).mock.calls[callsBefore];
+    const rows = call[0];
+    const heldRows = call[6] as { name: string; reason: string }[] | undefined;
+    // Without the fix, this med (far below both parSub and parFloor) would land in `rows` like
+    // any other under-par med, asking staff to re-request something already known unavailable.
+    expect(rows.find((r) => r.name === HELD_REPL_MED.name)).toBeUndefined();
+    expect(heldRows?.find((r) => r.name === HELD_REPL_MED.name)?.reason).toBe('คลังปิดสิ้นปีงบ');
   });
 });

@@ -81,6 +81,24 @@ export interface Med {
   // read via categoryOf() in selectors.ts so those fall back to the same "ยังไม่ระบุหมวด" bucket
   // instead of being invisible in a category-grouped/filtered view.
   category?: string;
+  // Real-world request: "บริษัทยาไม่มาส่งยา ล่าช้า หรือเลิกผลิต อยู่ระหว่างสั่งยาบริษัทอื่น คลังปิด
+  // ช่วงปลาย/ต้นปีงบประมาณ" — a med's supply chain can break temporarily for reasons that have
+  // nothing to do with this pharmacy's own stock-management, where nothing substock/floor can
+  // do (no requisition, no transfer) will actually get it back on the shelf until supply itself
+  // resumes. Presence of `outOfStockSince` IS the live "is this held right now" state — never
+  // read it directly, go through isOnStockHold() in selectors.ts. Kept as plain fields on Med
+  // (not a separate collection) for the same reason lastCountTs/lastSubCountTs are: one more
+  // flag colocated with everything else about the drug, no second listener/join needed to know
+  // a med's current hold state anywhere it's checked. The actual incident HISTORY (who started
+  // it, why, when it ended, how long it lasted) lives in the existing auditLog collection via
+  // 'stock_hold_started'/'stock_hold_ended' entries — already a full, searchable, permanent
+  // record (see AdminScreen's ประวัติ tab), so no second history mechanism was built just for
+  // this.
+  outOfStockSince?: number;
+  outOfStockReason?: string;
+  // Optional — when known (e.g. "บริษัทแจ้งว่าจะส่งได้สัปดาห์หน้า"), shown alongside the reason
+  // so staff know whether to expect this soon or to actively go find a substitute now.
+  outOfStockExpectedReturn?: number;
 }
 
 export interface Lot {
@@ -159,6 +177,11 @@ export type AuditType =
   // goes to 0 too), without touching a med's name/code/par/bin/price/etc. Used when the
   // deployed quantities are still sample data and the drug list itself is already real.
   | 'quantity_reset'
+  // Logged by startStockHold()/endStockHold() (AppContext.tsx, MedsScreen's "ยาขาดชั่วคราว"
+  // toggle) — the full permanent history of every temporary-stockout incident (who flagged it,
+  // why, when it ended, how long it lasted), since the live state on Med.outOfStockSince only
+  // ever holds the CURRENT incident, if any. See Med.outOfStockSince's own doc comment.
+  | 'stock_hold_started' | 'stock_hold_ended'
   | TxType;
 
 export interface AuditEntry {

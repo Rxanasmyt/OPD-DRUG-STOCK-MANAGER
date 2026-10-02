@@ -25,6 +25,7 @@ const TYPE_LABEL: Record<string, string> = {
   ward_move_out: 'ย้ายชั้นวาง (ต้นทาง)', ward_move_in: 'ย้ายชั้นวาง (ปลายทาง)',
   stock_ledger_reset: 'รีเซ็ตบัตรสต็อกยาทุกตัว',
   quantity_reset: 'รีเซ็ตจำนวนยาทุกตัวเป็น 0',
+  stock_hold_started: 'ทำเครื่องหมายยาขาดชั่วคราว', stock_hold_ended: 'ยกเลิกยาขาดชั่วคราว',
 };
 // commitCount (floor) and commitSubCount (substock) both log type:'count' — TYPE_LABEL alone
 // can't tell them apart (one key, one label), so this reads the row's loc too, the same
