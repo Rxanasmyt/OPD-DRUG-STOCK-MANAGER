@@ -244,7 +244,17 @@ export default function TransferScreen() {
                         the shelf with no way to confirm they're at the right spot without
                         opening the med individually. Same badge style CountScreen's own
                         shelf-order rows already use. */}
-                    {binDisplayAll(m) && <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 6, padding: '1px 6px' }}>{binDisplayAll(m)}</span>}
+                    {/* Real-world request: "ตรวจสอบการเบิกใช้ยา...เห็นง่ายว่า...เอายาที่ไหน" — the
+                        badge above only ever said where the stock is HEADED (the floor shelf);
+                        nothing on this row said where to actually go PICK it from in substock,
+                        even though the printed ใบเติมหน้างานประจำวัน sheet already got this exact
+                        "หยิบจาก (substock)" column. A different color (purple, unused elsewhere
+                        on this row) from the floor-bin badge so the two can never be misread for
+                        each other — purple = where to start, green = where it ends up. Hidden
+                        for a noSubstock med (nothing to pick — see commitReceive) or one with no
+                        substock shelf code assigned yet. */}
+                    {!m.noSubstock && m.binSub && <span title="หยิบจาก substock" style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: 'var(--ipd)', background: 'var(--ipd-bg)', borderRadius: 6, padding: '1px 6px' }}>หยิบ {m.binSub}</span>}
+                    {binDisplayAll(m) && <span title="เติมที่ชั้นวางหน้างาน" style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 6, padding: '1px 6px' }}>{binDisplayAll(m)}</span>}
                     <span>{m.name}</span>
                     {m.had && <HadTag />}
                     {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
