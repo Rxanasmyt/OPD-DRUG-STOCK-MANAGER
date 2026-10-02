@@ -86,12 +86,21 @@ export function halfOfMaxRounded(parFloor: number): number {
  * behind — a real, observed case: "Min 400 / Max 110" on screen, which reads as permanently
  * "ต่ำกว่า Min" no matter how full the shelf actually is, and every "suggested qty to add"
  * computation downstream (HomeScreen's quick-add, TransferScreen's bump()) goes negative for it.
- * Clamping here fixes it the instant this renders, for any med already in this state, without a
- * migration — same "never show/compute a nonsensical derived number" rule this app already
- * applies elsewhere (daysOfStockLeft, balancePct). applyOnePar/applyAllSuggested separately keep
- * the STORED floorMin consistent too, so this clamp is a backstop, not the only fix. */
+ * Bug fix (follow-up — clamping to exactly Max is ALSO nonsensical): the first fix here used to
+ * clamp a too-high floorMin down to `m.parFloor` exactly (Math.min), so "Min 400 / Max 110"
+ * rendered as "Min 110 / Max 110" — no longer *above* Max, but Min === Max is just as useless in
+ * practice (the shelf would read "ต้องเติม" the instant it's not 100% full). Worse, MedsScreen's
+ * edit form pre-fills its Min field from this function's return value (see its own `floorMin:
+ * String(floorMinOf(m))`), so simply opening and saving that med's edit form for an unrelated
+ * reason would silently BAKE that Min===Max value in as an explicit stored floorMin. A stored
+ * floorMin greater than parFloor is never plausible (same as it being unset) — fall through to
+ * the same 50%-of-Max default in both cases, instead of clamping to a number that's merely no
+ * longer *greater* than Max. applyOnePar/applyAllSuggested separately keep the STORED floorMin
+ * consistent too (closer to this same default), so this is a display-time backstop, not the only
+ * fix — same "never show/compute a nonsensical derived number" rule this app already applies
+ * elsewhere (daysOfStockLeft, balancePct). */
 export function floorMinOf(m: Med): number {
-  if (typeof m.floorMin === 'number') return Math.min(m.floorMin, m.parFloor);
+  if (typeof m.floorMin === 'number' && m.floorMin <= m.parFloor) return m.floorMin;
   return halfOfMaxRounded(m.parFloor);
 }
 
@@ -189,12 +198,18 @@ export interface ParAnomaly { med: Med; code: string; severity: 'error' | 'revie
 export function parAnomaliesFor(m: Med, floorCoverDays: number, subCoverDays: number): ParAnomaly[] {
   if (!m.active) return [];
   const out: ParAnomaly[] = [];
-  const min = floorMinOf(m);
   // Min (reorder point) at or above Max (shelf capacity) — the shelf can never sit anywhere
   // between "needs refilling" and "full" as designed; a fresh top-up already reads as at/below
   // its own reorder point, so it re-triggers every single day regardless of real usage.
-  if (m.parFloor > 0 && min >= m.parFloor) {
-    out.push({ med: m, code: 'min_ge_max', severity: 'error', note: 'Min (' + nf(min) + ') ≥ Max (' + nf(m.parFloor) + ') — ตั้งจุดเติม (Min) เท่ากับหรือสูงกว่าความจุชั้น (Max)' });
+  // Bug fix: this used to check floorMinOf(m) — but floorMinOf() now falls back to a sane 50%-
+  // of-Max default the moment a stored floorMin is implausible (greater than parFloor), so it
+  // never itself reports a value >= parFloor for that case any more, and this scan would stop
+  // seeing the underlying bad data in Firestore at all. This anomaly check's whole job is
+  // surfacing bad STORED data for an admin to fix, so it must read the raw m.floorMin field
+  // directly — never through the same function that's deliberately designed to hide it from
+  // everyday display/computation.
+  if (m.parFloor > 0 && typeof m.floorMin === 'number' && m.floorMin >= m.parFloor) {
+    out.push({ med: m, code: 'min_ge_max', severity: 'error', note: 'Min (' + nf(m.floorMin) + ') ≥ Max (' + nf(m.parFloor) + ') — ตั้งจุดเติม (Min) เท่ากับหรือสูงกว่าความจุชั้น (Max)' });
   }
   // A substock-backed med whose substock par can't even refill its own shelf to Max once —
   // structurally under-provisioned: substock exists specifically to top the shelf back up (see

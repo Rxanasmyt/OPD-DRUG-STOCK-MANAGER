@@ -142,15 +142,21 @@ describe('floorMinOf', () => {
     expect(floorMinOf(med({ parFloor: 0 }))).toBe(0);
   });
 
-  it('clamps a hand-set floorMin that ended up above the med\'s current parFloor', () => {
+  it('falls back to the 50%-of-Max default (not a clamp to exactly Max) when a hand-set floorMin ended up above the med\'s current parFloor', () => {
     // Regression guard for a real, observed case: applyOnePar/applyAllSuggested ("ใช้ par ที่
     // แนะนำ", AppContext.tsx) can lower parFloor (Max) from real usage statistics with no
     // cross-check against the med's existing hand-set floorMin (Min), leaving "Min 400 / Max
-    // 110" live — without this clamp, every "ต่ำกว่า Min" check downstream would read this med
-    // as permanently low no matter how full the shelf actually is.
-    expect(floorMinOf(med({ floorMin: 400, parFloor: 110 }))).toBe(110);
+    // 110" live. A first fix clamped this down to exactly 110 (Math.min) — still wrong, since
+    // Min === Max reads as permanently "ต่ำกว่า Min" the instant the shelf isn't 100% full, same
+    // practical effect as the original bug, and MedsScreen's edit form would silently bake that
+    // 110 in as an explicit stored floorMin the next time someone merely opened and saved it.
+    // halfOfMaxRounded(110) = round(55/5)*5 = 55 — the same default an unset floorMin gets.
+    expect(floorMinOf(med({ floorMin: 400, parFloor: 110 }))).toBe(55);
     // A normal, already-consistent pair must be untouched.
     expect(floorMinOf(med({ floorMin: 40, parFloor: 110 }))).toBe(40);
+    // Explicitly set equal to Max is a legitimate, deliberate choice (MedsScreen's own edit-form
+    // validation only blocks STRICTLY greater) — must not also be defaulted away.
+    expect(floorMinOf(med({ floorMin: 110, parFloor: 110 }))).toBe(110);
   });
 });
 
