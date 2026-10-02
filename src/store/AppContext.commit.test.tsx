@@ -1155,3 +1155,53 @@ describe('signIn — double-submit-consistency regression', () => {
     expect(vi.mocked(signInWithEmailAndPassword).mock.calls.length).toBe(1);
   });
 });
+
+// used30=560, volatility=1, default parFloorCoverDays=4 → suggestPar's floor = roundStep(560 /
+// (30*5/7) * 4 * 1) = roundStep(104.53...) = 110 — deterministic suggested Max well below the
+// med's existing hand-set Min (400).
+const STALE_MIN_MED = {
+  id: 'm3', code: 'MED-0003', name: 'Dexamethasone 4mg/ml', unit: 'Amp.', dosageForm: 'ฉีด',
+  price: 1, had: false, active: true, parSub: 800, parFloor: 200, floorMin: 400, bin: 'T2',
+  used30: 560, usedPrev30: 0, volatility: 1,
+};
+function ApplyOneParHarness({ medId }: { medId: string }) {
+  const { applyOnePar } = useApp();
+  return <button onClick={() => applyOnePar(medId, 'floor')}>apply-par-floor</button>;
+}
+
+describe('applyOnePar — stale-Min-above-new-Max regression', () => {
+  it('pulls floorMin (Min) back down together with the new parFloor (Max) when the old Min would end up above it', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<ApplyOneParHarness medId={STALE_MIN_MED.id} />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [STALE_MIN_MED]);
+
+    const callsBefore = vi.mocked(updateDoc).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'apply-par-floor' }));
+    await waitFor(() => expect(vi.mocked(updateDoc).mock.calls.length).toBeGreaterThan(callsBefore));
+
+    const savedFields = vi.mocked(updateDoc).mock.calls[callsBefore][1] as unknown as Record<string, unknown>;
+    expect(savedFields.parFloor).toBe(110);
+    // Without the fix, floorMin would be left untouched at 400 — above the new Max (110),
+    // reproducing the real observed "Min 400 / Max 110" state.
+    expect(savedFields.floorMin).toBe(55);
+  });
+
+  it('leaves floorMin untouched when it already sits at or below the new parFloor', async () => {
+    const user = userEvent.setup();
+    const med = { ...STALE_MIN_MED, id: 'm4', floorMin: 50 };
+    renderWithApp(<ApplyOneParHarness medId={med.id} />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [med]);
+
+    const callsBefore = vi.mocked(updateDoc).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'apply-par-floor' }));
+    await waitFor(() => expect(vi.mocked(updateDoc).mock.calls.length).toBeGreaterThan(callsBefore));
+
+    const savedFields = vi.mocked(updateDoc).mock.calls[callsBefore][1] as unknown as Record<string, unknown>;
+    expect(savedFields.parFloor).toBe(110);
+    expect(savedFields.floorMin).toBeUndefined();
+  });
+});
