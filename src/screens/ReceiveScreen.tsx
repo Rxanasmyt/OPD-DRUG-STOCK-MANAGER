@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useApp } from '../store/AppContext';
-import { usesSubstock, needsWarehouseRequest, subTone, daysOfStockLeft } from '../store/selectors';
+import { usesSubstock, needsWarehouseRequest, subTone, daysOfStockLeft, packStep } from '../store/selectors';
 import { nf, thDate, thTime } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty, DaysLeftBadge } from '../components/Qty';
@@ -13,6 +13,19 @@ import type { Med } from '../types';
 // needsReceive's doc comment below), so its floor/parFloor ratio stands in for it there.
 function needsReceiveRatio(m: Med, curSub: number): number {
   return usesSubstock(m) ? curSub / Math.max(1, m.parSub) : m.floor / Math.max(1, m.parFloor);
+}
+
+// Real-world request: "...จำนวนยาที่ต้องเบิกจากคลัง...ถ้ามีหน่วยเป็นกล่อง บอกรายละเอียดกล่องละ
+// เท่าไร ต้องเบิกกี่กล่อง...เนื่องจากการทำงานจริงเบิกยาและเติมหน้างานเป็นกล่องๆ" — requesting FROM
+// the central warehouse (unlike filling the shelf from substock, which is capped by whatever's
+// physically there) has no such cap, so the request itself rounds UP to a whole box — same
+// rounding printWarehouseRequestList's own print sheet already uses, just surfaced here too so
+// it's visible before ever tapping "พิมพ์ใบขอเบิก". Returns null for a med with no real box size
+// set (packSize unset/≤1) — nothing to show.
+function boxRequestNote(m: Med, need: number): string | null {
+  if (!m.packSize || m.packSize <= 1 || need <= 0) return null;
+  const qty = Math.ceil(need / packStep(m)) * packStep(m);
+  return 'เบิกเป็นกล่อง กล่องละ ' + nf(m.packSize) + ' ' + m.unit + ' — ' + nf(qty / m.packSize) + ' กล่อง';
 }
 
 export default function ReceiveScreen() {
@@ -262,6 +275,11 @@ export default function ReceiveScreen() {
                     ) : (
                       <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>ไม่มี substock · หน้างาน <Qty value={m.floor} tone={subTone(m.floor, m.parFloor)} size={11.5} /> · par {nf(m.parFloor)}</span>
                     )}
+                    {(() => {
+                      const need = Math.max(0, usesSubstock(m) ? m.parSub - sub(m.id) : m.parFloor - m.floor);
+                      const note = boxRequestNote(m, need);
+                      return note ? <span className="muted" style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--amber-ink)' }}>{note}</span> : null;
+                    })()}
                     <div style={{ marginTop: 3 }}><DaysLeftBadge days={daysOfStockLeft(state, m)} /></div>
                   </div>
                   <CardPeekButton medId={m.id} name={m.name} onOpen={goSubstockCardFor} />

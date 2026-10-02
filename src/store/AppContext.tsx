@@ -4091,6 +4091,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         lastScanConfirm.current = { medId: med.id, prevQty: state.cart[med.id] || 0 };
         if (!isRepeat) bump(med.id, 1);
         hapticSuccess();
+        // Real-world request: "เติมยา HAD ไม่ต้องสแกน QR ซ้ำก่อนครับ" — TConfirmScreen's own
+        // high-alert re-scan step (hadPending/startHadScan above) exists to prove "the physical
+        // drug actually in hand right now really is this high-alert med" before it gets
+        // dispensed — but scanning THIS med's own QR code to add it to the cart just now already
+        // proved exactly that (the scanner only accepted it because the decoded code matched
+        // this med). Asking for a second scan of the same physical item is a pure duplicate, not
+        // an extra safety check — set hadOk here too so a HAD med added by scanning never hits
+        // that redundant prompt. A HAD med added by SEARCH/TAP instead (no physical scan ever
+        // happened) still has to go through it on TConfirmScreen, same as before — only the
+        // already-scanned case skips it.
+        setState((st) => ({ ...st, hadOk: med.had ? { ...st.hadOk, [med.id]: true } : st.hadOk }));
         patch({ qrOpen: false, qrCode: '', qrManualOpen: false, qrManualReason: '', scanConfirmMedId: med.id });
       }
       return;
