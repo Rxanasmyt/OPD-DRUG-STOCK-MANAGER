@@ -11,6 +11,7 @@ import { EmptyState } from '../components/EmptyState';
 import { StepIndicator, TRANSFER_STEPS } from '../components/StepIndicator';
 import { SearchInput } from '../components/SearchInput';
 import { DRUG_CATEGORIES } from '../data/categories';
+import StockHoldBanner from '../components/StockHoldBanner';
 
 // Informational only — never filters or hides anything, just a heads-up. Which OPD clinics run
 // which weekday (จันทร์–ศุกร์ only — the hospital's real weekly schedule) drives which drug
@@ -146,6 +147,7 @@ export default function TransferScreen() {
   return (
     <div style={{ animation: 'fade .18s' }}>
       <StepIndicator steps={TRANSFER_STEPS} current={0} />
+      <StockHoldBanner />
       {/* เตือนเฉยๆ ไม่กรอง/ไม่ซ่อนอะไร — คลินิกวันนี้อาจทำให้ยากลุ่มนี้ใช้เร็วกว่าปกติ เผื่อดูก่อน
           รายการอื่นที่เหลือ ("ตรวจทั่วไป" ใช้ยาแทบทุกหมวดอยู่แล้วทุกวัน ไม่ต้องระบุแยก) */}
       {todayClinics && showClinicInfo && (

@@ -7,6 +7,7 @@ import { Qty, DaysLeftBadge } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
 import { StepIndicator, RECEIVE_STEPS } from '../components/StepIndicator';
 import { SearchInput } from '../components/SearchInput';
+import StockHoldBanner from '../components/StockHoldBanner';
 import type { Med } from '../types';
 
 // The "ควรเบิกจากคลังใหญ่" sort order — a noSubstock med has no substock stage to rank by (see
@@ -125,6 +126,7 @@ export default function ReceiveScreen() {
   return (
     <div style={{ animation: 'fade .18s' }}>
       <StepIndicator steps={RECEIVE_STEPS} current={0} />
+      <StockHoldBanner />
       <div style={{ padding: '10px 14px 24px' }}>
       <button
         onClick={printWarehouseRequestList}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
-import { nf, digitsOnly } from '../utils/format';
-import { wardOf, wardLabel, floorMinOf, toneFor, subTone, isSharedMed, categoryOf } from '../store/selectors';
+import { nf, digitsOnly, thDate } from '../utils/format';
+import { wardOf, wardLabel, floorMinOf, toneFor, subTone, isSharedMed, categoryOf, isOnStockHold } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
 import { Badge, HadTag } from '../components/Badge';
 import { BottomSheet } from '../components/BottomSheet';
@@ -13,7 +13,7 @@ import { DRUG_CATEGORIES, categoryLabel } from '../data/categories';
 import { FRIDGE_LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
 
-type Filter = 'active' | 'inactive' | 'all' | 'parOne';
+type Filter = 'active' | 'inactive' | 'all' | 'parOne' | 'onHold';
 
 // Bug fix (mobile fit): iOS Safari auto-zooms the whole page in the instant a text input with
 // a computed font-size under 16px receives focus (it assumes you need it magnified to read) —
@@ -130,11 +130,15 @@ function formFromMed(m: Med): MedFormValues {
 }
 
 export default function MedsScreen() {
-  const { state, sub, addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, setMedBin, toggleMedActive, deleteMed, deleteAllInactiveMeds, setMedsFocusId, openScanSearch, confirmLeaveIfDirty } = useApp();
+  const { state, sub, addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, setMedBin, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, setMedsFocusId, openScanSearch, confirmLeaveIfDirty } = useApp();
   // Real-world request: editing the master drug record is Admin-only now (was pharm+admin).
   const canEdit = state.role === 'admin';
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('active');
+  // Which med's "ยาขาดชั่วคราว" sheet is open — mirrors editingId below but a separate state
+  // since the two sheets are independent (never both open at once in practice, but there's no
+  // reason to couple them).
+  const [holdMedId, setHoldMedId] = useState<string | null>(null);
   const [wardTab, setWardTab] = useState<'all' | 'shared' | Ward>('all');
   const [catTab, setCatTab] = useState<'all' | string>('all');
   const [addOpen, setAddOpen] = useState(false);
@@ -217,6 +221,14 @@ export default function MedsScreen() {
     [state.meds],
   );
 
+  // Count for the "⏸ ขาดชั่วคราว" diagnostic filter — same shape as parOneCount above, for
+  // meds currently flagged isOnStockHold() (see MedsScreen's "ยาขาดชั่วคราว" action/sheet).
+  const onHoldOnly = filter === 'onHold';
+  const onHoldCount = useMemo(
+    () => state.meds.filter((m) => m.active && isOnStockHold(m)).length,
+    [state.meds],
+  );
+
   // Bug fix (performance): this whole filter→filter→filter→sort→(20×filter) chain (medsBeforeWard
   // through groups below) used to be plain consts, recomputed from scratch on EVERY render of
   // this screen — not just on a search keystroke or tab change, but on any unrelated context
@@ -226,7 +238,7 @@ export default function MedsScreen() {
   // dependency shape wardCounts/catCounts below already used (and correctly relied on).
   const medsBeforeWard = useMemo(
     () => state.meds
-      .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : filter === 'inactive' ? !m.active : (m.parFloor === 1 && floorMinOf(m) === 1)))
+      .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : filter === 'inactive' ? !m.active : filter === 'onHold' ? isOnStockHold(m) : (m.parFloor === 1 && floorMinOf(m) === 1)))
       .filter((m) => { const s = q.trim().toLowerCase(); return !s || m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0; }),
     [state.meds, filter, q],
   );
@@ -395,6 +407,15 @@ export default function MedsScreen() {
             ⚠ Max=Min=1 ({parOneCount})
           </button>
         )}
+        {onHoldCount > 0 && (
+          <button
+            className="chip"
+            style={{ border: onHoldOnly ? '1px solid var(--red)' : '1px solid var(--border)', background: onHoldOnly ? 'var(--red)' : 'var(--bg-card)', color: onHoldOnly ? 'var(--ink-soft)' : 'var(--red)' }}
+            onClick={() => setFilter(onHoldOnly ? 'active' : 'onHold')}
+          >
+            ⏸ ขาดชั่วคราว ({onHoldCount})
+          </button>
+        )}
       </div>
       {parOneOnly && (
         <div className="muted" style={{ fontSize: 11, lineHeight: 1.6, marginBottom: 10, background: 'var(--amber-bg)', color: 'var(--amber-ink)', borderRadius: 10, padding: '9px 11px' }}>
@@ -402,6 +423,13 @@ export default function MedsScreen() {
           "Min" เป็น 1 ไว้ตรงๆ (ไม่ใช่ค่า default อัตโนมัติ ซึ่งกรณี Max=1 ระบบจะคำนวณ Min เริ่มต้นให้เป็น 0
           เสมอ) อาจเป็นเพราะยาตัวนั้นใช้น้อยมากจริง หรือกรอกไว้ตอนที่ยังไม่มีสถิติการใช้แม่นพอ — แตะยา
           แต่ละตัวด้านล่างเพื่อดู/แก้ Max-Min ได้เลย
+        </div>
+      )}
+      {onHoldOnly && (
+        <div className="muted" style={{ fontSize: 11, lineHeight: 1.6, marginBottom: 10, background: 'var(--red-bg)', color: 'var(--red)', borderRadius: 10, padding: '9px 11px' }}>
+          ยา {onHoldCount} รายการนี้ถูกทำเครื่องหมาย "ขาดชั่วคราว" ไว้ — ระบบจะไม่แนะนำเบิกจากคลังใหญ่
+          รายการเหล่านี้จนกว่าจะกด "ยกเลิกขาดชั่วคราว" (เมื่อมีของเข้ามาจริง) แตะยาแต่ละตัวด้านล่างเพื่อ
+          ดูเหตุผล/วันที่คาดว่าจะมีของ หรือยกเลิกสถานะได้เลย
         </div>
       )}
 
@@ -483,7 +511,7 @@ export default function MedsScreen() {
                         {parOneOnly && <span style={{ color: 'var(--amber-ink)', fontWeight: 600 }}> · Max {nf(m.parFloor)} / Min {nf(floorMinOf(m))} {m.unit}</span>}
                       </div>
                     )}
-                    <div style={{ display: 'flex', gap: 5, marginTop: 5 }}>
+                    <div style={{ display: 'flex', gap: 5, marginTop: 5, flexWrap: 'wrap' }}>
                       {isSharedMed(m) ? (
                         <Badge color="var(--green)" bg="var(--green-tint)">OPD+IPD ร่วมกัน</Badge>
                       ) : (
@@ -491,9 +519,24 @@ export default function MedsScreen() {
                       )}
                       {m.noSubstock && <Badge color="var(--amber-ink)" bg="var(--amber-bg)">ไม่มี substock</Badge>}
                       {!!m.packSize && m.packSize > 1 && <Badge color="var(--ink)" bg="var(--bg-subtle)">เบิกเป็นกล่อง ×{nf(m.packSize)}</Badge>}
+                      {isOnStockHold(m) && <Badge color="var(--red)" bg="var(--red-bg)">⏸ ขาดชั่วคราว</Badge>}
                     </div>
+                    {isOnStockHold(m) && (
+                      <div className="muted" style={{ fontSize: 10.5, marginTop: 3, color: 'var(--red)' }}>
+                        {m.outOfStockReason} · ขาดตั้งแต่ {thDate(m.outOfStockSince as number)}
+                        {m.outOfStockExpectedReturn ? ' · คาดว่าจะมีของ ' + thDate(m.outOfStockExpectedReturn) : ''}
+                      </div>
+                    )}
                   </div>
                   <Badge flexNone size={10.5} padding="4px 8px" color={m.active ? 'var(--green)' : 'var(--muted)'} bg={m.active ? 'var(--green-tint)' : 'var(--bg-subtle)'}>{m.active ? 'ใช้งานอยู่' : 'ปิดใช้งาน'}</Badge>
+                </div>
+                <div style={{ display: 'flex', gap: 7, marginBottom: 7 }}>
+                  <button
+                    onClick={() => setHoldMedId(m.id)}
+                    style={{ flex: 1, border: isOnStockHold(m) ? '1px solid var(--red)' : '1px solid var(--border)', background: isOnStockHold(m) ? 'var(--red-bg)' : 'var(--bg-card)', color: isOnStockHold(m) ? 'var(--red)' : 'var(--ink)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44 }}
+                  >
+                    {isOnStockHold(m) ? '⏸ ยกเลิกขาดชั่วคราว' : '⏸ ทำเครื่องหมายขาดชั่วคราว'}
+                  </button>
                 </div>
                 <div style={{ display: 'flex', gap: 7 }}>
                   <button
@@ -580,6 +623,23 @@ export default function MedsScreen() {
               onSiblingBinChange={(siblingId, val) => setMedBin(siblingId, val)}
               onMerge={(siblingId) => mergeWardMeds(m.id, siblingId)}
               mergeBusy={!!state.busy['mergeWardMeds:' + m.id]}
+            />
+          </BottomSheet>
+        );
+      })()}
+
+      {(() => {
+        const m = holdMedId ? state.meds.find((x) => x.id === holdMedId) : null;
+        if (!m) return null;
+        const held = isOnStockHold(m);
+        return (
+          <BottomSheet open={true} onClose={() => setHoldMedId(null)} title={(held ? 'ยกเลิกขาดชั่วคราว: ' : 'ทำเครื่องหมายขาดชั่วคราว: ') + m.name}>
+            <StockHoldForm
+              key={holdMedId}
+              med={m}
+              onCancel={() => setHoldMedId(null)}
+              onStart={async (reason, expectedReturnAt) => { await startStockHold(m.id, reason, expectedReturnAt); setHoldMedId(null); }}
+              onEnd={async (note) => { await endStockHold(m.id, note); setHoldMedId(null); }}
             />
           </BottomSheet>
         );
@@ -850,6 +910,74 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={onCancel} className="btn-outline" style={{ flex: 1, padding: 12, borderRadius: 10, fontSize: 13.5, minHeight: 46 }}>ยกเลิก</button>
         <button onClick={() => onSubmit(v)} disabled={!v.name.trim() || minExceedsMax} className="btn-primary" style={{ flex: 1, padding: 12, borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 46, opacity: v.name.trim() && !minExceedsMax ? 1 : 0.5 }}>{submitLabel}</button>
+      </div>
+    </div>
+  );
+}
+
+/** "ยาขาดชั่วคราว" sheet — real-world request: a med's supply chain can break temporarily
+ * (manufacturer delay/discontinuation, warehouse closed for fiscal year-end), where nothing
+ * substock/floor can do fixes it until supply resumes. Starting a hold asks why (required —
+ * the whole point is staff elsewhere seeing the reason at a glance, see StockHoldBanner) and
+ * optionally when it's expected back; ending one offers an optional resolution note, both
+ * going into the permanent audit-log history via startStockHold()/endStockHold()
+ * (AppContext.tsx) — see Med.outOfStockSince's own doc comment for why this isn't a separate
+ * collection. */
+function StockHoldForm({ med, onCancel, onStart, onEnd }: {
+  med: Med;
+  onCancel: () => void;
+  onStart: (reason: string, expectedReturnAt?: number) => void;
+  onEnd: (note?: string) => void;
+}) {
+  const held = isOnStockHold(med);
+  const [reason, setReason] = useState('');
+  const [expectedReturn, setExpectedReturn] = useState('');
+  const [endNote, setEndNote] = useState('');
+
+  if (held) {
+    const days = Math.max(0, Math.round((Date.now() - (med.outOfStockSince as number)) / 86400000));
+    return (
+      <div className="card" style={{ padding: 13, marginBottom: 14, animation: 'fade .16s var(--ease-out)' }}>
+        <div style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 10, background: 'var(--red-bg)', color: 'var(--red)', borderRadius: 10, padding: '9px 11px' }}>
+          ขาดชั่วคราวมา {nf(days)} วัน — เหตุผลเดิม: {med.outOfStockReason}
+          {med.outOfStockExpectedReturn ? ' · คาดว่าจะมีของ ' + thDate(med.outOfStockExpectedReturn) : ''}
+        </div>
+        <label style={{ display: 'block', marginBottom: 9 }}>
+          <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>หมายเหตุการยกเลิก (ถ้ามี เช่น "ได้ของจากบริษัทใหม่แล้ว")</span>
+          <textarea value={endNote} onChange={(e) => setEndNote(e.target.value)} rows={2} style={{ ...inputStyle, resize: 'vertical' as const }} />
+        </label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onCancel} className="btn-outline" style={{ flex: 1, padding: 12, borderRadius: 10, fontSize: 13.5, minHeight: 46 }}>ปิด</button>
+          <button onClick={() => onEnd(endNote || undefined)} className="btn-primary" style={{ flex: 1, padding: 12, borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 46 }}>ยกเลิกขาดชั่วคราว</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card" style={{ padding: 13, marginBottom: 14, animation: 'fade .16s var(--ease-out)' }}>
+      <label style={{ display: 'block', marginBottom: 9 }}>
+        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>เหตุผล (จำเป็น — เช่น "บริษัทเลิกผลิต รอเปลี่ยนยี่ห้อ", "จัดส่งล่าช้า", "คลังปิดสิ้นปีงบ")</span>
+        <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} style={{ ...inputStyle, resize: 'vertical' as const }} />
+      </label>
+      <label style={{ display: 'block', marginBottom: 9 }}>
+        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>คาดว่าจะมีของอีกครั้งวันที่ (ถ้าทราบ)</span>
+        <input type="date" value={expectedReturn} onChange={(e) => setExpectedReturn(e.target.value)} style={inputStyle} />
+      </label>
+      <div className="muted" style={{ fontSize: 11, lineHeight: 1.6, marginBottom: 10 }}>
+        เมื่อทำเครื่องหมายแล้ว ระบบจะไม่แนะนำเบิกจากคลังใหญ่ยานี้ (ทั้งในแอปและใบพิมพ์) จนกว่าจะกด
+        "ยกเลิกขาดชั่วคราว" — ยอดคงเหลือจริง/การเติมหน้างานจากของที่เหลืออยู่ยังทำได้ตามปกติ
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={onCancel} className="btn-outline" style={{ flex: 1, padding: 12, borderRadius: 10, fontSize: 13.5, minHeight: 46 }}>ยกเลิก</button>
+        <button
+          onClick={() => onStart(reason, expectedReturn ? new Date(expectedReturn).getTime() : undefined)}
+          disabled={!reason.trim()}
+          className="btn-primary"
+          style={{ flex: 1, padding: 12, borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 46, opacity: reason.trim() ? 1 : 0.5 }}
+        >
+          ทำเครื่องหมายขาดชั่วคราว
+        </button>
       </div>
     </div>
   );

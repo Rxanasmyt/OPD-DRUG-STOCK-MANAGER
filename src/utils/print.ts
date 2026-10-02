@@ -320,6 +320,18 @@ export interface PickListRow {
   pickBin?: string;
 }
 
+/** One row of the optional "ยาขาดชั่วคราว" informational section — see printPickListSheet's
+ * `heldRows` param. Not a thing to pick/check off (no qty, no checkbox — see its own table
+ * markup), just a heads-up for whoever carries this sheet: these meds are known to be
+ * unavailable right now, so don't expect them, and here's why/since when/when they might be
+ * back, straight from Med.outOfStockReason/outOfStockSince/outOfStockExpectedReturn. */
+export interface HeldRow {
+  name: string;
+  reason: string;
+  since: string;
+  expectedReturn?: string;
+}
+
 /**
  * The "Auto Pick-List" for the morning shelf-fill routine — a sorted-by-shelf-position A4
  * sheet someone can carry while walking the substock room, instead of trying to remember (or
@@ -348,6 +360,13 @@ export function printPickListSheet(
   // already happened, when this sheet is only the outgoing request. Made overridable per document
   // type instead of a one-size label set that doesn't fit its own use.
   signoffLabels: [string, string, string] = ['ผู้จัดทำรายการ', 'ผู้ตรวจสอบ / ผู้รับของ', 'ผู้อนุมัติ'],
+  // Real-world request: "บริษัทยาไม่มาส่ง ล่าช้า เลิกผลิต คลังปิดปลาย/ต้นปีงบประมาณ" — meds flagged
+  // isOnStockHold() are already excluded from the main rows above (nothing a requisition does
+  // fixes a supply problem — see needsWarehouseRequest()'s own doc comment), but silently
+  // dropping them would leave whoever carries this sheet to the central warehouse with no idea
+  // those are still outstanding. Optional: only the two replenish/requisition callers pass
+  // this; the cart-based ใบจัดยาเติมชั้น doesn't.
+  heldRows: HeldRow[] = [],
 ): boolean {
   const sorted = rows.slice().sort((a, b) => a.bin.localeCompare(b.bin));
   const now = Date.now();
@@ -362,6 +381,16 @@ export function printPickListSheet(
       <td class="name">${escapeHtml(r.name)}${r.note ? `<div class="note">หมายเหตุ: ${escapeHtml(r.note)}</div>` : ''}</td>
       <td class="qty">${r.qty.toLocaleString('en-US')} ${escapeHtml(r.unit)}</td>
       <td class="check">☐</td>
+    </tr>`)
+    .join('');
+
+  const heldBody = heldRows
+    .slice().sort((a, b) => a.name.localeCompare(b.name, 'th'))
+    .map((r) => `<tr>
+      <td class="name">${escapeHtml(r.name)}</td>
+      <td>${escapeHtml(r.reason)}</td>
+      <td class="heldsince">${escapeHtml(r.since)}</td>
+      <td class="heldsince">${escapeHtml(r.expectedReturn || '—')}</td>
     </tr>`)
     .join('');
 
@@ -406,6 +435,16 @@ export function printPickListSheet(
   .check { width: 12mm; text-align: center; font-size: 13pt; }
   .note { font-size: 8.5pt; color: #a15c00; font-weight: 600; margin-top: 0.5mm; }
 
+  .heldsection { margin-top: 7mm; }
+  .heldsection .heldtitle { font-size: 11.5pt; font-weight: 700; color: #8a2e2e; margin-bottom: 1mm; }
+  .heldsection .heldsub { font-size: 9pt; color: #666; margin-bottom: 2.5mm; }
+  table.held { width: 100%; border-collapse: collapse; font-size: 10pt; }
+  table.held tr { break-inside: avoid; }
+  table.held th { text-align: left; font-size: 9pt; font-weight: 700; color: #8a2e2e; background: #fbeceb; border: 0.6pt solid #e3b6b3; padding: 2mm 3mm; }
+  table.held td { padding: 2.2mm 3mm; border: 0.5pt solid #e8d3d2; }
+  table.held tbody tr:nth-child(even) { background: #fdf6f5; }
+  .heldsince { width: 32mm; white-space: nowrap; color: #666; }
+
   .signoff { display: flex; justify-content: space-between; gap: 8mm; margin-top: 14mm; break-inside: avoid; }
   .signoff .sig { flex: 1; text-align: center; font-size: 10pt; }
   .signoff .sig .line { border-bottom: 0.6pt solid #14211a; height: 11mm; }
@@ -436,6 +475,14 @@ export function printPickListSheet(
       <thead><tr><th class="n">ลำดับ</th><th class="bin">${escapeHtml(colLabels.bin)}</th>${showPickBin ? `<th class="pickbin">${escapeHtml(colLabels.pickBin || 'หยิบจาก (substock)')}</th>` : ''}<th class="name">รายการยา</th><th class="qty">${escapeHtml(colLabels.qty)}</th><th class="check">✓</th></tr></thead>
       <tbody>${body}</tbody>
     </table>
+    ${heldRows.length ? `<div class="heldsection">
+      <div class="heldtitle">⏸ ยาขาดชั่วคราว (${heldRows.length} รายการ — ไม่รวมอยู่ในรายการข้างต้น)</div>
+      <div class="heldsub">รอดำเนินการจัดหา — ไม่ต้องเบิก/เติมรายการเหล่านี้จนกว่าจะมีของเข้ามาจริง</div>
+      <table class="held">
+        <thead><tr><th>รายการยา</th><th>เหตุผล</th><th class="heldsince">ขาดตั้งแต่</th><th class="heldsince">คาดว่าจะมีของ</th></tr></thead>
+        <tbody>${heldBody}</tbody>
+      </table>
+    </div>` : ''}
     <div class="signoff">
       <div class="sig"><div class="line"></div><div class="lbl">${escapeHtml(signoffLabels[0])}</div><div class="date">วันที่ ____ /____ /______</div></div>
       <div class="sig"><div class="line"></div><div class="lbl">${escapeHtml(signoffLabels[1])}</div><div class="date">วันที่ ____ /____ /______</div></div>

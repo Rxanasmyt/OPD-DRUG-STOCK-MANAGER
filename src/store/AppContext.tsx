@@ -12,7 +12,7 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -323,6 +323,13 @@ export interface AppCtx {
    * keyword actually matches. Never overwrites a human's existing choice. */
   autoCategorizeAll: () => void;
   toggleMedActive: (medId: string) => void;
+  /** Flags a med's supply chain as temporarily broken — see Med.outOfStockSince's own doc
+   * comment and startStockHold()'s. `reason` is required; `expectedReturnAt` is optional. */
+  startStockHold: (medId: string, reason: string, expectedReturnAt?: number) => void;
+  /** Clears an active hold started by startStockHold() above, with an optional resolution
+   * note (e.g. "ได้ของจากบริษัทใหม่แล้ว") carried into the audit log alongside how long it
+   * lasted. No-ops if the med has no active hold. */
+  endStockHold: (medId: string, note?: string) => void;
   deleteMed: (medId: string) => void;
   deleteAllInactiveMeds: (medIds?: string[]) => void;
   /** Admin-only, permanently deletes every tx document (substock card ledger, report stats,
@@ -1435,8 +1442,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note, pickBin: m.binSub || undefined };
       })
       .filter((r) => r.qty > 0);
-    if (!rows.length) { toast('รายการที่ต่ำกว่า Min ไม่มีของเหลือใน substock ให้เติมเลยสักรายการ — ต้องเบิกจากคลังใหญ่ก่อน'); return; }
-    const ok = printPickListSheet(rows, 'ใบเติมหน้างานประจำวัน', 'รายการยาที่มีปริมาณต่ำกว่าจุดสั่งเติมขั้นต่ำ (Min) ประจำวันที่จัดพิมพ์เอกสาร', undefined, { printedBy: userName() });
+    // Real-world request: a held med (supplier delay/discontinuation, warehouse closed for
+    // fiscal year-end — see isOnStockHold()) that's also below its own Min belongs here as a
+    // heads-up even though it never makes the pick rows above (if it still has SOME substock
+    // left, suggestTransferQty already surfaces it as a normal row — nothing to add there; if
+    // it has none, it's simply absent from `rows` with no explanation at all otherwise).
+    const heldMeds = state.meds.filter((m) => m.active && isOnStockHold(m) && usesSubstock(m) && m.floor < floorMinOf(m));
+    // Only bail out with the old "nothing available to transfer" toast when there's truly
+    // nothing to show at all — a held med still means there's something worth printing (the
+    // heads-up section below), even with zero actual pick rows.
+    if (!rows.length && !heldMeds.length) { toast('รายการที่ต่ำกว่า Min ไม่มีของเหลือใน substock ให้เติมเลยสักรายการ — ต้องเบิกจากคลังใหญ่ก่อน'); return; }
+    const heldRows = heldMeds.map((m) => ({
+      name: m.name,
+      reason: m.outOfStockReason || '—',
+      since: thDate(m.outOfStockSince as number),
+      expectedReturn: m.outOfStockExpectedReturn ? thDate(m.outOfStockExpectedReturn) : undefined,
+    }));
+    const ok = printPickListSheet(rows, 'ใบเติมหน้างานประจำวัน', 'รายการยาที่มีปริมาณต่ำกว่าจุดสั่งเติมขั้นต่ำ (Min) ประจำวันที่จัดพิมพ์เอกสาร', undefined, { printedBy: userName() }, undefined, heldRows);
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state, toast, userName]);
 
@@ -1465,7 +1487,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // against floor/parFloor instead — every active med lands in exactly one of those checks,
     // never both, so nothing doubles up and nothing that actually needs requesting is missing.
     const items = state.meds.filter((m) => m.active && needsWarehouseRequest(m, subQty(state, m.id)));
-    if (!items.length) { toast('ทุกรายการยังสูงกว่า par — ยังไม่ต้องเบิกเพิ่ม'); return; }
+    // Real-world request: a med flagged isOnStockHold() (supplier delay/discontinuation,
+    // warehouse closed for fiscal year-end) is already excluded from `items` above via
+    // needsWarehouseRequest() — correctly, since requesting it again does nothing — but
+    // whoever carries this sheet to the warehouse should still see it listed as an open
+    // question, not have it silently vanish as if the shortage were resolved.
+    const heldMeds = state.meds.filter((m) => m.active && isOnStockHold(m));
+    if (!items.length && !heldMeds.length) { toast('ทุกรายการยังสูงกว่า par — ยังไม่ต้องเบิกเพิ่ม'); return; }
     const rows = items.map((m) => {
       const short = usesSubstock(m);
       const need = Math.max(0, (short ? m.parSub - subQty(state, m.id) : m.parFloor - m.floor));
@@ -1483,7 +1511,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // meds are judged against floor par here), so fall back to its floor bin for those.
       return { bin: short ? (m.binSub || '—') : binDisplayAll(m), name: m.name + (short ? '' : ' (ไม่มี substock)'), qty, unit: m.unit, note };
     });
-    const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการยาที่มีปริมาณคงคลังต่ำกว่าเกณฑ์มาตรฐาน (Par) ทั้งระบบ รวมถึงรายการยาที่ไม่มีการสำรองคลังย่อย (Substock)', { bin: 'ชั้นวาง substock', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() }, ['ผู้จัดทำคำขอ (ห้องยา)', 'ผู้อนุมัติคำขอ (ห้องยา)', 'ผู้จ่ายยา (คลังใหญ่)']);
+    const heldRows = heldMeds.map((m) => ({
+      name: m.name,
+      reason: m.outOfStockReason || '—',
+      since: thDate(m.outOfStockSince as number),
+      expectedReturn: m.outOfStockExpectedReturn ? thDate(m.outOfStockExpectedReturn) : undefined,
+    }));
+    const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการยาที่มีปริมาณคงคลังต่ำกว่าเกณฑ์มาตรฐาน (Par) ทั้งระบบ รวมถึงรายการยาที่ไม่มีการสำรองคลังย่อย (Substock)', { bin: 'ชั้นวาง substock', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() }, ['ผู้จัดทำคำขอ (ห้องยา)', 'ผู้อนุมัติคำขอ (ห้องยา)', 'ผู้จ่ายยา (คลังใหญ่)'], heldRows);
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state, toast, userName]);
 
@@ -3080,6 +3114,54 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { console.error(e); toast('เปลี่ยนสถานะไม่สำเร็จ'); }
   }, [canEditMeds, state.meds, logAudit, toast]);
 
+  // Real-world request: "บริษัทยาไม่มาส่งยา ล่าช้า หรือเลิกผลิต อยู่ระหว่างสั่งยาบริษัทอื่น คลังปิด
+  // ช่วงปลาย/ต้นปีงบประมาณ" — flags a med's supply chain as temporarily broken (see
+  // Med.outOfStockSince's own doc comment). Suppresses it from "ควรเบิกจากคลังใหญ่"
+  // (needsWarehouseRequest) everywhere that's computed, since nothing a requisition does can
+  // fix a supply problem — repeating the same unfulfillable ask every print run is noise, not
+  // help. Reason is required (not just a bare toggle) since the whole point is staff elsewhere
+  // being able to see WHY at a glance — see StockHoldBanner.tsx.
+  const startStockHold = useCallback(async (medId: string, reason: string, expectedReturnAt?: number) => {
+    if (!canEditMeds) return;
+    const m = state.meds.find((x) => x.id === medId);
+    if (!m) return;
+    const trimmed = reason.trim();
+    if (!trimmed) { toast('กรุณาระบุเหตุผลที่ยาขาดชั่วคราว'); return; }
+    try {
+      await withTimeout(updateDoc(doc(db, 'meds', medId), {
+        outOfStockSince: Date.now(),
+        outOfStockReason: trimmed,
+        ...(expectedReturnAt ? { outOfStockExpectedReturn: expectedReturnAt } : { outOfStockExpectedReturn: deleteField() }),
+      }));
+      logAudit({
+        type: 'stock_hold_started',
+        note: 'ทำเครื่องหมายยาขาดชั่วคราว: ' + m.name + ' — เหตุผล: ' + trimmed
+          + (expectedReturnAt ? ' (คาดว่าจะมีของอีกครั้งวันที่ ' + isoDate(expectedReturnAt) + ')' : ''),
+      });
+      toast('ทำเครื่องหมาย ' + m.name + ' เป็นยาขาดชั่วคราวแล้ว');
+    } catch (e) { console.error(e); toast('บันทึกไม่สำเร็จ'); }
+  }, [canEditMeds, state.meds, logAudit, toast]);
+
+  // Ends an active hold started by startStockHold() above — logs how long it actually lasted
+  // (not just that it ended) since "how long did we go without this drug" is exactly the kind
+  // of question this whole feature exists to make answerable later via the audit log.
+  const endStockHold = useCallback(async (medId: string, note?: string) => {
+    if (!canEditMeds) return;
+    const m = state.meds.find((x) => x.id === medId);
+    if (!m || typeof m.outOfStockSince !== 'number') return;
+    const days = Math.max(0, Math.round((Date.now() - m.outOfStockSince) / DAY));
+    try {
+      await withTimeout(updateDoc(doc(db, 'meds', medId), {
+        outOfStockSince: deleteField(), outOfStockReason: deleteField(), outOfStockExpectedReturn: deleteField(),
+      }));
+      logAudit({
+        type: 'stock_hold_ended',
+        note: 'ยกเลิกสถานะยาขาดชั่วคราว: ' + m.name + ' (ขาดมา ' + nf(days) + ' วัน)' + (note?.trim() ? ' — ' + note.trim() : ''),
+      });
+      toast('ยกเลิกสถานะขาดชั่วคราวของ ' + m.name + ' แล้ว');
+    } catch (e) { console.error(e); toast('บันทึกไม่สำเร็จ'); }
+  }, [canEditMeds, state.meds, logAudit, toast]);
+
   const deleteMed = useCallback(async (medId: string) => {
     if (!canEditMeds) return;
     const m = state.meds.find((x) => x.id === medId);
@@ -4366,7 +4448,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, recomputeUsageStats, updateGlobalSettings,
-    addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
+    addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, fetchFloorLedger, fetchDailyMetrics, exportDailyMetricsCsv, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
     setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile,

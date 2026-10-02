@@ -4,7 +4,7 @@ import {
   wardOf, matchesWard, binFor, binDisplayAll, floorMinOf, isUrgentLow, needsWarehouseRequest,
   lastReconcileDateIso, subQty, usageAnomalies,
   daysOfStockLeft, fefoLot, toneFor, subTone, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
-  categoryOf, categoryStats, parAnomaliesFor, packStep,
+  categoryOf, categoryStats, parAnomaliesFor, packStep, isOnStockHold,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
 
@@ -283,6 +283,25 @@ describe('needsWarehouseRequest', () => {
     const m = med({ noSubstock: true, parFloor: 50, floor: 49 });
     expect(needsWarehouseRequest(m, 0)).toBe(true); // curSub irrelevant here — always 0 for these
     expect(needsWarehouseRequest(med({ noSubstock: true, parFloor: 50, floor: 50 }), 0)).toBe(false);
+  });
+
+  it('never flags a med currently on a stock hold, even when genuinely below par', () => {
+    // Real-world request: "บริษัทยาไม่มาส่งยา...เลิกผลิต...คลังปิดช่วงปลาย/ต้นปีงบประมาณ" — a
+    // held med is already known to be unrequestable; repeating the same unfulfillable ask on
+    // every print run is noise, not help.
+    const held = med({ noSubstock: false, parSub: 100, outOfStockSince: Date.now(), outOfStockReason: 'บริษัทเลิกผลิต' });
+    expect(needsWarehouseRequest(held, 0)).toBe(false);
+    // Without the hold, the exact same numbers WOULD qualify — proves the hold is what's
+    // suppressing it, not some other field on this fixture.
+    const notHeld = med({ noSubstock: false, parSub: 100 });
+    expect(needsWarehouseRequest(notHeld, 0)).toBe(true);
+  });
+});
+
+describe('isOnStockHold', () => {
+  it('is true only once outOfStockSince is actually set', () => {
+    expect(isOnStockHold(med())).toBe(false);
+    expect(isOnStockHold(med({ outOfStockSince: Date.now(), outOfStockReason: 'จัดส่งล่าช้า' }))).toBe(true);
   });
 });
 
