@@ -1404,6 +1404,28 @@ describe('printTodayReplenishList / printWarehouseRequestList — stock-hold exc
     expect(heldRows?.find((r) => r.name === HELD_REPL_MED.name)?.reason).toBe('คลังปิดสิ้นปีงบ');
   });
 
+  it('excludes a held med from the pick rows even with leftover substock it could otherwise transfer', async () => {
+    // Regression guard for the user-reported follow-up bug: the first version of this fix only
+    // excluded a held med when it had ZERO substock left (nothing to pick anyway) — one with
+    // SOME leftover substock still slipped into the main pick rows as a normal "ต้องเติม" row.
+    const user = userEvent.setup();
+    renderWithApp(<PrintTodayReplenishHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [HELD_REPL_MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', [{ id: 'lot-held-repl', medId: HELD_REPL_MED.id, code: 'LOT-H', lotNo: 'H', qty: 200, exp: Date.now() + 300 * 86400000 }]);
+
+    const callsBefore = vi.mocked(printModule.printPickListSheet).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'print-today-replenish' }));
+    await waitFor(() => expect(vi.mocked(printModule.printPickListSheet).mock.calls.length).toBeGreaterThan(callsBefore));
+    const call = vi.mocked(printModule.printPickListSheet).mock.calls[callsBefore];
+    const rows = call[0];
+    const heldRows = call[6] as { name: string; reason: string }[] | undefined;
+    expect(rows.find((r) => r.name === HELD_REPL_MED.name)).toBeUndefined();
+    expect(heldRows?.find((r) => r.name === HELD_REPL_MED.name)?.reason).toBe('คลังปิดสิ้นปีงบ');
+  });
+
   it('excludes a held med from the warehouse-request rows but lists it in the held section', async () => {
     const user = userEvent.setup();
     renderWithApp(<PrintWarehouseRequestHarness />);
@@ -1423,5 +1445,62 @@ describe('printTodayReplenishList / printWarehouseRequestList — stock-hold exc
     // any other under-par med, asking staff to re-request something already known unavailable.
     expect(rows.find((r) => r.name === HELD_REPL_MED.name)).toBeUndefined();
     expect(heldRows?.find((r) => r.name === HELD_REPL_MED.name)?.reason).toBe('คลังปิดสิ้นปีงบ');
+  });
+});
+
+function FillHarness() {
+  const { state, fillAll, fillUrgent } = useApp();
+  return (
+    <div>
+      <button onClick={fillAll}>fill-all</button>
+      <button onClick={fillUrgent}>fill-urgent</button>
+      <div data-testid="cart-held">{state.cart[HELD_FILL_MED.id] ?? ''}</div>
+      <div data-testid="cart-normal">{state.cart[NORMAL_FILL_MED.id] ?? ''}</div>
+    </div>
+  );
+}
+
+const NORMAL_FILL_MED = {
+  id: 'm11', code: 'MED-0011', name: 'Omeprazole 20mg', unit: 'แคปซูล', dosageForm: 'แคปซูล',
+  price: 1, had: false, active: true, parSub: 500, parFloor: 100, floorMin: 50, floor: 5,
+  bin: 'F11', noSubstock: false, used30: 0, usedPrev30: 0, volatility: 0,
+};
+const HELD_FILL_MED = {
+  id: 'm12', code: 'MED-0012', name: 'Ranitidine 150mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  price: 1, had: false, active: true, parSub: 500, parFloor: 100, floorMin: 50, floor: 5,
+  bin: 'G12', noSubstock: false, used30: 0, usedPrev30: 0, volatility: 0,
+  outOfStockSince: Date.now() - 86400000, outOfStockReason: 'จัดส่งล่าช้า',
+};
+const FILL_LOT_NORMAL = { id: 'lot-fn', medId: NORMAL_FILL_MED.id, code: 'LOT-FN', lotNo: 'FN', qty: 300, exp: Date.now() + 300 * 86400000 };
+const FILL_LOT_HELD = { id: 'lot-fh', medId: HELD_FILL_MED.id, code: 'LOT-FH', lotNo: 'FH', qty: 300, exp: Date.now() + 300 * 86400000 };
+
+describe('fillAll / fillUrgent — stock-hold exclusion regression', () => {
+  it('fillAll queues a normal below-Min med but skips a held one, even with leftover substock', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<FillHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [NORMAL_FILL_MED, HELD_FILL_MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', [FILL_LOT_NORMAL, FILL_LOT_HELD]);
+
+    await user.click(screen.getByRole('button', { name: 'fill-all' }));
+    await waitFor(() => expect(screen.getByTestId('cart-normal').textContent).not.toBe(''));
+    expect(screen.getByTestId('cart-held').textContent).toBe('');
+  });
+
+  it('fillUrgent queues a normal urgent med but skips a held one, even with leftover substock', async () => {
+    const user = userEvent.setup();
+    // floor:5, floorMin:50 → well below half-of-Min (25), qualifies as urgent for both.
+    renderWithApp(<FillHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [NORMAL_FILL_MED, HELD_FILL_MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', [FILL_LOT_NORMAL, FILL_LOT_HELD]);
+
+    await user.click(screen.getByRole('button', { name: 'fill-urgent' }));
+    await waitFor(() => expect(screen.getByTestId('cart-normal').textContent).not.toBe(''));
+    expect(screen.getByTestId('cart-held').textContent).toBe('');
   });
 });

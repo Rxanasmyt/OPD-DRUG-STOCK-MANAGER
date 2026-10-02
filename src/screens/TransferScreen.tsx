@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, binDisplayAll, daysOfStockLeft, expTone } from '../store/selectors';
+import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, binDisplayAll, daysOfStockLeft, expTone, isOnStockHold } from '../store/selectors';
 import { nf, thDate, digitsOnly, isoDate, daysUntil } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
@@ -94,8 +94,13 @@ export default function TransferScreen() {
   // noSubstock meds (liquids/sprays — received straight to the shelf, see ReceiveScreen)
   // have nothing to transfer from; showing them here with permanently-stuck-at-0 +/- buttons
   // would just be confusing clutter, not a real "เติมหน้างาน" candidate.
+  // Bug fix (user-reported): a med flagged isOnStockHold() ("ยาขาดชั่วคราว" — see MedsScreen)
+  // still showed up in this whole screen's ต่ำกว่า Min/เร่งด่วนวันนี้/ทั้งหมด lists, inviting
+  // someone to try filling a shelf from supply that's known to be unavailable. StockHoldBanner
+  // already surfaces it elsewhere (with the reason, and a resolve action for Admin) — it has no
+  // business cluttering the day-to-day เติมหน้างาน working list while still on hold.
   // OPD/IPD ward tabs removed — one combined list (wardFilter stays 'all').
-  const meds = state.meds.filter((m) => m.active && usesSubstock(m));
+  const meds = state.meds.filter((m) => m.active && usesSubstock(m) && !isOnStockHold(m));
   const low = meds.filter((m) => m.floor < floorMinOf(m));
   // Subset of `low` already at/below half of Min — see isUrgentLow()'s doc comment
   // (selectors.ts) for why this exists: a short-staffed day needs a way to do just the
