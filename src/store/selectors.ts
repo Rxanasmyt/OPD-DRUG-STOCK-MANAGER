@@ -77,9 +77,21 @@ export function halfOfMaxRounded(parFloor: number): number {
  * is the separate reorder point ("Min" — BELOW this is when it actually needs refilling).
  * Every med added before Min-Max existed has no floorMin — default it to 50% of Max (real-
  * world request: raised from the original 30%, a more conservative reorder point that flags a
- * refill sooner) rather than requiring a one-time migration write. */
+ * refill sooner) rather than requiring a one-time migration write.
+ * Bug fix (nonsensical Min > Max): MedsScreen's own edit form blocks SAVING a Min higher than
+ * Max, but a med's Max can also change later through a completely different write path —
+ * applyOnePar/applyAllSuggested ("ใช้ par ที่แนะนำ", AppContext.tsx) updates parFloor alone from
+ * real usage statistics with no cross-check against the med's existing hand-set floorMin, so a
+ * drug whose usage dropped (Max correctly shrinks) can leave a stale, now-too-high floorMin
+ * behind — a real, observed case: "Min 400 / Max 110" on screen, which reads as permanently
+ * "ต่ำกว่า Min" no matter how full the shelf actually is, and every "suggested qty to add"
+ * computation downstream (HomeScreen's quick-add, TransferScreen's bump()) goes negative for it.
+ * Clamping here fixes it the instant this renders, for any med already in this state, without a
+ * migration — same "never show/compute a nonsensical derived number" rule this app already
+ * applies elsewhere (daysOfStockLeft, balancePct). applyOnePar/applyAllSuggested separately keep
+ * the STORED floorMin consistent too, so this clamp is a backstop, not the only fix. */
 export function floorMinOf(m: Med): number {
-  if (typeof m.floorMin === 'number') return m.floorMin;
+  if (typeof m.floorMin === 'number') return Math.min(m.floorMin, m.parFloor);
   return halfOfMaxRounded(m.parFloor);
 }
 

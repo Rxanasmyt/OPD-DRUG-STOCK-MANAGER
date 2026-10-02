@@ -141,6 +141,17 @@ describe('floorMinOf', () => {
     expect(floorMinOf(med({ parFloor: 86 }))).toBe(45);
     expect(floorMinOf(med({ parFloor: 0 }))).toBe(0);
   });
+
+  it('clamps a hand-set floorMin that ended up above the med\'s current parFloor', () => {
+    // Regression guard for a real, observed case: applyOnePar/applyAllSuggested ("ใช้ par ที่
+    // แนะนำ", AppContext.tsx) can lower parFloor (Max) from real usage statistics with no
+    // cross-check against the med's existing hand-set floorMin (Min), leaving "Min 400 / Max
+    // 110" live — without this clamp, every "ต่ำกว่า Min" check downstream would read this med
+    // as permanently low no matter how full the shelf actually is.
+    expect(floorMinOf(med({ floorMin: 400, parFloor: 110 }))).toBe(110);
+    // A normal, already-consistent pair must be untouched.
+    expect(floorMinOf(med({ floorMin: 40, parFloor: 110 }))).toBe(40);
+  });
 });
 
 describe('subQty / fefoLot', () => {

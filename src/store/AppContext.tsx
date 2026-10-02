@@ -2457,8 +2457,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const sug = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
     if (!sug) { toast(m.name + ' ยังไม่มีสถิติการใช้ ไม่สามารถแนะนำ par ได้'); return; }
     try {
-      await withTimeout(updateDoc(doc(db, 'meds', medId), which === 'sub' ? { parSub: sug.sub } : { parFloor: sug.floor }));
-      logAudit({ type: 'par_updated', note: 'ปรับ par' + (which === 'sub' ? 'substock' : 'หน้างาน') + ' ' + m.name + ' เป็น ' + nf(which === 'sub' ? sug.sub : sug.floor) + ' ตามค่าแนะนำจากสถิติ' });
+      // Bug fix (data integrity): this wrote the new parFloor (Max) alone, with no check
+      // against the med's existing hand-set floorMin (Min) — real usage dropping enough to
+      // shrink Max below a Min set back when usage was higher leaves Min > Max sitting live in
+      // Firestore (observed: "Min 400 / Max 110"), reading as permanently "ต่ำกว่า Min" no
+      // matter how full the shelf is. Re-derive Min as 50% of the NEW Max (same default ratio
+      // floorMinOf() itself falls back to) whenever applying this suggestion would otherwise
+      // leave Min above it — the same math the "ตั้ง Min ทั้งหมดเป็น 50% ของ Max" bulk action
+      // already uses.
+      const newFloorMin = which === 'floor' && typeof m.floorMin === 'number' && m.floorMin > sug.floor
+        ? halfOfMaxRounded(sug.floor) : undefined;
+      await withTimeout(updateDoc(doc(db, 'meds', medId), { ...(which === 'sub' ? { parSub: sug.sub } : { parFloor: sug.floor }), ...(newFloorMin !== undefined ? { floorMin: newFloorMin } : {}) }));
+      logAudit({ type: 'par_updated', note: 'ปรับ par' + (which === 'sub' ? 'substock' : 'หน้างาน') + ' ' + m.name + ' เป็น ' + nf(which === 'sub' ? sug.sub : sug.floor) + ' ตามค่าแนะนำจากสถิติ' + (newFloorMin !== undefined ? ' (ปรับ Min ลงเหลือ ' + nf(newFloorMin) + ' ตามไปด้วย เพราะ Min เดิมสูงกว่า Max ใหม่)' : '') });
     } catch (e) { console.error(e); toast('ปรับ par ไม่สำเร็จ'); }
   }, [canEditMeds, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast]);
 
@@ -2475,7 +2485,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         targets.slice(i, i + 400).forEach((m) => {
           const sug = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
           if (!sug) return; // ไม่มีสถิติการใช้ ข้าม ห้ามเขียนทับ par เดิม
-          batch.update(doc(db, 'meds', m.id), { parSub: sug.sub, parFloor: sug.floor });
+          // Bug fix (data integrity): same gap as applyOnePar above, applied per-row here too —
+          // a bulk apply across the whole formulary is exactly where a Max shrinking below an
+          // old hand-set Min is most likely to happen unnoticed (no per-med review step).
+          const floorMinFix = typeof m.floorMin === 'number' && m.floorMin > sug.floor
+            ? { floorMin: halfOfMaxRounded(sug.floor) } : {};
+          batch.update(doc(db, 'meds', m.id), { parSub: sug.sub, parFloor: sug.floor, ...floorMinFix });
         });
         await withTimeout(batch.commit());
       }
