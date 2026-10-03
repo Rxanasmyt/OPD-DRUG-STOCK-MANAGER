@@ -19,8 +19,8 @@ const UsageCharts = lazy(() => import('./UsageCharts'));
 // everything else — it's a distinct kind of report (historical trend over a chosen range, not
 // "right now"), so it gets its own visual treatment (see isKpi below) the same way "insights"
 // already does for "computed, not just filtered".
-const TABS: [ReportTab, string][] = [['exec', '📊 ภาพรวมผู้บริหาร'], ['aging', 'Stock aging'], ['category', 'แยกตามหมวดยา'], ['turn', 'Turnover'], ['insights', '🧠 วิเคราะห์อัตโนมัติ'], ['disc', 'Discrepancy log'], ['kpi', '📅 ตัวชี้วัดย้อนหลัง'], ['usage', '📈 สถิติการใช้ยา']];
-const REPORT_NAMES: Record<ReportTab, string> = { exec: 'executive_summary.csv', aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', kpi: 'kpi_metrics.csv', usage: 'usage_history.csv' };
+const TABS: [ReportTab, string][] = [['exec', '📊 ภาพรวมผู้บริหาร'], ['aging', 'Stock aging'], ['category', 'แยกตามหมวดยา'], ['turn', 'Turnover'], ['insights', '🧠 วิเคราะห์อัตโนมัติ'], ['disc', 'Discrepancy log'], ['kpi', '📅 ตัวชี้วัดย้อนหลัง'], ['usage', '📈 สถิติการใช้ยา'], ['stockasof', '📜 ยอดคงคลังย้อนหลัง']];
+const REPORT_NAMES: Record<ReportTab, string> = { exec: 'executive_summary.csv', aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', kpi: 'kpi_metrics.csv', usage: 'usage_history.csv', stockasof: 'stock_as_of.csv' };
 const AGING_BUCKETS: [string, number, number, string][] = [
   ['หมดอายุแล้ว', -99999, 0, 'var(--red)'],
   ['เหลือ ≤ 30 วัน', 0, 30, 'var(--red)'],
@@ -36,7 +36,7 @@ const DISC_TYPE_LABEL: Record<string, string> = {
 export default function ReportScreen() {
   const {
     state, setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary, goSubstockCardFor, fetchExecTxsThisMonth,
-    fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, userName, toast,
+    fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, fetchStockAsOf, exportStockAsOfCsv, userName, toast,
   } = useApp();
   // Discrepancy log had no way to narrow it down — always the same fixed most-recent-30 slice
   // of state.txs, with no type filter and no way to find one specific drug's history, unlike
@@ -265,6 +265,41 @@ export default function ReportScreen() {
   const usageTotalValue = usageRecords.reduce((s, r) => s + r.value, 0);
   const usageMedCount = usageTopMeds.length;
 
+  // ---------- 📜 ยอดคงคลังย้อนหลัง (stockasof tab) ----------
+  // Real-world request: "ดูยอดคงคลังย้อนหลังได้เสมอ เหมือน HOSxP" — a single-date fetch (not a
+  // range like kpi/usage above), since this reconstructs a POINT-IN-TIME snapshot, not a trend
+  // over a period. Defaults to today (same as a live view, useful as a sanity check against the
+  // real floor/subQty numbers elsewhere in the app before trusting an older date).
+  const [stockAsOfDate, setStockAsOfDate] = useState(() => isoDate(Date.now()));
+  const [stockAsOfRows, setStockAsOfRows] = useState<{ medId: string; medName: string; unit: string; category: string; floor: number; sub: number; value: number }[]>([]);
+  const [stockAsOfLoading, setStockAsOfLoading] = useState(false);
+  const [stockAsOfLoaded, setStockAsOfLoaded] = useState(false);
+  const [stockAsOfSearch, setStockAsOfSearch] = useState('');
+  const stockAsOfReqId = useRef(0);
+  const loadStockAsOf = () => {
+    const reqId = ++stockAsOfReqId.current;
+    setStockAsOfLoading(true);
+    // End-of-day (23:59:59.999) so the picked DATE's own transactions are included in "up to
+    // and including" that day, matching how every other date-range picker in this app treats
+    // its "ถึงวันที่" bound.
+    const dateMs = new Date(stockAsOfDate + 'T23:59:59.999').getTime();
+    fetchStockAsOf(dateMs).then((rows) => {
+      if (reqId !== stockAsOfReqId.current) return;
+      setStockAsOfRows(rows); setStockAsOfLoaded(true);
+    }).finally(() => { if (reqId === stockAsOfReqId.current) setStockAsOfLoading(false); });
+  };
+  useEffect(() => {
+    if (state.reportTab === 'stockasof' && !stockAsOfLoaded) loadStockAsOf();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.reportTab]);
+  const stockAsOfFiltered = useMemo(() => {
+    const q = stockAsOfSearch.trim().toLowerCase();
+    const rows = q ? stockAsOfRows.filter((r) => r.medName.toLowerCase().includes(q)) : stockAsOfRows;
+    return rows.slice().sort((a, b) => b.value - a.value);
+  }, [stockAsOfRows, stockAsOfSearch]);
+  const stockAsOfTotalValue = stockAsOfRows.reduce((s, r) => s + r.value, 0);
+  const stockAsOfNegativeCount = stockAsOfRows.filter((r) => r.floor < 0 || r.sub < 0).length;
+
   return (
     <div style={{ animation: 'fade .18s' }}>
       <div style={{ padding: '12px 14px 10px', position: 'sticky', top: 0, zIndex: 2 }} className="sticky-bar">
@@ -307,11 +342,11 @@ export default function ReportScreen() {
           (ไม่ใช่แค่ discrepancy) · audit log เต็ม · ใบรับที่รออนุมัติ · รายชื่อผู้ใช้ (เฉพาะ Admin) ·
           ยาทั้งฟอร์มูลารี่ครบทุกฟิลด์ · lot ทุก lot ที่เคยรับเข้า (รวมที่หมด/ตัดออกแล้ว) · ค่าตั้งค่าระบบ
         </div>
-        {/* "kpi"/"usage" each have their own date-range-scoped export below (exportDailyMetricsCsv
-            / exportUsageHistoryCsv on their own fetched rows) — the generic exportReportCsv here
-            only ever knows how to export whatever's in state right now, which doesn't make sense
-            for a historical range. */}
-        {state.reportTab !== 'kpi' && state.reportTab !== 'usage' && (
+        {/* "kpi"/"usage"/"stockasof" each have their own date-scoped export below
+            (exportDailyMetricsCsv / exportUsageHistoryCsv / exportStockAsOfCsv on their own
+            fetched rows) — the generic exportReportCsv here only ever knows how to export
+            whatever's in state right now, which doesn't make sense for a historical range. */}
+        {state.reportTab !== 'kpi' && state.reportTab !== 'usage' && state.reportTab !== 'stockasof' && (
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <button onClick={exportReportCsv} className="btn-outline" style={{ flex: 1, padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44 }}>
               ↓ Export CSV — {REPORT_NAMES[state.reportTab]}
@@ -809,6 +844,89 @@ export default function ReportScreen() {
                   ))}
                 </div>
               </div>
+            )}
+          </>
+        )}
+
+        {state.reportTab === 'stockasof' && (
+          <>
+            <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, padding: '0 2px', marginBottom: 11 }}>
+              คำนวณยอดคงคลัง ณ วันที่เลือก โดยเริ่มจากยอดจริงปัจจุบัน แล้วย้อนลบธุรกรรมทุกรายการที่เกิด
+              ขึ้น "หลังจาก" วันนั้น — ไม่ได้มาจากข้อมูลที่บันทึกไว้ตรงๆ (Firestore เก็บแค่ยอดปัจจุบัน
+              เท่านั้น ไม่มีประวัติยอดคงคลังในตัว) จึงแม่นยำที่สุดสำหรับวันที่ไม่นานมานี้ — ยิ่งย้อนไปไกล
+              ยิ่งมีโอกาสสะสมความเพี้ยนถ้าบางช่วงมีการเคลื่อนไหวสต็อกที่ไม่ได้บันทึกเป็นธุรกรรม
+            </div>
+            <div className="grid-2" style={{ gap: 8, marginBottom: 10 }}>
+              <label>
+                <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>ดูยอดคงคลัง ณ วันที่</span>
+                <input type="date" max={isoDate(Date.now())} value={stockAsOfDate} onChange={(e) => setStockAsOfDate(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 16, minHeight: 40 }} />
+              </label>
+              <label style={{ display: 'flex', alignItems: 'flex-end' }}>
+                <button onClick={loadStockAsOf} disabled={stockAsOfLoading} className="btn-primary" style={{ width: '100%', padding: '9px 16px', borderRadius: 9, fontSize: 12.5, fontWeight: 700, minHeight: 40, opacity: stockAsOfLoading ? 0.6 : 1 }}>
+                  {stockAsOfLoading ? 'กำลังคำนวณ…' : 'ดึงยอดคงคลัง'}
+                </button>
+              </label>
+            </div>
+
+            {stockAsOfLoading && !stockAsOfLoaded && <SkeletonList rows={6} />}
+
+            {stockAsOfLoaded && !stockAsOfLoading && stockAsOfRows.length > 0 && (
+              <div style={{ opacity: stockAsOfLoading ? 0.45 : 1, pointerEvents: stockAsOfLoading ? 'none' : undefined, transition: 'opacity .15s var(--ease-out)' }}>
+                <button
+                  onClick={() => exportStockAsOfCsv(stockAsOfRows, stockAsOfDate)}
+                  className="btn-outline"
+                  style={{ width: '100%', padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44, marginBottom: 14 }}
+                >
+                  ↓ Export CSV — {nf(stockAsOfRows.length)} รายการ
+                </button>
+
+                <div className="grid-2" style={{ marginBottom: 14 }}>
+                  <ExecStat label={'มูลค่าคงคลังรวม ณ ' + thDate(new Date(stockAsOfDate + 'T00:00:00').getTime())} value={nf(Math.round(stockAsOfTotalValue)) + ' บาท'} />
+                  <ExecStat
+                    label="รายการที่คำนวณได้ติดลบ"
+                    value={nf(stockAsOfNegativeCount) + ' รายการ'}
+                    note={stockAsOfNegativeCount > 0 ? 'มีการเคลื่อนไหวที่ไม่ได้บันทึกเป็นธุรกรรมในช่วงนั้น' : 'ไม่พบความผิดปกติ'}
+                    tone={stockAsOfNegativeCount > 0 ? 'var(--amber)' : 'var(--green)'}
+                  />
+                </div>
+
+                <SearchInput value={stockAsOfSearch} onChange={setStockAsOfSearch} placeholder="ค้นหาชื่อยา" style={{ marginBottom: 9 }} />
+                <div className="card stagger" style={{ overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', padding: '9px 13px', background: 'var(--bg-subtle)', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+                    <span style={{ flex: 1 }}>ยา / หมวด</span>
+                    <span style={{ width: 70, textAlign: 'right', flex: 'none' }}>หน้างาน</span>
+                    <span style={{ width: 70, textAlign: 'right', flex: 'none' }}>substock</span>
+                    <span style={{ width: 80, textAlign: 'right', flex: 'none' }}>มูลค่า</span>
+                  </div>
+                  {stockAsOfFiltered.slice(0, 200).map((r) => (
+                    <button
+                      key={r.medId}
+                      onClick={() => goSubstockCardFor(r.medId)}
+                      className="row-interactive"
+                      title="ดูบัตรสต็อกยานี้"
+                      style={{ display: 'flex', width: '100%', border: 0, background: 'transparent', textAlign: 'left', padding: '9px 13px', borderBottom: '1px solid var(--border-soft)', fontSize: 12.5, alignItems: 'center' }}
+                    >
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--ink)' }}>{r.medName}</div>
+                        <div className="muted" style={{ fontSize: 10.5 }}>{categoryLabel(r.category)}</div>
+                      </span>
+                      <span style={{ width: 70, textAlign: 'right', flex: 'none', color: r.floor < 0 ? 'var(--red)' : 'var(--ink)' }}>{nf(r.floor)}</span>
+                      <span style={{ width: 70, textAlign: 'right', flex: 'none', color: r.sub < 0 ? 'var(--red)' : 'var(--ink)' }}>{nf(r.sub)}</span>
+                      <span style={{ width: 80, textAlign: 'right', flex: 'none', fontWeight: 600 }}>{nf(Math.round(r.value))}</span>
+                    </button>
+                  ))}
+                  {stockAsOfFiltered.length === 0 && (
+                    <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ไม่พบยาที่ตรงกับคำค้นหา</div>
+                  )}
+                </div>
+                {stockAsOfFiltered.length > 200 && (
+                  <div className="muted" style={{ fontSize: 11, textAlign: 'center', marginTop: 8 }}>แสดง 200 จาก {nf(stockAsOfFiltered.length)} รายการ — ค้นหาชื่อยาเพื่อแคบลง</div>
+                )}
+              </div>
+            )}
+
+            {stockAsOfLoaded && !stockAsOfLoading && stockAsOfRows.length === 0 && (
+              <EmptyState icon="📜" title="ไม่พบข้อมูลยา" sub="ยังไม่มีรายการยาในระบบ" />
             )}
           </>
         )}
