@@ -37,5 +37,9 @@ describe('ReceiveScreen — "ควรเบิกจากคลังใหญ
     await screen.findByText(/เบิกเป็นกล่อง กล่องละ 30 เม็ด — 17 กล่อง/);
     const plainRow = (await screen.findByText(PLAIN_MED.name)).closest('div[role="button"]') as HTMLElement;
     expect(plainRow.textContent).not.toMatch(/เบิกเป็นกล่อง/);
+    // Real-world request ("ui UX animation" audit): this is a role="button" DIV, which never
+    // picks up the global `button:active` press feedback a real <button> gets automatically —
+    // needs the row-interactive class explicitly or tapping it gives zero visual confirmation.
+    expect(plainRow).toHaveClass('row-interactive');
   });
 });

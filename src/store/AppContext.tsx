@@ -2133,10 +2133,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       hapticSuccess();
       toast('ตัด lot ' + l.lotNo + ' ออกจาก substock แล้ว · บันทึกลง discrepancy log');
     } catch (e) {
-      console.error(e);
-      toast('ตัด lot ไม่สำเร็จ ลองใหม่อีกครั้ง');
+      toastErr(e, 'ตัด lot ไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [state.lots, state.meds, userName, toast, guardOnce, confirmAsync]);
+  }), [state.lots, state.meds, userName, toast, toastErr, guardOnce, confirmAsync]);
 
   // ---------- report ----------
   const setReportTab = useCallback((t: AppState['reportTab']) => patch({ reportTab: t }), [patch]);
@@ -2546,8 +2545,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         used30AtAdjust: m.used30, usedPrev30AtAdjust: m.usedPrev30,
         adjustedAt: Date.now(), adjustedBy: userName(),
       } satisfies ParAdjustmentRecord).catch((e) => console.error(e)); // best-effort — never block the real par write on this
-    } catch (e) { console.error(e); toast('ปรับ par ไม่สำเร็จ'); }
-  }, [canEditMeds, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast, userName]);
+    } catch (e) { toastErr(e, 'ปรับ par ไม่สำเร็จ'); }
+  }, [canEditMeds, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast, toastErr, userName]);
 
   const applyAllSuggested = useCallback(guardOnce('applyAllSuggested', async () => {
     if (!canEditMeds) return;
@@ -2804,8 +2803,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await withTimeout(setDoc(doc(db, 'meta', 'settings'), patchFields, { merge: true }));
       logAudit({ type: 'par_updated', note: 'แก้ไขการตั้งค่า: ' + Object.entries(patchFields).map(([k, v]) => k + '=' + v).join(', ') });
       toast('บันทึกการตั้งค่าแล้ว');
-    } catch (e) { console.error(e); toast('บันทึกการตั้งค่าไม่สำเร็จ'); }
-  }, [canEditMeds, logAudit, toast]);
+    } catch (e) { toastErr(e, 'บันทึกการตั้งค่าไม่สำเร็จ'); }
+  }, [canEditMeds, logAudit, toast, toastErr]);
 
   // ---------- meds (formulary) management ----------
   const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }): Promise<boolean> => {
@@ -2967,8 +2966,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'med_edited', note: 'แก้ไขข้อมูลยา ' + name });
       toast('บันทึกข้อมูล ' + name + ' แล้ว');
       return true;
-    } catch (e) { console.error(e); toast('บันทึกไม่สำเร็จ'); return false; }
-  }), [canEditMeds, state.meds, logAudit, toast, guardOnce, confirmAsync]);
+    } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ'); return false; }
+  }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce, confirmAsync]);
 
   // Merges a still-separate OPD/IPD ward pair (same name — see the "ยาตัวเดียวกันที่วางทั้งสอง
   // ชั้น" note in MedsScreen) into one pooled record, for the real workflow at this hospital:
@@ -3199,8 +3198,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await withTimeout(updateDoc(doc(db, 'meds', medId), { active: next }));
       logAudit({ type: 'med_status_changed', note: (next ? 'เปิดใช้งานยา ' : 'ปิดใช้งานยา (ตัดออกจากบัญชี) ') + m.name });
       toast((next ? 'เปิดใช้งาน ' : 'ปิดใช้งาน ') + m.name + ' แล้ว');
-    } catch (e) { console.error(e); toast('เปลี่ยนสถานะไม่สำเร็จ'); }
-  }, [canEditMeds, state.meds, logAudit, toast]);
+    } catch (e) { toastErr(e, 'เปลี่ยนสถานะไม่สำเร็จ'); }
+  }, [canEditMeds, state.meds, logAudit, toast, toastErr]);
 
   // Real-world request: "บริษัทยาไม่มาส่งยา ล่าช้า หรือเลิกผลิต อยู่ระหว่างสั่งยาบริษัทอื่น คลังปิด
   // ช่วงปลาย/ต้นปีงบประมาณ" — flags a med's supply chain as temporarily broken (see
@@ -3227,8 +3226,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           + (expectedReturnAt ? ' (คาดว่าจะมีของอีกครั้งวันที่ ' + isoDate(expectedReturnAt) + ')' : ''),
       });
       toast('ทำเครื่องหมาย ' + m.name + ' เป็นยาขาดชั่วคราวแล้ว');
-    } catch (e) { console.error(e); toast('บันทึกไม่สำเร็จ'); }
-  }, [canEditMeds, state.meds, logAudit, toast]);
+    } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ'); }
+  }, [canEditMeds, state.meds, logAudit, toast, toastErr]);
 
   // Ends an active hold started by startStockHold() above — logs how long it actually lasted
   // (not just that it ended) since "how long did we go without this drug" is exactly the kind
@@ -3247,8 +3246,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         note: 'ยกเลิกสถานะยาขาดชั่วคราว: ' + m.name + ' (ขาดมา ' + nf(days) + ' วัน)' + (note?.trim() ? ' — ' + note.trim() : ''),
       });
       toast('ยกเลิกสถานะขาดชั่วคราวของ ' + m.name + ' แล้ว');
-    } catch (e) { console.error(e); toast('บันทึกไม่สำเร็จ'); }
-  }, [canEditMeds, state.meds, logAudit, toast]);
+    } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ'); }
+  }, [canEditMeds, state.meds, logAudit, toast, toastErr]);
 
   const deleteMed = useCallback(async (medId: string) => {
     if (!canEditMeds) return;
@@ -4476,9 +4475,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'user_role_changed', note: 'เปลี่ยนบทบาท ' + u.name + ' จาก ' + roleLabelFor(fromRole) + ' เป็น ' + roleLabelFor(role) });
     } catch (e) {
       if ((e as Error)?.message === 'last-admin') { toast('เปลี่ยนไม่ได้ — นี่คือ Admin ที่ใช้งานอยู่คนสุดท้าย ต้องมี Admin อย่างน้อย 1 คนเสมอ'); return; }
-      console.error(e); toast('เปลี่ยนบทบาทไม่สำเร็จ');
+      toastErr(e, 'เปลี่ยนบทบาทไม่สำเร็จ');
     }
-  }, [state.role, state.users, state.myUid, lastAdminGuardedWrite, logAudit, toast, confirmAsync]);
+  }, [state.role, state.users, state.myUid, lastAdminGuardedWrite, logAudit, toast, toastErr, confirmAsync]);
 
   const toggleUserActive = useCallback(async (id: string) => {
     // Bug fix: see the same guard in setUserRole above — this had no client-side role check
@@ -4508,9 +4507,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast((next ? 'เปิดใช้งาน' : 'ปิดใช้งาน') + 'บัญชี ' + u.name + ' แล้ว');
     } catch (e) {
       if ((e as Error)?.message === 'last-admin') { toast('ปิดใช้งานไม่ได้ — นี่คือ Admin ที่ใช้งานอยู่คนสุดท้าย ต้องมี Admin อย่างน้อย 1 คนเสมอ'); return; }
-      console.error(e); toast('เปลี่ยนสถานะไม่สำเร็จ');
+      toastErr(e, 'เปลี่ยนสถานะไม่สำเร็จ');
     }
-  }, [state.role, state.users, state.myUid, lastAdminGuardedWrite, logAudit, toast, confirmAsync]);
+  }, [state.role, state.users, state.myUid, lastAdminGuardedWrite, logAudit, toast, toastErr, confirmAsync]);
 
   const exportAudit = useCallback(async () => {
     // Same reasoning as exportReportCsv — the live subscriptions are capped at 300 each for

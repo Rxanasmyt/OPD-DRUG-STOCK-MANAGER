@@ -50,4 +50,13 @@ describe('AdjustScreen — search-result row CardPeekButton regression', () => {
     await screen.findByText(/ส่วนต่างที่จะลบออกจากยอดระบบ/);
     expect(screen.getByTestId('probe')).not.toHaveTextContent('substockcard');
   });
+
+  // Real-world request ("ui UX animation" audit): a role="button" DIV never picks up the
+  // global `button:active` press feedback a real <button> gets automatically — without this
+  // class, tapping the row before reviewing a stock adjustment gave zero visual confirmation.
+  it('gives tap feedback via the row-interactive class', async () => {
+    await setup();
+    const row = (await screen.findByText(MED.name)).closest('div[role="button"]') as HTMLElement;
+    expect(row).toHaveClass('row-interactive');
+  });
 });

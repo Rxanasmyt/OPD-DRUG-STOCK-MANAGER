@@ -41,6 +41,16 @@ describe('CountScreen — row-tap-to-substock-card regression', () => {
     await waitFor(() => expect(screen.getByTestId('probe')).toHaveTextContent('substockcard:' + MED.id));
   });
 
+  // Real-world request ("ui UX animation" audit): a role="button" DIV never picks up the
+  // global `button:active { transform: scale(.96) }` feedback a real <button> gets automatically
+  // (that CSS rule only matches real <button> elements) — without this class explicitly, tapping
+  // this row during a cycle count gave zero visual confirmation the tap registered.
+  it('gives tap feedback via the row-interactive class (a role="button" div gets no feedback otherwise)', async () => {
+    await setup();
+    const row = (await screen.findByText(MED.name)).closest('div[role="button"]') as HTMLElement;
+    expect(row).toHaveClass('row-interactive');
+  });
+
   it('typing into the count input does not also navigate to the stock card', async () => {
     const user = await setup();
     const input = await screen.findByLabelText('จำนวนที่นับได้ ' + MED.name);
