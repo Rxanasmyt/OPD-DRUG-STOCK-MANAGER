@@ -182,6 +182,13 @@ export type AuditType =
   // why, when it ended, how long it lasted), since the live state on Med.outOfStockSince only
   // ever holds the CURRENT incident, if any. See Med.outOfStockSince's own doc comment.
   | 'stock_hold_started' | 'stock_hold_ended'
+  // Logged by scripts/check-stock-drift.mjs — the automated daily GitHub Actions job that
+  // compares every active med's live floor/substock against what the tx log actually accounts
+  // for since its last run (see that script's own header comment). Never written by the app
+  // itself (no in-app action produces this), so it never needs an entry in the FLOOR_LEDGER_
+  // TYPES/SUBSTOCK_LEDGER_TYPES tx classification — it's a report ABOUT the ledger, not a
+  // transaction against it.
+  | 'stock_drift_detected'
   | TxType;
 
 export interface AuditEntry {

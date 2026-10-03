@@ -4,13 +4,14 @@
 // unusable JSON (wrong field types, permission just enough to read but not write, etc.) would
 // otherwise only be discovered the day someone actually needs it — the worst possible time.
 //
-// What it does: takes ONE real document from the backup file (arbitrarily, the first `meds`
-// doc), writes a COPY of it into a scratch collection (`_backupSelfTest`, never touched by the
-// app or by real data), reads it back, and deep-compares every field. If anything doesn't
-// round-trip byte-for-byte, or the write/read itself fails (e.g. the service account's write
-// permission was revoked), this exits non-zero — which fails the whole GitHub Actions run, which
-// GitHub emails on by default for a scheduled workflow. Always cleans up its own scratch doc
-// after itself, confirm or fail.
+// What it does: takes ONE real document from EVERY non-empty collection in the backup file (not
+// just one collection overall — a round-trip bug specific to, say, `users` or `meta`'s own field
+// shapes would never show up if only `meds` ever got sampled), writes a copy of each into a
+// scratch collection (`_backupSelfTest`, never touched by the app or by real data), reads every
+// one back, and deep-compares every field. If anything doesn't round-trip byte-for-byte, or the
+// write/read itself fails (e.g. the service account's write permission was revoked), this exits
+// non-zero — which fails the whole GitHub Actions run, which GitHub emails on by default for a
+// scheduled workflow. Always cleans up every scratch doc it created, confirm or fail.
 //
 // Usage: node scripts/verify-backup.mjs <backup-file.json>  (same env var as the other scripts)
 
@@ -40,40 +41,56 @@ async function main() {
   }
 
   const data = JSON.parse(await readFile(filePath, 'utf8'));
-  const sampleCollection = Object.keys(data).find((c) => data[c].length > 0);
-  if (!sampleCollection) {
+  const sampleCollections = Object.keys(data).filter((c) => data[c].length > 0);
+  if (!sampleCollections.length) {
     console.log('Backup is entirely empty (no collection has any docs) — nothing to verify a restore of. Not failing on this alone, but check the source project is right.');
     return;
   }
-  const sample = data[sampleCollection][0];
-  console.log(`Verifying restorability using 1 sample doc from "${sampleCollection}" (id: ${sample.id})...`);
+  console.log(`Verifying restorability using 1 sample doc from each of ${sampleCollections.length} non-empty collection(s): ${sampleCollections.join(', ')}...`);
 
   const serviceAccount = JSON.parse(keyJson);
   initializeApp({ credential: cert(serviceAccount) });
   const db = getFirestore();
 
-  const testId = `verify-${Date.now()}`;
-  const ref = db.collection('_backupSelfTest').doc(testId);
-  const { id, ...fields } = sample;
-
+  const testRunId = Date.now();
+  const refs = [];
+  const failures = [];
   try {
-    await ref.set(fields);
-    const readBack = await ref.get();
-    if (!readBack.exists) throw new Error('Wrote the test doc but a read-back immediately after found nothing.');
-    const roundTripped = readBack.data();
-    // Firestore Admin SDK returns Timestamp instances for any ISO string we didn't explicitly
-    // convert — our backup file already stores those as plain ISO strings (see
-    // backup-firestore.mjs's serialize()), so a straight write of those strings back round-trips
-    // as strings too; deepEqual against the original field values is a fair comparison.
-    if (!deepEqual(fields, roundTripped)) {
-      throw new Error('Round-tripped data does not match the original backup content — see JSON below.\n'
-        + `Original:     ${JSON.stringify(fields)}\n`
-        + `Round-tripped: ${JSON.stringify(roundTripped)}`);
+    for (const collectionName of sampleCollections) {
+      const sample = data[collectionName][0];
+      const ref = db.collection('_backupSelfTest').doc(`verify-${testRunId}-${collectionName}`);
+      refs.push(ref);
+      const { id, ...fields } = sample;
+      try {
+        await ref.set(fields);
+        const readBack = await ref.get();
+        if (!readBack.exists) throw new Error('Wrote the test doc but a read-back immediately after found nothing.');
+        const roundTripped = readBack.data();
+        // Firestore Admin SDK returns Timestamp instances for any ISO string we didn't
+        // explicitly convert — our backup file already stores those as plain ISO strings (see
+        // backup-firestore.mjs's serialize()), so a straight write of those strings back
+        // round-trips as strings too; deepEqual against the original field values is a fair
+        // comparison.
+        if (!deepEqual(fields, roundTripped)) {
+          throw new Error('Round-tripped data does not match the original backup content.\n'
+            + `Original:     ${JSON.stringify(fields)}\n`
+            + `Round-tripped: ${JSON.stringify(roundTripped)}`);
+        }
+        console.log(`  ✓ ${collectionName} (id: ${sample.id})`);
+      } catch (err) {
+        failures.push(`${collectionName}: ${err.message ?? err}`);
+        console.log(`  ✗ ${collectionName} (id: ${sample.id})`);
+      }
     }
-    console.log('✓ Restore verified: wrote, read back, and byte-for-byte matched 1 real document.');
   } finally {
-    await ref.delete().catch(() => {}); // best-effort cleanup — never leave test junk behind
+    // Best-effort cleanup — never leave test junk behind, whether every collection passed or not.
+    await Promise.all(refs.map((ref) => ref.delete().catch(() => {})));
   }
+
+  if (failures.length) {
+    throw new Error(`${failures.length} of ${sampleCollections.length} collection(s) failed to round-trip:\n` + failures.join('\n'));
+  }
+  console.log(`\n✓ Restore verified: wrote, read back, and byte-for-byte matched 1 real document from all ${sampleCollections.length} non-empty collection(s).`);
 }
 
 main().catch((err) => {

@@ -46,6 +46,14 @@ jobs:
       - run: node scripts/verify-backup.mjs "${{ steps.backup.outputs.file }}"
         env:
           FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+      # Proves restore-firestore.mjs ITSELF still runs end-to-end against today's real backup
+      # shape — no --confirm, so this never writes anything (see that script's own safety
+      # comment) — closing the gap that the actual restore script had zero automated coverage of
+      # any kind before this: a bug in its arg parsing, row validation, or batching would
+      # otherwise only surface the one day someone needs it during a real incident.
+      - run: node scripts/restore-firestore.mjs "${{ steps.backup.outputs.file }}"
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
       - uses: actions/upload-artifact@v4
         with:
           name: firestore-backup-${{ github.run_id }}

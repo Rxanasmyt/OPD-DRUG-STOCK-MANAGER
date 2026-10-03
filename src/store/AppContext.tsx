@@ -84,6 +84,7 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
   adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP',
   hosxp_unmatched: 'ยาที่จับคู่ไม่ได้จาก HOSxP',
   ward_move_out: 'ย้ายชั้นวาง (ต้นทาง)', ward_move_in: 'ย้ายชั้นวาง (ปลายทาง)',
+  stock_drift_detected: 'ตรวจพบความเพี้ยนของยอดคงคลัง (ตรวจสอบอัตโนมัติ)',
 };
 
 function freshState(): AppState {

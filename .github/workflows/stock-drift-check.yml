@@ -1,0 +1,32 @@
+name: Stock Drift Check
+
+# Daily check that every active med's LIVE floor/substock still matches what the tx log says it
+# should be — see scripts/check-stock-drift.mjs for exactly how (a running snapshot + today's
+# tx deltas) and why this needs no absolute historical baseline to work. Fails the run (GitHub
+# emails the repo owner by default on a failed scheduled workflow, same convention
+# firestore-backup.yml's verify-backup.mjs step already uses) when a med's live value doesn't
+# match — also logs it to the app's own auditLog, so it's visible on AdminScreen even without
+# anyone checking the Actions tab or email.
+#
+# Runs shortly after daily-metrics.yml (00:05 Asia/Bangkok) — reuses the same
+# FIREBASE_SERVICE_ACCOUNT_KEY secret every other scheduled script here already uses, nothing
+# more to set up if any of those are already configured for this repo.
+
+on:
+  schedule:
+    - cron: '15 17 * * *' # 17:15 UTC = 00:15 Asia/Bangkok
+  workflow_dispatch:
+
+jobs:
+  check-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/check-stock-drift.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
