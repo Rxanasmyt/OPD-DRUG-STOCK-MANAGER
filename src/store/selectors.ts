@@ -1,4 +1,4 @@
-import type { AppState, HosxpMatch, Lot, Med, Role, Ward, Tx } from '../types';
+import type { AppState, HosxpMatch, Lot, Med, Role, Ward, Tx, UsageHistoryRecord } from '../types';
 import { DAY, daysUntil, isoDate, nf } from '../utils/format';
 import { UNCATEGORIZED, DRUG_CATEGORIES, categoryLabel } from '../data/categories';
 
@@ -197,6 +197,60 @@ export function usageAnomalies(meds: Med[], threshold = 0.4): UsageAnomaly[] {
     .filter((x) => Math.abs(x.changePct) >= threshold)
     .map((x) => ({ med: x.med, changePct: x.changePct, direction: (x.changePct > 0 ? 'up' : 'down') as 'up' | 'down' }))
     .sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct));
+}
+
+export interface UsageHistoryAgg { medId: string; medName: string; unit: string; category: string; qty: number; value: number }
+
+/** Sums every UsageHistoryRecord for the same drug across however many import periods were
+ * fetched (see fetchUsageHistory, AppContext.tsx), ranked by qty or value, for the "Top 100
+ * ยาที่ใช้มากที่สุด" report. Pure aggregation — the caller already decided the date range by
+ * what it fetched; this never re-filters by date itself. Summing `qty` is safe here (unlike in
+ * usageByCategory/usageByMonth below) because every record grouped under one medId always
+ * shares the same real-world unit — there's no cross-unit mixing to warn about. */
+export function topUsageByMed(records: UsageHistoryRecord[], by: 'qty' | 'value' = 'qty', limit = 100): UsageHistoryAgg[] {
+  const byId = new Map<string, UsageHistoryAgg>();
+  for (const r of records) {
+    const cur = byId.get(r.medId);
+    if (cur) { cur.qty += r.qty; cur.value += r.value; }
+    else byId.set(r.medId, { medId: r.medId, medName: r.medName, unit: r.unit, category: r.category, qty: r.qty, value: r.value });
+  }
+  return Array.from(byId.values()).sort((a, b) => b[by] - a[by]).slice(0, limit);
+}
+
+export interface CategoryUsageAgg { category: string; qty: number; value: number }
+
+/** Same idea as topUsageByMed but grouped by drug category (categoryOf()'s id — see
+ * data/categories.ts) instead of by individual drug — "ใช้ยากลุ่มไหนเยอะ". Sorted by value since
+ * that's the more actionable "ต้องเตรียมงบ/สต็อกยากลุ่มไหน" signal — unlike topUsageByMed's `qty`
+ * (always one drug, one real unit), this `qty` sums across however many DIFFERENT drugs/units
+ * share a category (tablets + ml + vials...), so it's not a real physical quantity — a caller
+ * displaying it must label it "(คละหน่วย)" same as the rest of this app already does for any
+ * cross-drug qty sum (see ReportScreen.tsx's kpi tab). `value` (บาท) has no such problem. */
+export function usageByCategory(records: UsageHistoryRecord[]): CategoryUsageAgg[] {
+  const byCat = new Map<string, CategoryUsageAgg>();
+  for (const r of records) {
+    const cur = byCat.get(r.category);
+    if (cur) { cur.qty += r.qty; cur.value += r.value; }
+    else byCat.set(r.category, { category: r.category, qty: r.qty, value: r.value });
+  }
+  return Array.from(byCat.values()).sort((a, b) => b.value - a.value);
+}
+
+export interface MonthUsageAgg { monthKey: string; qty: number; value: number }
+
+/** Groups by monthKey (see UsageHistoryRecord's own doc comment in types.ts for its "attributed
+ * to the period's START month only, never prorated" limitation) for a month-over-month trend
+ * chart, sorted chronologically ('YYYY-MM' sorts correctly as a plain string). Same cross-unit
+ * caveat on `qty` as usageByCategory above — a month mixes every drug imported that month, so
+ * only `value` (บาท) is a real, addable number; `qty` must be labeled "(คละหน่วย)" if shown. */
+export function usageByMonth(records: UsageHistoryRecord[]): MonthUsageAgg[] {
+  const byMonth = new Map<string, MonthUsageAgg>();
+  for (const r of records) {
+    const cur = byMonth.get(r.monthKey);
+    if (cur) { cur.qty += r.qty; cur.value += r.value; }
+    else byMonth.set(r.monthKey, { monthKey: r.monthKey, qty: r.qty, value: r.value });
+  }
+  return Array.from(byMonth.values()).sort((a, b) => a.monthKey.localeCompare(b.monthKey));
 }
 
 /** One thing wrong with a med's own Min/Max/par substock numbers — not a stock LEVEL problem
