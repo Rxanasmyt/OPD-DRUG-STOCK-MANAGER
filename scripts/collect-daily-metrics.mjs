@@ -134,6 +134,7 @@ async function main() {
 
   let totalFloorQty = 0, totalSubQty = 0, totalStockValue = 0, lowStockCount = 0, urgentLowCount = 0;
   let stockoutCount = 0, usedMedCount = 0;
+  const stockoutMedIds = [];
   for (const m of activeMeds) {
     const floor = m.floor || 0;
     const sub = subByMed.get(m.id) || 0;
@@ -148,7 +149,7 @@ async function main() {
     // lowStockCount/urgentLowCount above.
     if (m.used30 > 0) {
       usedMedCount++;
-      if (floor === 0) stockoutCount++;
+      if (floor === 0) { stockoutCount++; stockoutMedIds.push(m.id); }
     }
   }
   const now = Date.now();
@@ -240,7 +241,7 @@ async function main() {
     parErrorCount, parReviewCount, countDiscrepancyCount, hosxpUnmatchedCount, reconciledToday,
     activeUserCount: Object.keys(txByUser).length,
     txByUser,
-    stockoutCount, usedMedCount,
+    stockoutCount, usedMedCount, stockoutMedIds,
   };
 
   await db.collection('dailyMetrics').doc(targetDate).set(metrics);

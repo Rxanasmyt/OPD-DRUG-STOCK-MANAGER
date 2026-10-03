@@ -229,6 +229,28 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // ---- par-adjustment outcomes (AppContext.tsx: applyOnePar/applyAllSuggested, see
+    // ParAdjustmentRecord in types.ts) — same reasoning as usageHistory right above: written in
+    // the SAME action as the meds.parFloor/parSub update (canEditMeds is admin-only — see its
+    // own definition), append-only so a later "did it stabilize?" check can never find its own
+    // evidence edited or deleted out from under it. ----
+    match /parAdjustments/{id} {
+      allow read: if isActive();
+      allow create: if isAdmin()
+                    && request.resource.data.medId is string
+                    && request.resource.data.medName is string
+                    && request.resource.data.category is string
+                    && isNonNegNum(request.resource.data.beforeFloor)
+                    && isNonNegNum(request.resource.data.beforeSub)
+                    && isNonNegNum(request.resource.data.afterFloor)
+                    && isNonNegNum(request.resource.data.afterSub)
+                    && isNonNegNum(request.resource.data.used30AtAdjust)
+                    && isNonNegNum(request.resource.data.usedPrev30AtAdjust)
+                    && request.resource.data.adjustedAt is number
+                    && request.resource.data.adjustedBy is string;
+      allow update, delete: if false;
+    }
+
     // ---- pre-delete safety snapshots (AppContext.tsx: snapshotBeforeDelete()) ----
     // Before resetAllStockLedgers()/resetAllQuantities() delete anything, they first copy every
     // document about to be destroyed in here — an in-app undo layer that doesn't depend on

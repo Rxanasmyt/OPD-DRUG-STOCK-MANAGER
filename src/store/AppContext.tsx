@@ -9,7 +9,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
-  AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord,
+  AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf } from './selectors';
@@ -364,6 +364,9 @@ export interface AppCtx {
    * this collection and how. */
   fetchUsageHistory: (fromDate: string, toDate: string) => Promise<UsageHistoryRecord[]>;
   exportUsageHistoryCsv: (records: UsageHistoryRecord[]) => Promise<void>;
+  /** sinceMs: only records adjusted at/after this ms epoch — see ParAdjustmentRecord in
+   * types.ts and applyOnePar/applyAllSuggested for what populates this collection and how. */
+  fetchParAdjustments: (sinceMs: number) => Promise<ParAdjustmentRecord[]>;
   setCountInput: (medId: string, v: string) => void;
   commitCount: (medId: string) => void;
   /** Commits every count typed on the นับสต็อก screen in one action — same per-med
@@ -2534,8 +2537,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ? halfOfMaxRounded(sug.floor) : undefined;
       await withTimeout(updateDoc(doc(db, 'meds', medId), { ...(which === 'sub' ? { parSub: sug.sub } : { parFloor: sug.floor }), ...(newFloorMin !== undefined ? { floorMin: newFloorMin } : {}) }));
       logAudit({ type: 'par_updated', note: 'ปรับ par' + (which === 'sub' ? 'substock' : 'หน้างาน') + ' ' + m.name + ' เป็น ' + nf(which === 'sub' ? sug.sub : sug.floor) + ' ตามค่าแนะนำจากสถิติ' + (newFloorMin !== undefined ? ' (ปรับ Min ลงเหลือ ' + nf(newFloorMin) + ' ตามไปด้วย เพราะ Min เดิมสูงกว่า Max ใหม่)' : '') });
+      // Real-world request: "ติดตามผลหลังปรับ par ว่านิ่งจริงไหม" — see ParAdjustmentRecord's own
+      // doc comment (types.ts) for why logAudit's free-text note above isn't enough for this.
+      addDoc(collection(db, 'parAdjustments'), {
+        medId, medName: m.name, category: categoryOf(m),
+        beforeFloor: m.parFloor, beforeSub: m.parSub,
+        afterFloor: which === 'floor' ? sug.floor : m.parFloor, afterSub: which === 'sub' ? sug.sub : m.parSub,
+        used30AtAdjust: m.used30, usedPrev30AtAdjust: m.usedPrev30,
+        adjustedAt: Date.now(), adjustedBy: userName(),
+      } satisfies ParAdjustmentRecord).catch((e) => console.error(e)); // best-effort — never block the real par write on this
     } catch (e) { console.error(e); toast('ปรับ par ไม่สำเร็จ'); }
-  }, [canEditMeds, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast]);
+  }, [canEditMeds, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast, userName]);
 
   const applyAllSuggested = useCallback(guardOnce('applyAllSuggested', async () => {
     if (!canEditMeds) return;
@@ -2545,9 +2557,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return !!s && (s.sub !== m.parSub || s.floor !== m.parFloor);
     });
     try {
-      for (let i = 0; i < targets.length; i += 400) {
+      // Each target now writes TWO ops (the med update + a parAdjustments record below) — half
+      // the old chunk size to stay safely under Firestore's 500-write batch limit, same reason
+      // commitUsageImport's own batch halved its chunk size earlier.
+      for (let i = 0; i < targets.length; i += 200) {
         const batch = writeBatch(db);
-        targets.slice(i, i + 400).forEach((m) => {
+        targets.slice(i, i + 200).forEach((m) => {
           const sug = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
           if (!sug) return; // ไม่มีสถิติการใช้ ข้าม ห้ามเขียนทับ par เดิม
           // Bug fix (data integrity): same gap as applyOnePar above, applied per-row here too —
@@ -2556,13 +2571,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const floorMinFix = typeof m.floorMin === 'number' && m.floorMin > sug.floor
             ? { floorMin: halfOfMaxRounded(sug.floor) } : {};
           batch.update(doc(db, 'meds', m.id), { parSub: sug.sub, parFloor: sug.floor, ...floorMinFix });
+          // Real-world request: "ติดตามผลหลังปรับ par ว่านิ่งจริงไหม" — same durable record
+          // applyOnePar writes for a single-med apply, here for every med this bulk action
+          // actually changes.
+          batch.set(doc(collection(db, 'parAdjustments')), {
+            medId: m.id, medName: m.name, category: categoryOf(m),
+            beforeFloor: m.parFloor, beforeSub: m.parSub, afterFloor: sug.floor, afterSub: sug.sub,
+            used30AtAdjust: m.used30, usedPrev30AtAdjust: m.usedPrev30,
+            adjustedAt: Date.now(), adjustedBy: userName(),
+          } satisfies ParAdjustmentRecord);
         });
         await withTimeout(batch.commit());
       }
       logAudit({ type: 'par_updated', note: 'ใช้ค่า par แนะนำจากสถิติทั้งหมด (' + targets.length + ' รายการเปลี่ยนแปลง)' });
       toast('ปรับ par ตามค่าแนะนำแล้ว ' + targets.length + ' รายการ');
     } catch (e) { toastErr(e, 'ปรับ par ไม่สำเร็จ'); }
-  }), [canEditMeds, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast, toastErr, guardOnce]);
+  }), [canEditMeds, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast, toastErr, guardOnce, userName]);
 
   // Real-world request: "ปรับยาหน้างานทั้งหมดในแอพ min เป็น 50% ของ max" — a one-time bulk
   // normalization that writes floorMin EXPLICITLY onto every active med, not just the default-
@@ -3636,6 +3660,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await downloadCsv([header, ...body], 'usage_history_' + (sorted[0]?.periodFrom || '') + '_ถึง_' + (sorted[sorted.length - 1]?.periodTo || '') + '.csv');
   }, []);
 
+  // ---------- par-adjustment outcomes ("ติดตามผลหลังปรับ par ว่านิ่งจริงไหม" — see
+  // ParAdjustmentRecord's own doc comment in types.ts) ----------
+  // Same "plain one-shot fetch, not a live listener" shape as fetchUsageHistory right above —
+  // this screen (ReportScreen.tsx's insights tab) only needs a snapshot the moment it opens.
+  const fetchParAdjustments = useCallback(async (sinceMs: number): Promise<ParAdjustmentRecord[]> => {
+    const snap = await withTimeout(getDocs(query(collection(db, 'parAdjustments'), where('adjustedAt', '>=', sinceMs))));
+    return snap.docs.map((d) => d.data() as ParAdjustmentRecord);
+  }, []);
+
   // ---------- count ----------
   const setCountInput = useCallback((medId: string, v: string) => patch((st) => ({ countInputs: { ...st.countInputs, [medId]: digitsOnly(v) } })), [patch]);
 
@@ -4550,7 +4583,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, recomputeUsageStats, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
-    fetchSubstockLedger, fetchFloorLedger, fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
+    fetchSubstockLedger, fetchFloorLedger, fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
     setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
