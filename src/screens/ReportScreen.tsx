@@ -1,8 +1,8 @@
 import { useApp } from '../store/AppContext';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, topUsageByMed, usageByCategory, usageByMonth } from '../store/selectors';
+import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes } from '../store/selectors';
 import { nf, thDate, isoDate, fiscalYearStartIso, DAY } from '../utils/format';
-import type { ReportTab, DailyMetrics, UsageHistoryRecord } from '../types';
+import type { ReportTab, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord } from '../types';
 import { categoryLabel } from '../data/categories';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonList } from '../components/Skeleton';
@@ -36,7 +36,7 @@ const DISC_TYPE_LABEL: Record<string, string> = {
 export default function ReportScreen() {
   const {
     state, setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary, goSubstockCardFor, fetchExecTxsThisMonth,
-    fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, userName, toast,
+    fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, userName, toast,
   } = useApp();
   // Discrepancy log had no way to narrow it down — always the same fixed most-recent-30 slice
   // of state.txs, with no type filter and no way to find one specific drug's history, unlike
@@ -164,6 +164,27 @@ export default function ReportScreen() {
     .filter((x): x is { m: (typeof meds)[number]; days: number } => x.days !== null && x.days <= 21)
     .sort((a, b) => a.days - b.days)
     .slice(0, 20);
+
+  // ---------- เสถียรภาพการเบิก/เติมยา (also "🧠 วิเคราะห์อัตโนมัติ" tab) ----------
+  // Real-world request: "ทำยังไงให้การเบิกเติมยาเสถียรที่สุด" — two one-shot fetches, local to
+  // this screen same as the kpi/usage tabs' own fetched-on-open ranges, firing together the
+  // first time this tab opens (not gated behind a separate button — these are meant to surface
+  // automatically, the whole point of a proactive alert).
+  const [stabilityRows, setStabilityRows] = useState<DailyMetrics[]>([]);
+  const [parOutcomeRecords, setParOutcomeRecords] = useState<ParAdjustmentRecord[]>([]);
+  const [stabilityLoaded, setStabilityLoaded] = useState(false);
+  useEffect(() => {
+    if (state.reportTab !== 'insights' || stabilityLoaded) return;
+    setStabilityLoaded(true);
+    fetchDailyMetrics(isoDate(Date.now() - 29 * DAY), isoDate(Date.now())).then(setStabilityRows);
+    fetchParAdjustments(Date.now() - 60 * DAY).then(setParOutcomeRecords);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.reportTab, stabilityLoaded]);
+  const leadTime = leadTimeTrend(stabilityRows);
+  const stockoutStreaks = recurringStockouts(stabilityRows, meds);
+  const parOutcomes = parAdjustmentOutcomes(parOutcomeRecords, meds);
+  const parOutcomesVolatile = parOutcomes.filter((o) => o.status === 'still_volatile');
+  const parOutcomesStable = parOutcomes.filter((o) => o.status === 'stable');
 
   // ---------- 📅 ตัวชี้วัดย้อนหลัง (kpi tab) ----------
   // Own date range + fetched rows, local to this screen — a bounded historical query, not part
@@ -476,6 +497,78 @@ export default function ReportScreen() {
                 <EmptyState icon="✅" title="ไม่มีรายการที่จะหมดใน 21 วันข้างหน้า" sub="คำนวณจากอัตราการใช้ปัจจุบันกับยอดคงเหลือรวม (หน้างาน + substock)" />
               )}
             </div>
+
+            {leadTime?.degraded && (
+              <>
+                <div style={{ fontSize: 13, margin: '16px 2px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="ai-text" style={{ fontWeight: 800 }}>⏱ เวลารอเบิกยาช้าลงผิดปกติ</span>
+                </div>
+                <div className="card" style={{ padding: '12px 13px', fontSize: 12.5, lineHeight: 1.6 }}>
+                  7 วันล่าสุด เฉลี่ย <strong>{leadTime.recentAvgHours.toFixed(1)} ชม.</strong> ต่อครั้ง —
+                  ช้าขึ้น {Math.round(leadTime.changePct * 100)}% จากช่วงก่อนหน้า (เฉลี่ย {leadTime.priorAvgHours.toFixed(1)} ชม.)
+                  <div className="muted" style={{ marginTop: 4 }}>ควรตรวจสอบว่าขั้นอนุมัติเบิกมีคอขวดอยู่ที่ไหน ก่อนที่จะกระทบรอบเติมยาจริง</div>
+                </div>
+              </>
+            )}
+
+            {stockoutStreaks.length > 0 && (
+              <>
+                <div style={{ fontSize: 13, margin: '16px 2px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="ai-text" style={{ fontWeight: 800 }}>🔁 ขาดสต็อกจริงซ้ำๆ</span>
+                  <span className="muted" style={{ fontWeight: 500, fontSize: 12 }}>({stockoutStreaks.length} รายการ)</span>
+                </div>
+                <div className="card stagger" style={{ overflow: 'hidden' }}>
+                  {stockoutStreaks.slice(0, 20).map((s) => (
+                    <button
+                      key={s.med.id}
+                      onClick={() => goSubstockCardFor(s.med.id)}
+                      className="row-interactive"
+                      title="ดูบัตรสต็อกยานี้"
+                      style={{ display: 'flex', width: '100%', border: 0, background: 'transparent', textAlign: 'left', justifyContent: 'space-between', gap: 10, padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', alignItems: 'center' }}
+                    >
+                      <span style={{ fontSize: 13, minWidth: 0, color: 'var(--ink)' }}>{s.med.name}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--red)', flex: 'none' }}>ขาด {s.dayCount}/{s.totalDays} วัน</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="muted" style={{ fontSize: 11, lineHeight: 1.6, padding: '6px 2px 0' }}>
+                  ขาดจริง (floor = 0 ขณะมีการใช้จริง) ตั้งแต่ 3+ วันขึ้นไปในช่วง 30 วันที่ผ่านมา — par หรือรอบเติมของตัวนี้อาจตามไม่ทันการใช้จริง ไม่ใช่เรื่องบังเอิญครั้งเดียว
+                </div>
+              </>
+            )}
+
+            {parOutcomes.length > 0 && (
+              <>
+                <div style={{ fontSize: 13, margin: '16px 2px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="ai-text" style={{ fontWeight: 800 }}>📐 ผลลัพธ์หลังปรับ par</span>
+                  {parOutcomesVolatile.length > 0 && <span className="muted" style={{ fontWeight: 500, fontSize: 12 }}>({parOutcomesVolatile.length} รายการยังผันผวน)</span>}
+                </div>
+                <div className="card stagger" style={{ overflow: 'hidden' }}>
+                  {parOutcomesVolatile.map((o) => (
+                    <button
+                      key={o.record.medId}
+                      onClick={() => goSubstockCardFor(o.record.medId)}
+                      className="row-interactive"
+                      title="ดูบัตรสต็อกยานี้"
+                      style={{ display: 'block', width: '100%', border: 0, background: 'transparent', textAlign: 'left', padding: '10px 13px', borderBottom: '1px solid var(--border-soft)' }}
+                    >
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{o.record.medName}</div>
+                      <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>
+                        ปรับไปเมื่อ {o.daysSinceAdjust} วันก่อน (หน้างาน {nf(o.record.beforeFloor)}→{nf(o.record.afterFloor)}) — การใช้จริงตอนนี้ยังผันผวน ≥40% ควรทบทวนอีกครั้ง
+                      </div>
+                    </button>
+                  ))}
+                  {parOutcomesVolatile.length === 0 && (
+                    <EmptyState icon="✅" title="ทุกรายการที่ปรับไปแล้วนิ่งดี" sub={nf(parOutcomesStable.length) + ' รายการ (จากที่ครบ 14 วันแล้ว) ไม่พบความผันผวนซ้ำหลังปรับ'} />
+                  )}
+                </div>
+                {parOutcomesVolatile.length > 0 && (
+                  <div className="muted" style={{ fontSize: 11, lineHeight: 1.6, padding: '6px 2px 0' }}>
+                    นิ่งดีแล้ว {nf(parOutcomesStable.length)} รายการ — เฉพาะรายการที่ปรับมาแล้วอย่างน้อย 14 วัน เทียบ used30/usedPrev30 ปัจจุบันเท่านั้น (ย้อนหลัง 60 วัน)
+                  </div>
+                )}
+              </>
+            )}
           </>
         )}
 

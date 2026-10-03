@@ -262,6 +262,31 @@ export interface UsageHistoryRecord {
 }
 
 /**
+ * One durable record of a par change applied from suggestPar (applyOnePar/applyAllSuggested,
+ * AppContext.tsx) — "ติดตามผลหลังปรับ par ว่านิ่งจริงไหม". `logAudit`'s 'par_updated' entries
+ * already existed but are free-text notes, not structured per-med before/after numbers, so
+ * there was no way to later ask "did THIS specific change actually calm down, or is this drug
+ * still swinging?". Written once per med per apply — never updated/deleted, same append-only
+ * shape as usageHistory/txs. See parAdjustmentOutcomes() (selectors.ts) for how this gets
+ * turned into a "ยังผันผวนอยู่ / นิ่งดีแล้ว" verdict.
+ */
+export interface ParAdjustmentRecord {
+  medId: string;
+  medName: string; // snapshot at adjust time
+  category: string; // categoryOf(m) snapshot at adjust time
+  beforeFloor: number;
+  beforeSub: number;
+  afterFloor: number;
+  afterSub: number;
+  // The usage numbers suggestPar's recommendation was BASED ON — kept so a later reviewer can
+  // see exactly what data justified this change, not just the before/after par numbers alone.
+  used30AtAdjust: number;
+  usedPrev30AtAdjust: number;
+  adjustedAt: number; // ms epoch
+  adjustedBy: string; // userName() at adjust time
+}
+
+/**
  * One day's automated KPI snapshot — written once/day by scripts/collect-daily-metrics.mjs
  * (a GitHub Actions cron job, same free-tier "GitHub Actions IS the server" pattern already
  * used by backup-firestore.mjs/notify-low-stock.mjs, see those files' own doc comments for
@@ -322,6 +347,15 @@ export interface DailyMetrics {
   // wrong the moment the denominator itself changes day to day.
   stockoutCount: number;
   usedMedCount: number;
+  // Real-world request: "เตือนเมื่อขาดสต็อกจริงซ้ำๆ" — stockoutCount above is just a same-day
+  // headcount with no memory of WHICH drug or whether it keeps happening to the same one.
+  // Added alongside it (collect-daily-metrics.mjs) so a client-side report can count how many
+  // of the last N days a given medId shows up here — a drug appearing on several different
+  // days' lists is a real recurring-shortage signal, not one unlucky day. Optional: any
+  // dailyMetrics doc written before this field existed simply has none (treated as `[]`, never
+  // backfilled — same "forward-only" rollout as every other field added to this interface after
+  // go-live).
+  stockoutMedIds?: string[];
 }
 export type LabelType = 'med' | 'lot' | 'loc';
 

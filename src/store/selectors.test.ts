@@ -1,13 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import type { AppState, Med, UsageHistoryRecord } from '../types';
+import type { AppState, Med, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord } from '../types';
 import {
   wardOf, matchesWard, binFor, binDisplayAll, floorMinOf, isUrgentLow, needsWarehouseRequest,
   lastReconcileDateIso, subQty, usageAnomalies,
   daysOfStockLeft, fefoLot, toneFor, subTone, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
   categoryOf, categoryStats, parAnomaliesFor, packStep, isOnStockHold,
-  topUsageByMed, usageByCategory, usageByMonth,
+  topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
+import { DAY } from '../utils/format';
 
 // Minimal, fully-typed fixture — every test overrides only the fields it cares about, so a
 // future required field on Med surfaces here as a type error instead of a runtime surprise in
@@ -291,6 +292,115 @@ describe('usageByMonth', () => {
       { monthKey: '2026-01', qty: 200, value: 25 },
       { monthKey: '2026-03', qty: 100, value: 10 },
     ]);
+  });
+});
+
+// Real-world request: "ทำยังไงให้การเบิกเติมยาเสถียรที่สุด" — leadTimeTrend/recurringStockouts
+// (fed by scripts/collect-daily-metrics.mjs's dailyMetrics snapshots) and parAdjustmentOutcomes
+// (fed by applyOnePar/applyAllSuggested's parAdjustments records) are the three new ReportScreen
+// "🧠 วิเคราะห์อัตโนมัติ" tab cards covering that request. All pure aggregation — the
+// fetch/date-filtering itself needs Firestore and is covered separately in
+// AppContext.commit.test.tsx.
+function dm(overrides: Partial<DailyMetrics> = {}): DailyMetrics {
+  return {
+    date: '2026-01-01', generatedAt: 0, activeMedCount: 0, totalFloorQty: 0, totalSubQty: 0,
+    totalStockValue: 0, lowStockCount: 0, urgentLowCount: 0, nearExpiryValue: 0, expiredValue: 0,
+    receivedQty: 0, receivedCount: 0, transferredQty: 0, dispensedQty: 0, adjustQty: 0, txCount: 0,
+    receiveLeadTimeAvgHours: null, receiveApprovedCount: 0, receivePendingBacklog: 0,
+    parErrorCount: 0, parReviewCount: 0, countDiscrepancyCount: 0, hosxpUnmatchedCount: 0, reconciledToday: true,
+    activeUserCount: 0, txByUser: {}, stockoutCount: 0, usedMedCount: 0,
+    ...overrides,
+  };
+}
+
+describe('leadTimeTrend', () => {
+  it('flags degraded when the last 7 days run >=50% slower (weighted) than everything before, regardless of input order', () => {
+    const prior = Array.from({ length: 23 }, (_, i) => dm({ date: '2026-01-' + String(i + 1).padStart(2, '0'), receiveLeadTimeAvgHours: 2, receiveApprovedCount: 1 }));
+    const recent = Array.from({ length: 7 }, (_, i) => dm({ date: '2026-01-' + String(i + 24).padStart(2, '0'), receiveLeadTimeAvgHours: 4, receiveApprovedCount: 1 }));
+    // Shuffled input — the function must sort by date itself, not trust caller order.
+    const rows = [...recent, ...prior].reverse();
+    const out = leadTimeTrend(rows);
+    expect(out).toMatchObject({ recentAvgHours: 4, priorAvgHours: 2, changePct: 1, degraded: true });
+  });
+
+  it('returns null when either window has zero approvals to average, rather than a misleading 0', () => {
+    const rows = Array.from({ length: 30 }, (_, i) => dm({ date: '2026-01-' + String(i + 1).padStart(2, '0'), receiveApprovedCount: 0 }));
+    expect(leadTimeTrend(rows)).toBeNull();
+  });
+
+  it('does not flag a mild slowdown under the threshold', () => {
+    const prior = Array.from({ length: 23 }, (_, i) => dm({ date: '2026-01-' + String(i + 1).padStart(2, '0'), receiveLeadTimeAvgHours: 2, receiveApprovedCount: 1 }));
+    const recent = Array.from({ length: 7 }, (_, i) => dm({ date: '2026-01-' + String(i + 24).padStart(2, '0'), receiveLeadTimeAvgHours: 2.2, receiveApprovedCount: 1 }));
+    expect(leadTimeTrend([...prior, ...recent])?.degraded).toBe(false);
+  });
+});
+
+describe('recurringStockouts', () => {
+  it('flags only a med appearing on at least `minDays` different days, and excludes an inactive med', () => {
+    const meds = [
+      med({ id: 'frequent', active: true }),
+      med({ id: 'once', active: true }),
+      med({ id: 'inactive-but-frequent', active: false }),
+    ];
+    const rows = [
+      dm({ date: '2026-01-01', stockoutMedIds: ['frequent', 'inactive-but-frequent'] }),
+      dm({ date: '2026-01-02', stockoutMedIds: ['frequent', 'inactive-but-frequent'] }),
+      dm({ date: '2026-01-03', stockoutMedIds: ['frequent', 'inactive-but-frequent', 'once'] }),
+    ];
+    const out = recurringStockouts(rows, meds);
+    expect(out).toEqual([{ med: meds[0], dayCount: 3, totalDays: 3 }]);
+  });
+
+  it('treats a day with no stockoutMedIds field (pre-rollout snapshot) as an empty day, not an error', () => {
+    const meds = [med({ id: 'm1', active: true })];
+    const rows = [dm({ date: '2026-01-01' }), dm({ date: '2026-01-02' })]; // no stockoutMedIds at all
+    expect(recurringStockouts(rows, meds)).toEqual([]);
+  });
+});
+
+function parAdj(overrides: Partial<ParAdjustmentRecord> = {}): ParAdjustmentRecord {
+  return {
+    medId: 'a', medName: 'Drug A', category: 'pain',
+    beforeFloor: 100, beforeSub: 500, afterFloor: 150, afterSub: 600,
+    used30AtAdjust: 200, usedPrev30AtAdjust: 100,
+    adjustedAt: Date.now() - 20 * DAY, adjustedBy: 'admin',
+    ...overrides,
+  };
+}
+
+describe('parAdjustmentOutcomes', () => {
+  it('classifies still_volatile/stable/too_recent/med_gone correctly', () => {
+    const meds = [
+      med({ id: 'a', used30: 170, usedPrev30: 100 }), // +70% swing today — still volatile
+      med({ id: 'b', used30: 105, usedPrev30: 100 }), // +5% — calmed down
+      med({ id: 'c', used30: 100, usedPrev30: 100 }),
+      // 'd' intentionally absent from meds — simulates a deleted/deactivated med.
+    ];
+    const records = [
+      parAdj({ medId: 'a', adjustedAt: Date.now() - 20 * DAY }),
+      parAdj({ medId: 'b', adjustedAt: Date.now() - 20 * DAY }),
+      parAdj({ medId: 'c', adjustedAt: Date.now() - 5 * DAY }), // too recent — not matured yet
+      parAdj({ medId: 'd', adjustedAt: Date.now() - 20 * DAY }),
+    ];
+    const out = parAdjustmentOutcomes(records, meds);
+    expect(out.find((o) => o.record.medId === 'a')?.status).toBe('still_volatile');
+    expect(out.find((o) => o.record.medId === 'b')?.status).toBe('stable');
+    expect(out.find((o) => o.record.medId === 'c')?.status).toBe('too_recent');
+    expect(out.find((o) => o.record.medId === 'd')?.status).toBe('med_gone');
+  });
+
+  it('keeps only the TRULY latest record per med (by adjustedAt), not whichever is first in the input array', () => {
+    const meds = [med({ id: 'e', used30: 100, usedPrev30: 100 })];
+    const records = [
+      // Oldest listed FIRST — if the dedup kept "first seen" instead of comparing adjustedAt,
+      // this stale record (already matured) would wrongly win over the real latest below,
+      // which hasn't matured yet.
+      parAdj({ medId: 'e', adjustedAt: Date.now() - 100 * DAY }),
+      parAdj({ medId: 'e', adjustedAt: Date.now() - 5 * DAY }), // the real latest — too recent
+    ];
+    const out = parAdjustmentOutcomes(records, meds);
+    expect(out).toHaveLength(1);
+    expect(out[0].status).toBe('too_recent');
   });
 });
 

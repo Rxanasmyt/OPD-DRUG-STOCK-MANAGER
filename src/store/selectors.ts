@@ -1,4 +1,4 @@
-import type { AppState, HosxpMatch, Lot, Med, Role, Ward, Tx, UsageHistoryRecord } from '../types';
+import type { AppState, HosxpMatch, Lot, Med, Role, Ward, Tx, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord } from '../types';
 import { DAY, daysUntil, isoDate, nf } from '../utils/format';
 import { UNCATEGORIZED, DRUG_CATEGORIES, categoryLabel } from '../data/categories';
 
@@ -251,6 +251,101 @@ export function usageByMonth(records: UsageHistoryRecord[]): MonthUsageAgg[] {
     else byMonth.set(r.monthKey, { monthKey: r.monthKey, qty: r.qty, value: r.value });
   }
   return Array.from(byMonth.values()).sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+}
+
+export interface LeadTimeTrend {
+  recentAvgHours: number;
+  priorAvgHours: number;
+  changePct: number;
+  degraded: boolean;
+}
+
+// A degradation worth surfacing proactively, not noise from a slow week with only 1-2 approvals.
+const LEAD_TIME_DEGRADED_THRESHOLD = 0.5;
+
+/** Real-world request: "เตือนเมื่อเบิก/เติมช้าลงผิดปกติ" — dailyMetrics.receiveLeadTimeAvgHours
+ * already exists per-day, but nobody notices it creeping up unless they happen to open the kpi
+ * tab and eyeball it. Splits the fetched rows into "last 7 days" vs "everything before that"
+ * and compares their APPROVAL-COUNT-WEIGHTED averages (a day with 1 approval must not count
+ * equally against a day with 20 — same reasoning ReportScreen.tsx's own kpiLeadTimeWeightedHours
+ * already applies). Returns null when either window has zero approvals to average — "no data"
+ * is not the same claim as "lead time is fine". */
+export function leadTimeTrend(rows: DailyMetrics[], recentDays = 7): LeadTimeTrend | null {
+  const sorted = rows.slice().sort((a, b) => a.date.localeCompare(b.date));
+  const recent = sorted.slice(-recentDays);
+  const prior = sorted.slice(0, -recentDays);
+  const weightedAvg = (set: DailyMetrics[]) => {
+    const totalApproved = set.reduce((s, r) => s + r.receiveApprovedCount, 0);
+    if (totalApproved === 0) return null;
+    const totalHours = set.reduce((s, r) => s + (r.receiveLeadTimeAvgHours ?? 0) * r.receiveApprovedCount, 0);
+    return totalHours / totalApproved;
+  };
+  const recentAvgHours = weightedAvg(recent);
+  const priorAvgHours = weightedAvg(prior);
+  if (recentAvgHours == null || priorAvgHours == null || priorAvgHours === 0) return null;
+  const changePct = (recentAvgHours - priorAvgHours) / priorAvgHours;
+  return { recentAvgHours, priorAvgHours, changePct, degraded: changePct >= LEAD_TIME_DEGRADED_THRESHOLD };
+}
+
+export interface RecurringStockout { med: Med; dayCount: number; totalDays: number }
+
+/** Real-world request: "เตือนเมื่อขาดสต็อกจริงซ้ำๆ" — a single day's dailyMetrics.stockoutCount
+ * is just a headcount with no memory; this counts, across however many days were fetched, how
+ * many DIFFERENT days each medId shows up in stockoutMedIds (see DailyMetrics' own doc comment
+ * in types.ts for why that field is optional/forward-only). A drug appearing on `minDays` or
+ * more separate days is a real recurring-shortage pattern, not one unlucky day — cross-
+ * referenced against the live `meds` list so a med deleted/deactivated since never shows up
+ * (nothing actionable left to do about it). */
+export function recurringStockouts(rows: DailyMetrics[], meds: Med[], minDays = 3): RecurringStockout[] {
+  const byId = new Map(meds.filter((m) => m.active).map((m) => [m.id, m]));
+  const counts = new Map<string, number>();
+  for (const r of rows) {
+    for (const id of r.stockoutMedIds || []) counts.set(id, (counts.get(id) || 0) + 1);
+  }
+  const out: RecurringStockout[] = [];
+  for (const [medId, dayCount] of counts) {
+    const med = byId.get(medId);
+    if (med && dayCount >= minDays) out.push({ med, dayCount, totalDays: rows.length });
+  }
+  return out.sort((a, b) => b.dayCount - a.dayCount);
+}
+
+export type ParAdjustmentStatus = 'too_recent' | 'stable' | 'still_volatile' | 'med_gone';
+export interface ParAdjustmentOutcome { record: ParAdjustmentRecord; med: Med | undefined; daysSinceAdjust: number; status: ParAdjustmentStatus }
+
+// A par change needs real usage time to prove out — judging it before this many days have
+// passed would just be re-measuring the same data suggestPar already saw when it suggested it.
+const PAR_OUTCOME_MATURITY_DAYS = 14;
+
+/** Real-world request: "ติดตามผลหลังปรับ par ว่านิ่งจริงไหม" — closes the loop v3.105.0's
+ * unstable-usage WARNING (shown BEFORE applying) left open: nothing ever looked back at a
+ * change already applied to see whether the drug actually calmed down. Keeps only the LATEST
+ * ParAdjustmentRecord per med (an earlier superseded adjustment has nothing left to judge), then
+ * classifies each by re-running the exact same ±40% swing check usageAnomalies() uses, but
+ * against the med's CURRENT used30/usedPrev30 (today's real data) rather than the snapshot the
+ * adjustment itself was based on — `still_volatile` means "even after that change, this drug is
+ * STILL swinging hard today", not "it was volatile back when we adjusted it" (that part already
+ * triggered the original warning). */
+export function parAdjustmentOutcomes(records: ParAdjustmentRecord[], meds: Med[], threshold = 0.4): ParAdjustmentOutcome[] {
+  const latestByMed = new Map<string, ParAdjustmentRecord>();
+  for (const r of records) {
+    const cur = latestByMed.get(r.medId);
+    if (!cur || r.adjustedAt > cur.adjustedAt) latestByMed.set(r.medId, r);
+  }
+  const byId = new Map(meds.map((m) => [m.id, m]));
+  const now = Date.now();
+  return Array.from(latestByMed.values()).map((record): ParAdjustmentOutcome => {
+    const med = byId.get(record.medId);
+    const daysSinceAdjust = Math.floor((now - record.adjustedAt) / DAY);
+    let status: ParAdjustmentStatus;
+    if (!med || !med.active) status = 'med_gone';
+    else if (daysSinceAdjust < PAR_OUTCOME_MATURITY_DAYS) status = 'too_recent';
+    else {
+      const changePct = med.usedPrev30 > 0 ? Math.abs(med.used30 - med.usedPrev30) / med.usedPrev30 : 0;
+      status = changePct >= threshold ? 'still_volatile' : 'stable';
+    }
+    return { record, med, daysSinceAdjust, status };
+  }).sort((a, b) => b.record.adjustedAt - a.record.adjustedAt);
 }
 
 /** One thing wrong with a med's own Min/Max/par substock numbers — not a stock LEVEL problem
