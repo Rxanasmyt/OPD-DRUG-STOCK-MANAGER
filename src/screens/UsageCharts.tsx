@@ -25,7 +25,13 @@ export default function UsageCharts({ monthRows, categoryRows }: { monthRows: Mo
               labelFormatter={(v) => 'เดือน ' + String(v)}
               contentStyle={{ fontSize: 12, borderRadius: 9, border: '1px solid var(--border)' }}
             />
-            <Line type="monotone" dataKey="value" name="มูลค่า (บาท)" stroke="var(--green)" strokeWidth={2} dot={{ r: 3 }} />
+            {/* isAnimationActive=false — recharts' default ~1.5s "grow from zero" entrance
+                animation is far slower than the rest of this app's motion language (every other
+                transition here runs 120–320ms, see --dur-fast/--dur-slow in styles.css), and it
+                replays on every data refetch, not just first paint. Reading the real trend
+                immediately beats a decorative draw-in for a report a pharmacist opens to check
+                a number, not to watch a chart animate. */}
+            <Line type="monotone" dataKey="value" name="มูลค่า (บาท)" stroke="var(--green)" strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -46,7 +52,7 @@ export default function UsageCharts({ monthRows, categoryRows }: { monthRows: Mo
               labelFormatter={(v) => categoryLabel(String(v))}
               contentStyle={{ fontSize: 12, borderRadius: 9, border: '1px solid var(--border)' }}
             />
-            <Bar dataKey="value" name="มูลค่า (บาท)" fill="var(--green)" radius={4} />
+            <Bar dataKey="value" name="มูลค่า (บาท)" fill="var(--green)" radius={4} isAnimationActive={false} />
           </BarChart>
         </ResponsiveContainer>
       </div>

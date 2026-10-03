@@ -116,7 +116,7 @@ export default function AdjustScreen() {
                 // results already have — a plain <div role="button"> (not a real <button>) since
                 // picking this med to adjust is still this row's own primary action, and a real
                 // <button> can't contain the nested CardPeekButton <button>.
-                <div key={m.id} role="button" tabIndex={0} onClick={() => pickAdjMed(m.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickAdjMed(m.id); } }} style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 8px 10px 12px', minHeight: 44, cursor: 'pointer' }}>
+                <div key={m.id} role="button" tabIndex={0} className="row-interactive" onClick={() => pickAdjMed(m.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickAdjMed(m.id); } }} style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 8px 10px 12px', minHeight: 44, cursor: 'pointer' }}>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name} <WardBadge med={m} /></span>
                     <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={11.5} /> · substock <Qty value={subQty(state, m.id)} tone={subTone(subQty(state, m.id), m.parSub)} unit={m.unit} size={11.5} /></span>

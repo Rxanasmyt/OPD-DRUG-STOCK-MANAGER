@@ -227,7 +227,7 @@ export default function ReceiveScreen() {
               // A plain <div role="button"> (not a real <button>) — picking this med to receive
               // is still this row's own primary action (onClick below), but a real <button>
               // can't contain the nested CardPeekButton <button> (invalid, un-clickable HTML).
-              <div key={m.id} role="button" tabIndex={0} onClick={() => pickRecvMed(m.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickRecvMed(m.id); } }} style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 8px 10px 12px', minHeight: 44, cursor: 'pointer' }}>
+              <div key={m.id} role="button" tabIndex={0} className="row-interactive" onClick={() => pickRecvMed(m.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickRecvMed(m.id); } }} style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 8px 10px 12px', minHeight: 44, cursor: 'pointer' }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}>
                     <MedDot code={m.code} /> {m.name} <WardBadge med={m} />
@@ -269,7 +269,7 @@ export default function ReceiveScreen() {
             )}
             <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 260, overflowY: 'auto' }}>
               {needsReceive.map((m) => (
-                <div key={m.id} role="button" tabIndex={0} onClick={() => pickRecvMed(m.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickRecvMed(m.id); } }} style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 8px 10px 12px', minHeight: 44, cursor: 'pointer' }}>
+                <div key={m.id} role="button" tabIndex={0} className="row-interactive" onClick={() => pickRecvMed(m.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickRecvMed(m.id); } }} style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 8px 10px 12px', minHeight: 44, cursor: 'pointer' }}>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}>
                       <MedDot code={m.code} /> {m.name} <WardBadge med={m} />

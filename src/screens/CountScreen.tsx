@@ -48,6 +48,7 @@ export default function CountScreen() {
   const rowToCard = (medId: string) => ({
     role: 'button' as const,
     tabIndex: 0,
+    className: 'row-interactive',
     onClick: () => goSubstockCardFor(medId),
     onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goSubstockCardFor(medId); } },
     title: 'ดูบัตรสต็อกยานี้',
