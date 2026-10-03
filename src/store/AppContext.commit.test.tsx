@@ -135,6 +135,44 @@ describe('commitTransfer — FEFO regression', () => {
     expect(lotKnownWrite?.data).toEqual({ qty: 2 });
     expect(lotUnknownWrite).toBeUndefined();
   });
+
+  // Bug fix (patient safety, v3.107.1): an already-expired lot used to sort FIRST in
+  // commitTransfer's own live lot ordering under plain soonest-expiry sort (the most "due" lot
+  // by date is the one due to be scrapped, not transferred to the floor for dispensing) — see
+  // commitTransfer's own "Bug fix (patient safety)" comment. fefoLot (selectors.ts), the
+  // separate UI-hint selector TransferScreen's own expiry warning reads from, deliberately
+  // keeps showing an expired lot — that's the warning this fix's write-path exclusion is
+  // backed by, not something it should hide.
+  it('skips an already-expired lot and draws from the next-soonest lot that is still usable', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><SeedCart /><TConfirmScreen /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', [
+      { id: 'lotExpired', medId: MED.id, qty: 5, lotNo: 'LE', exp: Date.now() - 86400000 },
+      { id: 'lotFresh', medId: MED.id, qty: 10, lotNo: 'LF', exp: Date.now() + 30 * 86400000 },
+    ]);
+    await screen.findByText(MED.name);
+
+    seedDoc('meds/m1', { floor: MED.floor });
+    seedCollection('lots', [
+      { id: 'lotExpired', medId: MED.id, qty: 5, exp: Date.now() - 86400000 },
+      { id: 'lotFresh', medId: MED.id, qty: 10, exp: Date.now() + 30 * 86400000 },
+    ]);
+    seedDoc('lots/lotExpired', { qty: 5, lotNo: 'LE', exp: Date.now() - 86400000 });
+    seedDoc('lots/lotFresh', { qty: 10, lotNo: 'LF', exp: Date.now() + 30 * 86400000 });
+
+    await user.click(screen.getByRole('button', { name: /ยืนยันการเติมหน้างาน/ }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+    const writes = getLastTransactionWrites();
+    // Without the fix, this would draw from lotExpired first (earliest exp) instead of skipping
+    // it entirely for the still-usable lotFresh.
+    expect(writes.find((w) => w.path === 'lots/lotExpired')).toBeUndefined();
+    expect(writes.find((w) => w.path === 'lots/lotFresh')?.data).toEqual({ qty: 7 });
+  });
 });
 
 const BOXED_MED = {
@@ -713,6 +751,10 @@ describe('guardOnce — double-submit-on-timeout regression', () => {
 });
 
 describe('commitReceive — lot duplication regression', () => {
+  // Bug fix (lot duplication race, v3.107.1): the decide-merge-vs-create + write used to run
+  // as a plain getDocs() query followed by a separate, non-transactional writeBatch — now
+  // folded into runTx (see commitReceive's own "Bug fix (lot duplication race...)" comment),
+  // so these writes now land in the transaction write log, not the batch one.
   it('merges into an existing active lot with the same lotNo/exp instead of creating a new one', async () => {
     const user = userEvent.setup();
     renderWithApp(<><ReceiveHarness /><Toast /></>);
@@ -725,12 +767,13 @@ describe('commitReceive — lot duplication regression', () => {
     // still sitting on the shelf.
     const existingExp = new Date('2027-01-01').getTime();
     seedCollection('lots', [{ id: 'existing-lot-1', medId: 'm1', lotNo: 'LOT1', exp: existingExp, qty: 20 }]);
+    seedDoc('lots/existing-lot-1', { medId: 'm1', lotNo: 'LOT1', exp: existingExp, qty: 20 });
     await waitFor(() => expect(screen.getByRole('button', { name: 'commit-receive' })).not.toBeDisabled());
 
     await user.click(screen.getByRole('button', { name: 'commit-receive' }));
 
     const writes = await waitFor(() => {
-      const w = getLastBatchWrites();
+      const w = getLastTransactionWrites();
       expect(w.length).toBeGreaterThan(0);
       return w;
     });
@@ -740,6 +783,7 @@ describe('commitReceive — lot duplication regression', () => {
     expect(lotCreates.length).toBe(0);
     const merge = writes.find((w) => w.kind === 'update' && w.path === 'lots/existing-lot-1');
     expect(merge?.data?.qty).toBe(10);
+    expect(getLastBatchWrites().length).toBe(0);
   });
 
   it('creates a new lot when no existing active lot shares the same lotNo/exp for that med', async () => {
@@ -755,10 +799,44 @@ describe('commitReceive — lot duplication regression', () => {
     await user.click(screen.getByRole('button', { name: 'commit-receive' }));
 
     const writes = await waitFor(() => {
-      const w = getLastBatchWrites();
+      const w = getLastTransactionWrites();
       expect(w.length).toBeGreaterThan(0);
       return w;
     });
+    const lotCreates = writes.filter((w) => w.kind === 'set' && !!w.data && 'lotNo' in w.data);
+    expect(lotCreates.length).toBe(1);
+    expect(lotCreates[0].data?.qty).toBe(10);
+  });
+
+  // This is the actual race the runTx fix closes (see commitReceive's own comment): the live
+  // getDocs() query that picks a merge candidate can still be stale by the time the
+  // transaction's own trx.get() re-reads it — e.g. a concurrent scrapLot zeroed this exact lot
+  // out in the gap between them. Before this fix there was no trx.get() re-check at all (a
+  // plain writeBatch just trusted the query); now, same as approvePendingReceive already does,
+  // a candidate that's no longer live must fall back to creating a new lot instead of merging
+  // into a dead one.
+  it('falls back to creating a new lot when the query-found candidate was concurrently zeroed out', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ReceiveHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    seedDoc('meds/m1', {});
+    const existingExp = new Date('2027-01-01').getTime();
+    // The live getDocs() query still returns this candidate (qty 20, looks mergeable)...
+    seedCollection('lots', [{ id: 'existing-lot-1', medId: 'm1', lotNo: 'LOT1', exp: existingExp, qty: 20 }]);
+    // ...but the transaction's own trx.get() re-read sees it was scrapped to 0 in the meantime.
+    seedDoc('lots/existing-lot-1', { medId: 'm1', lotNo: 'LOT1', exp: existingExp, qty: 0 });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'commit-receive' })).not.toBeDisabled());
+
+    await user.click(screen.getByRole('button', { name: 'commit-receive' }));
+
+    const writes = await waitFor(() => {
+      const w = getLastTransactionWrites();
+      expect(w.length).toBeGreaterThan(0);
+      return w;
+    });
+    expect(writes.find((w) => w.kind === 'update' && w.path === 'lots/existing-lot-1')).toBeUndefined();
     const lotCreates = writes.filter((w) => w.kind === 'set' && !!w.data && 'lotNo' in w.data);
     expect(lotCreates.length).toBe(1);
     expect(lotCreates[0].data?.qty).toBe(10);

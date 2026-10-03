@@ -1585,9 +1585,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // every lot with a real near-term expiry. That's exactly backwards for FEFO: an
           // unknown-expiry lot should never outrank one that's genuinely expiring soon.
           // Infinity sorts it LAST instead — treated as "no known urgency", not "most urgent".
+          //
+          // Bug fix (patient safety): an already-expired lot (exp <= now) used to sort FIRST
+          // under plain soonest-expiry ordering — the most "due" lot by date is exactly the
+          // one that's due to be scrapped, not transferred to the floor for dispensing to a
+          // patient. Excluding it here from the actual write path means a real transfer can
+          // never draw real floor stock from an expired lot — if every remaining lot for a med
+          // is expired, this now correctly reports a shortage (forcing a scrapLot first)
+          // instead of silently drawing from one of them. fefoLot (selectors.ts), the separate
+          // UI-hint selector TransferScreen's own expiry warning reads from, deliberately keeps
+          // including an expired lot — that warning is what makes this exclusion visible
+          // *before* someone hits the shortage, not something this fix should hide.
+          const now = Date.now();
           const lotIds = liveLotDocs
             .map((d) => ({ id: d.id, qty: (d.data() as { qty?: number }).qty ?? 0, exp: (d.data() as { exp?: number }).exp ?? Infinity }))
-            .filter((l) => l.qty > 0).sort((a, b) => a.exp - b.exp).map((l) => l.id);
+            .filter((l) => l.qty > 0 && !(l.exp && l.exp <= now)).sort((a, b) => a.exp - b.exp).map((l) => l.id);
           lotIdsByMed[medId] = lotIds;
           await Promise.all(lotIds.map(async (lotId) => {
             const lotSnap = await trx.get(doc(db, 'lots', lotId));
@@ -1802,63 +1814,88 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }));
         return;
       }
-      // Bug fix (lot duplication): a delivery of the exact same physical batch (same lotNo +
-      // same exp date, for the same med) that arrives on a later date than an earlier one still
-      // sitting on the shelf used to always create a BRAND NEW lots doc rather than adding into
-      // the one already there — the pharmacist merges both boxes under one paper lot card on
-      // the physical shelf, but the database kept two independently-drifting rows for what's one
-      // real stack, which is exactly the kind of split a substock-card (บัตรคุมยา) reconciliation
-      // would catch as a mismatch against the physical count. Live-queried once per distinct med
-      // right before building the batch (writeBatch can't read inside itself, same limitation
-      // runTx's own query-then-get workaround elsewhere in this file already works around) —
-      // only merges into a lot that's still genuinely active (qty > 0), never resurrects an old
-      // zeroed-out lot kept around purely for its own history (see scrapLot's own comment on why
-      // depleted lots aren't deleted).
+      // Bug fix (lot duplication race, closes the gap left open in CHANGELOG v3.92.9): a
+      // delivery of the exact same physical batch (same lotNo + same exp date, for the same
+      // med) that arrives on a later date than an earlier one still sitting on the shelf used
+      // to always create a BRAND NEW lots doc rather than adding into the one already there —
+      // the pharmacist merges both boxes under one paper lot card on the physical shelf, but
+      // the database kept two independently-drifting rows for what's one real stack. The old
+      // code decided merge-vs-create from a plain getDocs query and then wrote via a separate,
+      // non-transactional writeBatch — two devices receiving the same med+lot at the same
+      // moment could each run that query, each see no conflict yet, and each create their own
+      // duplicate lot doc. Moving the whole decide+write into runTx closes that for the common
+      // case (merging into an EXISTING lot): both transactions now read-then-write the SAME lot
+      // doc, so Firestore serializes them — the second one sees the first's increment and
+      // merges on top of it instead of racing. The live lot query itself still can't run inside
+      // the transaction (same query-then-get workaround approvePendingReceive already uses
+      // above), so it reruns fresh on every automatic retry; only merges into a lot that's
+      // still genuinely active (qty > 0), never resurrects an old zeroed-out lot kept around
+      // purely for its own history (see scrapLot's own comment on why depleted lots aren't
+      // deleted).
       const substockMedIds = [...new Set(items.filter((it) => !(liveMeds.get(it.medId)?.noSubstock)).map((it) => it.medId))];
-      const liveLotEntries = await Promise.all(substockMedIds.map(async (medId) => {
-        const snap = await getDocs(query(collection(db, 'lots'), where('medId', '==', medId)));
-        return [medId, snap.docs.map((d) => ({ id: d.id, ...(d.data() as { lotNo?: string; exp?: number; qty?: number }) }))] as const;
-      }));
-      const liveLotsByMed = new Map(liveLotEntries);
-      // Also merges two rows of THIS SAME receipt sharing a lotNo/exp for one med — the live
-      // query above can't see a lot this same batch is about to create, so track it locally too.
-      const stagedLotRefs = new Map<string, ReturnType<typeof doc>>();
-      items.forEach((it) => {
-        // Liquids/inhalers/sprays — some meds skip substock entirely and go straight from
-        // the central warehouse to the shelf (see noSubstock on Med). No lot is created for
-        // these (the floor number already carries no per-lot expiry tracking of its own,
-        // same limitation the rest of the app already accepts for regular transferred
-        // stock) — just credit the shelf directly instead of a substock lot nobody would
-        // ever transfer out of.
-        const m = liveMeds.get(it.medId);
-        if (m && m.noSubstock) {
-          batch.update(doc(db, 'meds', it.medId), { floor: increment(it.qty) });
-          batch.set(doc(collection(db, 'txs')), {
-            type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'floor',
-            note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp) + ' — ไม่มี substock ขึ้นหน้างานทันที', by: userName(), ts: Date.now(),
+      await runTx(async (trx) => {
+        const liveLotEntries = await Promise.all(substockMedIds.map(async (medId) => {
+          const snap = await getDocs(query(collection(db, 'lots'), where('medId', '==', medId)));
+          return [medId, snap.docs.map((d) => ({ id: d.id, ...(d.data() as { lotNo?: string; exp?: number; qty?: number }) }))] as const;
+        }));
+        const liveLotsByMed = new Map(liveLotEntries);
+        // All of a Firestore transaction's reads must happen before any of its writes, so the
+        // per-item candidate confirmation (trx.get, making each candidate doc part of this
+        // transaction's tracked read set — the thing that actually causes the serialization
+        // above) runs as its own pass first, keyed the same way the write pass below groups
+        // items, before any trx.set/trx.update fires.
+        const candidateByKey = new Map<string, { id: string; qty: number } | null>();
+        for (const it of items) {
+          const m = liveMeds.get(it.medId);
+          if (m && m.noSubstock) continue;
+          const key = it.medId + '|' + it.lotNo + '|' + it.exp;
+          if (candidateByKey.has(key)) continue;
+          const existing = (liveLotsByMed.get(it.medId) || []).find((l) => l.lotNo === it.lotNo && l.exp === it.exp && (l.qty || 0) > 0);
+          if (!existing) { candidateByKey.set(key, null); continue; }
+          const lotSnap = await trx.get(doc(db, 'lots', existing.id));
+          const data = lotSnap.data() as { qty?: number } | undefined;
+          candidateByKey.set(key, data && (data.qty || 0) > 0 ? { id: existing.id, qty: data.qty || 0 } : null);
+        }
+        // Also merges two rows of THIS SAME receipt sharing a lotNo/exp for one med — neither
+        // the live query nor the trx.get pass above can see a lot this same batch is about to
+        // create, so track it locally too.
+        const stagedLotRefs = new Map<string, ReturnType<typeof doc>>();
+        items.forEach((it) => {
+          // Liquids/inhalers/sprays — some meds skip substock entirely and go straight from
+          // the central warehouse to the shelf (see noSubstock on Med). No lot is created for
+          // these (the floor number already carries no per-lot expiry tracking of its own,
+          // same limitation the rest of the app already accepts for regular transferred
+          // stock) — just credit the shelf directly instead of a substock lot nobody would
+          // ever transfer out of.
+          const m = liveMeds.get(it.medId);
+          if (m && m.noSubstock) {
+            trx.update(doc(db, 'meds', it.medId), { floor: increment(it.qty) });
+            trx.set(doc(collection(db, 'txs')), {
+              type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'floor',
+              note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp) + ' — ไม่มี substock ขึ้นหน้างานทันที', by: userName(), ts: Date.now(),
+            });
+            return;
+          }
+          const key = it.medId + '|' + it.lotNo + '|' + it.exp;
+          const staged = stagedLotRefs.get(key);
+          const candidate = candidateByKey.get(key);
+          if (staged) {
+            trx.update(staged, { qty: increment(it.qty) });
+          } else if (candidate) {
+            const ref = doc(db, 'lots', candidate.id);
+            trx.update(ref, { qty: increment(it.qty) });
+            stagedLotRefs.set(key, ref);
+          } else {
+            const lotRef = doc(collection(db, 'lots'));
+            trx.set(lotRef, { code: genLotCode(m?.code, it.medId, lotRef.id), medId: it.medId, lotNo: it.lotNo, exp: it.exp, qty: it.qty, loc: 'ชั้น bulk' });
+            stagedLotRefs.set(key, lotRef);
+          }
+          trx.set(doc(collection(db, 'txs')), {
+            type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'substock',
+            note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp), by: userName(), ts: Date.now(),
           });
-          return;
-        }
-        const key = it.medId + '|' + it.lotNo + '|' + it.exp;
-        const staged = stagedLotRefs.get(key);
-        const existing = (liveLotsByMed.get(it.medId) || []).find((l) => l.lotNo === it.lotNo && l.exp === it.exp && (l.qty || 0) > 0);
-        if (staged) {
-          batch.update(staged, { qty: increment(it.qty) });
-        } else if (existing) {
-          const ref = doc(db, 'lots', existing.id);
-          batch.update(ref, { qty: increment(it.qty) });
-          stagedLotRefs.set(key, ref);
-        } else {
-          const lotRef = doc(collection(db, 'lots'));
-          batch.set(lotRef, { code: genLotCode(m?.code, it.medId, lotRef.id), medId: it.medId, lotNo: it.lotNo, exp: it.exp, qty: it.qty, loc: 'ชั้น bulk' });
-          stagedLotRefs.set(key, lotRef);
-        }
-        batch.set(doc(collection(db, 'txs')), {
-          type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'substock',
-          note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp), by: userName(), ts: Date.now(),
         });
       });
-      await withTimeout(batch.commit());
       hapticSuccess();
       setState((st) => ({
         ...st, screen: 'done', navStack: pushNav(st.navStack, st.screen), doneKind: 'receive',
@@ -1868,7 +1905,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       toastErr(e, 'บันทึกใบรับไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [state.recvItems, state.recvNo, state.myUid, state.meds, userName, toastErr, logAudit, guardOnce]);
+  }), [state.recvItems, state.recvNo, state.myUid, state.meds, userName, toastErr, logAudit, guardOnce, runTx]);
 
   // Approve a pending receive — creates the real lot + receive_from_central tx, exactly
   // what the immediate (pharm/admin) receive path does. Wrapped in a transaction so two
@@ -4126,6 +4163,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // (same shape as the fuzzy-match one above) is the only real backstop possible here —
     // there's no date column in the parsed data to check automatically.
     if (!state.hosxpConfirmSingleDay) { toast('กรุณายืนยันว่าไฟล์/ข้อมูลนี้ครอบคลุมแค่ 1 วันก่อนตัดยอด'); return; }
+    // Bug fix (double-run risk): `reconciledToday` (lastReconcileDateIso, selectors.ts) already
+    // existed, but was only ever surfaced passively — a HomeScreen tile someone has to go look
+    // at separately, never an active warning at the one moment it actually matters: right
+    // before this commit deducts stock a second time. Re-pasting the same (or yesterday's)
+    // file twice in one day — a real, easy slip on a shared tablet — used to silently
+    // double-deduct the floor with no error at all. Warn, don't block (same "routine but
+    // risky" convention as guardOnce's own timeout-retry confirm above) — a deliberate re-run
+    // (correcting a botched first import) is also a real, legitimate case this must not stop.
+    if (lastReconcileDateIso(state.txs) === isoDate(Date.now()) && !(await confirmAsync(
+      'วันนี้ตัดยอด HOSxP ไปแล้ว 1 ครั้ง — ถ้าตัดซ้ำอีกครั้งจะหักสต็อกหน้างานซ้ำสอง (เกินจริง) ถ้ากำลังแก้ไฟล์ที่นำเข้าผิดไปก่อนหน้านี้ ทำต่อได้เลย แต่ถ้าไม่แน่ใจ ให้ยกเลิกแล้วตรวจสอบก่อน — ต้องการตัดยอดซ้ำต่อหรือไม่?'
+    ))) return;
     let applied = 0, skipped = 0, zeroQty = 0;
     const skippedNames: string[] = [];
     try {
@@ -4204,7 +4252,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // rows actually landed, worth telling the person rather than implying nothing happened.
       toastErr(e, 'ประมวลผลไม่สำเร็จ' + (applied > 0 ? ' — ตัดยอดไปแล้ว ' + applied + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง'));
     }
-  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpConfirmSingleDay, state.meds, userName, logAudit, toast, toastErr, patch, guardOnce]);
+  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpConfirmSingleDay, state.meds, state.txs, userName, logAudit, toast, toastErr, patch, guardOnce, confirmAsync]);
 
   // ---------- usage-rate import (par) ----------
   // Lets a site whose formulary is too new to have 60 days of in-app HOSxP reconcile history
