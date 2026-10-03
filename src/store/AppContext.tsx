@@ -355,6 +355,10 @@ export interface AppCtx {
   // count
   fetchSubstockLedger: (medId: string) => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
   fetchFloorLedger: (medId: string) => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
+  /** dateMs: reconstructed stock as of that instant — see fetchStockAsOf's own doc comment for
+   * the backward-from-live-value method and its accuracy caveat. */
+  fetchStockAsOf: (dateMs: number) => Promise<{ medId: string; medName: string; unit: string; category: string; floor: number; sub: number; value: number }[]>;
+  exportStockAsOfCsv: (rows: { medName: string; unit: string; category: string; floor: number; sub: number; value: number }[], dateIso: string) => Promise<void>;
   /** date/date2 are inclusive ISO (YYYY-MM-DD) bounds — see DailyMetrics in types.ts and
    * scripts/collect-daily-metrics.mjs for what populates this collection and how. */
   fetchDailyMetrics: (fromDate: string, toDate: string) => Promise<DailyMetrics[]>;
@@ -2142,11 +2146,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const exportReportCsv = useCallback(async () => {
     const st = state;
-    // 'kpi'/'usage' never actually reach here — ReportScreen hides this generic export button
-    // for both in favor of their own date-range-scoped export (exportDailyMetricsCsv /
-    // exportUsageHistoryCsv) — but the map still needs every ReportTab key to satisfy
-    // state.reportTab's type below.
-    const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', exec: 'executive_summary.csv', kpi: 'kpi_metrics.csv', usage: 'usage_history.csv' };
+    // 'kpi'/'usage'/'stockasof' never actually reach here — ReportScreen hides this generic
+    // export button for all three in favor of their own date-range-scoped export
+    // (exportDailyMetricsCsv / exportUsageHistoryCsv / exportStockAsOfCsv) — but the map still
+    // needs every ReportTab key to satisfy state.reportTab's type below.
+    const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', exec: 'executive_summary.csv', kpi: 'kpi_metrics.csv', usage: 'usage_history.csv', stockasof: 'stock_as_of.csv' };
     // Bug fix (report accuracy): ReportScreen.tsx dropped OPD/IPD ward tabs a while back ("reports
     // always cover the whole formulary" — see its own comment) and every on-screen computation
     // there (aging/category/turn/insights/exec/disc) reads straight from state.meds.filter(active)
@@ -3592,6 +3596,64 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return rows.map((r) => { bal += r.qty; return { ...r, balance: bal }; });
   }, [state.meds]);
 
+  // Real-world request: "ดูยอดคงคลังย้อนหลังได้เสมอ เหมือน HOSxP" — Firestore only ever holds
+  // the CURRENT floor/lot quantities, no built-in history, so a point-in-time stock level has
+  // to be RECONSTRUCTED. Walks the txs log backward from the known-correct LIVE value,
+  // subtracting every logged delta that happened AFTER the target date, for every med in one
+  // pass — anchoring to the live value (not to an assumed zero baseline at some arbitrary point
+  // in the past, which is what fetchFloorLedger/fetchSubstockLedger above effectively do for
+  // their own running-balance display) means the result for any reasonably recent date is as
+  // accurate as the live number itself, with error only ever accumulating from the gap between
+  // the target date and now — never from however far back this med's real stock history goes,
+  // which this app simply has no record of pre-dating its own txs log. Deliberately NOT
+  // clamped to ≥0: a negative result is itself a real, worth-surfacing signal that some
+  // stock-affecting event in that window was never logged as a tx — matching this app's "never
+  // silently correct, always show" convention elsewhere (parAnomalies, usageAnomalies, ...).
+  const fetchStockAsOf = useCallback(async (dateMs: number): Promise<{ medId: string; medName: string; unit: string; category: string; floor: number; sub: number; value: number }[]> => {
+    const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('ts', '>', dateMs))));
+    const medById = new Map(state.meds.map((m) => [m.id, m]));
+    const medsByName = new Map<string, Med[]>();
+    for (const m of state.meds) {
+      const arr = medsByName.get(m.name) || [];
+      arr.push(m);
+      medsByName.set(m.name, arr);
+    }
+    const floorDelta = new Map<string, number>();
+    const subDelta = new Map<string, number>();
+    for (const d of snap.docs) {
+      const x = d.data() as { type: string; qty: number; name: string; loc?: string; to?: string; medId?: string };
+      // Same name-twin disambiguation as fetchFloorLedger/fetchSubstockLedger above: trust an
+      // explicit medId tag when present, otherwise only attribute an untagged old row by name
+      // when that name is unambiguous (no live twin) — an ambiguous row is excluded rather than
+      // risked, same "incomplete-but-correct beats complete-but-wrong" reasoning.
+      let medId = x.medId && medById.has(x.medId) ? x.medId : undefined;
+      if (!medId) {
+        const candidates = medsByName.get(x.name);
+        if (candidates && candidates.length === 1) medId = candidates[0].id;
+      }
+      if (!medId) continue;
+      if (FLOOR_LEDGER_TYPES.has(x.type) && (x.type !== 'receive_from_central' || x.to === 'floor') && (x.type !== 'count' || x.loc === 'floor')) {
+        floorDelta.set(medId, (floorDelta.get(medId) || 0) + x.qty);
+      }
+      if (SUBSTOCK_LEDGER_TYPES.has(x.type) && (x.type !== 'expired' || x.loc === 'substock') && (x.type !== 'count' || x.loc === 'substock')) {
+        const delta = x.type === 'transfer_to_floor' ? -Math.abs(x.qty) : x.qty;
+        subDelta.set(medId, (subDelta.get(medId) || 0) + delta);
+      }
+    }
+    return state.meds.map((m) => {
+      const floor = m.floor - (floorDelta.get(m.id) || 0);
+      const sub = usesSubstock(m) ? subQty(state, m.id) - (subDelta.get(m.id) || 0) : 0;
+      return { medId: m.id, medName: m.name, unit: m.unit, category: categoryOf(m), floor, sub, value: (floor + sub) * m.price };
+    });
+  }, [state]);
+
+  const exportStockAsOfCsv = useCallback(async (rows: { medName: string; unit: string; category: string; floor: number; sub: number; value: number }[], dateIso: string) => {
+    const header = ['ชื่อยา', 'หมวดยา', 'หน่วย', 'หน้างาน (คำนวณ)', 'substock (คำนวณ)', 'มูลค่า (บาท)'];
+    const sorted = rows.slice().sort((a, b) => b.value - a.value);
+    const body = sorted.map((r) => [r.medName, categoryLabel(r.category), r.unit, r.floor, r.sub, Math.round(r.value)]);
+    await downloadCsv([header, ...body], 'stock_as_of_' + dateIso + '.csv');
+  }, []);
+
   // The exec-summary "ธุรกรรมใน 30 วันล่าสุด" stat needs a true 30-day count, but state.txs is
   // the realtime cache capped to the 300 most-recent rows across ALL types — a busy month can
   // blow past that cap long before 30 days are covered, silently under-reporting. A server-side
@@ -4582,7 +4644,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, recomputeUsageStats, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
-    fetchSubstockLedger, fetchFloorLedger, fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
+    fetchSubstockLedger, fetchFloorLedger, fetchStockAsOf, exportStockAsOfCsv, fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
     setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,

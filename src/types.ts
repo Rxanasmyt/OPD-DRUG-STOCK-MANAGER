@@ -228,7 +228,7 @@ export type Screen =
   | 'report' | 'labels' | 'settings' | 'more' | 'count' | 'reconcile' | 'admin' | 'meds' | 'wardmove' | 'substockcard';
 
 export type AdjType = 'adjust' | 'return' | 'damaged' | 'expired';
-export type ReportTab = 'aging' | 'turn' | 'disc' | 'insights' | 'category' | 'exec' | 'kpi' | 'usage';
+export type ReportTab = 'aging' | 'turn' | 'disc' | 'insights' | 'category' | 'exec' | 'kpi' | 'usage' | 'stockasof';
 
 /**
  * One durable, append-only record of a drug's REAL total qty/value for one usage-import
