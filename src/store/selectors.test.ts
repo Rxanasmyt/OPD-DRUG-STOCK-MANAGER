@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import type { AppState, Med } from '../types';
+import type { AppState, Med, UsageHistoryRecord } from '../types';
 import {
   wardOf, matchesWard, binFor, binDisplayAll, floorMinOf, isUrgentLow, needsWarehouseRequest,
   lastReconcileDateIso, subQty, usageAnomalies,
   daysOfStockLeft, fefoLot, toneFor, subTone, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
   categoryOf, categoryStats, parAnomaliesFor, packStep, isOnStockHold,
+  topUsageByMed, usageByCategory, usageByMonth,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
 
@@ -225,6 +226,71 @@ describe('usageAnomalies', () => {
     ];
     const out = usageAnomalies(meds);
     expect(out.map((a) => a.med.id)).toEqual(['big', 'small']);
+  });
+});
+
+// Real-world request: "เก็บสถิติการใช้ยาแต่ละวัน...Top 100...ใช้ยากลุ่มไหนเยอะ...กราฟรายเดือน" — these
+// three pure aggregators are what the new "📈 สถิติการใช้ยา" tab (ReportScreen.tsx) feeds through
+// after fetchUsageHistory returns whatever UsageHistoryRecord rows matched the caller's date
+// range; the fetch/date-filtering itself needs Firestore and is covered separately in
+// AppContext.commit.test.tsx.
+function usageRec(overrides: Partial<UsageHistoryRecord> = {}): UsageHistoryRecord {
+  return {
+    medId: 'm1', medName: 'Drug A', unit: 'เม็ด', category: 'pain',
+    qty: 100, value: 1000, periodFrom: '2026-01-01', periodTo: '2026-01-31', periodDays: 31,
+    importedAt: 0, monthKey: '2026-01',
+    ...overrides,
+  };
+}
+
+describe('topUsageByMed', () => {
+  it('sums every record for the same drug across periods, ranks by the requested metric, and keeps its real unit', () => {
+    const records = [
+      usageRec({ medId: 'a', medName: 'Drug A', unit: 'เม็ด', qty: 100, value: 500, monthKey: '2026-01' }),
+      usageRec({ medId: 'a', medName: 'Drug A', unit: 'เม็ด', qty: 50, value: 250, monthKey: '2026-02' }),
+      usageRec({ medId: 'b', medName: 'Drug B', unit: 'ขวด', qty: 200, value: 100, monthKey: '2026-01' }),
+    ];
+    const byQty = topUsageByMed(records, 'qty');
+    expect(byQty[0]).toMatchObject({ medId: 'b', qty: 200, value: 100, unit: 'ขวด' });
+    expect(byQty[1]).toMatchObject({ medId: 'a', qty: 150, value: 750, unit: 'เม็ด' });
+
+    const byValue = topUsageByMed(records, 'value');
+    expect(byValue[0].medId).toBe('a'); // 750 บาท > 100 บาท, even though its qty ranks lower
+  });
+
+  it('caps the result at `limit`', () => {
+    const records = Array.from({ length: 5 }, (_, i) => usageRec({ medId: 'm' + i, qty: 10 - i }));
+    expect(topUsageByMed(records, 'qty', 3)).toHaveLength(3);
+  });
+});
+
+describe('usageByCategory', () => {
+  it('sums qty/value across different drugs sharing a category, sorted by value descending', () => {
+    const records = [
+      usageRec({ medId: 'a', category: 'pain', value: 100 }),
+      usageRec({ medId: 'b', category: 'pain', value: 50 }),
+      usageRec({ medId: 'c', category: 'antimicrobial', value: 900 }),
+    ];
+    const out = usageByCategory(records);
+    expect(out).toEqual([
+      { category: 'antimicrobial', qty: 100, value: 900 },
+      { category: 'pain', qty: 200, value: 150 },
+    ]);
+  });
+});
+
+describe('usageByMonth', () => {
+  it('sums qty/value per monthKey and sorts chronologically', () => {
+    const records = [
+      usageRec({ monthKey: '2026-03', value: 10 }),
+      usageRec({ monthKey: '2026-01', value: 20 }),
+      usageRec({ monthKey: '2026-01', value: 5 }),
+    ];
+    const out = usageByMonth(records);
+    expect(out).toEqual([
+      { monthKey: '2026-01', qty: 200, value: 25 },
+      { monthKey: '2026-03', qty: 100, value: 10 },
+    ]);
   });
 });
 

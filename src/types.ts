@@ -228,7 +228,38 @@ export type Screen =
   | 'report' | 'labels' | 'settings' | 'more' | 'count' | 'reconcile' | 'admin' | 'meds' | 'wardmove' | 'substockcard';
 
 export type AdjType = 'adjust' | 'return' | 'damaged' | 'expired';
-export type ReportTab = 'aging' | 'turn' | 'disc' | 'insights' | 'category' | 'exec' | 'kpi';
+export type ReportTab = 'aging' | 'turn' | 'disc' | 'insights' | 'category' | 'exec' | 'kpi' | 'usage';
+
+/**
+ * One durable, append-only record of a drug's REAL total qty/value for one usage-import
+ * period — written alongside Med.used30 every time commitUsageImport (AppContext.tsx) commits
+ * a HOSxP usage file, but never overwritten by a later import the way used30 is. Real-world
+ * request: "เก็บสถิติการใช้ยาแต่ละวัน...รายงานประจำไตรมาส/เดือน/ปีงบประมาณ...Top 100" — used30 alone
+ * has no memory of any period before the most recent import, so there was no way to look back
+ * at what a drug actually used last quarter/month/fiscal-year once a newer import ran. This
+ * collection is that memory: one doc per (med, import period), queryable by date range.
+ *
+ * Important limitation: the source HOSxP file has no per-dispense date column at all — just one
+ * qty total for the whole period the pharmacist declares (see usageDateFrom/usageDateTo). So
+ * `monthKey` below tags a record by its period's START month only; a period spanning more than
+ * one calendar month (e.g. a whole quarter imported in one file) is NOT prorated across the
+ * months it covers — it's counted wholly under its start month. Monthly-trend charts should be
+ * read with that in mind. True day-of-week usage patterns are not derivable from this import
+ * flow at all (no per-dispense date exists in the source file to begin with).
+ */
+export interface UsageHistoryRecord {
+  medId: string;
+  medName: string; // snapshot at import time — survives a later rename/deactivation of the med
+  unit: string; // m.unit snapshot — a bare qty number means nothing without it (เม็ด vs ขวด vs ml)
+  category: string; // categoryOf(m) snapshot at import time — a DRUG_CATEGORIES id (see data/categories.ts)
+  qty: number; // the REAL total dispensed during periodFrom–periodTo (NOT used30's 30-day-normalized rate)
+  value: number; // qty * m.price, snapshot at import time
+  periodFrom: string; // ISO YYYY-MM-DD, inclusive
+  periodTo: string; // ISO YYYY-MM-DD, inclusive
+  periodDays: number;
+  importedAt: number; // ms epoch, when this record was committed
+  monthKey: string; // periodFrom's 'YYYY-MM' — see the limitation note above
+}
 
 /**
  * One day's automated KPI snapshot — written once/day by scripts/collect-daily-metrics.mjs

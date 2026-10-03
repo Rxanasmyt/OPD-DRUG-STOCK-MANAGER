@@ -1,21 +1,26 @@
 import { useApp } from '../store/AppContext';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor } from '../store/selectors';
-import { nf, thDate, isoDate, DAY } from '../utils/format';
-import type { ReportTab, DailyMetrics } from '../types';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, topUsageByMed, usageByCategory, usageByMonth } from '../store/selectors';
+import { nf, thDate, isoDate, fiscalYearStartIso, DAY } from '../utils/format';
+import type { ReportTab, DailyMetrics, UsageHistoryRecord } from '../types';
+import { categoryLabel } from '../data/categories';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonList } from '../components/Skeleton';
 import { SearchInput } from '../components/SearchInput';
 import { printKpiReportSheet } from '../utils/print';
 import { severityIcon } from '../components/Qty';
 
+// Lazy — see UsageCharts.tsx's own doc comment for why recharts must never land in this
+// screen's main chunk.
+const UsageCharts = lazy(() => import('./UsageCharts'));
+
 // "exec" leads the tab strip — a PTC/pharmacy-head reader opening this screen wants the
 // headline picture first, not to have to find it after four operational tabs. "kpi" trails
 // everything else — it's a distinct kind of report (historical trend over a chosen range, not
 // "right now"), so it gets its own visual treatment (see isKpi below) the same way "insights"
 // already does for "computed, not just filtered".
-const TABS: [ReportTab, string][] = [['exec', '📊 ภาพรวมผู้บริหาร'], ['aging', 'Stock aging'], ['category', 'แยกตามหมวดยา'], ['turn', 'Turnover'], ['insights', '🧠 วิเคราะห์อัตโนมัติ'], ['disc', 'Discrepancy log'], ['kpi', '📅 ตัวชี้วัดย้อนหลัง']];
-const REPORT_NAMES: Record<ReportTab, string> = { exec: 'executive_summary.csv', aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', kpi: 'kpi_metrics.csv' };
+const TABS: [ReportTab, string][] = [['exec', '📊 ภาพรวมผู้บริหาร'], ['aging', 'Stock aging'], ['category', 'แยกตามหมวดยา'], ['turn', 'Turnover'], ['insights', '🧠 วิเคราะห์อัตโนมัติ'], ['disc', 'Discrepancy log'], ['kpi', '📅 ตัวชี้วัดย้อนหลัง'], ['usage', '📈 สถิติการใช้ยา']];
+const REPORT_NAMES: Record<ReportTab, string> = { exec: 'executive_summary.csv', aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', kpi: 'kpi_metrics.csv', usage: 'usage_history.csv' };
 const AGING_BUCKETS: [string, number, number, string][] = [
   ['หมดอายุแล้ว', -99999, 0, 'var(--red)'],
   ['เหลือ ≤ 30 วัน', 0, 30, 'var(--red)'],
@@ -31,7 +36,7 @@ const DISC_TYPE_LABEL: Record<string, string> = {
 export default function ReportScreen() {
   const {
     state, setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary, goSubstockCardFor, fetchExecTxsThisMonth,
-    fetchDailyMetrics, exportDailyMetricsCsv, userName, toast,
+    fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, userName, toast,
   } = useApp();
   // Discrepancy log had no way to narrow it down — always the same fixed most-recent-30 slice
   // of state.txs, with no type filter and no way to find one specific drug's history, unlike
@@ -206,6 +211,39 @@ export default function ReportScreen() {
     return totalHours / totalApproved;
   })();
 
+  // ---------- 📈 สถิติการใช้ยา (usage tab) ----------
+  // Real-world request: "เก็บสถิติการใช้ยาแต่ละวัน...รายงานประจำไตรมาส/เดือน/ปีงบประมาณ...Top 100"
+  // — same "own date range + fetched rows, local to this screen" shape as the kpi tab right
+  // above (a bounded historical query, not part of the always-live global state). Defaults to
+  // the current fiscal year (ต.ค.–ปัจจุบัน) since that's the period a pharmacy actually reports
+  // against, not a rolling 30 days.
+  const [usageFrom, setUsageFrom] = useState(() => fiscalYearStartIso(Date.now()));
+  const [usageTo, setUsageTo] = useState(() => isoDate(Date.now()));
+  const [usageRecords, setUsageRecords] = useState<UsageHistoryRecord[]>([]);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageLoaded, setUsageLoaded] = useState(false);
+  const [usageRankBy, setUsageRankBy] = useState<'value' | 'qty'>('value');
+  // Same "last request wins" ref-counter guard as kpiReqId above — see its own comment for why.
+  const usageReqId = useRef(0);
+  const loadUsage = () => {
+    const reqId = ++usageReqId.current;
+    setUsageLoading(true);
+    fetchUsageHistory(usageFrom, usageTo).then((records) => {
+      if (reqId !== usageReqId.current) return;
+      setUsageRecords(records); setUsageLoaded(true);
+    }).finally(() => { if (reqId === usageReqId.current) setUsageLoading(false); });
+  };
+  useEffect(() => {
+    if (state.reportTab === 'usage' && !usageLoaded) loadUsage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.reportTab]);
+  const usageTopMeds = useMemo(() => topUsageByMed(usageRecords, usageRankBy, 100), [usageRecords, usageRankBy]);
+  const usageCategoryRows = useMemo(() => usageByCategory(usageRecords), [usageRecords]);
+  const usageMonthRows = useMemo(() => usageByMonth(usageRecords), [usageRecords]);
+  const usageTotalQty = usageRecords.reduce((s, r) => s + r.qty, 0);
+  const usageTotalValue = usageRecords.reduce((s, r) => s + r.value, 0);
+  const usageMedCount = usageTopMeds.length;
+
   return (
     <div style={{ animation: 'fade .18s' }}>
       <div style={{ padding: '12px 14px 10px', position: 'sticky', top: 0, zIndex: 2 }} className="sticky-bar">
@@ -248,10 +286,11 @@ export default function ReportScreen() {
           (ไม่ใช่แค่ discrepancy) · audit log เต็ม · ใบรับที่รออนุมัติ · รายชื่อผู้ใช้ (เฉพาะ Admin) ·
           ยาทั้งฟอร์มูลารี่ครบทุกฟิลด์ · lot ทุก lot ที่เคยรับเข้า (รวมที่หมด/ตัดออกแล้ว) · ค่าตั้งค่าระบบ
         </div>
-        {/* "kpi" has its own date-range-scoped export below (exportDailyMetricsCsv on the
-            fetched rows) — the generic exportReportCsv here only ever knows how to export
-            whatever's in state right now, which doesn't make sense for a historical range. */}
-        {state.reportTab !== 'kpi' && (
+        {/* "kpi"/"usage" each have their own date-range-scoped export below (exportDailyMetricsCsv
+            / exportUsageHistoryCsv on their own fetched rows) — the generic exportReportCsv here
+            only ever knows how to export whatever's in state right now, which doesn't make sense
+            for a historical range. */}
+        {state.reportTab !== 'kpi' && state.reportTab !== 'usage' && (
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <button onClick={exportReportCsv} className="btn-outline" style={{ flex: 1, padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44 }}>
               ↓ Export CSV — {REPORT_NAMES[state.reportTab]}
@@ -587,6 +626,94 @@ export default function ReportScreen() {
                 <div className="muted" style={{ fontSize: 11, lineHeight: 1.6, padding: '0 2px' }}>
                   "มูลค่าคงคลัง" ของแต่ละวันบันทึกจากยอดจริง ณ ตอนที่ระบบเก็บ snapshot (หลังเที่ยงคืนของวันนั้น) —
                   ส่วน "จ่ายจริง/par ผิด/ผู้ใช้" อ้างอิงประวัติธุรกรรมจริงของวันนั้นเสมอ ถูกต้องไม่ว่าจะดูย้อนหลังไปนานแค่ไหน
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {state.reportTab === 'usage' && (
+          <>
+            <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, padding: '0 2px', marginBottom: 11 }}>
+              เก็บจำนวน/มูลค่าจริงของแต่ละครั้งที่นำเข้าไฟล์ "ตัดจ่ายยาหน้าชั้นวาง" (หน้าตั้งค่า) แบบถาวร
+              ไม่ถูกทับด้วยการนำเข้ารอบใหม่เหมือน used30 — เลือกช่วงวันที่แล้วกด "ดึงรายงาน"
+              <br />
+              <strong>ข้อจำกัดของข้อมูล:</strong> ไฟล์ HOSxP ที่นำเข้ามีแค่ "ชื่อยา + จำนวนรวม" ต่อช่วงที่ระบุ
+              ไม่มีวันที่จ่ายจริงต่อแถว ระบบจึงนับยอดทั้งช่วงไว้ที่ "เดือนเริ่มต้น" ของแต่ละครั้งที่นำเข้าเท่านั้น
+              (ไม่ได้เฉลี่ยกระจายตามจริง) และไม่สามารถบอกได้ว่า "วันจันทร์ใช้ยาอะไร" เพราะไฟล์ไม่มีวันที่ต่อรายการ
+            </div>
+            <div className="grid-2" style={{ gap: 8, marginBottom: 10 }}>
+              <label>
+                <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>จากวันที่</span>
+                <input type="date" value={usageFrom} onChange={(e) => setUsageFrom(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 15, minHeight: 40 }} />
+              </label>
+              <label>
+                <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>ถึงวันที่</span>
+                <input type="date" value={usageTo} onChange={(e) => setUsageTo(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 15, minHeight: 40 }} />
+              </label>
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+              <button className="chip" style={chip(false)} onClick={() => { setUsageFrom(fiscalYearStartIso(Date.now())); setUsageTo(isoDate(Date.now())); }}>ปีงบประมาณนี้</button>
+              <button className="chip" style={chip(false)} onClick={() => { setUsageFrom(fiscalYearStartIso(Date.now() - 365 * DAY)); setUsageTo(fiscalYearStartIso(Date.now())); }}>ปีงบประมาณก่อน</button>
+              <button className="chip" style={chip(false)} onClick={() => { setUsageFrom(isoDate(Date.now()).slice(0, 8) + '01'); setUsageTo(isoDate(Date.now())); }}>เดือนนี้</button>
+              <button onClick={loadUsage} disabled={usageLoading || usageFrom > usageTo} className="btn-primary" style={{ marginLeft: 'auto', padding: '9px 16px', borderRadius: 9, fontSize: 12.5, fontWeight: 700, minHeight: 38, opacity: usageLoading || usageFrom > usageTo ? 0.6 : 1 }}>
+                {usageLoading ? 'กำลังโหลด…' : 'ดึงรายงาน'}
+              </button>
+            </div>
+            {usageFrom > usageTo && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>"จากวันที่" ต้องไม่มากกว่า "ถึงวันที่"</div>}
+
+            {usageLoading && !usageLoaded && <SkeletonList rows={6} />}
+
+            {usageLoaded && !usageLoading && usageRecords.length === 0 && (
+              <EmptyState icon="📈" title="ยังไม่มีข้อมูลในช่วงนี้" sub="ข้อมูลนี้มาจากการนำเข้าไฟล์ตัดจ่ายยาหน้าชั้นวาง (หน้าตั้งค่า) เท่านั้น — ถ้ายังไม่เคยนำเข้าไฟล์ในช่วงนี้ จะไม่มีอะไรให้แสดง" />
+            )}
+
+            {usageRecords.length > 0 && (
+              <div style={{ opacity: usageLoading ? 0.45 : 1, pointerEvents: usageLoading ? 'none' : undefined, transition: 'opacity .15s var(--ease-out)' }}>
+                <button
+                  onClick={() => exportUsageHistoryCsv(usageRecords)}
+                  className="btn-outline"
+                  style={{ width: '100%', padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44, marginBottom: 14 }}
+                >
+                  ↓ Export CSV — {nf(usageRecords.length)} รายการ
+                </button>
+
+                <div className="grid-2 tablet-4" style={{ marginBottom: 16 }}>
+                  <ExecStat label="มูลค่าการใช้ยารวมช่วงนี้" value={nf(Math.round(usageTotalValue)) + ' บาท'} />
+                  <ExecStat label="ปริมาณรวม (คละหน่วย)" value={nf(usageTotalQty)} note="รวมหน่วยต่างกันของยาคนละตัว ดูเป็นภาพรวมเท่านั้น" />
+                  <ExecStat label="จำนวนรายการยาที่มีการใช้" value={nf(usageMedCount)} />
+                  <ExecStat label="จำนวนครั้งที่นำเข้าไฟล์ในช่วงนี้" value={nf(new Set(usageRecords.map((r) => r.periodFrom + '_' + r.periodTo)).size)} />
+                </div>
+
+                <Suspense fallback={<SkeletonList rows={3} />}>
+                  <UsageCharts monthRows={usageMonthRows} categoryRows={usageCategoryRows} />
+                </Suspense>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '0 2px 8px' }}>
+                  <div className="muted" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase' }}>Top 100 ยาที่ใช้มากที่สุด</div>
+                  <div style={{ display: 'flex', gap: 5 }}>
+                    <button className="chip" style={{ ...chip(usageRankBy === 'value'), padding: '5px 10px', fontSize: 11, minHeight: 28 }} onClick={() => setUsageRankBy('value')}>เรียงตามมูลค่า</button>
+                    <button className="chip" style={{ ...chip(usageRankBy === 'qty'), padding: '5px 10px', fontSize: 11, minHeight: 28 }} onClick={() => setUsageRankBy('qty')}>เรียงตามปริมาณ</button>
+                  </div>
+                </div>
+                <div className="card stagger" style={{ overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', padding: '9px 13px', background: 'var(--bg-subtle)', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+                    <span style={{ width: 28, flex: 'none' }}>#</span>
+                    <span style={{ flex: 1 }}>ยา / หมวด</span>
+                    <span style={{ width: 90, textAlign: 'right', flex: 'none' }}>ปริมาณ</span>
+                    <span style={{ width: 80, textAlign: 'right', flex: 'none' }}>มูลค่า</span>
+                  </div>
+                  {usageTopMeds.map((r, i) => (
+                    <div key={r.medId} style={{ display: 'flex', padding: '9px 13px', borderBottom: '1px solid var(--border-soft)', fontSize: 12.5, alignItems: 'center' }}>
+                      <span style={{ width: 28, flex: 'none', color: 'var(--muted)', fontWeight: 700 }}>{i + 1}</span>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--ink)' }}>{r.medName}</div>
+                        <div className="muted" style={{ fontSize: 10.5 }}>{categoryLabel(r.category)}</div>
+                      </span>
+                      <span style={{ width: 90, textAlign: 'right', flex: 'none' }}>{nf(r.qty)} {r.unit}</span>
+                      <span style={{ width: 80, textAlign: 'right', flex: 'none', fontWeight: 600 }}>{nf(Math.round(r.value))}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

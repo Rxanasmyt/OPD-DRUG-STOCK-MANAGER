@@ -9,10 +9,10 @@ import {
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
-  AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics,
+  AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -21,6 +21,7 @@ import { printLabelSheet, printPickListSheet, printExecutiveSummarySheet, type P
 import { parseHosxpUsageWorkbook, parseUsageCsvTextWithSkipped, splitNameQty, type RawUsageRow } from '../utils/usageImport';
 import { LOCS, FRIDGE_LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
+import { categoryLabel } from '../data/categories';
 import { withTimeout, TimeoutError } from '../utils/timeout';
 import { readNotifyEnabled, writeNotifyEnabled, readLowStockNotifyEnabled, writeLowStockNotifyEnabled, requestPermission, currentPermission, maybeNotifyExpiring, maybeNotifyLowStock } from '../utils/notify';
 import { hapticSuccess, hapticError } from '../utils/haptic';
@@ -358,6 +359,11 @@ export interface AppCtx {
    * scripts/collect-daily-metrics.mjs for what populates this collection and how. */
   fetchDailyMetrics: (fromDate: string, toDate: string) => Promise<DailyMetrics[]>;
   exportDailyMetricsCsv: (rows: DailyMetrics[]) => Promise<void>;
+  /** fromDate/toDate are inclusive ISO (YYYY-MM-DD) bounds matched against each record's
+   * periodFrom — see UsageHistoryRecord in types.ts and commitUsageImport for what populates
+   * this collection and how. */
+  fetchUsageHistory: (fromDate: string, toDate: string) => Promise<UsageHistoryRecord[]>;
+  exportUsageHistoryCsv: (records: UsageHistoryRecord[]) => Promise<void>;
   setCountInput: (medId: string, v: string) => void;
   commitCount: (medId: string) => void;
   /** Commits every count typed on the นับสต็อก screen in one action — same per-med
@@ -2134,10 +2140,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const exportReportCsv = useCallback(async () => {
     const st = state;
-    // 'kpi' never actually reaches here — ReportScreen hides this generic export button for
-    // that tab in favor of exportDailyMetricsCsv on its own fetched date range — but the map
-    // still needs every ReportTab key to satisfy state.reportTab's type below.
-    const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', exec: 'executive_summary.csv', kpi: 'kpi_metrics.csv' };
+    // 'kpi'/'usage' never actually reach here — ReportScreen hides this generic export button
+    // for both in favor of their own date-range-scoped export (exportDailyMetricsCsv /
+    // exportUsageHistoryCsv) — but the map still needs every ReportTab key to satisfy
+    // state.reportTab's type below.
+    const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', exec: 'executive_summary.csv', kpi: 'kpi_metrics.csv', usage: 'usage_history.csv' };
     // Bug fix (report accuracy): ReportScreen.tsx dropped OPD/IPD ward tabs a while back ("reports
     // always cover the whole formulary" — see its own comment) and every on-screen computation
     // there (aging/category/turn/insights/exec/disc) reads straight from state.meds.filter(active)
@@ -3609,6 +3616,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await downloadCsv([header, ...body], 'kpi_' + (rows[0]?.date || '') + '_ถึง_' + (rows[rows.length - 1]?.date || '') + '.csv');
   }, []);
 
+  // ---------- usage history (per-drug qty/value by import period — see commitUsageImport) ----------
+  // Same "plain one-shot fetch, not a live listener" reasoning as fetchDailyMetrics right above:
+  // a historical report over a caller-chosen range doesn't need to re-render mid-view, and this
+  // collection can grow into the thousands of docs (one per matched med per import) — nothing
+  // this screen does should hold it all in a permanent onSnapshot.
+  const fetchUsageHistory = useCallback(async (fromDate: string, toDate: string): Promise<UsageHistoryRecord[]> => {
+    const snap = await withTimeout(getDocs(query(
+      collection(db, 'usageHistory'),
+      where('periodFrom', '>=', fromDate), where('periodFrom', '<=', toDate),
+    )));
+    return snap.docs.map((d) => d.data() as UsageHistoryRecord);
+  }, []);
+
+  const exportUsageHistoryCsv = useCallback(async (records: UsageHistoryRecord[]) => {
+    const header = ['เดือน', 'ชื่อยา', 'หมวดยา', 'จำนวนที่ใช้', 'มูลค่า (บาท)', 'ช่วงที่นำเข้า'];
+    const sorted = records.slice().sort((a, b) => a.periodFrom.localeCompare(b.periodFrom) || a.medName.localeCompare(b.medName));
+    const body = sorted.map((r) => [r.monthKey, r.medName, categoryLabel(r.category), r.qty, Math.round(r.value), r.periodFrom + ' – ' + r.periodTo]);
+    await downloadCsv([header, ...body], 'usage_history_' + (sorted[0]?.periodFrom || '') + '_ถึง_' + (sorted[sorted.length - 1]?.periodTo || '') + '.csv');
+  }, []);
+
   // ---------- count ----------
   const setCountInput = useCallback((medId: string, v: string) => patch((st) => ({ countInputs: { ...st.countInputs, [medId]: digitsOnly(v) } })), [patch]);
 
@@ -4154,12 +4181,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
       .filter((x): x is { r: typeof x.r; m: Med } => !!x.m);
     if (!targets.length) { toast('ไม่มีรายการที่จับคู่กับยาในระบบได้ — ตรวจสอบชื่อยาในไฟล์'); return; }
+    const monthKey = state.usageDateFrom.slice(0, 7);
     try {
-      for (let i = 0; i < targets.length; i += 400) {
+      // Each target now writes TWO ops (the used30 update + a usageHistory record below) —
+      // half the old chunk size to stay safely under Firestore's 500-write batch limit.
+      for (let i = 0; i < targets.length; i += 200) {
         const batch = writeBatch(db);
-        targets.slice(i, i + 400).forEach(({ r, m }) => {
+        targets.slice(i, i + 200).forEach(({ r, m }) => {
           const used30 = Math.round((r.qty / periodDays) * 30);
           batch.update(doc(db, 'meds', m.id), { used30 });
+          // Real-world request: "เก็บสถิติการใช้ยาแต่ละวัน...รายงานประจำไตรมาส/เดือน/ปีงบประมาณ" —
+          // used30 above is a ROLLING rate that every later import overwrites, with no memory of
+          // any period before the most recent one. This record is that memory: the REAL total
+          // qty/value for THIS declared period, written once and never overwritten, so Top 100 /
+          // category / monthly-trend reporting (see usage tab, ReportScreen.tsx) can look back
+          // across every import ever committed. See UsageHistoryRecord's own doc comment
+          // (types.ts) for why monthKey is NOT prorated across a period spanning >1 month.
+          batch.set(doc(collection(db, 'usageHistory')), {
+            medId: m.id, medName: m.name, unit: m.unit, category: categoryOf(m),
+            qty: r.qty, value: r.qty * m.price,
+            periodFrom: state.usageDateFrom, periodTo: state.usageDateTo, periodDays,
+            importedAt: Date.now(), monthKey,
+          } satisfies UsageHistoryRecord);
         });
         await withTimeout(batch.commit());
       }
@@ -4507,7 +4550,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, recomputeUsageStats, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
-    fetchSubstockLedger, fetchFloorLedger, fetchDailyMetrics, exportDailyMetricsCsv, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
+    fetchSubstockLedger, fetchFloorLedger, fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
     setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,

@@ -203,6 +203,32 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ---- usage history (AppContext.tsx: commitUsageImport, see UsageHistoryRecord in types.ts)
+    // ---- the durable, append-only per-period qty/value record behind the "📈 สถิติการใช้ยา"
+    // report tab. Written in the SAME action/batch as the admin-only meds.used30 update right
+    // above (SettingsScreen gates that whole import UI to admin — see its own "Admin-only now"
+    // comment) — matching that same isAdmin() gate here, not a wider isActive(), keeps this
+    // collection's write path exactly as privileged as the used30 write it always travels with.
+    // Append-only like txs: never updated, never deleted by the app (a wrong import is a new
+    // record, not an edit — the report tab's own "ไม่ถูกทับด้วยการนำเข้ารอบใหม่" guarantee would
+    // break the moment this allowed update/delete). ----
+    match /usageHistory/{id} {
+      allow read: if isActive();
+      allow create: if isAdmin()
+                    && request.resource.data.medId is string
+                    && request.resource.data.medName is string
+                    && request.resource.data.unit is string
+                    && request.resource.data.category is string
+                    && isNonNegNum(request.resource.data.qty)
+                    && isNonNegNum(request.resource.data.value)
+                    && request.resource.data.periodFrom is string
+                    && request.resource.data.periodTo is string
+                    && request.resource.data.periodDays is number
+                    && request.resource.data.importedAt is number
+                    && request.resource.data.monthKey is string;
+      allow update, delete: if false;
+    }
+
     // ---- pre-delete safety snapshots (AppContext.tsx: snapshotBeforeDelete()) ----
     // Before resetAllStockLedgers()/resetAllQuantities() delete anything, they first copy every
     // document about to be destroyed in here — an in-app undo layer that doesn't depend on
