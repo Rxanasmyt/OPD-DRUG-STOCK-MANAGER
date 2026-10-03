@@ -27,11 +27,14 @@ type Filter = 'active' | 'inactive' | 'all' | 'parOne' | 'onHold' | 'incomplete'
  * - category (หมวดกลุ่มยา): every active med should have one — categoryOf() itself falls back
  *   to UNCATEGORIZED, so "ยังไม่ระบุหมวด" never crashes anything, but that fallback is exactly
  *   the state this diagnostic is for catching and clearing out, not leaving silently forever. */
-function missingFields(m: Med): string[] {
-  const out: string[] = [];
-  if (!m.bin.trim()) out.push('ชั้นหน้างาน');
-  if (usesSubstock(m) && !m.binSub?.trim()) out.push('ชั้น substock');
-  if (categoryOf(m) === UNCATEGORIZED) out.push('หมวดกลุ่มยา');
+type MissingField = 'bin' | 'binSub' | 'category';
+const MISSING_LABEL: Record<MissingField, string> = { bin: 'ชั้นหน้างาน', binSub: 'ชั้น substock', category: 'หมวดกลุ่มยา' };
+
+function missingFields(m: Med): MissingField[] {
+  const out: MissingField[] = [];
+  if (!m.bin.trim()) out.push('bin');
+  if (usesSubstock(m) && !m.binSub?.trim()) out.push('binSub');
+  if (categoryOf(m) === UNCATEGORIZED) out.push('category');
   return out;
 }
 
@@ -147,6 +150,55 @@ function formFromMed(m: Med): MedFormValues {
     shared: isSharedMed(m), binIpd: m.binIpd || '', binSub: m.binSub || '', category: m.category || '',
     packSize: m.packSize ? String(m.packSize) : '',
   };
+}
+
+/**
+ * Real-world request: "ข้อมูลยังไม่ครบ" filter on its own only ever SAID what's missing — fixing
+ * it still meant opening the full "แก้ไขข้อมูล" form per med. Inline inputs for exactly the
+ * missing field(s), bound directly to the live (optimistically-updated) med so there's no local
+ * component state to keep in sync — same pattern MedForm's own sibling-bin quick-edit already
+ * uses (see its own "บันทึกทันทีแยกจากฟอร์มนี้" field). Lets an admin clear a whole backlog of
+ * incomplete meds without leaving this filtered list.
+ */
+function IncompleteQuickFix({ med, missing }: { med: Med; missing: MissingField[] }) {
+  const { setMedBin, setMedBinSub, setMedCategory } = useApp();
+  // Bug fix (reported live while testing): missing's live value tracks "is this STILL
+  // missing right now" — if the bin input's own presence were driven by that same live value,
+  // typing a single non-blank character into it (bin.trim() is now truthy) would make the
+  // field stop counting as "missing" and the whole input would vanish mid-keystroke. Freeze
+  // the originally-missing field set once at mount instead — this row only exists at all while
+  // the med still matches the "ข้อมูลยังไม่ครบ" filter (missingFields(m).length > 0 at the call
+  // site), so once every originally-missing field here is actually filled in, the whole row
+  // (not just one input) correctly drops out of that filtered list on its own.
+  const [frozenMissing] = useState(missing);
+  return (
+    <div style={{ marginTop: 6, padding: 9, background: 'var(--amber-bg)', borderRadius: 9, display: 'flex', flexDirection: 'column', gap: 7 }}>
+      <div style={{ fontSize: 10.5, color: 'var(--amber-ink)', fontWeight: 700 }}>
+        📋 ขาด: {frozenMissing.map((f) => MISSING_LABEL[f]).join(' · ')} — กรอกตรงนี้ได้เลย ไม่ต้องเปิดฟอร์มเต็ม
+      </div>
+      {frozenMissing.includes('bin') && (
+        <label style={{ display: 'block' }}>
+          <span className="muted" style={{ display: 'block', fontSize: 10.5, marginBottom: 3 }}>ชั้นหน้างาน</span>
+          <input value={med.bin} onChange={(e) => setMedBin(med.id, e.target.value)} placeholder="เช่น A1 หรือ ตู้ยา-1" style={{ ...inputStyle, textTransform: 'uppercase' as const }} />
+        </label>
+      )}
+      {frozenMissing.includes('binSub') && (
+        <label style={{ display: 'block' }}>
+          <span className="muted" style={{ display: 'block', fontSize: 10.5, marginBottom: 3 }}>ชั้น substock</span>
+          <input value={med.binSub || ''} onChange={(e) => setMedBinSub(med.id, e.target.value)} placeholder="เช่น S12" style={{ ...inputStyle, textTransform: 'uppercase' as const }} />
+        </label>
+      )}
+      {frozenMissing.includes('category') && (
+        <label style={{ display: 'block' }}>
+          <span className="muted" style={{ display: 'block', fontSize: 10.5, marginBottom: 3 }}>หมวดกลุ่มยา</span>
+          <select value={med.category || ''} onChange={(e) => setMedCategory(med.id, e.target.value)} style={{ ...inputStyle, appearance: 'auto' as const }}>
+            <option value="">— ยังไม่ระบุหมวด —</option>
+            {DRUG_CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+        </label>
+      )}
+    </div>
+  );
 }
 
 export default function MedsScreen() {
@@ -575,14 +627,9 @@ export default function MedsScreen() {
                     {/* Only surfaced under the "ข้อมูลยังไม่ครบ" diagnostic filter above — same
                         reasoning as parOneOnly's own inline detail: spot exactly what's missing
                         without opening each med's edit form one by one. */}
-                    {incompleteOnly && m.active && (() => {
-                      const missing = missingFields(m);
-                      return missing.length > 0 ? (
-                        <div style={{ fontSize: 10.5, marginTop: 3, color: 'var(--amber-ink)', fontWeight: 600 }}>
-                          📋 ขาด: {missing.join(' · ')}
-                        </div>
-                      ) : null;
-                    })()}
+                    {incompleteOnly && m.active && missingFields(m).length > 0 && (
+                      <IncompleteQuickFix med={m} missing={missingFields(m)} />
+                    )}
                   </div>
                   <Badge flexNone size={10.5} padding="4px 8px" color={m.active ? 'var(--green)' : 'var(--muted)'} bg={m.active ? 'var(--green-tint)' : 'var(--bg-subtle)'}>{m.active ? 'ใช้งานอยู่' : 'ปิดใช้งาน'}</Badge>
                 </div>
