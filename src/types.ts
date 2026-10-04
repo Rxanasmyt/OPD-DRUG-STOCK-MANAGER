@@ -69,6 +69,16 @@ export interface Med {
   // selectors.ts rather than reading `shared`/`binIpd` directly.
   shared?: boolean;
   binIpd?: string;
+  // Set on the LOSING side only, by the same mergeWardMeds()/mergeAllWardPairs() write that
+  // sets `active: false` — records which surviving med's id this one's stock was folded into,
+  // so fetchFloorLedger/fetchSubstockLedger/SubstockCardScreen's hasNameTwin (AppContext.tsx,
+  // SubstockCardScreen.tsx) can tell "this inactive same-name med is the known, intentional
+  // merge-away half of a ward pair — its untagged old tx history should still count toward the
+  // survivor's ledger" apart from "this inactive same-name med is an unrelated, accidental
+  // duplicate deactivated for some other reason — its history must NOT bleed into this one's."
+  // Never set any other way; a med with no `mergedInto` is just an ordinary (active or
+  // deactivated) record, same as before this field existed.
+  mergedInto?: string;
   // Substock's own shelf/rack code — the back-room counterpart to bin/binIpd (which are both
   // FLOOR codes). Its own field rather than reusing bin: floor and substock are two separate
   // physical rooms with their own independent code grid (see SUB_LOCS in data/locations.ts),

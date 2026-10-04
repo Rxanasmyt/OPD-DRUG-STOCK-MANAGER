@@ -34,6 +34,38 @@ function pushNav(stack: Screen[], current: Screen): Screen[] {
   return next.length > 20 ? next.slice(next.length - 20) : next;
 }
 
+// Bug fix (real data-loss risk — audit finding): the เติมหน้างาน cart and the รับเข้า recvItems
+// list are the two forms where real staff TIME, not just typed text, is at stake — the
+// comments right next to both already describe this as "several minutes of walking the
+// shelves deciding quantities" — yet both lived purely in this component's in-memory state,
+// never written anywhere until the final commit button. A crashed tab, an accidental
+// swipe-back/refresh, or the tablet's own hourly SW-update check landing badly meant the whole
+// batch vanished with no warning and no way back, forcing a full re-walk of the shelves. Mirrors
+// the theme-preference localStorage pattern already used elsewhere in this file, but keyed by
+// Firebase uid (not just "this device") so a shared tablet handed to a different person never
+// shows them someone else's half-built cart — see readPersisted/writePersisted's own callers for
+// exactly where each is read/written and cleared.
+const PERSIST_MAX_AGE_MS = 8 * 60 * 60 * 1000; // one work shift — older than this reads as abandoned, not worth restoring
+function cartStorageKey(uid: string): string { return 'opd-cart-' + uid; }
+function recvStorageKey(uid: string): string { return 'opd-recv-' + uid; }
+function writePersisted<T>(key: string, value: T): void {
+  try {
+    localStorage.setItem(key, JSON.stringify({ ts: Date.now(), value }));
+  } catch { /* localStorage unavailable (private mode, quota) — in-memory state still works, just unprotected */ }
+}
+function readPersisted<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { ts?: number; value?: T };
+    if (typeof parsed.ts !== 'number' || Date.now() - parsed.ts > PERSIST_MAX_AGE_MS) {
+      localStorage.removeItem(key); // stale — clear it so it never resurfaces on some future login
+      return null;
+    }
+    return parsed.value ?? null;
+  } catch { return null; }
+}
+
 // A lot's `code` is what a printed "ฉลาก lot" QR encodes AND what the damaged-label manual-
 // entry fallback looks up by exact string match after forcing the typed input to uppercase
 // (see parseQr/resolveMed) — so it needs to be (a) unique forever, not just within the batch
@@ -723,6 +755,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => patch({ toast: null }), 2600);
   }, [patch]);
+
+  // ---------- cart/recvItems crash recovery (see PERSIST_MAX_AGE_MS's own comment above for the
+  // real risk this closes) ----------
+  // One-shot per sign-in: restores whatever this exact uid last had in progress, the moment
+  // their uid becomes known — before they've had a chance to add anything new, so this can
+  // never clobber a fresh cart with stale data. restoredForUid guards against the effect
+  // re-firing on every unrelated state change (it only depends on myUid, but re-running the
+  // SAME restore a second time for the same uid would re-apply a cart the person may have
+  // already intentionally emptied back out since).
+  const restoredForUid = useRef<string | null>(null);
+  useEffect(() => {
+    if (!state.myUid || restoredForUid.current === state.myUid) return;
+    restoredForUid.current = state.myUid;
+    const cart = readPersisted<Record<string, number>>(cartStorageKey(state.myUid));
+    const recvItems = readPersisted<RecvItem[]>(recvStorageKey(state.myUid));
+    const hasCart = cart && Object.keys(cart).length > 0;
+    const hasRecv = recvItems && recvItems.length > 0;
+    if (!hasCart && !hasRecv) return;
+    patch({ ...(hasCart ? { cart: cart! } : {}), ...(hasRecv ? { recvItems: recvItems! } : {}) });
+    toast(
+      (hasCart && hasRecv) ? 'กู้ตะกร้าเติมหน้างานและรายการรับเข้าที่ยังไม่บันทึกจากก่อนหน้านี้คืนแล้ว'
+        : hasCart ? 'กู้ตะกร้าเติมหน้างานที่ยังไม่บันทึกจากก่อนหน้านี้คืนแล้ว'
+        : 'กู้รายการรับเข้าที่ยังไม่บันทึกจากก่อนหน้านี้คืนแล้ว'
+    );
+  }, [state.myUid, patch, toast]);
+  // Persists on every change, not debounced — both of these change at most once per button tap
+  // (not per keystroke), so there's no meaningful write-volume cost to saving immediately, and
+  // immediately is what actually closes the crash/refresh window (a debounced write would just
+  // reopen a smaller version of the same gap this exists to close).
+  useEffect(() => {
+    if (!state.myUid) return;
+    writePersisted(cartStorageKey(state.myUid), state.cart);
+  }, [state.myUid, state.cart]);
+  useEffect(() => {
+    if (!state.myUid) return;
+    writePersisted(recvStorageKey(state.myUid), state.recvItems);
+  }, [state.myUid, state.recvItems]);
 
   const enableExpiryNotify = useCallback(async () => {
     const perm = await requestPermission();
@@ -3080,7 +3149,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           usedPrev30: opdMed.usedPrev30 + ipdMed.usedPrev30,
           ward: 'opd',
         });
-        trx.update(doc(db, 'meds', ipdMed.id), { active: false, floor: 0 });
+        // Bug fix (ledger disambiguation — audit finding): records WHICH surviving med this
+        // merge folded into — see Med.mergedInto's own doc comment in types.ts for why
+        // fetchFloorLedger/fetchSubstockLedger/SubstockCardScreen's hasNameTwin need this to
+        // tell a real ward-merge apart from an unrelated same-name med deactivated for any
+        // other reason.
+        trx.update(doc(db, 'meds', ipdMed.id), { active: false, floor: 0, mergedInto: opdMed.id });
         return merged;
       });
       logAudit({
@@ -3155,7 +3229,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             usedPrev30: p.opdMed.usedPrev30 + p.ipdMed.usedPrev30,
             ward: 'opd',
           });
-          trx.update(doc(db, 'meds', p.ipdMed.id), { active: false, floor: 0 });
+          // Bug fix (ledger disambiguation) — same fix as mergeWardMeds's own note.
+          trx.update(doc(db, 'meds', p.ipdMed.id), { active: false, floor: 0, mergedInto: p.opdMed.id });
         });
         names.push(p.opdMed.name);
         ok++;
@@ -3583,11 +3658,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Older tx rows written before medId existed have none, so this narrows to nothing older
     // than that migration for a name-duplicated drug — showing an incomplete-but-correct
     // ledger beats a complete-but-wrong one that silently mixes in the other ward's stock.
-    // Active twins only: after "รวมสต็อก OPD+IPD" (mergeWardMeds/mergeAllWardPairs) the losing
-    // side is deactivated and zeroed, not a live ambiguity anymore, so it must not still trigger
-    // this narrowing (SubstockCardScreen's own hasNameTwin already excludes inactive twins —
-    // this needs to match or the two disagree about whether a twin exists).
-    const hasNameTwin = state.meds.some((x) => x.id !== m.id && x.active && x.name === m.name);
+    // Active twins always narrow. An INACTIVE same-name med only skips narrowing when it's
+    // specifically the known, intentional loser of a merge INTO this exact med (Med.mergedInto
+    // — see its own doc comment in types.ts) — the real "รวมสต็อก OPD+IPD" case, where pulling
+    // its untagged old history in on purpose is correct, not a live ambiguity anymore. Any OTHER
+    // inactive same-name med (an accidental duplicate deactivated for an unrelated reason, or
+    // one merged into some OTHER med entirely) still narrows, same as an active twin would —
+    // bug fix (audit finding): this used to treat EVERY inactive same-name med as "not a twin,
+    // safe to blend in," which would have silently merged two genuinely distinct drugs' history
+    // the moment either one was deactivated for any reason at all, not just a real merge.
+    // mergedFromIds tracks WHICH same-name ids are trusted merge-losers (there could in
+    // principle be more than one, or one alongside an unrelated duplicate) — narrowing, when it
+    // happens, must still accept rows tagged with any of those, not just m.id itself, or a real
+    // merged-in history would wrongly disappear the moment some OTHER unrelated duplicate also
+    // shares the name. (SubstockCardScreen's own hasNameTwin applies the same mergedInto check
+    // for its warning banner, though it only needs the boolean, not this id set.)
+    const mergedFromIds = new Set(state.meds.filter((x) => x.id !== m.id && x.name === m.name && x.mergedInto === m.id).map((x) => x.id));
+    const hasNameTwin = state.meds.some((x) => x.id !== m.id && x.name === m.name && !mergedFromIds.has(x.id));
     const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('name', '==', m.name))));
     const rows = snap.docs
       .map((d) => d.data() as { type: string; ts: number; qty: number; note?: string; by: string; loc?: string; medId?: string })
@@ -3597,7 +3684,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // SUBSTOCK_LEDGER_TYPES above (same class of bug the pre-existing 'expired' guard here
       // was already written to prevent, generalized to the new type).
       .filter((x) => SUBSTOCK_LEDGER_TYPES.has(x.type) && (x.type !== 'expired' || x.loc === 'substock') && (x.type !== 'count' || x.loc === 'substock'))
-      .filter((x) => !hasNameTwin || x.medId === m.id)
+      .filter((x) => !hasNameTwin || x.medId === m.id || (x.medId != null && mergedFromIds.has(x.medId)))
       .map((x) => ({ ts: x.ts, type: x.type, qty: x.type === 'transfer_to_floor' ? -Math.abs(x.qty) : x.qty, note: x.note || '', by: x.by }))
       .sort((a, b) => a.ts - b.ts);
     let bal = 0;
@@ -3616,9 +3703,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const fetchFloorLedger = useCallback(async (medId: string) => {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return [];
-    // Same OPD/IPD name-twin hazard as fetchSubstockLedger — trust only rows tagged for THIS
-    // med once a live (active) same-name twin exists.
-    const hasNameTwin = state.meds.some((x) => x.id !== m.id && x.active && x.name === m.name);
+    // Same OPD/IPD name-twin hazard, and same mergedInto refinement, as fetchSubstockLedger
+    // above — see its own comment for the full reasoning.
+    const mergedFromIds = new Set(state.meds.filter((x) => x.id !== m.id && x.name === m.name && x.mergedInto === m.id).map((x) => x.id));
+    const hasNameTwin = state.meds.some((x) => x.id !== m.id && x.name === m.name && !mergedFromIds.has(x.id));
     const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('name', '==', m.name))));
     const rows = snap.docs
       .map((d) => d.data() as { type: string; ts: number; qty: number; note?: string; by: string; loc?: string; to?: string; medId?: string })
@@ -3627,7 +3715,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // belongs here. Every other type in FLOOR_LEDGER_TYPES is only ever logged against floor
       // in the first place (see fetchSubstockLedger's comment), so no further guard needed.
       .filter((x) => FLOOR_LEDGER_TYPES.has(x.type) && (x.type !== 'receive_from_central' || x.to === 'floor') && (x.type !== 'count' || x.loc === 'floor'))
-      .filter((x) => !hasNameTwin || x.medId === m.id)
+      .filter((x) => !hasNameTwin || x.medId === m.id || (x.medId != null && mergedFromIds.has(x.medId)))
       .map((x) => ({ ts: x.ts, type: x.type, qty: x.qty, note: x.note || '', by: x.by }))
       .sort((a, b) => a.ts - b.ts);
     let bal = 0;
