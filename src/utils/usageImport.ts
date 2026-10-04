@@ -35,11 +35,11 @@ function cellText(v: unknown): string {
  * used import path needs — dynamically imported here instead of at module scope, so it's a
  * separate lazily-fetched chunk rather than weight every single page load pays up front.
  */
-export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<RawUsageRow[]> {
+export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<{ rows: RawUsageRow[]; skipped: number }> {
   const XLSX = await import('xlsx');
   const wb = XLSX.read(buf, { type: 'array' });
   const sheet = wb.Sheets[wb.SheetNames[0]];
-  if (!sheet) return [];
+  if (!sheet) return { rows: [], skipped: 0 };
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
 
   // Find the header row and its columns by matching label substrings — searched in this
@@ -74,22 +74,35 @@ export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<RawUsag
   // (a differently-shaped export) — still better than refusing to import anything.
   if (headerIdx < 0) { headerIdx = 0; nameCol = 1; strengthCol = 2; unitCol = 3; qtyCol = 5; }
 
+  // Bug fix (silent data loss): this used to just `continue` on an empty name or an
+  // unparseable/zero qty cell, exactly like the CSV path's own equivalent before
+  // parseUsageCsvTextWithSkipped's fix — but unlike that fix, it was never carried over here,
+  // even though this .xlsx path is the one actually used in daily practice (the CSV textarea
+  // is the fallback). For processHosxpFile specifically, a row dropped here means that drug's
+  // floor is never debited for the day at all — a silent divergence from the real shelf that
+  // nothing else catches until either a physical count or the next day's check-stock-drift.mjs
+  // run, with no indication of WHICH drug or WHY. Tracked the same way the CSV path already
+  // does, so the caller can show the same "ข้าม N แถว" warning for both file types.
   const out: RawUsageRow[] = [];
+  let skipped = 0;
   for (let r = headerIdx + 1; r < rows.length; r++) {
     const row = rows[r];
-    if (!row || !row.length) continue;
+    if (!row || !row.length) continue; // a genuinely blank row (not a drug row at all) — not a parse failure
     const name = [nameCol, strengthCol, unitCol]
       .filter((c) => c >= 0)
       .map((c) => cellText(row[c]))
       .filter(Boolean)
       .join(' ')
       .trim();
-    if (!name) continue;
+    if (!name) { skipped++; continue; }
     const qty = parseCellNumber(row[qtyCol]);
-    if (qty <= 0) continue; // a 0-qty or unparseable row contributes nothing either way
+    // Same convention as parseUsageCsvLines: HOSxP's own usage report only ever lists a row for
+    // a drug that was actually dispensed, so qty<=0 here means the cell was blank/dash/
+    // unparseable, not a genuine "dispensed zero" — counted as skipped, not silently dropped.
+    if (qty <= 0) { skipped++; continue; }
     out.push({ name, qty });
   }
-  return out;
+  return { rows: out, skipped };
 }
 
 // Bug fix (data integrity): a plain `lastIndexOf(',')` split (the previous approach here and

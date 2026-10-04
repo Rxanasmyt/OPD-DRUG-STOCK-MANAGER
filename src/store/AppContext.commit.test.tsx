@@ -1172,7 +1172,7 @@ function UpdateMedNegativePriceHarness() {
     <button onClick={() => updateMedFull(MED.id, {
       name: MED.name, unit: MED.unit, dosageForm: MED.dosageForm, price: -20, had: false,
       bin: MED.bin, parSub: MED.parSub, parFloor: MED.parFloor, floorMin: 10, ward: 'opd', noSubstock: false, volatility: 1.1,
-    })}>
+    }, null)}>
       update-med-negative-price
     </button>
   );

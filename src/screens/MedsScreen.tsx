@@ -216,6 +216,19 @@ export default function MedsScreen() {
   const [addOpen, setAddOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  // Bug fix (lost-update race, audit finding): `editingMed`/`m` below is recomputed from the
+  // LIVE state.meds listener on every render, so it can't itself serve as "what this edit form
+  // actually started from" — another admin's concurrent save would already be reflected in it
+  // before this one's own submit fires, masking the exact race this exists to catch. MedForm's
+  // own `initial` prop freezes via useState(initial) ONCE at mount (see its own comment on
+  // editingId's key={} forcing a remount) — this ref mirrors that same "once per editingId"
+  // freeze for the full Med object, not just the form-shaped projection, so updateMedFull can
+  // compare the live doc against what the admin's screen ACTUALLY showed when they opened it.
+  const editBaselineRef = useRef<Med | null>(null);
+  useEffect(() => {
+    editBaselineRef.current = editingId ? state.meds.find((x) => x.id === editingId) ?? null : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingId]);
 
   // A QR scan (ดูข้อมูลยา) lands here with medsFocusId set — jump straight into that med's
   // edit panel instead of leaving the person to scroll through hundreds of rows to find it.
@@ -713,7 +726,7 @@ export default function MedsScreen() {
                 // to close the sheet right after firing updateMedFull regardless of outcome, so
                 // a failure (network error, permission check) lost every edited field with only
                 // a toast to show for it. Now only closes once the save actually confirms success.
-                const ok = await updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined });
+                const ok = await updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined }, editBaselineRef.current);
                 if (ok) setEditingId(null);
               }}
               // ยาชื่อเดียวกันที่แยกรายการไว้คนละ ward (คนละ Firestore doc ตามหลักการออกแบบ
