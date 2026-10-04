@@ -262,7 +262,12 @@ export default function ReportScreen() {
   const usageCategoryRows = useMemo(() => usageByCategory(usageRecords), [usageRecords]);
   const usageMonthRows = useMemo(() => usageByMonth(usageRecords), [usageRecords]);
   const usageTotalQty = usageRecords.reduce((s, r) => s + r.qty, 0);
-  const usageTotalValue = usageRecords.reduce((s, r) => s + r.value, 0);
+  // Bug fix (report accuracy, audit finding): same class of mismatch catTotalValue above was
+  // already fixed for — summing RAW per-row values and rounding only the final sum can disagree
+  // with what a reader gets by adding up the rounded values actually shown in the Top 100 table
+  // (TopUsageByMed rows display nf(r.value), i.e. Math.round each). Summing already-rounded
+  // values guarantees the footer matches the rows a reader can actually see adding up.
+  const usageTotalValue = usageRecords.reduce((s, r) => s + Math.round(r.value), 0);
   const usageMedCount = usageTopMeds.length;
 
   // ---------- 📜 ยอดคงคลังย้อนหลัง (stockasof tab) ----------
@@ -297,7 +302,12 @@ export default function ReportScreen() {
     const rows = q ? stockAsOfRows.filter((r) => r.medName.toLowerCase().includes(q)) : stockAsOfRows;
     return rows.slice().sort((a, b) => b.value - a.value);
   }, [stockAsOfRows, stockAsOfSearch]);
-  const stockAsOfTotalValue = stockAsOfRows.reduce((s, r) => s + r.value, 0);
+  // Bug fix (report accuracy, audit finding): same class of mismatch catTotalValue was already
+  // fixed for — this table shows every med in the formulary (not just a Top N), so a PTC/
+  // pharmacy-head reviewer adding up the visible rows by hand is exactly the real scenario that
+  // fix's own comment describes. Summing already-rounded per-row values (matching what the table
+  // below actually displays via nf(r.value)) guarantees the footer always agrees with them.
+  const stockAsOfTotalValue = stockAsOfRows.reduce((s, r) => s + Math.round(r.value), 0);
   const stockAsOfNegativeCount = stockAsOfRows.filter((r) => r.floor < 0 || r.sub < 0).length;
 
   return (

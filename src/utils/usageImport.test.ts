@@ -82,7 +82,7 @@ describe('parseHosxpUsageWorkbook', () => {
       ['No.', 'รายการยา', 'ความแรง', 'หน่วย', 'จำนวนใบสั่งยา', 'จำนวนที่ใช้', 'มูลค่า(บาท)'],
       [1, 'Paracetamol', '500 mg', 'เม็ด', 20, 100, 500],
     ]);
-    expect(await parseHosxpUsageWorkbook(buf)).toEqual([{ name: 'Paracetamol 500 mg เม็ด', qty: 100 }]);
+    expect((await parseHosxpUsageWorkbook(buf)).rows).toEqual([{ name: 'Paracetamol 500 mg เม็ด', qty: 100 }]);
   });
 
   // Regression guard for a real bug found testing an actual hospital HOSxP export: that
@@ -97,7 +97,7 @@ describe('parseHosxpUsageWorkbook', () => {
       ['No.', 'รายการยา', 'ความแรง', 'หน่วย', 'รายการ', 'จำนวน', 'มูลค่า(บาท)', 'ต้นทุน(บาท)'],
       [1, 'Amoxicillin', '250 mg', 'แคปซูล', 40, 200, 1000, 800],
     ]);
-    expect(await parseHosxpUsageWorkbook(buf)).toEqual([{ name: 'Amoxicillin 250 mg แคปซูล', qty: 200 }]);
+    expect((await parseHosxpUsageWorkbook(buf)).rows).toEqual([{ name: 'Amoxicillin 250 mg แคปซูล', qty: 200 }]);
   });
 
   it('never mistakes "จำนวนใบสั่งยา" for the bare "จำนวน" fallback when both are absent as an exact match', async () => {
@@ -112,7 +112,7 @@ describe('parseHosxpUsageWorkbook', () => {
     // Falls back to qtyCol=5, which is out of bounds for this 6-column row (indices 0-5 exist,
     // so index 5 is 500 — the value column) — demonstrates the fallback's known limitation
     // rather than asserting a specific "right" answer for a layout it was never designed for.
-    const rows = await parseHosxpUsageWorkbook(buf);
+    const { rows } = await parseHosxpUsageWorkbook(buf);
     expect(rows).toEqual([{ name: 'Paracetamol 500 mg เม็ด', qty: 500 }]);
   });
 
@@ -121,16 +121,25 @@ describe('parseHosxpUsageWorkbook', () => {
       ['รายการยา', 'ความแรง', 'หน่วย', 'จำนวนที่ใช้'],
       ['(HAD) Adenosine', '3 mg/ml', 'Vial', 30],
     ]);
-    expect(await parseHosxpUsageWorkbook(buf)).toEqual([{ name: '(HAD) Adenosine 3 mg/ml Vial', qty: 30 }]);
+    const { rows, skipped } = await parseHosxpUsageWorkbook(buf);
+    expect(rows).toEqual([{ name: '(HAD) Adenosine 3 mg/ml Vial', qty: 30 }]);
+    expect(skipped).toBe(0);
   });
 
-  it('drops rows with a zero/blank quantity and rows with no name', async () => {
+  // Bug fix (silent data loss, audit finding): this already asserted which rows SURVIVED, but
+  // never checked that the two dropped rows were actually counted as skipped — before the fix,
+  // parseHosxpUsageWorkbook had no skipped counter at all (always implicitly 0), so a caller
+  // showing "ข้าม N แถว" had no way to know this exact scenario (a drug whose usage cell read
+  // 0/blank, and a blank-name row) ever happened.
+  it('drops rows with a zero/blank quantity and rows with no name, and counts both as skipped', async () => {
     const buf = workbookBuffer([
       ['รายการยา', 'ความแรง', 'หน่วย', 'จำนวนที่ใช้'],
       ['Drug A', '10 mg', 'เม็ด', 0],
       ['', '', '', 5],
       ['Drug B', '20 mg', 'แคปซูล', 15],
     ]);
-    expect(await parseHosxpUsageWorkbook(buf)).toEqual([{ name: 'Drug B 20 mg แคปซูล', qty: 15 }]);
+    const { rows, skipped } = await parseHosxpUsageWorkbook(buf);
+    expect(rows).toEqual([{ name: 'Drug B 20 mg แคปซูล', qty: 15 }]);
+    expect(skipped).toBe(2);
   });
 });

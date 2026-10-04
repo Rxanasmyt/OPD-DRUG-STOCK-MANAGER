@@ -343,7 +343,13 @@ export interface AppCtx {
   addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }) => Promise<boolean | undefined>;
   // Bug fix (flow friction): same shape as addMed above — MedsScreen's edit-med sheet used to
   // close (discarding every edited field) right after firing this, regardless of outcome.
-  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }) => Promise<boolean | undefined>;
+  // `baseline`: the med record as it looked when the edit form was first opened (frozen by the
+  // caller — see MedsScreen.tsx's editBaselineRef — since a live-updating read taken only at
+  // submit time would already reflect a concurrent edit, masking the exact race this exists to
+  // catch). Pass null when there's no meaningful baseline to compare against (there shouldn't
+  // be a legitimate caller of updateMedFull without one, but it's optional rather than required
+  // so a future caller can't be forced to fabricate one).
+  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }, baseline: Med | null) => Promise<boolean | undefined>;
   /** Merges an existing OPD/IPD ward-pair (same name, one 'opd' one 'ipd' record) into a
    * single pooled record — see Med.binIpd. Survives as the OPD-ward record with the IPD
    * record's bin code carried over as `binIpd`; floor/used30/usedPrev30 are summed (not
@@ -3032,10 +3038,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // price, high-alert flag, shelf/bin, and both par levels — instead of hunting across
   // separate screens. `code` (the QR/label identifier) is deliberately never touched here —
   // labels already printed with it must keep resolving to this med.
-  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }): Promise<boolean> => {
+  // Thai labels for updateMedFull's own lost-update warning below — module-scope since it's a
+  // pure constant, same convention EVENT_TYPE_LABEL already uses.
+  const MED_FIELD_LABEL: Record<string, string> = {
+    name: 'ชื่อยา', unit: 'หน่วย', dosageForm: 'รูปแบบยา', price: 'ราคา', had: 'HAD', fridge: 'เก็บตู้เย็น',
+    bin: 'ชั้นวาง', binSub: 'ชั้นวาง substock', parSub: 'par substock', parFloor: 'par หน้างาน',
+    floorMin: 'Min หน้างาน', ward: 'ward', noSubstock: 'ไม่มี substock', volatility: 'volatility',
+    shared: 'ใช้ยอดร่วมกัน', binIpd: 'ชั้นวาง IPD', category: 'หมวดยา', packSize: 'ขนาดแพ็ค',
+  };
+  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }, baseline: Med | null): Promise<boolean> => {
     if (!canEditMeds) return false;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
+    // Bug fix (lost-update race, audit finding): updateMedFull always wrote the form's FULL
+    // snapshot — every master-data field, not a diff — straight over whatever the live doc
+    // currently held, with no check at all for whether it had changed since this admin's form
+    // was opened. Two admins editing the SAME med around the same time, each changing a
+    // DIFFERENT field (one fixes a bin typo, another updates a quarterly price), meant whoever
+    // saved second silently reverted the other's change back to its own form's stale snapshot —
+    // a true lost update, with no warning and nothing in the audit log showing a value got
+    // clobbered. `baseline` (frozen by the caller at form-open time — see MedsScreen.tsx's
+    // editBaselineRef) is compared against a fresh live read right before writing: any
+    // difference means someone else's change would otherwise be silently overwritten, so this
+    // asks first, naming exactly what changed, same "warn, don't silently act" convention
+    // guardOnce's own timeout-retry confirm and processHosxp's paste-mistake safety net already
+    // use elsewhere in this file.
+    if (baseline) {
+      const liveSnap = await withTimeout(getDoc(doc(db, 'meds', medId)));
+      if (!liveSnap.exists()) { toast('ยานี้ถูกลบออกจากระบบไปแล้ว — บันทึกไม่ได้'); return false; }
+      const live = liveSnap.data() as Record<string, unknown>;
+      const baselineRec = baseline as unknown as Record<string, unknown>;
+      const changedFields = Object.keys(MED_FIELD_LABEL).filter((k) => (live[k] ?? null) !== (baselineRec[k] ?? null));
+      if (changedFields.length && !(await confirmAsync(
+        'มีคนอื่นแก้ไข ' + changedFields.map((k) => MED_FIELD_LABEL[k]).join(', ') + ' ของ "' + (typeof live.name === 'string' ? live.name : name)
+        + '" ไปแล้วตั้งแต่เปิดฟอร์มนี้ — บันทึกต่อจะเขียนทับค่าที่คนอื่นแก้ไว้ด้วยค่าที่กรอกในฟอร์มนี้ทั้งหมด\n\n'
+        + 'ยืนยันว่าต้องการบันทึกทับหรือไม่? (แนะนำ: ยกเลิก แล้วเปิดฟอร์มนี้ใหม่เพื่อดูค่าล่าสุดก่อน)'
+      ))) return false;
+    }
     const binIpd = input.binIpd ? normBin(input.binIpd) : '';
     const binSub = input.binSub ? normBin(input.binSub) : '';
     // Bug fix (patient-safety-adjacent data integrity): same gap as addMed's own fix — check
@@ -4211,7 +4250,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       let skipped = 0;
       try {
         if (isSpreadsheet) {
-          raw = await parseHosxpUsageWorkbook(reader.result as ArrayBuffer);
+          const parsed = await parseHosxpUsageWorkbook(reader.result as ArrayBuffer);
+          raw = parsed.rows;
+          skipped = parsed.skipped;
         } else {
           const parsed = parseUsageCsvTextWithSkipped(String(reader.result || ''));
           raw = parsed.rows;
@@ -4365,7 +4406,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       let skipped = 0;
       try {
         if (isSpreadsheet) {
-          raw = await parseHosxpUsageWorkbook(reader.result as ArrayBuffer);
+          const parsed = await parseHosxpUsageWorkbook(reader.result as ArrayBuffer);
+          raw = parsed.rows;
+          skipped = parsed.skipped;
         } else {
           const parsed = parseUsageCsvTextWithSkipped(String(reader.result || ''));
           raw = parsed.rows;

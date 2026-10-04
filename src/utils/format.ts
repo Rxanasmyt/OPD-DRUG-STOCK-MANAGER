@@ -29,9 +29,33 @@ export function thTime(ms: number): string {
   return new Date(ms).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
 }
 
+// Bug fix (audit finding — device-timezone trust): every calendar-day calculation below used to
+// read the BROWSER's own local getters (getFullYear/getMonth/getDate), which only ever matches
+// pharmacy reality if every tablet/phone this app runs on has its OS timezone genuinely set to
+// Thailand. scripts/collect-daily-metrics.mjs (a GitHub Actions runner, which defaults to UTC)
+// already had to solve this exact problem server-side with a hardcoded BANGKOK_OFFSET_MS — this
+// app never applied that same explicit anchor on the client, silently trusting the device
+// instead. Thailand has no DST (a fixed UTC+7 year-round), so the same fixed-offset trick works
+// here too: shift the real UTC instant by +7h, then read its UTC getters — this gives the
+// correct Bangkok wall-clock date/components regardless of what timezone the device itself
+// thinks it's in (a tablet that lost time sync, a personal phone set to the wrong region, a
+// laptop reset by IT). Concretely, this is what commitReconcile's same-day double-run warning
+// and the lot "หมดอายุแล้ว → ตัดออก" cutoff below both depend on for "which calendar day is it
+// right now" — a wrong device timezone near midnight could misjudge either one without this.
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+function bangkokParts(ms: number): { y: number; m: number; d: number } {
+  const shifted = new Date(ms + BANGKOK_OFFSET_MS);
+  return { y: shifted.getUTCFullYear(), m: shifted.getUTCMonth(), d: shifted.getUTCDate() };
+}
+/** The real UTC epoch ms of Bangkok-local midnight on the calendar day `ms` falls on. */
+function bangkokStartOfDayMs(ms: number): number {
+  const { y, m, d } = bangkokParts(ms);
+  return Date.UTC(y, m, d) - BANGKOK_OFFSET_MS;
+}
+
 export function isoDate(ms: number): string {
-  const d = new Date(ms);
-  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const { y, m, d } = bangkokParts(ms);
+  return y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
 }
 
 // Calendar-day difference, not a raw 24h-window count — matters because it drives both the
@@ -40,30 +64,27 @@ export function isoDate(ms: number): string {
 // exactly 24h after whatever moment this happens to be called, so a lot dated to expire "on"
 // Dec 31 could already read as expired (negative) at any time *during* Dec 31 itself, up to a
 // full day before pharmacy convention would actually call it expired (good through the end of
-// its labeled date). Comparing local calendar dates instead means the boundary always lands
-// exactly at midnight on the labeled date, however many hours into today this happens to run.
+// its labeled date). Comparing (Bangkok-anchored) calendar dates instead means the boundary
+// always lands exactly at midnight on the labeled date, however many hours into today this
+// happens to run, and on whatever timezone the device itself is actually set to.
 export function daysUntil(ms: number): number {
-  const now = new Date();
-  const target = new Date(ms);
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const startOfTarget = new Date(target.getFullYear(), target.getMonth(), target.getDate()).getTime();
-  return Math.round((startOfTarget - startOfToday) / DAY);
+  return Math.round((bangkokStartOfDayMs(ms) - bangkokStartOfDayMs(Date.now())) / DAY);
 }
 
 /** Thai fiscal year (ปีงบประมาณ) — runs Oct-Sep, named for the Buddhist-era year it ends in.
  * The substock card (บัตรคุมสต็อกยา) is always kept per fiscal year on the paper original, so
  * every place that shows or prints one needs this same number. */
 export function fiscalYear(ms: number = Date.now()): number {
-  const d = new Date(ms);
-  const buddhistYear = d.getFullYear() + 543;
-  return d.getMonth() >= 9 ? buddhistYear + 1 : buddhistYear;
+  const { y, m } = bangkokParts(ms);
+  const buddhistYear = y + 543;
+  return m >= 9 ? buddhistYear + 1 : buddhistYear;
 }
 
 /** ISO (YYYY-MM-DD) date of 1 ต.ค. for whichever fiscal year `ms` falls in — the quick-fill
  * "ปีงบประมาณนี้ (ต.ค.–ปัจจุบัน)" shortcut for the usage-file import date range starts here. */
 export function fiscalYearStartIso(ms: number = Date.now()): string {
-  const d = new Date(ms);
-  const startYear = d.getMonth() >= 9 ? d.getFullYear() : d.getFullYear() - 1;
+  const { y, m } = bangkokParts(ms);
+  const startYear = m >= 9 ? y : y - 1;
   return startYear + '-10-01';
 }
 
