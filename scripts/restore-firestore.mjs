@@ -1,7 +1,13 @@
 #!/usr/bin/env node
-// Restores a JSON file produced by scripts/backup-firestore.mjs back into Firestore. This is a
-// deliberately manual, explicit tool — it is NEVER run by any GitHub Actions workflow, only by
-// a person, on purpose, after something has gone wrong.
+// Restores a JSON file produced by scripts/backup-firestore.mjs back into Firestore. Actually
+// WRITING with this (passing --confirm) is a deliberately manual, explicit action — that only
+// ever happens because a person ran it on purpose, after something has gone wrong, never from a
+// GitHub Actions workflow. firestore-backup.yml DOES invoke this script itself every day, but
+// always in its default dry-run mode (no --confirm, so zero writes) against that day's own
+// backup file — proving the script itself still runs end-to-end (parses the file, validates
+// every row's shape, walks every collection) well before anyone needs it for a real restore. See
+// verify-backup.mjs for the complementary check (that a sample doc genuinely round-trips through
+// Firestore), which this script's own dry run does not attempt on its own.
 //
 // SAFETY: by default this only PRINTS what it would do (a dry run) — it writes nothing until
 // you pass --confirm. Every write is `set()` with merge:false, i.e. it OVERWRITES whatever
@@ -79,9 +85,22 @@ async function main() {
   initializeApp({ credential: cert(serviceAccount) });
   const db = getFirestore();
 
+  // Bug fix (operational safety): this script had ZERO automated coverage before — a dry run
+  // only ever parsed the JSON and printed counts, so a real bug in the actual write logic below
+  // (a bad arg, a row shape this version of the Admin SDK rejects, a doc id that isn't a valid
+  // Firestore id) would stay invisible until the one day someone runs this for real during an
+  // actual incident, --confirm and all. Validating every row's `id` here — unconditionally, dry
+  // run included — exercises the exact same `{ id, ...fields } = row` destructuring the real
+  // write loop below uses, so a malformed backup file (or a future change to backup-firestore.mjs
+  // that stops writing `id`) gets caught by firestore-backup.yml's own daily dry-run step (see
+  // that workflow) well before anyone needs this script in anger.
   let totalDocs = 0;
+  const malformedRows = [];
   for (const name of collections) {
     const rows = data[name];
+    for (const row of rows) {
+      if (typeof row.id !== 'string' || !row.id) malformedRows.push(`${name}/${JSON.stringify(row.id)}`);
+    }
     console.log(`  ${name}: ${rows.length} docs${confirm ? ' — writing...' : ''}`);
     totalDocs += rows.length;
     if (!confirm) continue;
@@ -94,6 +113,10 @@ async function main() {
       }
       await batch.commit();
     }
+  }
+
+  if (malformedRows.length) {
+    throw new Error(`${malformedRows.length} row(s) have no valid string "id" field and cannot be restored (collection/id): ${malformedRows.slice(0, 10).join(', ')}${malformedRows.length > 10 ? ', ...' : ''}`);
   }
 
   console.log(`\n${confirm ? 'Restored' : 'Would restore'} ${totalDocs} docs across ${collections.length} collections.`);

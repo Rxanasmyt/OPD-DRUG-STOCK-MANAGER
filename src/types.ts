@@ -69,6 +69,16 @@ export interface Med {
   // selectors.ts rather than reading `shared`/`binIpd` directly.
   shared?: boolean;
   binIpd?: string;
+  // Set on the LOSING side only, by the same mergeWardMeds()/mergeAllWardPairs() write that
+  // sets `active: false` — records which surviving med's id this one's stock was folded into,
+  // so fetchFloorLedger/fetchSubstockLedger/SubstockCardScreen's hasNameTwin (AppContext.tsx,
+  // SubstockCardScreen.tsx) can tell "this inactive same-name med is the known, intentional
+  // merge-away half of a ward pair — its untagged old tx history should still count toward the
+  // survivor's ledger" apart from "this inactive same-name med is an unrelated, accidental
+  // duplicate deactivated for some other reason — its history must NOT bleed into this one's."
+  // Never set any other way; a med with no `mergedInto` is just an ordinary (active or
+  // deactivated) record, same as before this field existed.
+  mergedInto?: string;
   // Substock's own shelf/rack code — the back-room counterpart to bin/binIpd (which are both
   // FLOOR codes). Its own field rather than reusing bin: floor and substock are two separate
   // physical rooms with their own independent code grid (see SUB_LOCS in data/locations.ts),
@@ -182,6 +192,13 @@ export type AuditType =
   // why, when it ended, how long it lasted), since the live state on Med.outOfStockSince only
   // ever holds the CURRENT incident, if any. See Med.outOfStockSince's own doc comment.
   | 'stock_hold_started' | 'stock_hold_ended'
+  // Logged by scripts/check-stock-drift.mjs — the automated daily GitHub Actions job that
+  // compares every active med's live floor/substock against what the tx log actually accounts
+  // for since its last run (see that script's own header comment). Never written by the app
+  // itself (no in-app action produces this), so it never needs an entry in the FLOOR_LEDGER_
+  // TYPES/SUBSTOCK_LEDGER_TYPES tx classification — it's a report ABOUT the ledger, not a
+  // transaction against it.
+  | 'stock_drift_detected'
   | TxType;
 
 export interface AuditEntry {

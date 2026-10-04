@@ -518,6 +518,14 @@ export function fefoLot(state: AppState, medId: string) {
   // unspecified — this "recommended lot" UI hint could then silently disagree with what
   // commitTransfer's live query actually draws from (which explicitly falls back missing exp to
   // Infinity, sorting it last, not first). Same fallback here keeps both in agreement.
+  //
+  // Deliberately still returns an already-expired lot (exp <= now) rather than skipping it —
+  // this is the UI's own early-warning read (see TransferScreen.tsx's FEFO line and its expTone()
+  // call), which exists specifically to flag "the lot that would be picked is itself expired"
+  // BEFORE a transfer happens. commitTransfer's own live lot ordering is the one that actually
+  // excludes an expired lot from what it draws from for a real transfer (see its own "Bug fix
+  // (patient safety)" comment) — keeping this selector unfiltered is what lets that warning still
+  // show even when every lot for a med is expired (nothing else would surface that at all).
   return state.lots
     .filter((l) => l.medId === medId && l.qty > 0)
     .sort((a, b) => (a.exp ?? Infinity) - (b.exp ?? Infinity))[0];
