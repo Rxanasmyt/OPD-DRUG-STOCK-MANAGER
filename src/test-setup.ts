@@ -32,4 +32,12 @@ class ResizeObserverStub {
 afterEach(() => {
   cleanup();
   resetFirebaseTestDouble();
+  // Bug fix (test isolation): jsdom's localStorage persists across tests within the same
+  // worker/file by default — harmless for the theme preference (nothing asserts on it), but a
+  // real test-pollution risk now that AppContext.tsx persists cart/recvItems there keyed by
+  // uid (see its own "crash recovery" comment) for real crash-recovery purposes: two different
+  // test files signing in as the same fake uid ('u1', 'admin0', ...) would otherwise have the
+  // SECOND one's cart/recvItems silently pre-populated from whatever the FIRST one left behind,
+  // with no connection to the actual test being run. Every test starts from a clean slate.
+  localStorage.clear();
 });

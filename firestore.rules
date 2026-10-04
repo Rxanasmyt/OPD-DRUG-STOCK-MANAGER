@@ -112,10 +112,30 @@ service cloud.firestore {
                     && request.resource.data.medId is string
                     && isNonNegNum(request.resource.data.qty)
                     && request.resource.data.exp is number;
+      // Bug fix (audit finding — real production hardening, not just type-checking): this used
+      // to only type-check medId/qty/exp on every update, with no restriction on WHICH fields
+      // could actually change or by how much — any active (tech-level) account calling the
+      // Firestore SDK directly (devtools, a buggy/compromised third-party script) could freely
+      // reassign a lot to a completely different med, or rewrite its qty to anything, with
+      // nothing here distinguishing that from a real app action and no required txs row either.
+      // scripts/check-stock-drift.mjs (the daily automated drift check) would eventually catch
+      // the resulting discrepancy, but only up to 24h later and without attributing WHAT caused
+      // it. Every real write path in this app updates lots in exactly one of two shapes — see
+      // AppContext.tsx's commitTransfer/commitReceive/approvePendingReceive/scrapLot/
+      // commitSubCount (qty only: a transfer, receive-merge, scrap, or count) and
+      // mergeWardMeds/mergeAllWardPairs (medId only: reassigning a lot to the surviving med
+      // during a ward merge) — never both in the same write, and lotNo/exp never change once a
+      // lot exists (a different batch always gets its own new lot doc instead). Locking the
+      // rule to exactly that shape closes the "any field, any value" gap without needing to
+      // guess at a legitimate quantity ceiling (a real receipt or count can legitimately be any
+      // size), which is the one part of this finding not addressed here on purpose.
       allow update: if isActive()
                     && request.resource.data.medId is string
                     && isNonNegNum(request.resource.data.qty)
-                    && request.resource.data.exp is number;
+                    && request.resource.data.exp is number
+                    && request.resource.data.lotNo == resource.data.lotNo
+                    && request.resource.data.exp == resource.data.exp
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['qty', 'medId']);
       // Bug fix: the app itself never deletes a lot doc — every real depletion (scrap, transfer,
       // count) zeroes `qty` via a transaction that also logs a matching txs row, same pattern the
       // update rule above enforces the shape of. Letting any active (tech-level) user outright
