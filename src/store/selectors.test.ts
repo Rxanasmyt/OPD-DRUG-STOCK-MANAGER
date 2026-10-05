@@ -4,7 +4,7 @@ import {
   wardOf, matchesWard, binFor, binDisplayAll, floorMinOf, isUrgentLow, needsWarehouseRequest,
   lastReconcileDateIso, subQty, usageAnomalies,
   daysOfStockLeft, fefoLot, toneFor, subTone, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
-  categoryOf, categoryStats, parAnomaliesFor, packStep, isOnStockHold,
+  categoryOf, categoryStats, parAnomaliesFor, packStep, isOnStockHold, routeOf,
   topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
@@ -79,6 +79,18 @@ describe('categoryOf / categoryLabel', () => {
     expect(categoryLabel('antimicrobial')).toBe('ยาต้านจุลชีพ (ปฏิชีวนะ/เชื้อรา/ไวรัส)');
     expect(categoryLabel('not-a-real-id')).toBe('อื่นๆ / ยังไม่ระบุหมวด');
     expect(categoryLabel(undefined)).toBe('อื่นๆ / ยังไม่ระบุหมวด');
+  });
+});
+
+describe('routeOf', () => {
+  it('falls back to "other" for a med with no route set', () => {
+    expect(routeOf(med())).toBe('other');
+  });
+
+  it('returns the med\'s own route when set', () => {
+    expect(routeOf(med({ route: 'oral' }))).toBe('oral');
+    expect(routeOf(med({ route: 'injection' }))).toBe('injection');
+    expect(routeOf(med({ route: 'other' }))).toBe('other');
   });
 });
 

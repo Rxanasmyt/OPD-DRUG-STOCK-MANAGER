@@ -52,6 +52,14 @@ export function categoryOf(m: Med): string {
   return m.category || UNCATEGORIZED;
 }
 
+/** Same optional-field-with-a-default pattern as categoryOf() above — a med with no `route` set
+ * yet (every med added before this feature existed, or one genuinely never classified) reads as
+ * 'other' rather than undefined, so it still lands in a visible "📦 อื่นๆ" bucket in a
+ * route-grouped view instead of silently vanishing. */
+export function routeOf(m: Med): 'oral' | 'injection' | 'other' {
+  return m.route || 'other';
+}
+
 /** Shelf/bin code to display for `m` when looking at it from ward `w` — the IPD-side code on
  * a shared med when `w` is 'ipd', its one `bin` otherwise (including for a shared med viewed
  * from OPD, since `bin` IS its OPD-side code). */

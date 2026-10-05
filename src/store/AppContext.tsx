@@ -21,6 +21,7 @@ import { printLabelSheet, printPickListSheet, printExecutiveSummarySheet, type P
 import { parseHosxpUsageWorkbook, parseUsageCsvTextWithSkipped, splitNameQty, type RawUsageRow } from '../utils/usageImport';
 import { LOCS, FRIDGE_LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
+import { suggestRoute } from '../data/routeSuggest';
 import { categoryLabel } from '../data/categories';
 import { withTimeout, TimeoutError } from '../utils/timeout';
 import { readNotifyEnabled, writeNotifyEnabled, readLowStockNotifyEnabled, writeLowStockNotifyEnabled, requestPermission, currentPermission, maybeNotifyExpiring, maybeNotifyLowStock } from '../utils/notify';
@@ -340,7 +341,7 @@ export interface AppCtx {
   // med" form used to close (discarding every field just typed) right after firing this,
   // regardless of outcome, since it had no way to tell a failure apart from a success without
   // awaiting a real signal back.
-  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }) => Promise<boolean | undefined>;
+  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number; route?: 'oral' | 'injection' | 'other' }) => Promise<boolean | undefined>;
   // Bug fix (flow friction): same shape as addMed above — MedsScreen's edit-med sheet used to
   // close (discarding every edited field) right after firing this, regardless of outcome.
   // `baseline`: the med record as it looked when the edit form was first opened (frozen by the
@@ -349,7 +350,7 @@ export interface AppCtx {
   // catch). Pass null when there's no meaningful baseline to compare against (there shouldn't
   // be a legitimate caller of updateMedFull without one, but it's optional rather than required
   // so a future caller can't be forced to fabricate one).
-  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }, baseline: Med | null) => Promise<boolean | undefined>;
+  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number; route?: 'oral' | 'injection' | 'other' }, baseline: Med | null) => Promise<boolean | undefined>;
   /** Merges an existing OPD/IPD ward-pair (same name, one 'opd' one 'ipd' record) into a
    * single pooled record — see Med.binIpd. Survives as the OPD-ward record with the IPD
    * record's bin code carried over as `binIpd`; floor/used30/usedPrev30 are summed (not
@@ -367,6 +368,7 @@ export interface AppCtx {
    * data/categorySuggest.ts — only touches meds with no category set yet, only when a
    * keyword actually matches. Never overwrites a human's existing choice. */
   autoCategorizeAll: () => void;
+  autoRouteAll: () => void;
   toggleMedActive: (medId: string) => void;
   /** Flags a med's supply chain as temporarily broken — see Med.outOfStockSince's own doc
    * comment and startStockHold()'s. `reason` is required; `expectedReturnAt` is optional. */
@@ -2924,7 +2926,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [canEditMeds, logAudit, toast, toastErr]);
 
   // ---------- meds (formulary) management ----------
-  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }): Promise<boolean> => {
+  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number; route?: 'oral' | 'injection' | 'other' }): Promise<boolean> => {
     if (!canEditMeds) return false;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
@@ -3016,6 +3018,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ...(binSub ? { binSub } : {}),
           ...(input.category ? { category: input.category } : {}),
           ...(input.packSize && input.packSize > 1 ? { packSize: Math.round(input.packSize) } : {}),
+          ...(input.route ? { route: input.route } : {}),
         });
         return { code: c, id: medRef.id };
       });
@@ -3045,8 +3048,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     bin: 'ชั้นวาง', binSub: 'ชั้นวาง substock', parSub: 'par substock', parFloor: 'par หน้างาน',
     floorMin: 'Min หน้างาน', ward: 'ward', noSubstock: 'ไม่มี substock', volatility: 'volatility',
     shared: 'ใช้ยอดร่วมกัน', binIpd: 'ชั้นวาง IPD', category: 'หมวดยา', packSize: 'ขนาดแพ็ค',
+    route: 'ประเภทการให้ยา',
   };
-  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number }, baseline: Med | null): Promise<boolean> => {
+  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number; route?: 'oral' | 'injection' | 'other' }, baseline: Med | null): Promise<boolean> => {
     if (!canEditMeds) return false;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
@@ -3110,6 +3114,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       binSub: binSub ? binSub : deleteField(),
       category: input.category ? input.category : deleteField(),
       packSize: input.packSize && input.packSize > 1 ? Math.round(input.packSize) : deleteField(),
+      route: input.route ? input.route : deleteField(),
     };
     try {
       await withTimeout(updateDoc(doc(db, 'meds', medId), patch));
@@ -3344,6 +3349,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast('จัดหมวดให้แล้ว ' + candidates.length + ' รายการ' + (leftover > 0 ? ' — เหลืออีก ' + leftover + ' รายการที่ระบบไม่รู้จักชื่อ ต้องเลือกหมวดเอง' : ''));
     } catch (e) { toastErr(e, 'จัดหมวดอัตโนมัติไม่สำเร็จ'); }
   }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce]);
+
+  // Bulk counterpart to the one-tap "แนะนำประเภทการให้ยา" chip in MedForm — mirrors
+  // autoCategorizeAll() right above exactly: only ever suggests for a med with no `route` set
+  // yet, never overwrites a human's existing choice, and anything suggestRoute() isn't
+  // confident enough to guess stays unclassified (routeOf() in selectors.ts already treats
+  // that the same as 'other' everywhere this is grouped/filtered, so nothing goes invisible).
+  const autoRouteAll = useCallback(guardOnce('autoRouteAll', async () => {
+    if (!canEditMeds) return;
+    const candidates = state.meds
+      .map((m) => ({ m, route: m.route ? null : suggestRoute(m) }))
+      .filter((x): x is { m: Med; route: 'oral' | 'injection' } => !!x.route);
+    if (!candidates.length) { toast('ไม่มียาที่ระบบแนะนำประเภทการให้ยาให้ได้เพิ่มแล้ว — ที่เหลือต้องเลือกเอง'); return; }
+    const unclassifiedTotal = state.meds.filter((m) => !m.route).length;
+    if (!(await confirmAsync(
+      'ให้ระบบแยกยากิน/ยาฉีดอัตโนมัติจากหน่วย/รูปแบบยา ' + candidates.length + ' รายการ (จากทั้งหมด ' + unclassifiedTotal + ' รายการที่ยังไม่ระบุ)?\n\n'
+      + 'จับคู่จากหน่วย (Vial/Amp → ยาฉีด, เม็ด/แคปซูล → ยากิน) และรูปแบบยา — '
+      + 'ยาที่ระบุไว้แล้วจะไม่ถูกแก้ไข ส่วนยาที่ระบบไม่มั่นใจ (ครีม/ยาหยอดตา/สารน้ำ ฯลฯ) จะยังคงเป็น "อื่นๆ" ให้เลือกเองภายหลัง'
+    ))) return;
+    try {
+      for (let i = 0; i < candidates.length; i += 400) {
+        const batch = writeBatch(db);
+        candidates.slice(i, i + 400).forEach(({ m, route }) => batch.update(doc(db, 'meds', m.id), { route }));
+        await withTimeout(batch.commit());
+      }
+      const leftover = unclassifiedTotal - candidates.length;
+      logAudit({ type: 'med_edited', note: 'แยกยากิน/ยาฉีดอัตโนมัติ ' + candidates.length + ' รายการ' });
+      toast('แยกประเภทให้แล้ว ' + candidates.length + ' รายการ' + (leftover > 0 ? ' — เหลืออีก ' + leftover + ' รายการที่ระบบไม่มั่นใจ ต้องเลือกเอง' : ''));
+    } catch (e) { toastErr(e, 'แยกประเภทอัตโนมัติไม่สำเร็จ'); }
+  }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce, confirmAsync]);
 
   const toggleMedActive = useCallback(async (medId: string) => {
     if (!canEditMeds) return;
@@ -4822,7 +4856,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, recomputeUsageStats, updateGlobalSettings,
-    addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
+    addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, autoRouteAll, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, fetchFloorLedger, fetchStockAsOf, exportStockAsOfCsv, fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
     setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile,

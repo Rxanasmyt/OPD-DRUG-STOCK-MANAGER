@@ -12,6 +12,7 @@ import { SearchInput } from '../components/SearchInput';
 import { DRUG_CATEGORIES, categoryLabel, UNCATEGORIZED } from '../data/categories';
 import { FRIDGE_LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
+import { suggestRoute } from '../data/routeSuggest';
 
 type Filter = 'active' | 'inactive' | 'all' | 'parOne' | 'onHold' | 'incomplete';
 
@@ -132,6 +133,8 @@ interface MedFormValues {
   category: string;
   // จำนวนหน่วยต่อกล่อง — เว้นว่างไว้ถ้ายาตัวนี้เบิกเป็นเม็ด/ชิ้นเดี่ยวได้ตามปกติ ดู Med.packSize
   packSize: string;
+  // ยากิน/ยาฉีด/อื่นๆ — ดู Med.route's own doc comment สำหรับเหตุผลที่แยกจาก category.
+  route: '' | 'oral' | 'injection' | 'other';
 }
 
 function blankForm(): MedFormValues {
@@ -139,7 +142,7 @@ function blankForm(): MedFormValues {
   // one-day-dose pulls straight off the OPD shelf), so a brand-new med should start there and
   // let someone opt OUT (untick "เลิกใช้ร่วมกัน") for the minority that genuinely need separate
   // stock, rather than opting in every single time.
-  return { name: '', dosageForm: '', unit: '', price: '', had: false, fridge: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: true, binIpd: '', binSub: '', category: '', packSize: '' };
+  return { name: '', dosageForm: '', unit: '', price: '', had: false, fridge: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: true, binIpd: '', binSub: '', category: '', packSize: '', route: '' };
 }
 
 function formFromMed(m: Med): MedFormValues {
@@ -148,7 +151,7 @@ function formFromMed(m: Med): MedFormValues {
     had: m.had, fridge: !!m.fridge, bin: m.bin, parSub: String(m.parSub), parFloor: String(m.parFloor), floorMin: String(floorMinOf(m)),
     ward: wardOf(m), noSubstock: !!m.noSubstock, volatility: m.volatility.toFixed(2),
     shared: isSharedMed(m), binIpd: m.binIpd || '', binSub: m.binSub || '', category: m.category || '',
-    packSize: m.packSize ? String(m.packSize) : '',
+    packSize: m.packSize ? String(m.packSize) : '', route: m.route || '',
   };
 }
 
@@ -202,7 +205,7 @@ function IncompleteQuickFix({ med, missing }: { med: Med; missing: MissingField[
 }
 
 export default function MedsScreen() {
-  const { state, sub, addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, setMedBin, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, setMedsFocusId, openScanSearch, confirmLeaveIfDirty } = useApp();
+  const { state, sub, addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, autoRouteAll, setMedBin, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, setMedsFocusId, openScanSearch, confirmLeaveIfDirty } = useApp();
   // Real-world request: editing the master drug record is Admin-only now (was pharm+admin).
   const canEdit = state.role === 'admin';
   const [q, setQ] = useState('');
@@ -286,6 +289,13 @@ export default function MedsScreen() {
   // real bulk write.
   const autoCategorizableCount = useMemo(
     () => state.meds.filter((m) => !m.category && suggestCategoryId(m.name)).length,
+    [state.meds],
+  );
+
+  // Same rule as autoCategorizableCount above, for "แยกยากิน/ยาฉีดอัตโนมัติ" — see
+  // autoRouteAll() in AppContext.tsx for the exact matching logic applied to the real bulk write.
+  const autoRoutableCount = useMemo(
+    () => state.meds.filter((m) => !m.route && suggestRoute(m)).length,
     [state.meds],
   );
 
@@ -429,7 +439,7 @@ export default function MedsScreen() {
             // toast as the only feedback while every field just typed (name, dosage form,
             // price, bins, par levels, ...) was already gone, forcing a full re-entry to retry.
             // Now only closes once addMed actually confirms success.
-            const ok = await addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined });
+            const ok = await addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined, route: v.route || undefined });
             if (ok) setAddOpen(false);
           }}
         />
@@ -455,6 +465,17 @@ export default function MedsScreen() {
           style={{ width: '100%', border: '1px solid var(--green)', background: 'var(--green-tint)', color: 'var(--green)', padding: '11px 14px', borderRadius: 11, fontSize: 12.5, fontWeight: 600, minHeight: 44, marginBottom: 10, opacity: state.busy['autoCategorizeAll'] ? 0.7 : 1 }}
         >
           {state.busy['autoCategorizeAll'] ? 'กำลังจัดหมวด…' : `🏷 จัดหมวดหมู่ยาทั้งหมดอัตโนมัติ (${autoCategorizableCount} รายการ)`}
+        </button>
+      )}
+
+      {autoRoutableCount > 0 && (
+        <button
+          onClick={autoRouteAll}
+          disabled={!!state.busy['autoRouteAll']}
+          title="จับคู่จากหน่วย/รูปแบบยาที่ระบบรู้จัก (Vial/Amp → ยาฉีด, เม็ด/แคปซูล → ยากิน) — ยาที่ระบุไว้แล้วจะไม่ถูกแก้ไข ยาที่ระบบไม่มั่นใจจะยังไม่ถูกแตะต้อง"
+          style={{ width: '100%', border: '1px solid var(--green)', background: 'var(--green-tint)', color: 'var(--green)', padding: '11px 14px', borderRadius: 11, fontSize: 12.5, fontWeight: 600, minHeight: 44, marginBottom: 10, opacity: state.busy['autoRouteAll'] ? 0.7 : 1 }}
+        >
+          {state.busy['autoRouteAll'] ? 'กำลังแยกประเภท…' : `💊💉 แยกยากิน/ยาฉีดทั้งหมดอัตโนมัติ (${autoRoutableCount} รายการ)`}
         </button>
       )}
       {/* หมวดกลุ่มยา — เลื่อนดูได้ทางขวา แต่ละชิปโชว์จำนวนยาในหมวดนั้นภายใต้ตัวกรองด้านบน ทำให้
@@ -726,7 +747,7 @@ export default function MedsScreen() {
                 // to close the sheet right after firing updateMedFull regardless of outcome, so
                 // a failure (network error, permission check) lost every edited field with only
                 // a toast to show for it. Now only closes once the save actually confirms success.
-                const ok = await updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined }, editBaselineRef.current);
+                const ok = await updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined, route: v.route || undefined }, editBaselineRef.current);
                 if (ok) setEditingId(null);
               }}
               // ยาชื่อเดียวกันที่แยกรายการไว้คนละ ward (คนละ Firestore doc ตามหลักการออกแบบ
@@ -799,6 +820,7 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v]);
   const suggestedCategory = suggestCategoryId(v.name);
+  const suggestedRoute = suggestRoute({ name: v.name, unit: v.unit, dosageForm: v.dosageForm });
   // Bug fix: nothing stopped Min (floorMin) from being saved higher than Max (parFloor) — a
   // typo or a copy-paste mixup produces a shelf that's flagged "must refill" while ALSO already
   // over its own refill target, and every "suggested qty to add" computation downstream
@@ -847,6 +869,29 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
           <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>หน่วย</span>
           <input value={v.unit} onChange={(e) => set('unit', e.target.value)} placeholder="เช่น เม็ด" style={inputStyle} />
         </label>
+      </div>
+      {/* Real-world request: "แยกยากินกับยาฉีด...เพื่อง่ายต่อการเบิกยาจริงหน้างาน" — see
+          Med.route's own doc comment for why this is an explicit field, not inferred on the fly
+          from รูปแบบยา/หน่วย above. */}
+      <div style={{ marginBottom: 9 }}>
+        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>ประเภทการให้ยา</span>
+        <div style={{ display: 'flex', gap: 7 }}>
+          <button type="button" className="chip" style={chip(v.route === 'oral')} onClick={() => set('route', v.route === 'oral' ? '' : 'oral')}>💊 ยากิน</button>
+          <button type="button" className="chip" style={chip(v.route === 'injection')} onClick={() => set('route', v.route === 'injection' ? '' : 'injection')}>💉 ยาฉีด</button>
+          <button type="button" className="chip" style={chip(v.route === 'other')} onClick={() => set('route', v.route === 'other' ? '' : 'other')}>📦 อื่นๆ</button>
+        </div>
+        {/* Suggested from unit/รูปแบบยา/name (see data/routeSuggest.ts) — same "one-tap accept,
+            never auto-applied" convention as the category suggestion above; only shown while
+            still unset. */}
+        {!v.route && suggestedRoute && (
+          <button
+            type="button"
+            onClick={() => set('route', suggestedRoute)}
+            style={{ display: 'block', width: '100%', textAlign: 'left', border: '1px dashed var(--green)', background: 'var(--green-tint)', color: 'var(--green)', borderRadius: 9, padding: '7px 10px', fontSize: 11.5, fontWeight: 600, marginTop: 7 }}
+          >
+            ระบบแนะนำ: {suggestedRoute === 'oral' ? '💊 ยากิน' : '💉 ยาฉีด'} — แตะเพื่อใช้
+          </button>
+        )}
       </div>
       <div className="grid-2" style={{ marginBottom: 9 }}>
         <label>
