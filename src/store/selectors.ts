@@ -263,11 +263,13 @@ export function usageByCategory(records: UsageHistoryRecord[]): CategoryUsageAgg
 
 export interface MonthUsageAgg { monthKey: string; qty: number; value: number }
 
-/** Groups by monthKey (see UsageHistoryRecord's own doc comment in types.ts for its "attributed
- * to the period's START month only, never prorated" limitation) for a month-over-month trend
- * chart, sorted chronologically ('YYYY-MM' sorts correctly as a plain string). Same cross-unit
- * caveat on `qty` as usageByCategory above — a month mixes every drug imported that month, so
- * only `value` (บาท) is a real, addable number; `qty` must be labeled "(คละหน่วย)" if shown. */
+/** Groups by monthKey — commitUsageImport() (AppContext.tsx) now writes one UsageHistoryRecord
+ * PER CALENDAR MONTH a multi-month import spans (see monthlyDaySplits() below), each carrying
+ * only that month's own day-weighted share of the real total qty/value, so this sum is already a
+ * genuine per-month figure — not the old "whole quarter dumped under its start month" distortion.
+ * Sorted chronologically ('YYYY-MM' sorts correctly as a plain string). Same cross-unit caveat on
+ * `qty` as usageByCategory above — a month mixes every drug imported that month, so only `value`
+ * (บาท) is a real, addable number; `qty` must be labeled "(คละหน่วย)" if shown. */
 export function usageByMonth(records: UsageHistoryRecord[]): MonthUsageAgg[] {
   const byMonth = new Map<string, MonthUsageAgg>();
   for (const r of records) {
@@ -276,6 +278,39 @@ export function usageByMonth(records: UsageHistoryRecord[]): MonthUsageAgg[] {
     else byMonth.set(r.monthKey, { monthKey: r.monthKey, qty: r.qty, value: r.value });
   }
   return Array.from(byMonth.values()).sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+}
+
+/** System-analysis gap (not a direct user request — found while reviewing "what's still
+ * incomplete" across the app): a bulk usage-file import covering more than one calendar month
+ * (a whole quarter, say) used to count its ENTIRE qty/value under the period's START month only
+ * — UsageHistoryRecord's own old doc comment explicitly admitted this as a known limitation.
+ * That silently distorted monthly/quarterly trend reports (usageByMonth above, ReportScreen's
+ * "แนวโน้มรายเดือน" chart) used for budget/par review: a real multi-month spike could look like
+ * it all happened in one single month.
+ *
+ * Splits an inclusive [fromIso, toIso] ('YYYY-MM-DD') range into one chunk per calendar month it
+ * overlaps, each carrying its own real day-count within that range — e.g. 2026-01-15..2026-03-10
+ * splits into {2026-01: 17 days}, {2026-02: 28 days}, {2026-03: 10 days}. commitUsageImport()
+ * uses each chunk's `days` as the weight to prorate one med's real total qty across however many
+ * months the import actually spans, instead of dumping it all on the first one. A same-month
+ * import (the common case — most real HOSxP exports cover one calendar month at a time) still
+ * returns exactly one chunk, so nothing changes for it. */
+export function monthlyDaySplits(fromIso: string, toIso: string): { monthKey: string; days: number }[] {
+  const from = new Date(fromIso + 'T00:00:00Z');
+  const to = new Date(toIso + 'T00:00:00Z');
+  const out: { monthKey: string; days: number }[] = [];
+  let cursor = from;
+  while (cursor.getTime() <= to.getTime()) {
+    const y = cursor.getUTCFullYear();
+    const m = cursor.getUTCMonth();
+    const monthKey = y + '-' + String(m + 1).padStart(2, '0');
+    const monthEnd = new Date(Date.UTC(y, m + 1, 0)); // last real day of this month
+    const chunkEnd = monthEnd.getTime() < to.getTime() ? monthEnd : to;
+    const days = Math.round((chunkEnd.getTime() - cursor.getTime()) / DAY) + 1;
+    out.push({ monthKey, days });
+    cursor = new Date(chunkEnd.getTime() + DAY);
+  }
+  return out;
 }
 
 export interface LeadTimeTrend {

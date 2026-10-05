@@ -28,8 +28,10 @@ function UsageImportHarness() {
       <div>rows:{(state.usageRows || []).length}</div>
       <button onClick={() => importUsageFile(new File(['Paracetamol 500mg,310'], 'usage-jan.csv', { type: 'text/csv' }))}>import-jan</button>
       <button onClick={() => importUsageFile(new File(['Paracetamol 500mg,620'], 'usage-feb.csv', { type: 'text/csv' }))}>import-feb</button>
+      <button onClick={() => importUsageFile(new File(['Paracetamol 500mg,780'], 'usage-q1.csv', { type: 'text/csv' }))}>import-q1</button>
       <button onClick={() => { setUsageDateFrom('2026-01-01'); setUsageDateTo('2026-01-31'); }}>set-range-jan</button>
       <button onClick={() => { setUsageDateFrom('2026-02-01'); setUsageDateTo('2026-02-28'); }}>set-range-feb</button>
+      <button onClick={() => { setUsageDateFrom('2026-01-01'); setUsageDateTo('2026-03-31'); }}>set-range-q1</button>
       <button onClick={commitUsageImport}>commit</button>
     </div>
   );
@@ -88,5 +90,39 @@ describe('commitUsageImport — durable usageHistory regression', () => {
     expect(periods).toEqual(['2026-01-01', '2026-02-01']);
     // Two genuinely distinct docs, not the same one written twice.
     expect(new Set(historyWrites.map((w) => w.path)).size).toBe(2);
+  });
+
+  // Regression for a system-analysis follow-up (not a direct user request): a period spanning
+  // more than one calendar month used to be counted wholly under its start month — see
+  // monthlyDaySplits()'s own doc comment (selectors.ts) and UsageHistoryRecord's (types.ts).
+  it('splits a multi-month import into one usageHistory record PER calendar month, day-weighted, summing back to the real total', async () => {
+    const user = await setup();
+    await user.click(screen.getByText('import-q1'));
+    await screen.findByText('rows:1');
+    await user.click(screen.getByText('set-range-q1'));
+    await user.click(screen.getByText('commit'));
+
+    await waitFor(() => expect(getLastBatchWrites().filter((w) => w.path.startsWith('usageHistory/')).length).toBe(3));
+    const historyWrites = getLastBatchWrites().filter((w) => w.path.startsWith('usageHistory/'));
+    const byMonth = Object.fromEntries(historyWrites.map((w) => [w.data?.monthKey as string, w.data]));
+
+    // 780 units over Jan(31)+Feb(28)+Mar(31) = 90 days — day-weighted shares, last month (Mar)
+    // absorbing the rounding remainder so they sum back to exactly 780, never short or over.
+    expect(byMonth['2026-01']).toMatchObject({ qty: 269, value: 538 });
+    expect(byMonth['2026-02']).toMatchObject({ qty: 243, value: 486 });
+    expect(byMonth['2026-03']).toMatchObject({ qty: 268, value: 536 });
+    const totalQty = Object.values(byMonth).reduce((s, r) => s + (r?.qty as number), 0);
+    expect(totalQty).toBe(780);
+
+    // periodFrom/periodTo/periodDays stay the FULL declared period on every split record (what
+    // was actually imported, for traceability) — only monthKey/qty/value differ per split.
+    for (const r of Object.values(byMonth)) {
+      expect(r).toMatchObject({ periodFrom: '2026-01-01', periodTo: '2026-03-31', periodDays: 90 });
+    }
+
+    // The used30 rolling rate is still computed off the REAL total/periodDays, unaffected by
+    // the split — same formula as the single-month case above (780/90*30 = 260).
+    const medUpdate = getLastBatchWrites().find((w) => w.kind === 'update' && w.path === 'meds/m1');
+    expect(medUpdate?.data).toMatchObject({ used30: 260 });
   });
 });

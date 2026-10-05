@@ -12,7 +12,7 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -4661,28 +4661,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
       .filter((x): x is { r: typeof x.r; m: Med } => !!x.m);
     if (!targets.length) { toast('ไม่มีรายการที่จับคู่กับยาในระบบได้ — ตรวจสอบชื่อยาในไฟล์'); return; }
-    const monthKey = state.usageDateFrom.slice(0, 7);
+    // System-analysis follow-up (not a direct user request — found reviewing what's still
+    // incomplete): a period spanning more than one calendar month used to be counted wholly
+    // under its start month, distorting monthly-trend reports. One shared split list for the
+    // whole import (every row shares the same declared usageDateFrom/usageDateTo) — see
+    // monthlyDaySplits()'s own doc comment (selectors.ts) and UsageHistoryRecord's (types.ts).
+    const splits = monthlyDaySplits(state.usageDateFrom, state.usageDateTo);
+    const importedAt = Date.now();
     try {
-      // Each target now writes TWO ops (the used30 update + a usageHistory record below) —
-      // half the old chunk size to stay safely under Firestore's 500-write batch limit.
-      for (let i = 0; i < targets.length; i += 200) {
+      // Each target now writes 1 (used30 update) + splits.length (one usageHistory record per
+      // calendar month the import spans) ops — flattened into one list and chunked by actual op
+      // COUNT (not target count, since that varies with how many months a period spans) to stay
+      // safely under Firestore's 500-write batch limit, with a margin for a same-month import
+      // (the common case, 2 ops/target) through a multi-quarter one (many more).
+      type WriteOp = { kind: 'med'; id: string; used30: number } | { kind: 'usage'; record: UsageHistoryRecord };
+      const ops: WriteOp[] = [];
+      targets.forEach(({ r, m }) => {
+        const used30 = Math.round((r.qty / periodDays) * 30);
+        ops.push({ kind: 'med', id: m.id, used30 });
+        // Prorate r.qty across however many months `splits` covers, weighted by each month's
+        // real day-count — the last split absorbs the rounding remainder so the split qtys
+        // always sum back to exactly r.qty (never short/over by a stray rounding unit).
+        let allocated = 0;
+        splits.forEach((split, i) => {
+          const isLast = i === splits.length - 1;
+          const splitQty = isLast ? r.qty - allocated : Math.round(r.qty * split.days / periodDays);
+          allocated += splitQty;
+          ops.push({
+            kind: 'usage',
+            record: {
+              medId: m.id, medName: m.name, unit: m.unit, category: categoryOf(m),
+              qty: splitQty, value: splitQty * m.price,
+              periodFrom: state.usageDateFrom, periodTo: state.usageDateTo, periodDays,
+              importedAt, monthKey: split.monthKey,
+            },
+          });
+        });
+      });
+      for (let i = 0; i < ops.length; i += 400) {
         const batch = writeBatch(db);
-        targets.slice(i, i + 200).forEach(({ r, m }) => {
-          const used30 = Math.round((r.qty / periodDays) * 30);
-          batch.update(doc(db, 'meds', m.id), { used30 });
-          // Real-world request: "เก็บสถิติการใช้ยาแต่ละวัน...รายงานประจำไตรมาส/เดือน/ปีงบประมาณ" —
-          // used30 above is a ROLLING rate that every later import overwrites, with no memory of
-          // any period before the most recent one. This record is that memory: the REAL total
-          // qty/value for THIS declared period, written once and never overwritten, so Top 100 /
-          // category / monthly-trend reporting (see usage tab, ReportScreen.tsx) can look back
-          // across every import ever committed. See UsageHistoryRecord's own doc comment
-          // (types.ts) for why monthKey is NOT prorated across a period spanning >1 month.
-          batch.set(doc(collection(db, 'usageHistory')), {
-            medId: m.id, medName: m.name, unit: m.unit, category: categoryOf(m),
-            qty: r.qty, value: r.qty * m.price,
-            periodFrom: state.usageDateFrom, periodTo: state.usageDateTo, periodDays,
-            importedAt: Date.now(), monthKey,
-          } satisfies UsageHistoryRecord);
+        ops.slice(i, i + 400).forEach((op) => {
+          if (op.kind === 'med') batch.update(doc(db, 'meds', op.id), { used30: op.used30 });
+          else batch.set(doc(collection(db, 'usageHistory')), op.record satisfies UsageHistoryRecord);
         });
         await withTimeout(batch.commit());
       }
