@@ -91,6 +91,20 @@ export interface Med {
   // read via categoryOf() in selectors.ts so those fall back to the same "ยังไม่ระบุหมวด" bucket
   // instead of being invisible in a category-grouped/filtered view.
   category?: string;
+  // Real-world request: "แยกยากินกับยาฉีด...เพื่อง่ายต่อการเบิกยาจริงหน้างาน เพื่อไม่ให้ความสับสน" —
+  // oral vs. injectable is a different cut than DRUG_CATEGORIES' therapeutic groups (a pain med
+  // exists as both a tablet AND an injectable ampoule, under the same 'pain' category) and
+  // nothing in the existing free-text `dosageForm`/`unit` fields is clean enough to infer this
+  // from reliably (the real formulary CSV has "INJECTIONS", "Injection", "INJ", "Solution" all
+  // meaning the same thing, and "SOLUTIONS" alone is genuinely ambiguous between an IV solution
+  // and an oral one) — see data/routeSuggest.ts's own comment for exactly why this needed an
+  // explicit field instead of an on-the-fly guess everywhere it's used. 'other' covers anything
+  // that's neither a plain oral dosage form nor an injectable (topical, eye/ear drops, inhalers,
+  // IV fluids) — grouped under its own "📦 อื่นๆ" bucket wherever this is shown, never hidden.
+  // Optional/absent (not 'other') for every med added before this feature existed or never
+  // classified — always read via routeOf() in selectors.ts, which treats missing exactly like
+  // 'other', so nothing becomes invisible in a route-grouped view.
+  route?: 'oral' | 'injection' | 'other';
   // Real-world request: "บริษัทยาไม่มาส่งยา ล่าช้า หรือเลิกผลิต อยู่ระหว่างสั่งยาบริษัทอื่น คลังปิด
   // ช่วงปลาย/ต้นปีงบประมาณ" — a med's supply chain can break temporarily for reasons that have
   // nothing to do with this pharmacy's own stock-management, where nothing substock/floor can

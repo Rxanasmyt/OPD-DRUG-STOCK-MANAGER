@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, binDisplayAll, daysOfStockLeft, expTone, isOnStockHold } from '../store/selectors';
+import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, routeOf, binDisplayAll, daysOfStockLeft, expTone, isOnStockHold } from '../store/selectors';
 import { nf, thDate, digitsOnly, isoDate, daysUntil } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
@@ -146,6 +146,31 @@ export default function TransferScreen() {
       return a.floor / Math.max(1, a.parFloor) - b.floor / Math.max(1, b.parFloor);
     });
 
+  // Real-world request: "แยกยากินกับยาฉีด...เพื่อง่ายต่อการเบิกยาจริงหน้างาน เพื่อไม่ให้ความสับสน" —
+  // walking between the oral shelf and the locked injectable cabinet back and forth while
+  // picking is exactly the confusion this exists to remove. Route always wins over `sort` as
+  // the PRIMARY grouping (nobody picking a cart wants ยากิน/ยาฉีด interleaved no matter which
+  // sort is active) — `sort` still orders rows WITHIN each route group exactly as before.
+  // Array.prototype.filter preserves relative order, so three filters over the already-sorted
+  // `filtered` is enough to stable-partition it without re-sorting anything. Capped at the same
+  // 60-row total `filtered.slice(0, 60)` used before this — sliced once as one combined list so
+  // a short "ยาฉีด" group never gets silently dropped just because enough "ยากิน" rows filled the
+  // whole cap first.
+  const visibleRows = [
+    ...filtered.filter((m) => routeOf(m) === 'oral'),
+    ...filtered.filter((m) => routeOf(m) === 'injection'),
+    ...filtered.filter((m) => routeOf(m) === 'other'),
+  ].slice(0, 60);
+  const routeGroups: { key: 'oral' | 'injection' | 'other'; label: string }[] = [
+    { key: 'oral', label: '💊 ยากิน' },
+    { key: 'injection', label: '💉 ยาฉีด' },
+    { key: 'other', label: '📦 อื่นๆ / ยังไม่ระบุประเภท' },
+  ];
+  // A header for every non-empty group only when there's more than one to tell apart — a
+  // filtered view that happens to contain just one route (e.g. ตู้เย็น often being all ยาฉีด)
+  // shouldn't show a single redundant "💉 ยาฉีด" header above literally everything on screen.
+  const nonEmptyRouteGroupCount = routeGroups.filter((g) => visibleRows.some((m) => routeOf(m) === g.key)).length;
+
   const cartIds = Object.keys(state.cart);
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
 
@@ -220,116 +245,129 @@ export default function TransferScreen() {
       </div>
 
       <div style={{ padding: '10px 14px 96px' }}>
-        {filtered.slice(0, 60).map((m, i) => {
-          const f = fefo(m.id);
-          const inCart = !!state.cart[m.id];
+        {routeGroups.map((group) => {
+          const groupRows = visibleRows.filter((m) => routeOf(m) === group.key);
+          if (!groupRows.length) return null;
           return (
-            <div
-              key={m.id}
-              className="card row-interactive"
-              {...rowToCard(m.id)}
-              style={{
-                padding: '11px 12px 11px 14px', marginBottom: 8, borderColor: inCart ? 'var(--green)' : 'var(--border)',
-                borderLeft: '4px solid ' + medColor(m.code), animation: 'pop .22s var(--ease-out) both', animationDelay: Math.min(i, 10) * 18 + 'ms', cursor: 'pointer',
-              }}
-            >
-              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
-                    <MedDot code={m.code} />
-                    {/* Real-world request: "รายการที่ต้องเติมหน้างานอยากให้มีชั้นวางโชว์ด้วยครับ
-                        เพื่อหาตำแหน่งของยาได้อย่างถูกต้อง" — this list already sorts by shelf
-                        position ("ตามชั้นวาง", see binDisplayAll's own sort use below) but never
-                        actually PRINTED the bin code on the row itself, leaving someone walking
-                        the shelf with no way to confirm they're at the right spot without
-                        opening the med individually. Same badge style CountScreen's own
-                        shelf-order rows already use. */}
-                    {/* Real-world request: "ตรวจสอบการเบิกใช้ยา...เห็นง่ายว่า...เอายาที่ไหน" — the
-                        badge above only ever said where the stock is HEADED (the floor shelf);
-                        nothing on this row said where to actually go PICK it from in substock,
-                        even though the printed ใบเติมหน้างานประจำวัน sheet already got this exact
-                        "หยิบจาก (substock)" column. A different color (purple, unused elsewhere
-                        on this row) from the floor-bin badge so the two can never be misread for
-                        each other — purple = where to start, green = where it ends up. Hidden
-                        for a noSubstock med (nothing to pick — see commitReceive) or one with no
-                        substock shelf code assigned yet. */}
-                    {!m.noSubstock && m.binSub && <span title="หยิบจาก substock" style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: 'var(--ipd)', background: 'var(--ipd-bg)', borderRadius: 6, padding: '1px 6px' }}>หยิบ {m.binSub}</span>}
-                    {binDisplayAll(m) && <span title="เติมที่ชั้นวางหน้างาน" style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 6, padding: '1px 6px' }}>{binDisplayAll(m)}</span>}
-                    <span>{m.name}</span>
-                    {m.had && <HadTag />}
-                    {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
-                  </div>
-                  <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>
-                    หน้างาน <Qty value={m.floor} unit={m.unit} tone={toneFor(m)} size={12.5} /> · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={12.5} /> / par {nf(m.parSub)} {m.unit}
-                  </div>
-                  {/* Same at-a-glance floor-vs-par bar HomeScreen's low-stock list already uses
-                      — brought here too so the screen someone actually works from all day shows
-                      the same clear picture, not just a line of numbers to parse. */}
-                  <div className="bar-track" style={{ height: 4, background: 'var(--border-soft)', borderRadius: 2, marginTop: 5 }}>
-                    <div className="bar-fill" style={{ height: '100%', transform: 'scaleX(' + Math.max(3, Math.min(100, Math.round((m.floor / Math.max(1, m.parFloor)) * 100))) / 100 + ')', background: toneFor(m), borderRadius: 2 }} />
-                  </div>
-                  {/* Bug fix (patient safety): this line always rendered flat green — FEFO's
-                      own sort-by-soonest-expiry was already correct, but "sorts by expiry" and
-                      "warns you when the soonest-expiring lot is itself already expired or
-                      about to be" are two different things, and only the first existed.
-                      Nothing here ever purges/blocks an expired lot (that's scrapLot's own
-                      manual job) — a FEFO transfer will still draw from it, so this is the one
-                      moment before that write actually happens to flag it. expTone() already
-                      existed in selectors.ts for exactly this color scale but had no call site
-                      anywhere in the app until now. */}
-                  {(() => {
-                    const fefoDays = f ? daysUntil(f.exp) : null;
-                    const tone = fefoDays !== null ? expTone(fefoDays, state.expiryWarnDays) : 'var(--green)';
-                    return (
-                      <div style={{ fontSize: 11.5, color: tone, marginTop: 5, fontWeight: fefoDays !== null && fefoDays < 30 ? 700 : undefined }}>
-                        FEFO: lot {f ? f.lotNo : '—'} · exp {f ? thDate(f.exp) : 'ไม่มีของใน substock'}
-                        {f && <span className="muted" style={{ color: 'inherit', opacity: fefoDays !== null && fefoDays < 30 ? 1 : undefined }}> (เหลือ {nf(f.qty)})</span>}
-                        {fefoDays !== null && fefoDays < 0 && <span> — ⚠ หมดอายุแล้ว ควรตัดออกก่อนเติม</span>}
-                        {fefoDays !== null && fefoDays >= 0 && fefoDays < 30 && <span> — ⚠ ใกล้หมดอายุมาก</span>}
+            <div key={group.key}>
+              {nonEmptyRouteGroupCount > 1 && (
+                <div className="muted" style={{ fontSize: 11.5, fontWeight: 700, margin: '4px 2px 7px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {group.label} ({groupRows.length})
+                </div>
+              )}
+              {groupRows.map((m, i) => {
+                const f = fefo(m.id);
+                const inCart = !!state.cart[m.id];
+                return (
+                  <div
+                    key={m.id}
+                    className="card row-interactive"
+                    {...rowToCard(m.id)}
+                    style={{
+                      padding: '11px 12px 11px 14px', marginBottom: 8, borderColor: inCart ? 'var(--green)' : 'var(--border)',
+                      borderLeft: '4px solid ' + medColor(m.code), animation: 'pop .22s var(--ease-out) both', animationDelay: Math.min(i, 10) * 18 + 'ms', cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
+                          <MedDot code={m.code} />
+                          {/* Real-world request: "รายการที่ต้องเติมหน้างานอยากให้มีชั้นวางโชว์ด้วยครับ
+                              เพื่อหาตำแหน่งของยาได้อย่างถูกต้อง" — this list already sorts by shelf
+                              position ("ตามชั้นวาง", see binDisplayAll's own sort use below) but never
+                              actually PRINTED the bin code on the row itself, leaving someone walking
+                              the shelf with no way to confirm they're at the right spot without
+                              opening the med individually. Same badge style CountScreen's own
+                              shelf-order rows already use. */}
+                          {/* Real-world request: "ตรวจสอบการเบิกใช้ยา...เห็นง่ายว่า...เอายาที่ไหน" — the
+                              badge above only ever said where the stock is HEADED (the floor shelf);
+                              nothing on this row said where to actually go PICK it from in substock,
+                              even though the printed ใบเติมหน้างานประจำวัน sheet already got this exact
+                              "หยิบจาก (substock)" column. A different color (purple, unused elsewhere
+                              on this row) from the floor-bin badge so the two can never be misread for
+                              each other — purple = where to start, green = where it ends up. Hidden
+                              for a noSubstock med (nothing to pick — see commitReceive) or one with no
+                              substock shelf code assigned yet. */}
+                          {!m.noSubstock && m.binSub && <span title="หยิบจาก substock" style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: 'var(--ipd)', background: 'var(--ipd-bg)', borderRadius: 6, padding: '1px 6px' }}>หยิบ {m.binSub}</span>}
+                          {binDisplayAll(m) && <span title="เติมที่ชั้นวางหน้างาน" style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 6, padding: '1px 6px' }}>{binDisplayAll(m)}</span>}
+                          <span>{m.name}</span>
+                          {m.had && <HadTag />}
+                          {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
+                        </div>
+                        <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>
+                          หน้างาน <Qty value={m.floor} unit={m.unit} tone={toneFor(m)} size={12.5} /> · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={12.5} /> / par {nf(m.parSub)} {m.unit}
+                        </div>
+                        {/* Same at-a-glance floor-vs-par bar HomeScreen's low-stock list already uses
+                            — brought here too so the screen someone actually works from all day shows
+                            the same clear picture, not just a line of numbers to parse. */}
+                        <div className="bar-track" style={{ height: 4, background: 'var(--border-soft)', borderRadius: 2, marginTop: 5 }}>
+                          <div className="bar-fill" style={{ height: '100%', transform: 'scaleX(' + Math.max(3, Math.min(100, Math.round((m.floor / Math.max(1, m.parFloor)) * 100))) / 100 + ')', background: toneFor(m), borderRadius: 2 }} />
+                        </div>
+                        {/* Bug fix (patient safety): this line always rendered flat green — FEFO's
+                            own sort-by-soonest-expiry was already correct, but "sorts by expiry" and
+                            "warns you when the soonest-expiring lot is itself already expired or
+                            about to be" are two different things, and only the first existed.
+                            Nothing here ever purges/blocks an expired lot (that's scrapLot's own
+                            manual job) — a FEFO transfer will still draw from it, so this is the one
+                            moment before that write actually happens to flag it. expTone() already
+                            existed in selectors.ts for exactly this color scale but had no call site
+                            anywhere in the app until now. */}
+                        {(() => {
+                          const fefoDays = f ? daysUntil(f.exp) : null;
+                          const tone = fefoDays !== null ? expTone(fefoDays, state.expiryWarnDays) : 'var(--green)';
+                          return (
+                            <div style={{ fontSize: 11.5, color: tone, marginTop: 5, fontWeight: fefoDays !== null && fefoDays < 30 ? 700 : undefined }}>
+                              FEFO: lot {f ? f.lotNo : '—'} · exp {f ? thDate(f.exp) : 'ไม่มีของใน substock'}
+                              {f && <span className="muted" style={{ color: 'inherit', opacity: fefoDays !== null && fefoDays < 30 ? 1 : undefined }}> (เหลือ {nf(f.qty)})</span>}
+                              {fefoDays !== null && fefoDays < 0 && <span> — ⚠ หมดอายุแล้ว ควรตัดออกก่อนเติม</span>}
+                              {fefoDays !== null && fefoDays >= 0 && fefoDays < 30 && <span> — ⚠ ใกล้หมดอายุมาก</span>}
+                            </div>
+                          );
+                        })()}
+                        <div style={{ marginTop: 5, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          {/* Shown unconditionally (not tied to today's deficit, unlike DeficitBadge's
+                              own box breakdown below) — see PackSizeBadge's own doc comment. */}
+                          <PackSizeBadge packSize={m.packSize} unit={m.unit} />
+                          <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={isUrgentLow(m)} packSize={m.packSize} />
+                          <DaysLeftBadge days={daysOfStockLeft(state, m)} />
+                          <button
+                            onClick={stopRowNav(() => setExpandedId(expandedId === m.id ? null : m.id))}
+                            style={{ border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 11, fontWeight: 600, padding: '2px 0' }}
+                          >
+                            {expandedId === m.id ? 'ซ่อนภาพรวม ▲' : 'ดูภาพรวม ▾'}
+                          </button>
+                        </div>
+                        {expandedId === m.id && <MedMiniCard medId={m.id} unit={m.unit} />}
                       </div>
-                    );
-                  })()}
-                  <div style={{ marginTop: 5, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    {/* Shown unconditionally (not tied to today's deficit, unlike DeficitBadge's
-                        own box breakdown below) — see PackSizeBadge's own doc comment. */}
-                    <PackSizeBadge packSize={m.packSize} unit={m.unit} />
-                    <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={isUrgentLow(m)} packSize={m.packSize} />
-                    <DaysLeftBadge days={daysOfStockLeft(state, m)} />
-                    <button
-                      onClick={stopRowNav(() => setExpandedId(expandedId === m.id ? null : m.id))}
-                      style={{ border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 11, fontWeight: 600, padding: '2px 0' }}
-                    >
-                      {expandedId === m.id ? 'ซ่อนภาพรวม ▲' : 'ดูภาพรวม ▾'}
-                    </button>
+                      {/* stopPropagation here (not per-button) since it also covers the plain qty
+                          <input> in between, which has no click handler of its own to wrap — a tap to
+                          focus it and type a quantity must never also fire the row's own onClick. */}
+                      <div onClick={(e) => e.stopPropagation()} style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {/* Bug fix (accessibility): these two were 40px, under the 44px minimum touch
+                            target — tapped repeatedly per line item while building a transfer, unlike
+                            every other actionable button on this screen (scan/clear/print/submit),
+                            which already used 44px+. */}
+                        <button onClick={() => bump(m.id, -1)} aria-label={'ลดจำนวน ' + m.name} className="press-spring" style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', width: 44, height: 44, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>−</button>
+                        <input
+                          value={state.cart[m.id] || ''}
+                          onChange={(e) => setCartQty(m.id, digitsOnly(e.target.value))}
+                          inputMode="numeric"
+                          aria-label={'จำนวน ' + m.name}
+                          // Bug fix (mobile fit): under 16px, iOS Safari zooms the whole page in on
+                          // focus — this is the highest-traffic numeric field on the busiest screen
+                          // in the app (walking the shelf, bumping cart quantities item by item).
+                          style={{ width: 62, height: 44, textAlign: 'center', border: '1px solid var(--border)', borderRadius: 10, fontSize: 16, fontWeight: 600 }}
+                        />
+                        <button onClick={() => bump(m.id, 1)} aria-label={'เพิ่มจำนวน ' + m.name} className="press-spring" style={{ border: '1px solid var(--green)', background: 'var(--green-tint)', color: 'var(--green)', width: 44, height: 44, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>+</button>
+                      </div>
+                    </div>
                   </div>
-                  {expandedId === m.id && <MedMiniCard medId={m.id} unit={m.unit} />}
-                </div>
-                {/* stopPropagation here (not per-button) since it also covers the plain qty
-                    <input> in between, which has no click handler of its own to wrap — a tap to
-                    focus it and type a quantity must never also fire the row's own onClick. */}
-                <div onClick={(e) => e.stopPropagation()} style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {/* Bug fix (accessibility): these two were 40px, under the 44px minimum touch
-                      target — tapped repeatedly per line item while building a transfer, unlike
-                      every other actionable button on this screen (scan/clear/print/submit),
-                      which already used 44px+. */}
-                  <button onClick={() => bump(m.id, -1)} aria-label={'ลดจำนวน ' + m.name} className="press-spring" style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', width: 44, height: 44, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>−</button>
-                  <input
-                    value={state.cart[m.id] || ''}
-                    onChange={(e) => setCartQty(m.id, digitsOnly(e.target.value))}
-                    inputMode="numeric"
-                    aria-label={'จำนวน ' + m.name}
-                    // Bug fix (mobile fit): under 16px, iOS Safari zooms the whole page in on
-                    // focus — this is the highest-traffic numeric field on the busiest screen
-                    // in the app (walking the shelf, bumping cart quantities item by item).
-                    style={{ width: 62, height: 44, textAlign: 'center', border: '1px solid var(--border)', borderRadius: 10, fontSize: 16, fontWeight: 600 }}
-                  />
-                  <button onClick={() => bump(m.id, 1)} aria-label={'เพิ่มจำนวน ' + m.name} className="press-spring" style={{ border: '1px solid var(--green)', background: 'var(--green-tint)', color: 'var(--green)', width: 44, height: 44, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>+</button>
-                </div>
-              </div>
+                );
+              })}
             </div>
           );
         })}
-        {filtered.length === 0 && <EmptyState icon="💊" title="ไม่พบรายการยาที่ค้นหา" sub="ลองพิมพ์ชื่อยาแบบสั้นลง หรือเปลี่ยนตัวกรองด้านบน" />}
+        {visibleRows.length === 0 && <EmptyState icon="💊" title="ไม่พบรายการยาที่ค้นหา" sub="ลองพิมพ์ชื่อยาแบบสั้นลง หรือเปลี่ยนตัวกรองด้านบน" />}
       </div>
 
       {cartIds.length > 0 && (
