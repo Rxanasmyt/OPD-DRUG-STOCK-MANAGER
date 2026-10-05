@@ -25,6 +25,18 @@ const UNCLASSIFIED = {
   price: 1, had: false, active: true, parSub: 20, parFloor: 10, floor: 1, bin: 'C3',
   used30: 0, usedPrev30: 0, volatility: 0,
 };
+// No explicit `route` at all — the real-world state of the ENTIRE formulary the moment this
+// feature shipped (see effectiveRouteOf()'s own doc comment for the friction report this fixed).
+const ORAL_NO_ROUTE_SET = {
+  id: 'm4', code: 'MED-0004', name: 'Amoxicillin 250mg', unit: 'แคปซูล', dosageForm: 'แคปซูล',
+  price: 1, had: false, active: true, parSub: 300, parFloor: 60, floor: 5, bin: 'A4',
+  used30: 0, usedPrev30: 0, volatility: 0,
+};
+const INJECTION_NO_ROUTE_SET = {
+  id: 'm5', code: 'MED-0005', name: 'Cefazolin 1g', unit: 'Vial', dosageForm: '',
+  price: 1, had: false, active: true, parSub: 60, parFloor: 20, floor: 3, bin: 'B5',
+  used30: 0, usedPrev30: 0, volatility: 0,
+};
 
 describe('TransferScreen — oral/injection route grouping regression', () => {
   it('groups oral rows and injection rows under separate headers, never interleaved', async () => {
@@ -63,5 +75,21 @@ describe('TransferScreen — oral/injection route grouping regression', () => {
 
     await screen.findByText(INJECTION.name);
     expect(screen.queryByText(/💉 ยาฉีด/)).not.toBeInTheDocument();
+  });
+
+  it('groups meds with NO explicit route set at all, purely from name/unit, the moment they are added', async () => {
+    renderWithApp(<TransferScreen />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [ORAL_NO_ROUTE_SET, INJECTION_NO_ROUTE_SET]);
+    fireCollection('lots', []);
+
+    await screen.findByText(ORAL_NO_ROUTE_SET.name);
+    expect(screen.getByText(/💊 ยากิน/)).toBeInTheDocument();
+    expect(screen.getByText(/💉 ยาฉีด/)).toBeInTheDocument();
+    const html = document.body.innerHTML;
+    expect(html.indexOf('ยากิน')).toBeLessThan(html.indexOf(ORAL_NO_ROUTE_SET.name));
+    expect(html.indexOf(ORAL_NO_ROUTE_SET.name)).toBeLessThan(html.indexOf('ยาฉีด'));
+    expect(html.indexOf('ยาฉีด')).toBeLessThan(html.indexOf(INJECTION_NO_ROUTE_SET.name));
   });
 });

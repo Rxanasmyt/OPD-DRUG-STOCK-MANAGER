@@ -4,7 +4,7 @@ import {
   wardOf, matchesWard, binFor, binDisplayAll, floorMinOf, isUrgentLow, needsWarehouseRequest,
   lastReconcileDateIso, subQty, usageAnomalies,
   daysOfStockLeft, fefoLot, toneFor, subTone, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
-  categoryOf, categoryStats, parAnomaliesFor, packStep, isOnStockHold, routeOf,
+  categoryOf, categoryStats, parAnomaliesFor, packStep, isOnStockHold, routeOf, effectiveRouteOf,
   topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
@@ -91,6 +91,25 @@ describe('routeOf', () => {
     expect(routeOf(med({ route: 'oral' }))).toBe('oral');
     expect(routeOf(med({ route: 'injection' }))).toBe('injection');
     expect(routeOf(med({ route: 'other' }))).toBe('other');
+  });
+});
+
+describe('effectiveRouteOf', () => {
+  // Regression for the real friction report: routeOf() alone left the ENTIRE pre-existing
+  // formulary unclassified (none of it has `route` set), requiring a manual per-med chip or an
+  // admin bulk-action click before TransferScreen's route grouping did anything visible. See
+  // effectiveRouteOf()'s own doc comment in selectors.ts.
+  it('falls back to a live suggestRoute() guess when route is unset', () => {
+    expect(effectiveRouteOf(med({ unit: 'Vial', name: 'Cefazolin 1g' }))).toBe('injection');
+    expect(effectiveRouteOf(med({ unit: 'เม็ด', name: 'Paracetamol 500mg' }))).toBe('oral');
+  });
+
+  it('a med\'s own explicit route always wins over the live guess, even a contradictory one', () => {
+    expect(effectiveRouteOf(med({ unit: 'Vial', name: 'Cefazolin 1g', route: 'other' }))).toBe('other');
+  });
+
+  it('falls back to "other" when neither an explicit route nor a confident guess exists', () => {
+    expect(effectiveRouteOf(med({ unit: 'Tube', dosageForm: 'Cream', name: 'Hydrocortisone Cream' }))).toBe('other');
   });
 });
 

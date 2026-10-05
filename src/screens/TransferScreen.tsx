@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, routeOf, binDisplayAll, daysOfStockLeft, expTone, isOnStockHold } from '../store/selectors';
+import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, effectiveRouteOf, binDisplayAll, daysOfStockLeft, expTone, isOnStockHold } from '../store/selectors';
 import { nf, thDate, digitsOnly, isoDate, daysUntil } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
@@ -155,11 +155,15 @@ export default function TransferScreen() {
   // `filtered` is enough to stable-partition it without re-sorting anything. Capped at the same
   // 60-row total `filtered.slice(0, 60)` used before this — sliced once as one combined list so
   // a short "ยาฉีด" group never gets silently dropped just because enough "ยากิน" rows filled the
-  // whole cap first.
+  // whole cap first. Uses effectiveRouteOf() (not the plain routeOf()) specifically so this
+  // actually groups the FIRST time it's seen, for the entire existing formulary that has no
+  // explicit `route` set yet — see effectiveRouteOf()'s own doc comment in selectors.ts for why
+  // requiring a manual per-med chip or an admin bulk-action click first was real friction users
+  // hit immediately ("ให้มานั่งปรับทีละตัวยาก").
   const visibleRows = [
-    ...filtered.filter((m) => routeOf(m) === 'oral'),
-    ...filtered.filter((m) => routeOf(m) === 'injection'),
-    ...filtered.filter((m) => routeOf(m) === 'other'),
+    ...filtered.filter((m) => effectiveRouteOf(m) === 'oral'),
+    ...filtered.filter((m) => effectiveRouteOf(m) === 'injection'),
+    ...filtered.filter((m) => effectiveRouteOf(m) === 'other'),
   ].slice(0, 60);
   const routeGroups: { key: 'oral' | 'injection' | 'other'; label: string }[] = [
     { key: 'oral', label: '💊 ยากิน' },
@@ -169,7 +173,7 @@ export default function TransferScreen() {
   // A header for every non-empty group only when there's more than one to tell apart — a
   // filtered view that happens to contain just one route (e.g. ตู้เย็น often being all ยาฉีด)
   // shouldn't show a single redundant "💉 ยาฉีด" header above literally everything on screen.
-  const nonEmptyRouteGroupCount = routeGroups.filter((g) => visibleRows.some((m) => routeOf(m) === g.key)).length;
+  const nonEmptyRouteGroupCount = routeGroups.filter((g) => visibleRows.some((m) => effectiveRouteOf(m) === g.key)).length;
 
   const cartIds = Object.keys(state.cart);
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
@@ -246,7 +250,7 @@ export default function TransferScreen() {
 
       <div style={{ padding: '10px 14px 96px' }}>
         {routeGroups.map((group) => {
-          const groupRows = visibleRows.filter((m) => routeOf(m) === group.key);
+          const groupRows = visibleRows.filter((m) => effectiveRouteOf(m) === group.key);
           if (!groupRows.length) return null;
           return (
             <div key={group.key}>
