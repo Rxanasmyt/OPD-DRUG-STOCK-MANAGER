@@ -591,6 +591,26 @@ export function fefoLot(state: AppState, medId: string) {
     .sort((a, b) => (a.exp ?? Infinity) - (b.exp ?? Infinity))[0];
 }
 
+// Deterministic Firestore doc id for a floorLots record — see FloorLot in types.ts for why this
+// is a separate collection from `lots`. Keyed by (medId, lotNo) so repeated transfers of the same
+// physical batch accumulate into one doc instead of creating duplicates. lotNo is sanitized since
+// Firestore doc ids can't contain '/', and a missing lotNo still needs a stable, non-colliding id.
+export function floorLotDocId(medId: string, lotNo: string): string {
+  return medId + '__' + (lotNo ? lotNo.replace(/[/]/g, '_') : 'nolot');
+}
+
+export function floorLotsFor(state: AppState, medId: string) {
+  return state.floorLots.filter((l) => l.medId === medId && l.qty > 0);
+}
+
+/** Soonest-expiring floor lot for a med with stock remaining, or undefined when there's no
+ * floor-lot data at all (either nothing transferred yet under this feature, or every floor lot
+ * for this med has been fully dispensed/scrapped). Mirrors fefoLot()'s own missing-exp fallback
+ * (Infinity, sorts last — never treated as most-urgent) for the same reason. */
+export function fefoFloorLot(state: AppState, medId: string) {
+  return floorLotsFor(state, medId).sort((a, b) => (a.exp ?? Infinity) - (b.exp ?? Infinity))[0];
+}
+
 export function userNameFor(role: Role | null): string {
   return role === 'pharm' ? 'ภญ.นูรฮายาตี ส.' : role === 'tech' ? 'อับดุลเลาะ ม.' : role === 'admin' ? 'ผู้ดูแลระบบ' : '';
 }

@@ -33,7 +33,7 @@ function dismissToday(key: string) {
 }
 
 export default function TransferScreen() {
-  const { state, sub, fefo, setSearch, setFilter, bump, setCartQty, fillAll, fillUrgent, clearCart, printPickList, printTodayReplenishList, go, openScanSearch, goSubstockCardFor } = useApp();
+  const { state, sub, fefo, fefoFloor, setSearch, setFilter, bump, setCartQty, fillAll, fillUrgent, clearCart, printPickList, printTodayReplenishList, go, openScanSearch, goSubstockCardFor } = useApp();
   // Real-world request: "ให้ทุกหน้าที่แสดงชื่อยาจำนวนยา...ให้สามารถดูบัตรสต็อคได้" — this screen
   // already had an indirect path (tap "ดูภาพรวม" to expand MedMiniCard, which has its own "ดู
   // บัตรสต็อกเต็ม →" link at the bottom), but that's an extra tap before the extra tap. Making
@@ -256,6 +256,7 @@ export default function TransferScreen() {
               )}
               {groupRows.map((m, i) => {
                 const f = fefo(m.id);
+                const ff = fefoFloor(m.id);
                 const inCart = !!state.cart[m.id];
                 return (
                   <div
@@ -320,6 +321,28 @@ export default function TransferScreen() {
                               {f && <span className="muted" style={{ color: 'inherit', opacity: fefoDays !== null && fefoDays < 30 ? 1 : undefined }}> (เหลือ {nf(f.qty)})</span>}
                               {fefoDays !== null && fefoDays < 0 && <span> — ⚠ หมดอายุแล้ว ควรตัดออกก่อนเติม</span>}
                               {fefoDays !== null && fefoDays >= 0 && fefoDays < 30 && <span> — ⚠ ใกล้หมดอายุมาก</span>}
+                            </div>
+                          );
+                        })()}
+                        {/* Floor-lot tracking follow-up (see FloorLot in types.ts): once stock
+                            moves to the floor it previously had zero lot/expiry detail at all —
+                            this is the one place that matters most, since it's where the drug is
+                            actually about to be handed to a patient. Best-effort by nature (floor
+                            batches are tracked from transfers in and deducted via a FEFO guess on
+                            daily HOSxP dispensing, which has no real batch detail of its own), so
+                            this stays a secondary warning alongside the substock FEFO line above,
+                            never a replacement for it — hidden entirely when there's no floor-lot
+                            data yet for this med (nothing transferred under this feature, or it's
+                            all been dispensed/scrapped). */}
+                        {ff && (() => {
+                          const ffDays = daysUntil(ff.exp);
+                          const tone = expTone(ffDays, state.expiryWarnDays);
+                          return (
+                            <div style={{ fontSize: 11.5, color: tone, marginTop: 3, fontWeight: ffDays < 30 ? 700 : undefined }}>
+                              บนชั้น: lot {ff.lotNo} · exp {thDate(ff.exp)}
+                              <span className="muted" style={{ color: 'inherit', opacity: ffDays < 30 ? 1 : undefined }}> (เหลือ {nf(ff.qty)})</span>
+                              {ffDays < 0 && <span> — ⚠ หมดอายุแล้วบนชั้น</span>}
+                              {ffDays >= 0 && ffDays < 30 && <span> — ⚠ ใกล้หมดอายุมาก</span>}
                             </div>
                           );
                         })()}

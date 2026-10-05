@@ -41,7 +41,7 @@ const QTY_LABEL: Record<AdjType, string> = {
 
 export default function AdjustScreen() {
   const {
-    state, pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot, go,
+    state, pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot, scrapFloorLot, go,
     goSubstockCardFor,
   } = useApp();
   const meds = state.meds.filter((m) => m.active);
@@ -52,6 +52,17 @@ export default function AdjustScreen() {
     : [];
 
   const scrapRows = state.lots
+    .filter((l) => l.qty > 0 && daysUntil(l.exp) <= 30)
+    .sort((a, b) => a.exp - b.exp)
+    .map((l) => ({ l, m: meds.find((x) => x.id === l.medId) }))
+    .filter((x): x is { l: typeof x.l; m: NonNullable<typeof x.m> } => !!x.m);
+
+  // Floor-lot tracking follow-up (see FloorLot in types.ts): same soonest-expiring-first scrap
+  // list as substock's scrapRows above, but for floorLots — best-effort by nature (see that
+  // type's own doc comment), so this is a secondary bookkeeping cleanup list, not a claim that
+  // real floor stock is being removed (that's still commitAdjust's "ยาเสีย/หมดอายุ" job, same as
+  // always — scrapFloorLot only corrects the floor-lot BATCH record, never Med.floor itself).
+  const floorScrapRows = state.floorLots
     .filter((l) => l.qty > 0 && daysUntil(l.exp) <= 30)
     .sort((a, b) => a.exp - b.exp)
     .map((l) => ({ l, m: meds.find((x) => x.id === l.medId) }))
@@ -93,6 +104,28 @@ export default function AdjustScreen() {
             );
           })}
           {scrapRows.length === 0 && <EmptyState icon="✅" title="ไม่มี lot ใกล้หมดอายุ" sub="ทุก lot ใน substock ตอนนี้ยังเหลืออายุมากกว่า 30 วัน" />}
+        </div>
+      )}
+
+      {state.adjType === 'expired' && floorScrapRows.length > 0 && (
+        <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 13 }}>
+          <div style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', fontSize: 13, color: 'var(--muted)' }}>
+            lot บนชั้นยา (หน้างาน) ที่หมดอายุแล้วหรือเหลือไม่เกิน 30 วัน — ข้อมูล lot นี้เป็นค่าประมาณ (best-effort) ตัดออกเฉพาะข้อมูล lot เท่านั้น ถ้ายามีจริงบนชั้น ให้บันทึก "ยาเสีย/หมดอายุ" แยกอีกครั้ง
+          </div>
+          {floorScrapRows.map(({ l, m }) => {
+            const d = daysUntil(l.exp);
+            return (
+              <div key={l.id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', display: 'flex', gap: 10, alignItems: 'center' }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>{m.name} <WardBadge med={m} /></div>
+                  <div style={{ fontSize: 11.5, marginTop: 2, color: d < 0 ? 'var(--red)' : 'var(--amber)' }}>lot {l.lotNo} · exp {thDate(l.exp)} · {nf(l.qty)} {m.unit}</div>
+                </div>
+                <button onClick={() => scrapFloorLot(l.id)} disabled={!!state.busy[`scrapFloorLot:${l.id}`]} className="btn-danger" style={{ padding: '9px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, flex: 'none', minHeight: 44, opacity: state.busy[`scrapFloorLot:${l.id}`] ? 0.7 : 1 }}>
+                  {state.busy[`scrapFloorLot:${l.id}`] ? 'กำลังตัด…' : 'ตัดออก'}
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 

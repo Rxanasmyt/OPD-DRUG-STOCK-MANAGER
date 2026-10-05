@@ -179,6 +179,34 @@ export interface Lot {
   loc: string;
 }
 
+// Mirrors the shape of substock's `lots`, but for stock already moved onto the ward floor —
+// a SEPARATE collection, deliberately never merged into `lots`. The floor previously had no
+// lot/expiry record at all: commitTransfer() only ever incremented Med.floor as a flat number,
+// and the daily HOSxP dispensing deduction in commitReconcile() has zero batch detail since
+// HOSxP's own source data carries none. That meant FEFO and expiry-risk tracking silently
+// stopped covering the floor — the exact point drugs are actually handed to patients.
+//
+// This collection is purely additive: `Med.floor` stays the one authoritative "how much is on
+// the shelf" number everywhere it's already read (SubstockCardScreen, ReceiveScreen par
+// calculations, TransferScreen's availability checks, etc.) — nothing reads floorLots to
+// answer "how much floor stock is there", only "how much of it is which batch, expiring when".
+// Reusing the existing `lots` collection with a stage flag was considered and rejected: subQty()
+// sums ALL lots for a med to mean "substock quantity" in many places, and every one of those
+// call sites would need auditing to exclude floor-stage lots — a sprawling, easy-to-miss-one-
+// spot change. A separate collection has no such risk by construction.
+//
+// Best-effort by nature: a doc's `qty` can drift from the truth over time (HOSxP dispensing has
+// no lot detail, so commitReconcile() deducts via its own FEFO guess across floor lots, and that
+// guess can be wrong when real-world picking wasn't actually FEFO) — never treated as exact, only
+// as an expiry-risk signal strictly better than no floor-side lot data at all.
+export interface FloorLot {
+  id: string;
+  medId: string;
+  lotNo: string;
+  exp: number;
+  qty: number;
+}
+
 export type TxType =
   | 'adjust' | 'return' | 'damaged' | 'expired' | 'count' | 'reconcile_hosxp'
   | 'transfer_to_floor' | 'receive_from_central' | 'receive_pending'
@@ -458,6 +486,7 @@ export type TransferFilter = 'low' | 'all' | 'had' | 'urgent' | 'fridge';
 export interface AppState {
   meds: Med[];
   lots: Lot[];
+  floorLots: FloorLot[];
   txs: Tx[];
   users: User[];
   authLog: AuditEntry[];

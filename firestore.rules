@@ -145,6 +145,34 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ---- floorLots: mirrors the `lots` rule immediately above, but for stock already moved
+    // onto the ward floor (see FloorLot in types.ts for why this is a separate collection from
+    // `lots` rather than a stage flag on it). Written by the same day-to-day flows as `lots` —
+    // commitTransfer (creates/merges one per batch drawn), commitReconcile (best-effort FEFO
+    // deduction from HOSxP's dispensed number), scrapFloorLot (admin/pharm bookkeeping cleanup)
+    // — so the same isActive() role gate and schema shape apply. lotNo/exp never change once a
+    // doc exists, same as `lots`; medId is included in affectedKeys() for the same forward-
+    // compatibility reason as `lots`, even though no current write path ever actually reassigns
+    // it. ----
+    match /floorLots/{lotId} {
+      allow read: if isActive();
+      allow create: if isActive()
+                    && request.resource.data.medId is string
+                    && request.resource.data.lotNo is string
+                    && isNonNegNum(request.resource.data.qty)
+                    && request.resource.data.exp is number;
+      allow update: if isActive()
+                    && request.resource.data.medId is string
+                    && isNonNegNum(request.resource.data.qty)
+                    && request.resource.data.exp is number
+                    && request.resource.data.lotNo == resource.data.lotNo
+                    && request.resource.data.exp == resource.data.exp
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['qty', 'medId']);
+      // The app itself never deletes a floorLots doc — scrapFloorLot() zeroes `qty` via the
+      // update rule above, same as scrapLot() does for `lots`. Admin-only, matching `lots`.
+      allow delete: if isAdmin();
+    }
+
     // ---- transactions: append-only for everyone EXCEPT one admin-only escape hatch.
     // Schema-checked on create — this is the audit ledger the app treats as authoritative
     // history, so a malformed/fabricated entry (wrong-typed qty, no `by`/`ts`) shouldn't be
