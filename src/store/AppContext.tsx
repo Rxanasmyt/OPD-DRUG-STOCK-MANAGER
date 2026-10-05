@@ -12,7 +12,7 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -122,7 +122,7 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
 
 function freshState(): AppState {
   return {
-    meds: [], lots: [], txs: [], users: [], authLog: [], dbReady: false,
+    meds: [], lots: [], floorLots: [], txs: [], users: [], authLog: [], dbReady: false,
 
     authStatus: 'loading', authMode: 'login', myUid: null,
     authUsername: '', authPassword: '', authName: '', authDept: 'เภสัชกรรม', authError: null, authBusy: false, authRemember: true,
@@ -190,6 +190,7 @@ export interface AppCtx {
   toggleTheme: () => void;
   sub: (medId: string) => number;
   fefo: (medId: string) => ReturnType<typeof fefoLot>;
+  fefoFloor: (medId: string) => ReturnType<typeof fefoFloorLot>;
   userName: () => string;
   roleLabel: () => string;
   roleLabelOf: (r: Role) => string;
@@ -298,6 +299,7 @@ export interface AppCtx {
   setAdjNote: (v: string) => void;
   commitAdjust: () => void;
   scrapLot: (lotId: string) => void;
+  scrapFloorLot: (lotId: string) => void;
 
   // report
   setReportTab: (t: AppState['reportTab']) => void;
@@ -661,7 +663,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // data that arrived AFTER this specific session's listeners went live.
         patch({
           authStatus: 'signedOut', myUid: null, role: null, screen: 'login', navStack: [],
-          meds: [], lots: [], txs: [], users: [], authLog: [], pendingReceives: [], pending: 0, dbReady: false,
+          meds: [], lots: [], floorLots: [], txs: [], users: [], authLog: [], pendingReceives: [], pending: 0, dbReady: false,
         });
         setMyProfile(null);
       } else {
@@ -749,6 +751,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const sub = useCallback((medId: string) => subQty(state, medId), [state]);
   const fefo = useCallback((medId: string) => fefoLot(state, medId), [state]);
+  const fefoFloor = useCallback((medId: string) => fefoFloorLot(state, medId), [state]);
   const userName = useCallback(() => myProfile?.name || '', [myProfile]);
   // Real-world request: editing the master drug record (name/price/par/bin/active) and system
   // settings (par cover days, expiry warning threshold) is Admin-only now — pharm keeps every
@@ -1064,6 +1067,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       onSnapshot(collection(db, 'lots'), (snap) => {
         patch({ lots: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as AppState['lots'] });
       }, onErr('lots')),
+      onSnapshot(collection(db, 'floorLots'), (snap) => {
+        patch({ floorLots: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as AppState['floorLots'] });
+      }, onErr('floorLots')),
       onSnapshot(query(collection(db, 'txs'), orderBy('ts', 'desc'), limit(300)), (snap) => {
         patch({ txs: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as AppState['txs'] });
       }, onErr('txs')),
@@ -1654,8 +1660,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await runTx(async (trx) => {
         const rows: AppState['doneRows'] = [];
         const medReads: Record<string, number> = {};
-        const lotReads: Record<string, { qty: number; lotNo: string }> = {};
+        const lotReads: Record<string, { qty: number; lotNo: string; exp: number }> = {};
         const lotIdsByMed: Record<string, string[]> = {};
+        // Floor-lot tracking (see FloorLot in types.ts): each substock lot actually drawn from
+        // below needs a matching floorLots doc read so the write phase can merge the transferred
+        // qty into it instead of blindly overwriting — keyed by medId+lotNo so multiple transfers
+        // of the same physical batch accumulate correctly.
+        const floorLotReads: Record<string, number> = {};
         // Bug fix (flow latency): this used to walk `ids` with a plain `for` loop — every med's
         // med-doc read, live lot query, and per-lot reads all awaited one after another, with
         // zero data dependency between different meds in the cart. A 4-5 item cart (an entirely
@@ -1698,10 +1709,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           lotIdsByMed[medId] = lotIds;
           await Promise.all(lotIds.map(async (lotId) => {
             const lotSnap = await trx.get(doc(db, 'lots', lotId));
-            const data = lotSnap.data() as { qty?: number; lotNo?: string } | undefined;
-            lotReads[lotId] = { qty: data?.qty ?? 0, lotNo: data?.lotNo ?? '' };
+            const data = lotSnap.data() as { qty?: number; lotNo?: string; exp?: number } | undefined;
+            lotReads[lotId] = { qty: data?.qty ?? 0, lotNo: data?.lotNo ?? '', exp: data?.exp ?? Infinity };
           }));
         }));
+        // Best-effort read of any existing floorLots doc for each distinct (medId, lotNo) this
+        // transfer might draw from, so the write phase below can merge qty instead of overwriting
+        // it. Never blocks/throws on failure to find one — a missing doc just means "no floor
+        // stock of this batch yet", handled the same as any other read miss.
+        const floorLotIdsSeen = new Set<string>();
+        await Promise.all(ids.flatMap((medId) => lotIdsByMed[medId].map((lotId) => {
+          const lotNo = lotReads[lotId]?.lotNo || '';
+          const flId = floorLotDocId(medId, lotNo);
+          if (floorLotIdsSeen.has(flId)) return Promise.resolve();
+          floorLotIdsSeen.add(flId);
+          return trx.get(doc(db, 'floorLots', flId)).then((snap) => {
+            floorLotReads[flId] = (snap.data() as { qty?: number } | undefined)?.qty ?? 0;
+          });
+        })));
         // Real bug this closes: the cart's qty is capped against substock at the moment it
         // was typed (see bump()/setCartQty()), but nothing re-checked that against what's
         // actually still in the lots by the time this transaction runs — plausible any time
@@ -1743,6 +1768,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         for (const medId of ids) {
           let need = cart[medId];
           const used: string[] = [];
+          // Floor-lot tracking: accumulate per-(medId,lotNo) qty drawn this round so a batch
+          // split across more than one substock lot doc still lands in a single floorLots doc.
+          const floorTake: Record<string, { add: number; exp: number; lotNo: string }> = {};
           for (const lotId of lotIdsByMed[medId]) {
             if (need <= 0) break;
             const lotData = lotReads[lotId];
@@ -1751,6 +1779,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             trx.update(doc(db, 'lots', lotId), { qty: lotData.qty - take });
             need -= take;
             used.push(lotData.lotNo + ' (' + nf(take) + ')');
+            const flId = floorLotDocId(medId, lotData.lotNo);
+            if (!floorTake[flId]) floorTake[flId] = { add: 0, exp: lotData.exp, lotNo: lotData.lotNo };
+            floorTake[flId].add += take;
+          }
+          for (const [flId, t] of Object.entries(floorTake)) {
+            const prevQty = floorLotReads[flId] ?? 0;
+            trx.set(doc(db, 'floorLots', flId), { medId, lotNo: t.lotNo, exp: t.exp, qty: prevQty + t.add });
           }
           // Safe: the missing-med check above already threw before this loop could run for
           // any medId that doesn't resolve, so every lookup here is guaranteed to hit.
@@ -2272,6 +2307,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toastErr(e, 'ตัด lot ไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
   }), [state.lots, state.meds, userName, toast, toastErr, guardOnce, confirmAsync]);
+
+  // Mirrors scrapLot() above exactly, but for a floorLots doc (see FloorLot in types.ts) —
+  // lets staff remove expired floor-level stock at the batch level. Deliberately does NOT touch
+  // Med.floor: that flat aggregate is adjusted separately via the existing commitAdjust (ยาเสีย/
+  // หมดอายุ บนชั้น) flow, same as it always was before floor-lot tracking existed — this action
+  // only corrects the floor-lot BOOKKEEPING, not the real floor quantity, so it stays purely
+  // additive and can never put floor stock out of sync with what commitAdjust already controls.
+  const scrapFloorLot = useCallback(guardOnce('scrapFloorLot', async (lotId: string) => {
+    const l = state.floorLots.find((x) => x.id === lotId);
+    if (!l) return;
+    const m = state.meds.find((x) => x.id === l.medId);
+    if (!m) return;
+    if (!(await confirmAsync('ตัด lot ' + l.lotNo + ' (' + m.name + ') จำนวน ' + nf(l.qty) + ' หน่วย ออกจากข้อมูล lot บนชั้นยา?\n(ไม่กระทบยอดคงเหลือบนชั้น ถ้ายามีจริง ให้บันทึก "ยาเสีย/หมดอายุ" แยกอีกครั้ง)\nกู้คืนไม่ได้'))) return;
+    try {
+      let realQty = l.qty;
+      await runTx(async (trx) => {
+        const ref = doc(db, 'floorLots', lotId);
+        const snap = await trx.get(ref);
+        realQty = (snap.data() as { qty?: number } | undefined)?.qty ?? l.qty;
+        trx.update(ref, { qty: 0 });
+      });
+      hapticSuccess();
+      toast('ตัดข้อมูล lot ' + l.lotNo + ' บนชั้นยาแล้ว (' + nf(realQty) + ' หน่วย)');
+    } catch (e) {
+      toastErr(e, 'ตัด lot ไม่สำเร็จ ลองใหม่อีกครั้ง');
+    }
+  }), [state.floorLots, state.meds, toast, toastErr, guardOnce, confirmAsync]);
 
   // ---------- report ----------
   const setReportTab = useCallback((t: AppState['reportTab']) => patch({ reportTab: t }), [patch]);
@@ -3346,17 +3408,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // confirm-dialog-to-commit gap.
       const mergedFloor = await runTx(async (trx) => {
         const lotSnap = await getDocs(query(collection(db, 'lots'), where('medId', '==', ipdMed.id)));
+        // Floor-lot tracking: ipdMed's floor is folded into opdMed's shared floor number below,
+        // so any floorLots docs still pointing at ipdMed.id (its own floor-level batches) need
+        // the same medId reassignment as substock lots just above — otherwise they'd silently
+        // point at a now-inactive, merged-away med and drop out of every floor-lot-aware view.
+        const floorLotSnap = await getDocs(query(collection(db, 'floorLots'), where('medId', '==', ipdMed.id)));
         // Bug fix (flow latency): these reads don't depend on each other — firing them
         // concurrently instead of one lot at a time saves real time when a med has several open
         // lots, with no correctness change (each is still read via trx.get(), so Firestore still
         // retries this transaction if any of them changes before commit).
-        await Promise.all(lotSnap.docs.map((d) => trx.get(d.ref)));
+        await Promise.all([...lotSnap.docs, ...floorLotSnap.docs].map((d) => trx.get(d.ref)));
         const opdSnap = await trx.get(doc(db, 'meds', opdMed.id));
         const ipdSnap = await trx.get(doc(db, 'meds', ipdMed.id));
         const freshOpdFloor = (opdSnap.data() as { floor?: number } | undefined)?.floor ?? opdMed.floor;
         const freshIpdFloor = (ipdSnap.data() as { floor?: number } | undefined)?.floor ?? ipdMed.floor;
         const merged = freshOpdFloor + freshIpdFloor;
         lotSnap.docs.forEach((d) => trx.update(d.ref, { medId: opdMed.id }));
+        floorLotSnap.docs.forEach((d) => trx.update(d.ref, { medId: opdMed.id }));
         trx.update(doc(db, 'meds', opdMed.id), {
           shared: true,
           binIpd: ipdMed.bin,
@@ -3826,18 +3894,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // (another device's onSnapshot update not applied here yet), and the snapshot below must
       // record the actual value about to be overwritten in Firestore, not whatever this tab
       // last saw, or an undo via restore-preresetsnapshot.mjs would restore the wrong floor.
-      const [medSnap, lotSnap] = await Promise.all([
+      const [medSnap, lotSnap, floorLotSnap] = await Promise.all([
         withTimeout(getDocs(collection(db, 'meds'))),
         withTimeout(getDocs(collection(db, 'lots'))),
+        withTimeout(getDocs(collection(db, 'floorLots'))),
       ]);
       const medCount = medSnap.docs.length;
       const lotCount = lotSnap.docs.length;
       try {
         // Snapshot the OLD floor value per med (not the whole med doc — name/code/par/bin etc.
         // never change here, only `floor`) plus every lot about to be deleted, before either
-        // write happens.
+        // write happens. floorLots is snapshotted too — zeroing `floor` makes every floor-lot
+        // batch record stale (stock that, as of this reset, is no longer really there), so it's
+        // deleted right alongside `lots` rather than left behind pointing at quantities that no
+        // longer exist.
         await snapshotBeforeDelete('meds-floor', medSnap.docs.map((d) => ({ id: d.id, data: { floor: d.data().floor ?? 0, lastCountTs: d.data().lastCountTs ?? null, lastSubCountTs: d.data().lastSubCountTs ?? null } })));
         await snapshotBeforeDelete('lots', lotSnap.docs.map((d) => ({ id: d.id, data: d.data() })));
+        if (floorLotSnap.docs.length) await snapshotBeforeDelete('floorLots', floorLotSnap.docs.map((d) => ({ id: d.id, data: d.data() })));
       } catch (e) {
         toastErr(e, 'ยกเลิก — สำรองข้อมูลก่อนลบไม่สำเร็จ (อาจยังไม่ได้ publish กฎ Firestore ล่าสุด) ยังไม่มีอะไรถูกเปลี่ยน');
         return;
@@ -3845,6 +3918,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const ops: { ref: ReturnType<typeof doc>; kind: 'update' | 'delete' }[] = [
         ...medSnap.docs.map((d) => ({ ref: d.ref, kind: 'update' as const })),
         ...lotSnap.docs.map((d) => ({ ref: d.ref, kind: 'delete' as const })),
+        ...floorLotSnap.docs.map((d) => ({ ref: d.ref, kind: 'delete' as const })),
       ];
       for (let i = 0; i < ops.length; i += 450) {
         const batch = writeBatch(db);
@@ -4547,7 +4621,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const snap = await trx.get(ref);
             const before = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
             const after = Math.max(0, before - r.qty);
+            // Floor-lot tracking (see FloorLot in types.ts): HOSxP's dispensed number carries no
+            // batch detail at all, so this is a best-effort FEFO guess across whatever floor lots
+            // exist for this med — never blocks or throws, since the real floor deduction above
+            // is the number that actually matters every day. Live query runs outside trx.get
+            // first (the client SDK can't query inside a transaction, same reason commitTransfer's
+            // live lot query does), then each candidate doc is re-read fresh via trx.get before
+            // any writes — all reads before any writes, same ordering commitTransfer uses.
+            const flTakes: { id: string; qty: number; take: number }[] = [];
+            try {
+              const liveFloorLotDocs = (await getDocs(query(collection(db, 'floorLots'), where('medId', '==', m.id)))).docs;
+              const ordered = liveFloorLotDocs
+                .map((d) => ({ id: d.id, exp: (d.data() as { exp?: number }).exp ?? Infinity }))
+                .sort((a, b) => a.exp - b.exp);
+              let need = r.qty;
+              for (const fl of ordered) {
+                if (need <= 0) break;
+                const flSnap = await trx.get(doc(db, 'floorLots', fl.id));
+                const curQty = (flSnap.data() as { qty?: number } | undefined)?.qty ?? 0;
+                if (curQty <= 0) continue;
+                const take = Math.min(need, curQty);
+                flTakes.push({ id: fl.id, qty: curQty, take });
+                need -= take;
+              }
+            } catch { /* best-effort — floor-lot tracking is a secondary signal, never blocks the real deduction below */ }
             trx.update(ref, { floor: after });
+            for (const t of flTakes) trx.update(doc(db, 'floorLots', t.id), { qty: t.qty - t.take });
             trx.set(doc(collection(db, 'txs')), {
               type: 'reconcile_hosxp', name: m.name, medId: m.id, qty: -(before - after), unit: m.unit,
               reason: 'นำเข้าจากไฟล์ HOSxP',
@@ -5036,7 +5135,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.historyFrom, state.historyTo, patch, toast, toastErr]);
 
   const value = useMemo<AppCtx>(() => ({
-    state, myProfile, theme, toggleTheme, sub, fefo, userName, roleLabel, roleLabelOf, warn, toast, respondConfirm, promptAsync, respondPrompt, applyUpdate, dismissUpdate,
+    state, myProfile, theme, toggleTheme, sub, fefo, fefoFloor, userName, roleLabel, roleLabelOf, warn, toast, respondConfirm, promptAsync, respondPrompt, applyUpdate, dismissUpdate,
     notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify,
     lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify, go, back, setFormDirty, confirmLeaveIfDirty,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
@@ -5044,7 +5143,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, cancelReceivePick, removeRecvItem, commitReceive, printWarehouseRequestList,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
-    pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
+    pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot, scrapFloorLot,
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, updateGlobalSettings,
