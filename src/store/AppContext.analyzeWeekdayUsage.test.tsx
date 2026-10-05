@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { updateDoc } from 'firebase/firestore';
 import { useApp } from './AppContext';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import { signInAs, fireCollection, hasListener, seedCollection, getLastBatchWrites } from '../test-utils/firebaseTestDouble';
@@ -106,6 +107,13 @@ describe('analyzeWeekdayUsage — real weekday-pattern regression', () => {
     expect(byPath['meds/m1']).toBeDefined();
     expect(byPath['meds/m1']!.weekdayPeakDay).toBe(2);
     expect(byPath['meds/m1']!.weekdayPeakFactor as number).toBeGreaterThan(1.15);
+    // Follow-up request ("มีอะไรตกหล่นบ้าง...ทำทั้งหมด"): confidence (occurrence count) and the
+    // full per-weekday shape are recorded alongside the bare peak factor/day.
+    expect(byPath['meds/m1']!.weekdayPeakOccurrences).toBe(8); // all 8 weeks of fixture data
+    expect(byPath['meds/m1']!.weekdayPattern as number[]).toHaveLength(5);
+    // pattern[1] is Tuesday (index = wd-1) — the peak day itself must read as the biggest ratio.
+    const spikePattern = byPath['meds/m1']!.weekdayPattern as number[];
+    expect(spikePattern[1]).toBe(Math.max(...spikePattern));
 
     // FLAT_MED: genuinely flat usage, never had a factor — no write at all needed or made.
     expect(byPath['meds/m2']).toBeUndefined();
@@ -115,9 +123,41 @@ describe('analyzeWeekdayUsage — real weekday-pattern regression', () => {
     expect(byPath['meds/m3']).toBeDefined();
     expect(byPath['meds/m3']!.weekdayPeakFactor).toBeUndefined();
     expect(byPath['meds/m3']!.weekdayPeakDay).toBeUndefined();
+    expect(byPath['meds/m3']!.weekdayPeakOccurrences).toBeUndefined();
+    expect(byPath['meds/m3']!.weekdayPattern).toBeUndefined();
 
     // SPARSE_MED: a real-looking spike shape, but only 2 weeks of data — not enough to trust,
     // so untouched entirely (never even considered "analyzed").
     expect(byPath['meds/m4']).toBeUndefined();
+  });
+});
+
+// Follow-up request: "แก้ไข/ยกเลิกรูปแบบที่ตรวจพบเองไม่ได้" — before this, a wrongly-detected
+// pattern could only ever clear itself automatically once new data flattened it out on a LATER
+// analyzeWeekdayUsage() run; there was no way for an admin to clear one by hand immediately.
+function ClearHarness({ medId }: { medId: string }) {
+  const { clearMedWeekdayPattern } = useApp();
+  return <button onClick={() => clearMedWeekdayPattern(medId)}>clear-pattern</button>;
+}
+
+describe('clearMedWeekdayPattern — manual override regression', () => {
+  it('clears all 4 weekday-pattern fields immediately via a real Firestore write, without waiting for a re-analysis run', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<ClearHarness medId={STALE_MED.id} />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [{ ...STALE_MED, weekdayPattern: [1, 2.5, 1, 1, 1] }]);
+
+    await user.click(screen.getByRole('button', { name: 'clear-pattern' }));
+    await waitFor(() => expect(vi.mocked(updateDoc).mock.calls.length).toBeGreaterThan(0));
+
+    const [, data] = vi.mocked(updateDoc).mock.calls[0];
+    const fields = data as unknown as Record<string, unknown>;
+    expect(Object.keys(fields).sort()).toEqual(['weekdayPattern', 'weekdayPeakDay', 'weekdayPeakFactor', 'weekdayPeakOccurrences'].sort());
+    // deleteField() resolves to undefined in the test double — every one of the 4 fields.
+    expect(fields.weekdayPeakFactor).toBeUndefined();
+    expect(fields.weekdayPeakDay).toBeUndefined();
+    expect(fields.weekdayPeakOccurrences).toBeUndefined();
+    expect(fields.weekdayPattern).toBeUndefined();
   });
 });

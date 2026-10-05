@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, effectiveRouteOf, binDisplayAll, daysOfStockLeft, expTone, isOnStockHold } from '../store/selectors';
-import { nf, thDate, digitsOnly, isoDate, daysUntil } from '../utils/format';
+import { nf, thDate, digitsOnly, isoDate, daysUntil, bangkokWeekday } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge, DaysLeftBadge, PackSizeBadge } from '../components/Qty';
@@ -79,6 +79,13 @@ export default function TransferScreen() {
   // the way to Max specifically on Friday is what actually closes that gap.
   const [showFridayNudge, setShowFridayNudge] = useState(() => !readDismissedToday('opd-friday-nudge-dismissed'));
   const isFriday = new Date().getDay() === 5;
+  // Follow-up to the weekday-usage-pattern analysis (analyzeWeekdayUsage, AppContext.tsx) —
+  // ผู้ใช้ถามว่า "มีอะไรตกหล่นบ้าง" หลัง merge รอบแรก แล้วขอให้ทำทั้งหมด: the detected pattern
+  // previously only ever showed up in the Admin-only SettingsScreen insight card — invisible to
+  // whoever is actually walking the floor doing today's real เติมหน้างาน. bangkokWeekday() (not
+  // the device-local new Date().getDay() isFriday above uses) so this agrees with how
+  // analyzeWeekdayUsage() itself computed weekdayPeakDay in the first place.
+  const todayWeekday = bangkokWeekday(Date.now());
   // noSubstock meds (liquids/sprays — received straight to the shelf, see ReceiveScreen)
   // have nothing to transfer from; showing them here with permanently-stuck-at-0 +/- buttons
   // would just be confusing clutter, not a real "เติมหน้างาน" candidate.
@@ -322,6 +329,15 @@ export default function TransferScreen() {
                           <PackSizeBadge packSize={m.packSize} unit={m.unit} />
                           <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={isUrgentLow(m)} packSize={m.packSize} />
                           <DaysLeftBadge days={daysOfStockLeft(state, m)} />
+                          {/* Follow-up request: "มีอะไรตกหล่นบ้าง...ทำทั้งหมด" — surfaces the
+                              weekday-usage-pattern analysis (analyzeWeekdayUsage, AppContext.tsx)
+                              right where someone's actually deciding how much to fill TODAY,
+                              not just in the Admin-only SettingsScreen insight card. */}
+                          {m.weekdayPeakDay === todayWeekday && (
+                            <span title="ยานี้มักใช้มากกว่าปกติในวันนี้ของสัปดาห์ จากสถิติ HOSxP ย้อนหลัง — ลองเผื่อเติมมากกว่าปกติ" style={{ flex: 'none', display: 'inline-flex', alignItems: 'center', fontSize: 10.5, fontWeight: 700, color: 'var(--ipd)', background: 'var(--ipd-bg)', borderRadius: 20, padding: '2.5px 8px' }}>
+                              📅 มักใช้มากวันนี้
+                            </span>
+                          )}
                           <button
                             onClick={stopRowNav(() => setExpandedId(expandedId === m.id ? null : m.id))}
                             style={{ border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 11, fontWeight: 600, padding: '2px 0' }}

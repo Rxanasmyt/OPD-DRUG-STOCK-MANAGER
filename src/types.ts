@@ -145,6 +145,28 @@ export interface Med {
   // "×2.4 (อังคาร)") so an admin reviewing it sees WHY, not just an unexplained number, and can
   // cross-reference it against data/clinics.ts's own real clinic schedule.
   weekdayPeakDay?: number;
+  // Follow-up to weekdayPeakFactor — ผู้ใช้ถามว่า "มีอะไรตกหล่นบ้างจากที่เสนอ" หลัง merge รอบแรก
+  // แล้วขอให้ทำทั้งหมด. How many distinct real calendar days of reconcile_hosxp history
+  // weekdayPeakFactor/weekdayPeakDay above were actually computed from (always the SMALLEST of
+  // the 5 weekdays' own occurrence counts, i.e. the least-confident weekday in the set — showing
+  // the floor of confidence, not an inflated average across weekdays with very different amounts
+  // of history). Shown alongside the factor (e.g. "×2.4 — จากข้อมูล 8 ครั้ง") so an admin can
+  // judge for themselves whether to trust a borderline case (right at MIN_OCC_PER_WEEKDAY) versus
+  // a well-established one (a full LOOKBACK_DAYS of occurrences), instead of taking the bare
+  // multiplier on faith.
+  weekdayPeakOccurrences?: number;
+  // Follow-up to weekdayPeakFactor — the FULL per-weekday ratio-to-average shape (Mon..Fri, same
+  // order every time), not just the single busiest day. suggestPar() only ever needs the one
+  // peak ratio (sizing floor par for the worst single day already safely covers every other,
+  // lower day within the same cover-days window — see suggestPar()'s own comment), so this is
+  // purely an ADMIN-FACING visibility improvement: a drug genuinely busy on two different clinic
+  // days (not just one) previously only ever showed its single highest day here, silently hiding
+  // that a second day is ALSO meaningfully elevated. Written together with weekdayPeakFactor/Day/
+  // Occurrences by analyzeWeekdayUsage() whenever there's enough data for every weekday, even for
+  // a med whose peak alone doesn't clear MEANINGFUL_FACTOR (so the insight panel can still show
+  // "genuinely flat" honestly instead of nothing) — but weekdayPeakFactor/Day themselves still
+  // stay unset in that case, exactly as before.
+  weekdayPattern?: number[];
 }
 
 export interface Lot {

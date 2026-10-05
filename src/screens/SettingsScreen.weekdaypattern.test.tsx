@@ -2,9 +2,10 @@
 // วิเคราะห์การใช้ยาจริง" — SettingsScreen's new "วิเคราะห์รูปแบบการใช้ยารายวัน" button and the
 // durable insight panel that lists every med analyzeWeekdayUsage() has found a real pattern for
 // (not just a one-time toast). See SettingsScreen.tsx's own "Real-world request" comment.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { updateDoc } from 'firebase/firestore';
 import SettingsScreen from './SettingsScreen';
 import Toast from '../components/Toast';
 import { renderWithApp } from '../test-utils/renderWithApp';
@@ -14,7 +15,10 @@ const PATTERNED_MED = {
   id: 'm1', code: 'MED-0001', name: 'Metformin 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
   price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 40, bin: 'A1',
   noSubstock: false, used30: 300, usedPrev30: 300, volatility: 1,
-  weekdayPeakFactor: 2.5, weekdayPeakDay: 2, // already analyzed: busiest on Tuesday
+  // already analyzed: busiest on Tuesday, also meaningfully elevated on Thursday (the second-
+  // busiest day a bare weekdayPeakFactor/Day pair alone would have hidden).
+  weekdayPeakFactor: 2.5, weekdayPeakDay: 2, weekdayPeakOccurrences: 8,
+  weekdayPattern: [0.8, 2.5, 0.7, 1.3, 0.7],
 };
 const PLAIN_MED = {
   id: 'm2', code: 'MED-0002', name: 'Amoxicillin 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
@@ -37,6 +41,27 @@ describe('SettingsScreen — weekday-usage-pattern insight regression', () => {
     expect(screen.getByText(/ตรงกับคลินิก: อังคาร: เบาหวาน/)).toBeInTheDocument();
     // The plain med (no pattern detected) never shows up in this specific panel.
     expect(screen.queryByText(PLAIN_MED.name)).not.toBeInTheDocument();
+
+    // Follow-up request: confidence (how much real history backs the number) and any OTHER
+    // meaningfully-elevated weekday (not just the single peak) must both be visible.
+    expect(screen.getByText(/จากข้อมูล 8 ครั้ง/)).toBeInTheDocument();
+    expect(screen.getByText(/ใช้มากกว่าปกติอีกด้วย: พฤหัสบดี ×1\.30/)).toBeInTheDocument();
+  });
+
+  it('clears a wrongly-detected pattern immediately via the "ล้างรูปแบบนี้" button, without waiting for a re-analysis run', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<SettingsScreen />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [PATTERNED_MED]);
+    fireCollection('lots', []);
+
+    await screen.findByText(/ยาที่มีรูปแบบการใช้รายวันชัดเจน \(1 รายการ\)/);
+    await user.click(screen.getByRole('button', { name: '✕ ล้างรูปแบบนี้' }));
+
+    await waitFor(() => expect(vi.mocked(updateDoc).mock.calls.length).toBeGreaterThan(0));
+    const [, data] = vi.mocked(updateDoc).mock.calls[0];
+    expect((data as unknown as Record<string, unknown>).weekdayPeakFactor).toBeUndefined();
   });
 
   it('hides the panel entirely when no med has a detected pattern yet', async () => {
