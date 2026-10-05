@@ -340,6 +340,9 @@ export interface AppCtx {
   /** See its own doc comment at the implementation — computes Med.weekdayPeakFactor/
    * weekdayPeakDay from real reconcile_hosxp history, feeding suggestPar()'s floor-par sizing. */
   analyzeWeekdayUsage: () => void;
+  /** Quick-fix counterpart that clears an analyzed weekday pattern by hand — see its own doc
+   * comment at the implementation. */
+  clearMedWeekdayPattern: (medId: string) => void;
   updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => void;
 
   // meds (formulary) management
@@ -2994,28 +2997,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const targets = state.meds.filter((m) => m.active);
       let analyzed = 0;
       let patterned = 0;
-      const writes: { id: string; factor?: number; day?: number }[] = [];
+      const writes: { id: string; factor?: number; day?: number; occ?: number; pattern?: number[] }[] = [];
       for (const m of targets) {
         const key = dupNames.has(m.name) ? 'id:' + m.id : 'name:' + m.name;
         const buckets = byKeyWeekday.get(key);
         if (!buckets) continue;
-        const weekdayAvgs: { wd: number; avg: number }[] = [];
+        const weekdayAvgs: { wd: number; avg: number; occ: number }[] = [];
         for (let wd = 1; wd <= 5; wd++) {
           const days = buckets[wd];
           if (days.size < MIN_OCC_PER_WEEKDAY) { weekdayAvgs.length = 0; break; }
           const sum = Array.from(days.values()).reduce((s, v) => s + v, 0);
-          weekdayAvgs.push({ wd, avg: sum / days.size });
+          weekdayAvgs.push({ wd, avg: sum / days.size, occ: days.size });
         }
         if (weekdayAvgs.length !== 5) continue; // not enough confirmed history for every weekday
         analyzed++;
         const overallAvg = weekdayAvgs.reduce((s, w) => s + w.avg, 0) / 5;
         if (overallAvg <= 0) continue;
+        // Follow-up to weekdayPeakFactor: keep the FULL per-weekday shape (Mon..Fri ratio to
+        // average), not just the single busiest day — see Med.weekdayPattern's own doc comment
+        // for why (a drug genuinely busy on two different clinic days was otherwise only ever
+        // shown its single highest one here).
+        const pattern = weekdayAvgs.map((w) => Math.round((w.avg / overallAvg) * 100) / 100);
         const peak = weekdayAvgs.reduce((a, b) => (b.avg > a.avg ? b : a));
         const factor = peak.avg / overallAvg;
         if (factor >= MEANINGFUL_FACTOR) {
-          writes.push({ id: m.id, factor: Math.round(factor * 100) / 100, day: peak.wd });
+          // Follow-up to weekdayPeakFactor: occurrences is the SMALLEST count across all 5
+          // weekdays (the least-confident one in the set), not just the peak day's own count —
+          // see Med.weekdayPeakOccurrences's own doc comment for why that's the honest number.
+          const minOcc = Math.min(...weekdayAvgs.map((w) => w.occ));
+          writes.push({ id: m.id, factor: Math.round(factor * 100) / 100, day: peak.wd, occ: minOcc, pattern });
           patterned++;
-        } else if (m.weekdayPeakFactor) {
+        } else if (m.weekdayPeakFactor || m.weekdayPattern) {
           writes.push({ id: m.id }); // pattern flattened out since the last run — clear it
         }
       }
@@ -3029,8 +3041,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const batch = writeBatch(db);
         writes.slice(i, i + 400).forEach((w) => {
           batch.update(doc(db, 'meds', w.id), w.factor
-            ? { weekdayPeakFactor: w.factor, weekdayPeakDay: w.day }
-            : { weekdayPeakFactor: deleteField(), weekdayPeakDay: deleteField() });
+            ? { weekdayPeakFactor: w.factor, weekdayPeakDay: w.day, weekdayPeakOccurrences: w.occ, weekdayPattern: w.pattern }
+            : { weekdayPeakFactor: deleteField(), weekdayPeakDay: deleteField(), weekdayPeakOccurrences: deleteField(), weekdayPattern: deleteField() });
         });
         await withTimeout(batch.commit());
       }
@@ -3038,6 +3050,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast('วิเคราะห์แล้ว ' + analyzed + ' รายการที่มีข้อมูลพอ — พบรูปแบบรายวันชัดเจน ' + patterned + ' รายการ (กด "ใช้ค่าแนะนำทั้งหมด" เพื่ออัปเดต par หน้างานตามรูปแบบใหม่)');
     } catch (e) { toastErr(e, 'วิเคราะห์รูปแบบการใช้ยาไม่สำเร็จ ลองใหม่อีกครั้ง'); }
   }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce]);
+
+  /** Follow-up to analyzeWeekdayUsage() — ผู้ใช้ถามว่า "มีอะไรตกหล่นบ้าง" หลัง merge รอบแรก แล้ว
+   * ขอให้ทำทั้งหมด: "แก้ไข/ยกเลิกรูปแบบที่ตรวจพบเองไม่ได้" — ก่อนหน้านี้ analyzeWeekdayUsage() เอง
+   * เป็นทางเดียวที่จะล้างค่า weekdayPeakFactor/weekdayPeakDay/weekdayPeakOccurrences/
+   * weekdayPattern ได้ (และล้างให้อัตโนมัติเฉพาะตอนข้อมูลใหม่เข้ามาจนแบนราบลงเท่านั้น) — ถ้า admin
+   * เห็นว่าระบบตรวจจับผิด (เช่น เป็นเหตุการณ์ชั่วคราวครั้งเดียว ไม่ใช่รูปแบบจริง) ต้องรอให้ข้อมูลใหม่
+   * มาเองถึงจะหายไป ไม่มีทางล้างเองได้ทันที ปุ่มนี้ (การ์ด insight ในหน้าตั้งค่า) ให้ล้างได้ทันที
+   * เหมือน setMedCategory/setMedRoute เดิม — เขียนทับแค่ 4 ฟิลด์นี้ ไม่กระทบ par/floorMin ที่ตั้งไว้
+   * เอง (ยังต้องกด "ใช้ค่าแนะนำทั้งหมด" แยกต่างหากถ้าต้องการให้ par กลับไปไม่มีตัวคูณนี้). */
+  const clearMedWeekdayPattern = useCallback(async (medId: string) => {
+    if (!canEditMeds) return;
+    const m = state.meds.find((x) => x.id === medId);
+    if (!m) return;
+    const prev = { weekdayPeakFactor: m.weekdayPeakFactor, weekdayPeakDay: m.weekdayPeakDay, weekdayPeakOccurrences: m.weekdayPeakOccurrences, weekdayPattern: m.weekdayPattern };
+    setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, weekdayPeakFactor: undefined, weekdayPeakDay: undefined, weekdayPeakOccurrences: undefined, weekdayPattern: undefined } : x)) }));
+    try {
+      await withTimeout(updateDoc(doc(db, 'meds', medId), { weekdayPeakFactor: deleteField(), weekdayPeakDay: deleteField(), weekdayPeakOccurrences: deleteField(), weekdayPattern: deleteField() }));
+      logAudit({ type: 'par_updated', note: 'ล้างรูปแบบการใช้ยารายวันของ ' + m.name + ' ด้วยตนเอง' });
+    } catch (e) {
+      console.error(e);
+      toast('ล้างรูปแบบการใช้ยารายวันไม่สำเร็จ — กำลังดึงค่าจริงกลับมาแสดง');
+      setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, ...prev } : x)) }));
+    }
+  }, [canEditMeds, state.meds, logAudit, toast]);
 
   // Persists to meta/settings (see the onSnapshot listener above) — a merge write so this
   // can be called with just the one field that changed without clobbering the other two.
@@ -4991,7 +5027,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
-    applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, analyzeWeekdayUsage, updateGlobalSettings,
+    applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, autoRouteAll, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, fetchFloorLedger, fetchStockAsOf, exportStockAsOfCsv, fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,

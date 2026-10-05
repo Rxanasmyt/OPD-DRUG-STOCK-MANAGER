@@ -8,7 +8,7 @@ import { WEEKDAY_NAME, WEEKDAY_CLINICS } from '../data/clinics';
 
 export default function SettingsScreen() {
   const {
-    state, warn, applyAllSuggested, setAllMinHalfOfMax, recomputeUsageStats, analyzeWeekdayUsage, go, updateGlobalSettings,
+    state, warn, applyAllSuggested, setAllMinHalfOfMax, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, go, updateGlobalSettings,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify,
     lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify,
@@ -263,19 +263,47 @@ export default function SettingsScreen() {
           <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginBottom: 10 }}>
             จากการวิเคราะห์ประวัติ HOSxP ล่าสุด — par หน้างานที่แนะนำของรายการเหล่านี้คิดรวมวันที่ใช้มากที่สุดของแต่ละตัวไว้แล้ว (ไม่ใช่แค่ค่าเฉลี่ยทั้งสัปดาห์)
           </div>
-          <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 7 }}>
-            {weekdayPatternMeds.slice(0, 30).map((m) => (
-              <div key={m.id} style={{ background: 'var(--bg-card)', borderRadius: 9, padding: '8px 10px', border: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{m.name}</span>
-                  <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: 'var(--ipd)' }}>×{m.weekdayPeakFactor?.toFixed(2)}</span>
+          <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {weekdayPatternMeds.slice(0, 30).map((m) => {
+              // Follow-up request: a drug genuinely busy on a SECOND weekday (not just its single
+              // busiest one) used to be invisible here — weekdayPattern (all 5 ratios) lets this
+              // list every weekday that's also meaningfully elevated, same 1.15 threshold
+              // analyzeWeekdayUsage() itself uses, excluding the peak day already shown above it.
+              const secondaryDays = (m.weekdayPattern || [])
+                .map((ratio, i) => ({ wd: i + 1, ratio }))
+                .filter((d) => d.wd !== m.weekdayPeakDay && d.ratio >= 1.15)
+                .sort((a, b) => b.ratio - a.ratio);
+              return (
+                <div key={m.id} style={{ background: 'var(--bg-card)', borderRadius: 9, padding: '8px 10px', border: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{m.name}</span>
+                    <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: 'var(--ipd)' }}>×{m.weekdayPeakFactor?.toFixed(2)}</span>
+                  </div>
+                  <div className="muted" style={{ fontSize: 11, lineHeight: 1.5 }}>
+                    ใช้มากสุดวัน{WEEKDAY_NAME[m.weekdayPeakDay as number]}
+                    {WEEKDAY_CLINICS[m.weekdayPeakDay as number] ? ' — ตรงกับคลินิก: ' + WEEKDAY_CLINICS[m.weekdayPeakDay as number] : ''}
+                    {/* Follow-up request: show how much real history backs this number, so an
+                        admin can judge a borderline case (right at the minimum) differently from
+                        a well-established one, instead of taking the bare multiplier on faith. */}
+                    {' · จากข้อมูล ' + nf(m.weekdayPeakOccurrences || 0) + ' ครั้ง'}
+                  </div>
+                  {secondaryDays.length > 0 && (
+                    <div className="muted" style={{ fontSize: 11, lineHeight: 1.5 }}>
+                      ใช้มากกว่าปกติอีกด้วย: {secondaryDays.map((d) => WEEKDAY_NAME[d.wd] + ' ×' + d.ratio.toFixed(2)).join(', ')}
+                    </div>
+                  )}
+                  {/* Follow-up request: "แก้ไข/ยกเลิกรูปแบบที่ตรวจพบเองไม่ได้" — previously the only
+                      way to clear a wrongly-detected pattern was to wait for new data to flatten
+                      it out on a later analyzeWeekdayUsage() run. */}
+                  <button
+                    onClick={() => clearMedWeekdayPattern(m.id)}
+                    style={{ marginTop: 5, border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 10.5, fontWeight: 600, padding: '2px 0' }}
+                  >
+                    ✕ ล้างรูปแบบนี้
+                  </button>
                 </div>
-                <div className="muted" style={{ fontSize: 11, lineHeight: 1.5 }}>
-                  ใช้มากสุดวัน{WEEKDAY_NAME[m.weekdayPeakDay as number]}
-                  {WEEKDAY_CLINICS[m.weekdayPeakDay as number] ? ' — ตรงกับคลินิก: ' + WEEKDAY_CLINICS[m.weekdayPeakDay as number] : ''}
-                </div>
-              </div>
-            ))}
+              );
+            })}
             {weekdayPatternMeds.length > 30 && <div className="muted" style={{ fontSize: 11 }}>และอีก {weekdayPatternMeds.length - 30} รายการ</div>}
           </div>
         </div>
