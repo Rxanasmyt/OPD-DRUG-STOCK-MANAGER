@@ -594,8 +594,12 @@ export function expTone(d: number, warnDays: number): string {
   return d < 0 ? 'var(--red)' : d < 30 ? 'var(--red)' : d < warnDays ? 'var(--amber)' : 'var(--green)';
 }
 
-export function roundStep(v: number): number {
-  const step = v >= 500 ? 100 : v >= 100 ? 10 : 1;
+// Real-world request: "การคำนวณ min max หรือ par substock ให้อิงตัวเลขจำนวนกล่องยาร่วมด้วยว่า 1 กล่อง
+// มีจำนวนยาเท่าไร เพราะการเบิกจะเบิกทีละกล่องทีละขวดทีละแพคอยู่แล้ว" — `packSize` is optional so every
+// caller (seed data, suggestPar() below) keeps working unchanged for a med with no box size set,
+// falling back to the exact same generic magnitude-based step (1/10/100) this always used.
+export function roundStep(v: number, packSize?: number): number {
+  const step = packSize && packSize > 1 ? packSize : (v >= 500 ? 100 : v >= 100 ? 10 : 1);
   return Math.max(step, Math.ceil(v / step) * step);
 }
 
@@ -648,6 +652,21 @@ export function matchHosxpMed(meds: Med[], rawName: string): HosxpMatch {
   return { kind: 'none' };
 }
 
+// Real-world request: "การคำนวณ min max หรือ par substock ให้อิงตัวเลขจำนวนกล่องยาร่วมด้วยว่า 1 กล่อง
+// มีจำนวนยาเท่าไร เพราะการเบิกจะเบิกทีละกล่องทีละขวดทีละแพคอยู่แล้ว" — a med with a real box size
+// (Med.packSize) can only ever be ordered/received in whole boxes (see packStep()'s own doc
+// comment, used for the actual REQUISITION quantity already), so a suggested par target that
+// lands mid-box (e.g. "287 เม็ด" for a drug boxed 300/box) is never actually achievable — someone
+// topping up to it either over- or under-shoots by definition. roundStep() now rounds UP to the
+// nearest whole box when packSize is set, same "always round UP, never down" contract it already
+// had for the generic magnitude-based step (a par that's short of its target days of cover is a
+// worse failure mode than one that's a little generous). The illustrative case that prompted this
+// (a slow-moving drug boxed 1000/box): daily*days*volatility might compute to something small,
+// like 40 — roundStep(40, 1000) still correctly returns one whole box (1000), which may well cover
+// that drug for months, exactly the "เติมแค่ 1 ครั้งก็อยู่ได้หลายวัน" case described — this was
+// already true before this fix (the old step-1 rounding would have suggested 40, which can't
+// actually be ordered either), so the box-awareness here is what makes the suggested number one a
+// real requisition can satisfy, not a change in how "low-use" drugs are sized.
 export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number): { floor: number; sub: number } | null {
   if (!(m.used30 > 0)) return null; // ไม่มีสถิติการใช้จริง ห้ามแนะนำ par (roundStep(0) จะได้ 1 เสมอ ทำให้ค่าแนะนำผิดเพี้ยน)
   const daily = dailyUsageRate(m);
@@ -661,8 +680,8 @@ export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number)
   // get, since its shelf effectively *is* its substock for stocking purposes.
   const floorDays = usesSubstock(m) ? floorCoverDays : subCoverDays;
   return {
-    floor: roundStep(daily * floorDays * m.volatility),
-    sub: roundStep(daily * subCoverDays * m.volatility),
+    floor: roundStep(daily * floorDays * m.volatility, m.packSize),
+    sub: roundStep(daily * subCoverDays * m.volatility, m.packSize),
   };
 }
 

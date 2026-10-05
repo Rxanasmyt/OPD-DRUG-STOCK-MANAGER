@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly, thDate } from '../utils/format';
-import { wardOf, wardLabel, floorMinOf, toneFor, subTone, isSharedMed, categoryOf, isOnStockHold, usesSubstock } from '../store/selectors';
+import { wardOf, wardLabel, floorMinOf, toneFor, subTone, isSharedMed, categoryOf, isOnStockHold, usesSubstock, daysOfStockLeft } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
 import { Badge, HadTag } from '../components/Badge';
 import { BottomSheet } from '../components/BottomSheet';
-import { Qty } from '../components/Qty';
+import { Qty, DaysLeftBadge } from '../components/Qty';
 import type { Med, Ward } from '../types';
 import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
@@ -759,6 +759,11 @@ export default function MedsScreen() {
               heading={null}
               initial={formFromMed(m)}
               submitLabel="บันทึกการแก้ไข"
+              // Real-world request: "ข้อมูลว่าจำนวนที่ชั้นวางยาตอนนี้สามารถอยู่ได้กี่วันก็มีความ
+              // สำคัญ เพื่อใช้ในการประเมินว่ายาควรได้รับการเติมหรือยัง" — only meaningful for an
+              // existing med with real floor+substock data (daysOfStockLeft already returns null
+              // with no used30 history), so never passed for the blank "เพิ่มยาใหม่" form below.
+              currentDaysLeft={daysOfStockLeft(state, m)}
               onCancel={() => setEditingId(null)}
               onSubmit={async (v) => {
                 // Bug fix (flow friction): same fix as addMed's own onSubmit above — this used
@@ -806,7 +811,7 @@ export default function MedsScreen() {
 /** The one place every editable fact about a med lives — name+strength, dosage form, unit,
  * price, high-alert flag, shelf/bin, and both par levels — used both for "เพิ่มยาใหม่" (blank)
  * and a row's "แก้ไขข้อมูล" (pre-filled), so there's exactly one form to keep in sync. */
-function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, onSiblingBinChange, onMerge, mergeBusy }: {
+function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, onSiblingBinChange, onMerge, mergeBusy, currentDaysLeft }: {
   heading: string | null;
   initial: MedFormValues;
   submitLabel: string;
@@ -823,6 +828,11 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
    * not instant, so the button shows "กำลังรวม…"/disables itself same as every other commit
    * button in the app instead of looking inert on a slow connection. */
   mergeBusy?: boolean;
+  /** Real-world request: "ข้อมูลว่าจำนวนที่ชั้นวางยาตอนนี้สามารถอยู่ได้กี่วันก็มีความสำคัญ เพื่อใช้
+   * ในการประเมินว่ายาควรได้รับการเติมหรือยัง" — daysOfStockLeft(state, m) computed by the caller
+   * (MedsScreen already has `state` in scope; this form doesn't). undefined/omitted for the blank
+   * "เพิ่มยาใหม่" form (a brand-new med has no real floor/substock history to project from yet). */
+  currentDaysLeft?: number | null;
 }) {
   const { setFormDirty } = useApp();
   const [v, setV] = useState<MedFormValues>(initial);
@@ -1019,6 +1029,19 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
             : 'รหัสชั้น/ตู้ในคลังย่อย substock — คนละรหัสกับชั้นวางหน้างานด้านบน (คนละห้อง คนละ QR) ใช้พิมพ์ฉลากชั้นวาง substock ในหน้าฉลาก QR ได้'}
         </div>
       </label>
+      {/* Real-world request: "ข้อมูลว่าจำนวนที่ชั้นวางยาตอนนี้สามารถอยู่ได้กี่วันก็มีความสำคัญ
+          เพื่อใช้ในการประเมินว่ายาควรได้รับการเติมหรือยัง" — shown right above the Min/Max/par
+          substock inputs below, since that's exactly the decision this number is meant to
+          inform. currentDaysLeft is undefined for "เพิ่มยาใหม่" (no history to project from) and
+          null when the med itself has no usage history yet (daysOfStockLeft's own contract) —
+          DaysLeftBadge already renders nothing for null, so only the `=== undefined` add-form
+          case needs its own guard here. */}
+      {currentDaysLeft !== undefined && (
+        <div className="muted" style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 9 }}>
+          ของที่มีอยู่ตอนนี้ (หน้างาน+substock รวมกัน) ที่อัตราการใช้ปัจจุบัน:
+          {currentDaysLeft === null ? <span>ยังไม่มีสถิติการใช้พอประเมิน</span> : <DaysLeftBadge days={currentDaysLeft} />}
+        </div>
+      )}
       <div className="grid-2" style={{ marginBottom: 9 }}>
         <label>
           <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>par substock</span>
