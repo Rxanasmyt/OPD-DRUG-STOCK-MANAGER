@@ -12,7 +12,7 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -1554,7 +1554,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Real-world request: this sheet already says where the qty is headed (bin, the floor
         // shelf) but gave no clue where to physically go pick it from — add the substock shelf
         // code (Med.binSub) so the person walking the floor also knows where in substock to go.
-        return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note, pickBin: m.binSub || undefined };
+        // Real-world request: "ใบเติมหน้างานประจำ และใบเบิกจากคลังให้แยกประเภทยากิน ยาฉีดด้วยครับ" —
+        // same route-grouping reasoning as TransferScreen's own screen list (see its "Real-world
+        // request" comment): walking between the oral shelf and the locked injectable cabinet
+        // with one unsorted printed sheet is the exact confusion that already got fixed on
+        // screen. effectiveRouteOf() (not the plain explicit-only routeOf()) so a printed sheet
+        // groups correctly from day one too, not just once someone manually confirms every drug.
+        return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note, pickBin: m.binSub || undefined, route: effectiveRouteOf(m) };
       })
       .filter((r) => r.qty > 0);
     // Only bail out with the old "nothing available to transfer" toast when there's truly
@@ -1618,7 +1624,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // (Med.binSub); a noSubstock med has no substock stage at all — its floor shelf IS the
       // place this requisition lands (see this function's own comment above on why noSubstock
       // meds are judged against floor par here), so fall back to its floor bin for those.
-      return { bin: short ? (m.binSub || '—') : binDisplayAll(m), name: m.name + (short ? '' : ' (ไม่มี substock)'), qty, unit: m.unit, note };
+      // Real-world request: "ใบเติมหน้างานประจำ และใบเบิกจากคลังให้แยกประเภทยากิน ยาฉีดด้วยครับ" —
+      // see printTodayReplenishList's own comment above on the exact same addition there.
+      return { bin: short ? (m.binSub || '—') : binDisplayAll(m), name: m.name + (short ? '' : ' (ไม่มี substock)'), qty, unit: m.unit, note, route: effectiveRouteOf(m) };
     });
     const heldRows = heldMeds.map((m) => ({
       name: m.name,

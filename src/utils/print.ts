@@ -318,6 +318,12 @@ export interface PickListRow {
   // a column for it only appears on sheets whose rows actually set it (see printPickListSheet
   // below), so the cart-based ใบจัดยาเติมชั้น (which never sets this) keeps its current layout.
   pickBin?: string;
+  // Real-world request: "ใบเติมหน้างานประจำ และใบเบิกจากคลังให้แยกประเภทยากิน ยาฉีดด้วยครับ" — same
+  // reasoning as TransferScreen's own on-screen route grouping (walking between the oral shelf
+  // and the locked injectable cabinet with one unsorted sheet is real, physical confusion).
+  // Optional and additive: when NO row sets this (the cart-based ใบจัดยาเติมชั้น, which doesn't),
+  // printPickListSheet renders its original single ungrouped table unchanged.
+  route?: 'oral' | 'injection' | 'other';
 }
 
 /** One row of the optional "ยาขาดชั่วคราว" informational section — see printPickListSheet's
@@ -373,16 +379,47 @@ export function printPickListSheet(
   // Only show the "pick from" column when at least one row actually sets it — the cart-based
   // ใบจัดยาเติมชั้น (printPickList) never does, so it keeps its original layout unchanged.
   const showPickBin = sorted.some((r) => r.pickBin);
-  const body = sorted
-    .map((r, i) => `<tr>
+  const colCount = 3 + (showPickBin ? 1 : 0) + 2; // ลำดับ, ชั้น, [หยิบจาก], รายการยา, จำนวน, ✓
+  const rowHtml = (r: PickListRow, i: number) => `<tr>
       <td class="n">${i + 1}</td>
       <td class="bin">${escapeHtml(r.bin || '—')}</td>
       ${showPickBin ? `<td class="pickbin">${escapeHtml(r.pickBin || '—')}</td>` : ''}
       <td class="name">${escapeHtml(r.name)}${r.note ? `<div class="note">หมายเหตุ: ${escapeHtml(r.note)}</div>` : ''}</td>
       <td class="qty">${r.qty.toLocaleString('en-US')} ${escapeHtml(r.unit)}</td>
       <td class="check">☐</td>
-    </tr>`)
-    .join('');
+    </tr>`;
+
+  // Real-world request: "ใบเติมหน้างานประจำ และใบเบิกจากคลังให้แยกประเภทยากิน ยาฉีดด้วยครับ" — same
+  // grouping TransferScreen's own on-screen list already does: route always wins as the PRIMARY
+  // grouping, with each group's rows keeping their existing bin-sort order (Array.prototype.
+  // filter over the already bin-sorted `sorted` preserves it — the same stable-partition trick).
+  // Row numbering (ลำดับ) stays ONE continuous sequence across every group — this is a physical
+  // checklist someone crosses off while walking, and "item 14 of 23" only means something if the
+  // numbers don't restart partway through. Only engages when at least one row actually sets
+  // `route` — the cart-based ใบจัดยาเติมชั้น never does, so it keeps printing one flat table,
+  // completely unchanged, same as before this feature existed.
+  const showRouteGroups = sorted.some((r) => r.route);
+  let body: string;
+  if (showRouteGroups) {
+    const routeGroups: { key: 'oral' | 'injection' | 'other'; label: string }[] = [
+      { key: 'oral', label: '💊 ยากิน' },
+      { key: 'injection', label: '💉 ยาฉีด' },
+      { key: 'other', label: '📦 อื่นๆ / ยังไม่ระบุประเภท' },
+    ];
+    const byGroup = routeGroups.map((g) => ({ ...g, rows: sorted.filter((r) => (r.route || 'other') === g.key) }));
+    // Same "only show a header when there's more than one group to tell apart" rule
+    // TransferScreen's own route grouping uses — a sheet that happens to be all ยาฉีด shouldn't
+    // show one redundant header above literally every row on it.
+    const nonEmptyGroupCount = byGroup.filter((g) => g.rows.length > 0).length;
+    let i = 0;
+    body = byGroup.map((g) => {
+      if (!g.rows.length) return '';
+      const header = nonEmptyGroupCount > 1 ? `<tr class="grouphead"><td colspan="${colCount}">${escapeHtml(g.label)} (${g.rows.length} รายการ)</td></tr>` : '';
+      return header + g.rows.map((r) => rowHtml(r, i++)).join('');
+    }).join('');
+  } else {
+    body = sorted.map((r, i) => rowHtml(r, i)).join('');
+  }
 
   const heldBody = heldRows
     .slice().sort((a, b) => a.name.localeCompare(b.name, 'th'))
@@ -400,56 +437,73 @@ export function printPickListSheet(
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  @page { size: A4; margin: 16mm 14mm; }
+  /* Real-world request: "ใบปริ้นใบเติมหน้างาน หรือเบิกจากคลัง ใช้พื้นที่เยอะทำให้เปลืองกระดาษ
+     ช่วยลดพื้นที่การใช้แต่ข้อมูลยังครบถ้วนเหมือนเดิม" — this sheet (shared by ใบจัดยาเติมชั้น,
+     ใบเติมหน้างานประจำวัน, and ใบขอเบิกจากคลังใหญ่, exactly the three documents named) is the one
+     genuinely long one in this file: a real run can list most of the ~580-med formulary, so every
+     mm of margin/padding here is multiplied by hundreds of rows. Every size below is tightened
+     (smaller page margin, tighter letterhead/table padding, smaller non-data chrome like the
+     checkbox column and signature block) while keeping every column, every row, and every piece
+     of information exactly as it was — this is a spacing pass only, nothing here removes or
+     abbreviates any printed data. 9.5–10pt body/table text is still comfortably legible printed
+     (the same size range official Thai forms commonly use), so nothing here trades readability
+     for page count either. */
+  @page { size: A4; margin: 10mm; }
   * { box-sizing: border-box; }
   /* Sarabun is the closest freely-loadable match to TH Sarabun New — the typeface the 2015
      cabinet resolution set as the standard for official Thai government documents — with
      'Noto Sans Thai'/system sans as a fallback if the page prints before the web font loads. */
-  body { font-family: 'Sarabun', 'Noto Sans Thai', system-ui, -apple-system, sans-serif; margin: 0; color: #14211a; font-size: 11.5pt; }
+  body { font-family: 'Sarabun', 'Noto Sans Thai', system-ui, -apple-system, sans-serif; margin: 0; color: #14211a; font-size: 10.5pt; }
 
-  .letterhead { display: flex; align-items: center; gap: 4mm; padding-bottom: 3mm; border-bottom: 1pt solid #14211a; }
+  .letterhead { display: flex; align-items: center; gap: 3mm; padding-bottom: 2mm; border-bottom: 1pt solid #14211a; }
   .letterhead .crest { flex: none; display: flex; align-items: center; }
-  .letterhead .org .h1 { font-size: 14.5pt; font-weight: 700; line-height: 1.3; }
-  .letterhead .org .h2 { font-size: 10.5pt; color: #444; line-height: 1.3; }
+  .letterhead .org .h1 { font-size: 13pt; font-weight: 700; line-height: 1.25; }
+  .letterhead .org .h2 { font-size: 9.5pt; color: #444; line-height: 1.25; }
 
-  .doctitle { text-align: center; font-size: 16.5pt; font-weight: 700; margin: 5mm 0 1mm; letter-spacing: .01em; }
-  .docsub { text-align: center; font-size: 10.5pt; color: #555; margin-bottom: 4mm; }
+  .doctitle { text-align: center; font-size: 14pt; font-weight: 700; margin: 3mm 0 1mm; letter-spacing: .01em; }
+  .docsub { text-align: center; font-size: 9.5pt; color: #555; margin-bottom: 2.5mm; }
 
-  .metabox { width: 100%; border-collapse: collapse; font-size: 10.5pt; margin-bottom: 5mm; }
-  .metabox td { border: 0.6pt solid #b8c4bd; padding: 1.8mm 3mm; }
+  .metabox { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-bottom: 3mm; }
+  .metabox td { border: 0.6pt solid #b8c4bd; padding: 1.2mm 2.5mm; }
   .metabox .k { background: #eef6f6; font-weight: 700; color: #245a59; width: 24mm; white-space: nowrap; }
   .metabox .v { width: 63mm; }
 
-  // Bug fix (print pagination): a genuinely long pick/replenish list (this formulary runs
-  // ~580 meds) can span many pages — nothing here kept a single row's own top/bottom halves
-  // from splitting across the page cut. Same fix as the other print sheets' tables in this file.
-  table.rows { width: 100%; border-collapse: collapse; font-size: 11pt; }
+  /* Bug fix (print pagination): a genuinely long pick/replenish list (this formulary runs
+     ~580 meds) can span many pages — nothing here kept a single row's own top/bottom halves
+     from splitting across the page cut. Same fix as the other print sheets' tables in this file. */
+  table.rows { width: 100%; border-collapse: collapse; font-size: 10pt; }
   table.rows tr { break-inside: avoid; }
-  table.rows th { text-align: left; font-size: 9.5pt; font-weight: 700; color: #14211a; background: #eef6f6; border: 0.6pt solid #9fb8b8; padding: 2.2mm 3mm; }
-  table.rows td { padding: 2.4mm 3mm; border: 0.5pt solid #cdd6d1; }
+  table.rows th { text-align: left; font-size: 9pt; font-weight: 700; color: #14211a; background: #eef6f6; border: 0.6pt solid #9fb8b8; padding: 1.4mm 2.5mm; }
+  table.rows td { padding: 1.5mm 2.5mm; border: 0.5pt solid #cdd6d1; }
   table.rows tbody tr:nth-child(even) { background: #f8faf9; }
-  .n { width: 8mm; color: #667; text-align: center; }
-  .bin { width: 24mm; font-weight: 700; white-space: nowrap; }
-  .pickbin { width: 24mm; font-weight: 700; white-space: nowrap; color: #245a59; }
-  .qty { width: 34mm; font-weight: 700; text-align: right; }
-  .check { width: 12mm; text-align: center; font-size: 13pt; }
-  .note { font-size: 8.5pt; color: #a15c00; font-weight: 600; margin-top: 0.5mm; }
+  /* Route-group header row (see PickListRow.route's own doc comment) — a full-width row inside
+     the SAME table (not a separate table per group) so the printed sheet stays one continuous,
+     numbered checklist across groups — no thead repeats, no page-break oddities from splitting
+     into multiple tables. Distinct from the even/odd striping above (its own background always
+     wins via source order) so a group header never gets mistaken for a data row at a glance. */
+  table.rows tr.grouphead td { background: #e4efe9; color: #17552f; font-weight: 700; font-size: 10pt; padding: 1.8mm 2.5mm; border: 0.6pt solid #9fb8b8; }
+  .n { width: 7mm; color: #667; text-align: center; }
+  .bin { width: 22mm; font-weight: 700; white-space: nowrap; }
+  .pickbin { width: 22mm; font-weight: 700; white-space: nowrap; color: #245a59; }
+  .qty { width: 30mm; font-weight: 700; text-align: right; }
+  .check { width: 10mm; text-align: center; font-size: 12pt; }
+  .note { font-size: 8pt; color: #a15c00; font-weight: 600; margin-top: 0.5mm; }
 
-  .heldsection { margin-top: 7mm; }
-  .heldsection .heldtitle { font-size: 11.5pt; font-weight: 700; color: #8a2e2e; margin-bottom: 1mm; }
-  .heldsection .heldsub { font-size: 9pt; color: #666; margin-bottom: 2.5mm; }
-  table.held { width: 100%; border-collapse: collapse; font-size: 10pt; }
+  .heldsection { margin-top: 4mm; }
+  .heldsection .heldtitle { font-size: 10.5pt; font-weight: 700; color: #8a2e2e; margin-bottom: 1mm; }
+  .heldsection .heldsub { font-size: 8.5pt; color: #666; margin-bottom: 1.5mm; }
+  table.held { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
   table.held tr { break-inside: avoid; }
-  table.held th { text-align: left; font-size: 9pt; font-weight: 700; color: #8a2e2e; background: #fbeceb; border: 0.6pt solid #e3b6b3; padding: 2mm 3mm; }
-  table.held td { padding: 2.2mm 3mm; border: 0.5pt solid #e8d3d2; }
+  table.held th { text-align: left; font-size: 8.5pt; font-weight: 700; color: #8a2e2e; background: #fbeceb; border: 0.6pt solid #e3b6b3; padding: 1.2mm 2.5mm; }
+  table.held td { padding: 1.4mm 2.5mm; border: 0.5pt solid #e8d3d2; }
   table.held tbody tr:nth-child(even) { background: #fdf6f5; }
   .heldsince { width: 32mm; white-space: nowrap; color: #666; }
 
-  .signoff { display: flex; justify-content: space-between; gap: 8mm; margin-top: 14mm; break-inside: avoid; }
-  .signoff .sig { flex: 1; text-align: center; font-size: 10pt; }
-  .signoff .sig .line { border-bottom: 0.6pt solid #14211a; height: 11mm; }
-  .signoff .sig .lbl { margin-top: 2mm; font-weight: 700; }
-  .signoff .sig .date { margin-top: 5mm; color: #555; }
+  .signoff { display: flex; justify-content: space-between; gap: 8mm; margin-top: 7mm; break-inside: avoid; }
+  .signoff .sig { flex: 1; text-align: center; font-size: 9.5pt; }
+  .signoff .sig .line { border-bottom: 0.6pt solid #14211a; height: 8mm; }
+  .signoff .sig .lbl { margin-top: 1.5mm; font-weight: 700; }
+  .signoff .sig .date { margin-top: 3mm; color: #555; }
 
   @media screen {
     body { background: #eee; padding: 14mm; }
@@ -459,7 +513,7 @@ export function printPickListSheet(
 <body>
   <div class="sheet">
     <div class="letterhead">
-      <div class="crest">${crestImgMarkup(56)}</div>
+      <div class="crest">${crestImgMarkup(44)}</div>
       <div class="org">
         <div class="h1">โรงพยาบาลกรงปินัง</div>
         <div class="h2">ห้องยา ฝ่ายเภสัชกรรม</div>
