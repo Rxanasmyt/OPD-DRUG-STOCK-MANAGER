@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly, thDate } from '../utils/format';
-import { wardOf, wardLabel, floorMinOf, toneFor, subTone, isSharedMed, categoryOf, isOnStockHold, usesSubstock } from '../store/selectors';
+import { wardOf, wardLabel, floorMinOf, toneFor, subTone, isSharedMed, categoryOf, isOnStockHold, usesSubstock, daysOfStockLeft } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
 import { Badge, HadTag } from '../components/Badge';
 import { BottomSheet } from '../components/BottomSheet';
-import { Qty } from '../components/Qty';
+import { Qty, DaysLeftBadge } from '../components/Qty';
 import type { Med, Ward } from '../types';
 import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
@@ -27,15 +27,21 @@ type Filter = 'active' | 'inactive' | 'all' | 'parOne' | 'onHold' | 'incomplete'
  *   (usesSubstock() — a noSubstock med never gets one, by design, not a gap).
  * - category (หมวดกลุ่มยา): every active med should have one — categoryOf() itself falls back
  *   to UNCATEGORIZED, so "ยังไม่ระบุหมวด" never crashes anything, but that fallback is exactly
- *   the state this diagnostic is for catching and clearing out, not leaving silently forever. */
-type MissingField = 'bin' | 'binSub' | 'category';
-const MISSING_LABEL: Record<MissingField, string> = { bin: 'ชั้นหน้างาน', binSub: 'ชั้น substock', category: 'หมวดกลุ่มยา' };
+ *   the state this diagnostic is for catching and clearing out, not leaving silently forever.
+ * - route (ยากิน/ยาฉีด/อื่นๆ): same reasoning as category — flagged whenever `m.route` itself is
+ *   unset, even for a med effectiveRouteOf() (selectors.ts) can already guess confidently for
+ *   DISPLAY purposes on TransferScreen. A live guess is not the same thing as a pharmacist having
+ *   actually confirmed it: a wrong guess for one specific drug would otherwise never surface
+ *   anywhere for someone to notice and correct, since TransferScreen looks identical either way. */
+type MissingField = 'bin' | 'binSub' | 'category' | 'route';
+const MISSING_LABEL: Record<MissingField, string> = { bin: 'ชั้นหน้างาน', binSub: 'ชั้น substock', category: 'หมวดกลุ่มยา', route: 'ประเภทการให้ยา (ยากิน/ยาฉีด)' };
 
 function missingFields(m: Med): MissingField[] {
   const out: MissingField[] = [];
   if (!m.bin.trim()) out.push('bin');
   if (usesSubstock(m) && !m.binSub?.trim()) out.push('binSub');
   if (categoryOf(m) === UNCATEGORIZED) out.push('category');
+  if (!m.route) out.push('route');
   return out;
 }
 
@@ -164,7 +170,8 @@ function formFromMed(m: Med): MedFormValues {
  * incomplete meds without leaving this filtered list.
  */
 function IncompleteQuickFix({ med, missing }: { med: Med; missing: MissingField[] }) {
-  const { setMedBin, setMedBinSub, setMedCategory } = useApp();
+  const { setMedBin, setMedBinSub, setMedCategory, setMedRoute } = useApp();
+  const routeChip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
   // Bug fix (reported live while testing): missing's live value tracks "is this STILL
   // missing right now" — if the bin input's own presence were driven by that same live value,
   // typing a single non-blank character into it (bin.trim() is now truthy) would make the
@@ -199,6 +206,16 @@ function IncompleteQuickFix({ med, missing }: { med: Med; missing: MissingField[
             {DRUG_CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
           </select>
         </label>
+      )}
+      {frozenMissing.includes('route') && (
+        <div>
+          <span className="muted" style={{ display: 'block', fontSize: 10.5, marginBottom: 3 }}>ประเภทการให้ยา</span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button type="button" className="chip" style={routeChip(med.route === 'oral')} onClick={() => setMedRoute(med.id, med.route === 'oral' ? '' : 'oral')}>💊 ยากิน</button>
+            <button type="button" className="chip" style={routeChip(med.route === 'injection')} onClick={() => setMedRoute(med.id, med.route === 'injection' ? '' : 'injection')}>💉 ยาฉีด</button>
+            <button type="button" className="chip" style={routeChip(med.route === 'other')} onClick={() => setMedRoute(med.id, med.route === 'other' ? '' : 'other')}>📦 อื่นๆ</button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -558,9 +575,10 @@ export default function MedsScreen() {
       {incompleteOnly && (
         <div className="muted" style={{ fontSize: 11, lineHeight: 1.6, marginBottom: 10, background: 'var(--amber-bg)', color: 'var(--amber-ink)', borderRadius: 10, padding: '9px 11px' }}>
           ยา {incompleteCount} รายการนี้ยังขาดข้อมูลสำคัญ — รหัสชั้นหน้างาน, รหัสชั้น substock
-          (เฉพาะยาที่มี substock), หรือหมวดกลุ่มยา ยังไม่ได้กรอกไว้ ทำให้ฟีเจอร์ที่ต้องใช้ข้อมูลนี้
-          (เช่น ป้ายบอกตำแหน่งหยิบบนหน้าเติมหน้างาน) ใช้งานไม่ได้เต็มที่สำหรับยาตัวนี้ — ดูรายละเอียด
-          ว่าขาดอะไรใต้ชื่อยาแต่ละตัวด้านล่าง แล้วแตะ "แก้ไขข้อมูล" เพื่อกรอกให้ครบ
+          (เฉพาะยาที่มี substock), หมวดกลุ่มยา หรือประเภทการให้ยา (ยากิน/ยาฉีด) ยังไม่ได้กรอกไว้
+          ทำให้ฟีเจอร์ที่ต้องใช้ข้อมูลนี้ (เช่น ป้ายบอกตำแหน่งหยิบบนหน้าเติมหน้างาน, การจัดกลุ่มยากิน/
+          ยาฉีด) ใช้งานไม่ได้เต็มที่สำหรับยาตัวนี้ — ดูรายละเอียดว่าขาดอะไรใต้ชื่อยาแต่ละตัวด้านล่าง
+          แล้วกรอกตรงนั้นได้เลย หรือแตะ "แก้ไขข้อมูล" เพื่อกรอกให้ครบ
         </div>
       )}
 
@@ -741,6 +759,11 @@ export default function MedsScreen() {
               heading={null}
               initial={formFromMed(m)}
               submitLabel="บันทึกการแก้ไข"
+              // Real-world request: "ข้อมูลว่าจำนวนที่ชั้นวางยาตอนนี้สามารถอยู่ได้กี่วันก็มีความ
+              // สำคัญ เพื่อใช้ในการประเมินว่ายาควรได้รับการเติมหรือยัง" — only meaningful for an
+              // existing med with real floor+substock data (daysOfStockLeft already returns null
+              // with no used30 history), so never passed for the blank "เพิ่มยาใหม่" form below.
+              currentDaysLeft={daysOfStockLeft(state, m)}
               onCancel={() => setEditingId(null)}
               onSubmit={async (v) => {
                 // Bug fix (flow friction): same fix as addMed's own onSubmit above — this used
@@ -788,7 +811,7 @@ export default function MedsScreen() {
 /** The one place every editable fact about a med lives — name+strength, dosage form, unit,
  * price, high-alert flag, shelf/bin, and both par levels — used both for "เพิ่มยาใหม่" (blank)
  * and a row's "แก้ไขข้อมูล" (pre-filled), so there's exactly one form to keep in sync. */
-function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, onSiblingBinChange, onMerge, mergeBusy }: {
+function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, onSiblingBinChange, onMerge, mergeBusy, currentDaysLeft }: {
   heading: string | null;
   initial: MedFormValues;
   submitLabel: string;
@@ -805,6 +828,11 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
    * not instant, so the button shows "กำลังรวม…"/disables itself same as every other commit
    * button in the app instead of looking inert on a slow connection. */
   mergeBusy?: boolean;
+  /** Real-world request: "ข้อมูลว่าจำนวนที่ชั้นวางยาตอนนี้สามารถอยู่ได้กี่วันก็มีความสำคัญ เพื่อใช้
+   * ในการประเมินว่ายาควรได้รับการเติมหรือยัง" — daysOfStockLeft(state, m) computed by the caller
+   * (MedsScreen already has `state` in scope; this form doesn't). undefined/omitted for the blank
+   * "เพิ่มยาใหม่" form (a brand-new med has no real floor/substock history to project from yet). */
+  currentDaysLeft?: number | null;
 }) {
   const { setFormDirty } = useApp();
   const [v, setV] = useState<MedFormValues>(initial);
@@ -1001,6 +1029,19 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
             : 'รหัสชั้น/ตู้ในคลังย่อย substock — คนละรหัสกับชั้นวางหน้างานด้านบน (คนละห้อง คนละ QR) ใช้พิมพ์ฉลากชั้นวาง substock ในหน้าฉลาก QR ได้'}
         </div>
       </label>
+      {/* Real-world request: "ข้อมูลว่าจำนวนที่ชั้นวางยาตอนนี้สามารถอยู่ได้กี่วันก็มีความสำคัญ
+          เพื่อใช้ในการประเมินว่ายาควรได้รับการเติมหรือยัง" — shown right above the Min/Max/par
+          substock inputs below, since that's exactly the decision this number is meant to
+          inform. currentDaysLeft is undefined for "เพิ่มยาใหม่" (no history to project from) and
+          null when the med itself has no usage history yet (daysOfStockLeft's own contract) —
+          DaysLeftBadge already renders nothing for null, so only the `=== undefined` add-form
+          case needs its own guard here. */}
+      {currentDaysLeft !== undefined && (
+        <div className="muted" style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 9 }}>
+          ของที่มีอยู่ตอนนี้ (หน้างาน+substock รวมกัน) ที่อัตราการใช้ปัจจุบัน:
+          {currentDaysLeft === null ? <span>ยังไม่มีสถิติการใช้พอประเมิน</span> : <DaysLeftBadge days={currentDaysLeft} />}
+        </div>
+      )}
       <div className="grid-2" style={{ marginBottom: 9 }}>
         <label>
           <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>par substock</span>

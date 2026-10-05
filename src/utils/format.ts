@@ -53,6 +53,17 @@ function bangkokStartOfDayMs(ms: number): number {
   return Date.UTC(y, m, d) - BANGKOK_OFFSET_MS;
 }
 
+/** Real-world request: "นำข้อมูลการจ่ายยาหน้างานจริงในแต่ละวันจันทร์-ศุกร์ มาวิเคราะห์การใช้ยาจริง"
+ * — same device-timezone-trust bug class bangkokParts() itself exists to close (see its own doc
+ * comment), applied to WHICH WEEKDAY a timestamp falls on: `new Date(ms).getDay()` reads the
+ * device's own local timezone, so a tablet near midnight with a wrong OS timezone could bucket a
+ * reconcile_hosxp tx under the wrong weekday — silently skewing exactly the per-weekday pattern
+ * analyzeWeekdayUsage() (AppContext.tsx) exists to compute. 0=อาทิตย์..6=เสาร์, same
+ * Date.prototype.getDay() convention WEEKDAY_CLINICS (data/clinics.ts) already keys by. */
+export function bangkokWeekday(ms: number): number {
+  return new Date(ms + BANGKOK_OFFSET_MS).getUTCDay();
+}
+
 export function isoDate(ms: number): string {
   const { y, m, d } = bangkokParts(ms);
   return y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');

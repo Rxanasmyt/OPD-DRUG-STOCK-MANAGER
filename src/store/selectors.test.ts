@@ -602,6 +602,59 @@ describe('suggestPar', () => {
     // Same subCoverDays basis drives both floor and sub once there's no substock stage.
     expect(noSubstock).toEqual({ floor: roundStep(daily * 21), sub: roundStep(daily * 21) });
   });
+
+  // Regression for a real request: "การใช้ยาแต่ละวันในคลินิกที่แตกต่างกัน ยาที่ใช้ในแต่ละวันก็จะ
+  // ต่างกัน...การคำนวณ min max และ par ต้องมีความแม่นยำมากๆ" — see Med.weekdayPeakFactor's own doc
+  // comment. Must apply to floor par (daily refill, must survive the real busiest day) but NEVER
+  // to substock par (its much longer ~2-week cycle already absorbs a single weekday's spike).
+  it('scales ONLY floor par (never substock par) by weekdayPeakFactor when a real weekday pattern was detected', () => {
+    const daily = 30 / (30 * (5 / 7));
+    const flat = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
+    const withPattern = suggestPar(med({ used30: 30, volatility: 1, weekdayPeakFactor: 2 }), 3, 21);
+    expect(withPattern).toEqual({ floor: roundStep(daily * 3 * 2), sub: roundStep(daily * 21) });
+    expect(withPattern!.sub).toBe(flat!.sub); // substock par completely unaffected
+    expect(withPattern!.floor).toBeGreaterThan(flat!.floor); // floor par scaled up
+  });
+
+  it('defaults weekdayPeakFactor to 1 (no change at all) for a med analyzeWeekdayUsage hasn\'t run for yet', () => {
+    const daily = 30 / (30 * (5 / 7));
+    const out = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
+    expect(out).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21) });
+  });
+
+  // Regression for a real request: "การคำนวณ min max หรือ par substock ให้อิงตัวเลขจำนวนกล่องยาร่วม
+  // ด้วยว่า 1 กล่องมีจำนวนยาเท่าไร เพราะการเบิกจะเบิกทีละกล่องทีละขวดทีละแพคอยู่แล้ว" — a med with a
+  // real box size must get a suggested par that's actually a whole number of boxes, never a
+  // mid-box quantity nobody could actually order.
+  it('rounds the suggested par UP to a whole box when the med has a real packSize, instead of the generic 1/10/100 step', () => {
+    // daily usage low enough that the generic step (1) would suggest a small, non-box number —
+    // packSize=1000 must still win out and suggest one whole box.
+    const lowUseBoxed = suggestPar(med({ used30: 30, volatility: 1, packSize: 1000 }), 3, 21);
+    expect(lowUseBoxed!.floor % 1000).toBe(0);
+    expect(lowUseBoxed!.sub % 1000).toBe(0);
+    expect(lowUseBoxed!.floor).toBeGreaterThan(0);
+
+    // A med with no packSize must be completely unaffected — same numbers as before this fix.
+    const noPackSize = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
+    const daily = 30 / (30 * (5 / 7));
+    expect(noPackSize).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21) });
+  });
+});
+
+describe('roundStep — box-aware rounding', () => {
+  it('rounds up to the nearest whole box when packSize is given', () => {
+    expect(roundStep(40, 1000)).toBe(1000);
+    expect(roundStep(1001, 1000)).toBe(2000);
+    // Same "never actually returns 0" contract as the generic step — see suggestPar()'s own
+    // "ห้ามแนะนำ par" guard for why a zero input is never meant to reach this function for real.
+    expect(roundStep(0, 1000)).toBe(1000);
+  });
+
+  it('falls back to the generic magnitude step when packSize is absent or <= 1', () => {
+    expect(roundStep(40)).toBe(40);
+    expect(roundStep(40, 1)).toBe(40);
+    expect(roundStep(640)).toBe(700);
+  });
 });
 
 describe('matchHosxpMed', () => {

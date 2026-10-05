@@ -11,20 +11,8 @@ import { EmptyState } from '../components/EmptyState';
 import { StepIndicator, TRANSFER_STEPS } from '../components/StepIndicator';
 import { SearchInput } from '../components/SearchInput';
 import { DRUG_CATEGORIES } from '../data/categories';
+import { WEEKDAY_CLINICS } from '../data/clinics';
 import StockHoldBanner from '../components/StockHoldBanner';
-
-// Informational only — never filters or hides anything, just a heads-up. Which OPD clinics run
-// which weekday (จันทร์–ศุกร์ only — the hospital's real weekly schedule) drives which drug
-// groups tend to move faster than usual that specific day, on top of "ตรวจทั่วไป"/symptomatic
-// use that happens every day regardless. Keyed by Date.getDay() (0=อาทิตย์…6=เสาร์); no entry
-// for 0/6 since there's no special weekday clinic to call out then.
-const WEEKDAY_CLINICS: Record<number, string> = {
-  1: 'จันทร์: COPD / หอบหืด, TB, ANC',
-  2: 'อังคาร: เบาหวาน',
-  3: 'พุธ: ไตเรื้อรัง (CKD), ANC',
-  4: 'พฤหัสบดี: ความดันโลหิตสูง',
-  5: 'ศุกร์: Warfarin, หัวใจ/หลอดเลือด, จิตเวช',
-};
 
 // Bug fix (flow friction): these two banners used to be plain useState(true) — the intent (per
 // the comments at their call sites below) was "a fresh nudge each time this SCREEN is opened",

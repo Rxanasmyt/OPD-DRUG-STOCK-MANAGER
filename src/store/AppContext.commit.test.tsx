@@ -1324,6 +1324,24 @@ describe('printTodayReplenishList — substock pick-location regression', () => 
     expect(row?.pickBin).toBe(REPL_MED.binSub);
     expect(row?.bin).toBe(REPL_MED.bin);
   });
+
+  // Regression for a real request: "ใบเติมหน้างานประจำ และใบเบิกจากคลังให้แยกประเภทยากิน ยาฉีด
+  // ด้วยครับ" — printPickListSheet only groups by route when the caller's rows actually set it.
+  it('sets each row\'s route (effectiveRouteOf, with a live suggestRoute() fallback) for printPickListSheet to group by', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<PrintTodayReplenishHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [REPL_MED]); // unit 'เม็ด', no explicit route — suggestRoute() → 'oral'
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', [REPL_LOT]);
+
+    const callsBefore = vi.mocked(printModule.printPickListSheet).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'print-today-replenish' }));
+    await waitFor(() => expect(vi.mocked(printModule.printPickListSheet).mock.calls.length).toBeGreaterThan(callsBefore));
+    const rows = vi.mocked(printModule.printPickListSheet).mock.calls[callsBefore][0];
+    expect(rows.find((r) => r.name === REPL_MED.name)?.route).toBe('oral');
+  });
 });
 
 const WH_SUB_MED = {
@@ -1361,6 +1379,9 @@ describe('printWarehouseRequestList — substock-bin-instead-of-med-code regress
     // never actually consulted in practice.
     expect(row?.bin).toBe(WH_SUB_MED.binSub);
     expect(row?.bin).not.toBe(WH_SUB_MED.code);
+    // Regression for "ใบเติมหน้างานประจำ และใบเบิกจากคลังให้แยกประเภทยากิน ยาฉีดด้วยครับ" —
+    // WH_SUB_MED's unit 'Vial' → suggestRoute() → 'injection'.
+    expect(row?.route).toBe('injection');
   });
 
   it('falls back to the floor bin for a noSubstock med, which has no substock shelf of its own', async () => {
