@@ -58,4 +58,12 @@ jobs:
         with:
           name: firestore-backup-${{ github.run_id }}
           path: backups/*.json
-          retention-days: 14 # GitHub auto-deletes the artifact after this — tune as needed
+          # Real-world gap (system analysis, not a direct user request): 14 days meant a
+          # corruption or bad admin action discovered more than 2 weeks later had NO recovery
+          # path at all — for a hospital system of record, that's a real risk, not just a nice-
+          # to-have. 90 is the maximum GitHub Actions allows on the free (public-repo) tier —
+          # raising it further would need a paid plan's longer artifact retention, or pushing
+          # backups to genuinely separate off-site storage (S3/GCS/etc.), which needs its own
+          # secret this repo doesn't have configured. 90 days with zero new infra/secrets is the
+          # best available improvement within what's already set up.
+          retention-days: 90

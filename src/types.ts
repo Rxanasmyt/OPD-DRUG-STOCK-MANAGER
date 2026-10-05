@@ -315,23 +315,30 @@ export type ReportTab = 'aging' | 'turn' | 'disc' | 'insights' | 'category' | 'e
  * collection is that memory: one doc per (med, import period), queryable by date range.
  *
  * Important limitation: the source HOSxP file has no per-dispense date column at all — just one
- * qty total for the whole period the pharmacist declares (see usageDateFrom/usageDateTo). So
- * `monthKey` below tags a record by its period's START month only; a period spanning more than
- * one calendar month (e.g. a whole quarter imported in one file) is NOT prorated across the
- * months it covers — it's counted wholly under its start month. Monthly-trend charts should be
- * read with that in mind. True day-of-week usage patterns are not derivable from this import
- * flow at all (no per-dispense date exists in the source file to begin with).
+ * qty total for the whole period the pharmacist declares (see usageDateFrom/usageDateTo). True
+ * day-of-week usage patterns are not derivable from this import flow at all for that reason (no
+ * per-dispense date exists in the source file to begin with — see analyzeWeekdayUsage() in
+ * AppContext.tsx, which instead mines the real daily reconcile_hosxp tx history for that).
+ *
+ * System-analysis follow-up: a period spanning more than one calendar month (a whole quarter
+ * imported in one file) USED TO be counted wholly under its start month's `monthKey`, distorting
+ * monthly-trend reports. commitUsageImport() now writes one record PER CALENDAR MONTH the
+ * declared period actually spans (via monthlyDaySplits(), selectors.ts), each carrying only that
+ * month's own day-weighted share of the real total qty/value — `periodFrom`/`periodTo`/
+ * `periodDays` below still describe the FULL original declared period on every split record
+ * (what was actually imported, for traceability), only `monthKey`/`qty`/`value` differ per
+ * split. A same-month import (the common case) still writes exactly one record, unchanged.
  */
 export interface UsageHistoryRecord {
   medId: string;
   medName: string; // snapshot at import time — survives a later rename/deactivation of the med
   unit: string; // m.unit snapshot — a bare qty number means nothing without it (เม็ด vs ขวด vs ml)
   category: string; // categoryOf(m) snapshot at import time — a DRUG_CATEGORIES id (see data/categories.ts)
-  qty: number; // the REAL total dispensed during periodFrom–periodTo (NOT used30's 30-day-normalized rate)
-  value: number; // qty * m.price, snapshot at import time
-  periodFrom: string; // ISO YYYY-MM-DD, inclusive
-  periodTo: string; // ISO YYYY-MM-DD, inclusive
-  periodDays: number;
+  qty: number; // this record's own month-prorated share of the real total — see monthlyDaySplits()
+  value: number; // this record's own prorated qty * m.price, snapshot at import time
+  periodFrom: string; // ISO YYYY-MM-DD, inclusive — the FULL declared import period (not this split's own sub-range)
+  periodTo: string; // ISO YYYY-MM-DD, inclusive — the FULL declared import period (not this split's own sub-range)
+  periodDays: number; // the FULL declared import period's day count (not this split's own day count)
   importedAt: number; // ms epoch, when this record was committed
   monthKey: string; // periodFrom's 'YYYY-MM' — see the limitation note above
 }

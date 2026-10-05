@@ -6,6 +6,7 @@ import {
   daysOfStockLeft, fefoLot, toneFor, subTone, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
   categoryOf, categoryStats, parAnomaliesFor, packStep, isOnStockHold, routeOf, effectiveRouteOf,
   topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes,
+  monthlyDaySplits,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
 import { DAY } from '../utils/format';
@@ -322,6 +323,38 @@ describe('usageByMonth', () => {
     expect(out).toEqual([
       { monthKey: '2026-01', qty: 200, value: 25 },
       { monthKey: '2026-03', qty: 100, value: 10 },
+    ]);
+  });
+});
+
+// Regression for a system-analysis follow-up (not a direct user request): a multi-month usage
+// import used to count its entire qty wholly under its start month — see monthlyDaySplits()'s
+// own doc comment (selectors.ts) and UsageHistoryRecord's (types.ts).
+describe('monthlyDaySplits', () => {
+  it('returns one chunk for a period that stays within a single calendar month', () => {
+    expect(monthlyDaySplits('2026-01-01', '2026-01-31')).toEqual([{ monthKey: '2026-01', days: 31 }]);
+  });
+
+  it('splits a period spanning 3 calendar months into one chunk per month, with the real day-count of each', () => {
+    // 2026-01-15..2026-03-10: Jan 15-31 (17 days), Feb 1-28 (28 days, 2026 not a leap year), Mar 1-10 (10 days).
+    expect(monthlyDaySplits('2026-01-15', '2026-03-10')).toEqual([
+      { monthKey: '2026-01', days: 17 },
+      { monthKey: '2026-02', days: 28 },
+      { monthKey: '2026-03', days: 10 },
+    ]);
+  });
+
+  it('every chunk\'s days sum back to the exact total period length', () => {
+    const splits = monthlyDaySplits('2025-11-20', '2026-02-05');
+    const total = splits.reduce((s, c) => s + c.days, 0);
+    // 2025-11-20 to 2026-02-05 inclusive = 78 days.
+    expect(total).toBe(78);
+  });
+
+  it('handles a period crossing a calendar-year boundary correctly', () => {
+    expect(monthlyDaySplits('2025-12-20', '2026-01-10')).toEqual([
+      { monthKey: '2025-12', days: 12 },
+      { monthKey: '2026-01', days: 10 },
     ]);
   });
 });
