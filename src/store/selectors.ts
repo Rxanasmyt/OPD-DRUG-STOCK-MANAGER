@@ -1,6 +1,7 @@
 import type { AppState, HosxpMatch, Lot, Med, Role, Ward, Tx, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord } from '../types';
 import { DAY, daysUntil, isoDate, nf } from '../utils/format';
 import { UNCATEGORIZED, DRUG_CATEGORIES, categoryLabel } from '../data/categories';
+import { suggestRoute } from '../data/routeSuggest';
 
 /** Pure, stateless helpers derived from AppState — no mutation, safe to call during render. */
 
@@ -58,6 +59,22 @@ export function categoryOf(m: Med): string {
  * route-grouped view instead of silently vanishing. */
 export function routeOf(m: Med): 'oral' | 'injection' | 'other' {
   return m.route || 'other';
+}
+
+// Real-world follow-up: pharmacists found almost nothing actually grouped on TransferScreen on
+// first use, because routeOf() above never guesses — the ENTIRE existing formulary (every med
+// added before this feature existed) has no `route` set, and manually tapping through every
+// drug one by one ("มานั่งปรับทีละตัว") or remembering to run the bulk-classify button in Admin
+// first is exactly the friction the user then asked to remove. For DISPLAY grouping specifically
+// (never for anything that writes data, and never overriding a med's own explicit `route`), this
+// falls back to the SAME suggestRoute() heuristic the bulk action and the form's one-tap chip
+// already use, so a drug whose name/unit/dosageForm clearly says "Vial"/"Amp"/"เม็ด" groups
+// correctly the moment it's added — no admin action required. A pharmacist who disagrees with a
+// specific guess still has the explicit field (MedsScreen's 💊/💉/📦 chips) to permanently
+// override it, which always wins here since this only ever guesses when `m.route` is unset.
+export function effectiveRouteOf(m: Med): 'oral' | 'injection' | 'other' {
+  if (m.route) return m.route;
+  return suggestRoute(m) || 'other';
 }
 
 /** Shelf/bin code to display for `m` when looking at it from ward `w` — the IPD-side code on
