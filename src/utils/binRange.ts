@@ -44,3 +44,29 @@ export function binSortKey(code: string): number {
   const m = code.trim().toUpperCase().match(/(\d+)$/);
   return m ? parseInt(m[1], 10) : Number.MAX_SAFE_INTEGER;
 }
+
+// Real-world request: "ปริ้นยังไงให้สามารถปริ้นตามชั้นวางเรียงไปเรื่อยๆตามลำดับ เพื่อง่ายต่อการ
+// แปะป้ายชั้นวางยา" — printLabels() (AppContext.tsx) used to print in whatever order `state.meds`
+// happened to iterate in (Firestore snapshot order, not shelf order), so a sticker sheet for a
+// whole aisle came out jumbled and someone walking the shelf had to hunt through the stack for
+// each label instead of sticking them down in one pass. binSortKey() above only sorts WITHIN one
+// already-same-prefix range (LabelsScreen's "A1-A7" picker) — reused across a WHOLE formulary
+// spanning multiple shelf letters, it would interleave different prefixes by number alone ("A1,
+// B1, C1, A2, B2, …"). This compares the prefix first (so every "A" code sorts before any "B"
+// code), then the numeric suffix within that prefix (numerically, not as text — "A2" before
+// "A10" — the same common bug fefoLot's own `?? Infinity` convention avoids for expiry dates).
+// A code with no numeric suffix, or no code at all, sorts to the very end of its group/the whole
+// list rather than being dropped — still printed, just last, since there's no shelf position to
+// place it ahead of anything by.
+function binSortGroup(code: string): [string, number] {
+  const c = (code || '').trim().toUpperCase();
+  if (!c) return ['￿', Number.MAX_SAFE_INTEGER];
+  const m = c.match(/^([A-Z฀-๿]*)(\d+)$/);
+  return m ? [m[1], parseInt(m[2], 10)] : [c, Number.MAX_SAFE_INTEGER];
+}
+
+export function binCompare(a: string, b: string): number {
+  const [pa, na] = binSortGroup(a);
+  const [pb, nb] = binSortGroup(b);
+  return pa !== pb ? (pa < pb ? -1 : 1) : na - nb;
+}
