@@ -603,6 +603,25 @@ describe('suggestPar', () => {
     expect(noSubstock).toEqual({ floor: roundStep(daily * 21), sub: roundStep(daily * 21) });
   });
 
+  // Regression for a real request: "การใช้ยาแต่ละวันในคลินิกที่แตกต่างกัน ยาที่ใช้ในแต่ละวันก็จะ
+  // ต่างกัน...การคำนวณ min max และ par ต้องมีความแม่นยำมากๆ" — see Med.weekdayPeakFactor's own doc
+  // comment. Must apply to floor par (daily refill, must survive the real busiest day) but NEVER
+  // to substock par (its much longer ~2-week cycle already absorbs a single weekday's spike).
+  it('scales ONLY floor par (never substock par) by weekdayPeakFactor when a real weekday pattern was detected', () => {
+    const daily = 30 / (30 * (5 / 7));
+    const flat = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
+    const withPattern = suggestPar(med({ used30: 30, volatility: 1, weekdayPeakFactor: 2 }), 3, 21);
+    expect(withPattern).toEqual({ floor: roundStep(daily * 3 * 2), sub: roundStep(daily * 21) });
+    expect(withPattern!.sub).toBe(flat!.sub); // substock par completely unaffected
+    expect(withPattern!.floor).toBeGreaterThan(flat!.floor); // floor par scaled up
+  });
+
+  it('defaults weekdayPeakFactor to 1 (no change at all) for a med analyzeWeekdayUsage hasn\'t run for yet', () => {
+    const daily = 30 / (30 * (5 / 7));
+    const out = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
+    expect(out).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21) });
+  });
+
   // Regression for a real request: "การคำนวณ min max หรือ par substock ให้อิงตัวเลขจำนวนกล่องยาร่วม
   // ด้วยว่า 1 กล่องมีจำนวนยาเท่าไร เพราะการเบิกจะเบิกทีละกล่องทีละขวดทีละแพคอยู่แล้ว" — a med with a
   // real box size must get a suggested par that's actually a whole number of boxes, never a

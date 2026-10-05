@@ -679,8 +679,15 @@ export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number)
   // behind it to absorb the difference. Give it the same cover-days basis a substock par would
   // get, since its shelf effectively *is* its substock for stocking purposes.
   const floorDays = usesSubstock(m) ? floorCoverDays : subCoverDays;
+  // Real-world request: "การใช้ยาแต่ละวันในคลินิกที่แตกต่างกัน ยาที่ใช้ในแต่ละวันก็จะต่างกัน...
+  // การคำนวณ min max และ par ต้องมีความแม่นยำมากๆ" — see Med.weekdayPeakFactor's own doc comment
+  // for the full reasoning. Applied to FLOOR par only (daily refill, must survive the real
+  // busiest clinic day), never to substock par (its much longer ~2-week cycle already absorbs a
+  // single weekday's spike on its own — see Med.weekdayPeakFactor again). Defaults to 1 (no
+  // change at all) for every med this analysis hasn't run for yet.
+  const weekdayFactor = m.weekdayPeakFactor || 1;
   return {
-    floor: roundStep(daily * floorDays * m.volatility, m.packSize),
+    floor: roundStep(daily * floorDays * m.volatility * weekdayFactor, m.packSize),
     sub: roundStep(daily * subCoverDays * m.volatility, m.packSize),
   };
 }

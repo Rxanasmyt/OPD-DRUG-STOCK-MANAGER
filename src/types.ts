@@ -123,6 +123,28 @@ export interface Med {
   // Optional — when known (e.g. "บริษัทแจ้งว่าจะส่งได้สัปดาห์หน้า"), shown alongside the reason
   // so staff know whether to expect this soon or to actively go find a substitute now.
   outOfStockExpectedReturn?: number;
+  // Real-world request: "นำข้อมูลการจ่ายยาหน้างานจริงในแต่ละวันจันทร์-ศุกร์ นำมาวิเคราะห์การใช้ยาจริง
+  // เนื่องจากการใช้ยาแต่ละวันในคลินิกที่แตกต่างกัน ยาที่ใช้ในแต่ละวันก็จะต่างกัน...การคำนวณ min max
+  // และ par ต้องมีความแม่นยำมากๆ" — dailyUsageRate()/suggestPar() (selectors.ts) always sized floor
+  // par off a single FLAT daily average, which understates the real risk for a drug whose real
+  // usage spikes hard on one specific weekday (a clinic day — see data/clinics.ts) and sits low
+  // the rest of the week: floor par sized off the flat average can run out mid-morning on that
+  // one day even though it "should" have covered floorCoverDays worth of the average rate.
+  // weekdayPeakFactor is how many times higher that drug's real busiest weekday is than its own
+  // weekly average (1.0 = genuinely flat across weekdays — no adjustment), computed by
+  // analyzeWeekdayUsage() (AppContext.tsx) from real reconcile_hosxp tx history (the only source
+  // with a real per-dispense date — see UsageHistoryRecord's own doc comment on why the
+  // "แนบไฟล์" bulk usage-period import can never support this). Optional and NEVER a guess from
+  // thin data — analyzeWeekdayUsage() only ever sets this for a med with enough real weekday
+  // occurrences to trust (see its own MIN_OCCURRENCES_PER_WEEKDAY), and only applies it to FLOOR
+  // par — substock's much longer ~2-week requisition cycle already naturally absorbs a single
+  // weekday's spike, so sizing IT off a peak-day rate would just oversize it for no real benefit.
+  weekdayPeakFactor?: number;
+  // Which weekday (1=จันทร์..5=ศุกร์, same Date.prototype.getDay() convention data/clinics.ts
+  // uses) weekdayPeakFactor above was computed from — shown alongside the bare multiplier (e.g.
+  // "×2.4 (อังคาร)") so an admin reviewing it sees WHY, not just an unexplained number, and can
+  // cross-reference it against data/clinics.ts's own real clinic schedule.
+  weekdayPeakDay?: number;
 }
 
 export interface Lot {

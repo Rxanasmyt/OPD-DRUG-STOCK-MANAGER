@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { nf, isoDate, daysUntil, fiscalYear, fiscalYearStartIso, digitsOnly, parseIntSafe, DAY } from './format';
+import { nf, isoDate, daysUntil, fiscalYear, fiscalYearStartIso, digitsOnly, parseIntSafe, DAY, bangkokWeekday } from './format';
 
 // isoDate/daysUntil/fiscalYear/fiscalYearStartIso all anchor to Asia/Bangkok explicitly now (see
 // format.ts's own "Bug fix (audit finding — device-timezone trust)" comment) — they no longer
@@ -42,6 +42,24 @@ describe('isoDate', () => {
     // alone wouldn't catch a bug that used raw UTC getters. The real case: 2026-01-06 02:00
     // Bangkok = 2026-01-05 19:00 UTC — already into Jan 6 in Bangkok, still Jan 5 in UTC.
     expect(isoDate(bangkokUtcMs(2026, 0, 6, 2, 0))).toBe('2026-01-06');
+  });
+});
+
+// Regression for a real request: "นำข้อมูลการจ่ายยาหน้างานจริงในแต่ละวันจันทร์-ศุกร์ มาวิเคราะห์
+// การใช้ยาจริง" — analyzeWeekdayUsage() (AppContext.tsx) buckets reconcile_hosxp tx history by
+// bangkokWeekday(), so a device-timezone-driven misread here would silently bucket a dispense
+// under the wrong weekday, exactly the bug class bangkokParts()/isoDate() above already exist to
+// close for the DATE side of the same timestamp.
+describe('bangkokWeekday', () => {
+  it('returns the real Bangkok weekday (2026-01-05 is a Monday)', () => {
+    expect(bangkokWeekday(bangkokUtcMs(2026, 0, 5))).toBe(1); // Monday
+    expect(bangkokWeekday(bangkokUtcMs(2026, 0, 6))).toBe(2); // Tuesday
+    expect(bangkokWeekday(bangkokUtcMs(2026, 0, 10))).toBe(6); // Saturday
+  });
+
+  it('reads the Bangkok weekday, not the UTC one, near a day boundary', () => {
+    // 2026-01-06 02:00 Bangkok (Tuesday) = 2026-01-05 19:00 UTC (still Monday in UTC).
+    expect(bangkokWeekday(bangkokUtcMs(2026, 0, 6, 2, 0))).toBe(2);
   });
 });
 

@@ -13,7 +13,7 @@ import type {
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf } from './selectors';
-import { nf, thDate, isoDate, parseIntSafe, digitsOnly } from '../utils/format';
+import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
 import { shortLabelName } from '../utils/labelName';
@@ -337,6 +337,9 @@ export interface AppCtx {
    * implementation. */
   setMedRoute: (medId: string, route: '' | 'oral' | 'injection' | 'other') => void;
   recomputeUsageStats: () => void;
+  /** See its own doc comment at the implementation — computes Med.weekdayPeakFactor/
+   * weekdayPeakDay from real reconcile_hosxp history, feeding suggestPar()'s floor-par sizing. */
+  analyzeWeekdayUsage: () => void;
   updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => void;
 
   // meds (formulary) management
@@ -2934,6 +2937,108 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { toastErr(e, 'คำนวณสถิติไม่สำเร็จ ลองใหม่อีกครั้ง'); }
   }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce]);
 
+  /**
+   * Real-world request: "นำข้อมูลการจ่ายยาหน้างานจริงในแต่ละวันจันทร์-ศุกร์ นำมาวิเคราะห์การใช้ยา
+   * จริง เนื่องจากการใช้ยาแต่ละวันในคลินิกที่แตกต่างกัน...การคำนวณ min max และ par ต้องมีความ
+   * แม่นยำมากๆ" — recomputeUsageStats() above already aggregates reconcile_hosxp history into a
+   * single flat used30/usedPrev30 number; this instead keeps the per-weekday shape of the SAME
+   * underlying tx history (every reconcile_hosxp tx has a real per-dispense `ts` — see
+   * Med.weekdayPeakFactor's own doc comment for why the bulk "แนบไฟล์" usage-period import can
+   * never support this), so a drug with a real clinic-day spike (data/clinics.ts) gets a floor
+   * par sized to survive its actual busiest day, not just an average one.
+   *
+   * Only ever sets a factor for a med with enough REAL history to trust — at least
+   * MIN_OCC_PER_WEEKDAY distinct calendar days of data for EVERY one of the 5 weekdays within the
+   * lookback window (a med with only 2 Tuesdays of history isn't "Tuesdays are busy", it's "we
+   * don't know yet"). Below MEANINGFUL_FACTOR, a drug's weekday spread is treated as genuinely
+   * flat (ordinary statistical noise, not a real pattern) and no factor is set — or an existing
+   * one is explicitly CLEARED if a later re-run finds the pattern has flattened out with more
+   * data, so a stale factor never permanently inflates a drug's floor par after its real usage
+   * shape changes. This only ever WRITES the factor field — actually changing floorMin/parFloor
+   * still goes through the existing "ใช้ค่าแนะนำทั้งหมด" apply step (suggestPar() in selectors.ts
+   * reads weekdayPeakFactor automatically from then on), so nothing here silently changes a live
+   * par number by itself.
+   */
+  const analyzeWeekdayUsage = useCallback(guardOnce('analyzeWeekdayUsage', async () => {
+    if (!canEditMeds) return;
+    const LOOKBACK_DAYS = 91; // ~13 weeks — up to 13 real occurrences of each weekday to average
+    const MIN_OCC_PER_WEEKDAY = 4; // below this, a weekday's own average isn't trustworthy yet
+    const MEANINGFUL_FACTOR = 1.15; // peak-vs-average ratio below this reads as flat/noise
+    toast('กำลังวิเคราะห์รูปแบบการใช้ยารายวัน (จันทร์-ศุกร์)…');
+    try {
+      const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('type', '==', 'reconcile_hosxp'))));
+      const now = Date.now();
+      const cutoff = now - LOOKBACK_DAYS * DAY;
+      // Same OPD/IPD name-twin hazard as recomputeUsageStats above — see its own comment.
+      const dupNames = new Set<string>();
+      const seenNames = new Set<string>();
+      state.meds.forEach((m) => { if (seenNames.has(m.name)) dupNames.add(m.name); seenNames.add(m.name); });
+      // key -> [bucket per weekday 0..6] -> Map<isoDate, summed qty that day> — summing by
+      // calendar day (not raw tx count) so a med with two reconcile_hosxp entries on the same
+      // real day still only counts as ONE occurrence of that weekday, not two.
+      const byKeyWeekday = new Map<string, Map<string, number>[]>();
+      snap.docs.forEach((d) => {
+        const x = d.data() as { name?: string; medId?: string; qty?: number; ts?: number };
+        if (!x.name || typeof x.qty !== 'number' || x.qty >= 0 || typeof x.ts !== 'number') return; // dispensed only
+        if (x.ts < cutoff || x.ts > now) return;
+        const wd = bangkokWeekday(x.ts);
+        if (wd === 0 || wd === 6) return; // this hospital never reconciles on a weekend
+        const key = dupNames.has(x.name) ? (x.medId ? 'id:' + x.medId : null) : 'name:' + x.name;
+        if (!key) return;
+        let buckets = byKeyWeekday.get(key);
+        if (!buckets) { buckets = [0, 1, 2, 3, 4, 5, 6].map(() => new Map<string, number>()); byKeyWeekday.set(key, buckets); }
+        const dayKey = isoDate(x.ts);
+        buckets[wd].set(dayKey, (buckets[wd].get(dayKey) || 0) + Math.abs(x.qty));
+      });
+
+      const targets = state.meds.filter((m) => m.active);
+      let analyzed = 0;
+      let patterned = 0;
+      const writes: { id: string; factor?: number; day?: number }[] = [];
+      for (const m of targets) {
+        const key = dupNames.has(m.name) ? 'id:' + m.id : 'name:' + m.name;
+        const buckets = byKeyWeekday.get(key);
+        if (!buckets) continue;
+        const weekdayAvgs: { wd: number; avg: number }[] = [];
+        for (let wd = 1; wd <= 5; wd++) {
+          const days = buckets[wd];
+          if (days.size < MIN_OCC_PER_WEEKDAY) { weekdayAvgs.length = 0; break; }
+          const sum = Array.from(days.values()).reduce((s, v) => s + v, 0);
+          weekdayAvgs.push({ wd, avg: sum / days.size });
+        }
+        if (weekdayAvgs.length !== 5) continue; // not enough confirmed history for every weekday
+        analyzed++;
+        const overallAvg = weekdayAvgs.reduce((s, w) => s + w.avg, 0) / 5;
+        if (overallAvg <= 0) continue;
+        const peak = weekdayAvgs.reduce((a, b) => (b.avg > a.avg ? b : a));
+        const factor = peak.avg / overallAvg;
+        if (factor >= MEANINGFUL_FACTOR) {
+          writes.push({ id: m.id, factor: Math.round(factor * 100) / 100, day: peak.wd });
+          patterned++;
+        } else if (m.weekdayPeakFactor) {
+          writes.push({ id: m.id }); // pattern flattened out since the last run — clear it
+        }
+      }
+      if (!writes.length) {
+        toast(analyzed > 0
+          ? 'วิเคราะห์ ' + analyzed + ' รายการที่มีข้อมูลพอ — ไม่พบรูปแบบรายวันที่ชัดเจนพอจะปรับ par'
+          : 'ยังไม่มียาตัวไหนมีประวัติ HOSxP ต่อเนื่องพอจะวิเคราะห์ (ต้องมีข้อมูลแต่ละวันจันทร์-ศุกร์อย่างน้อย ' + MIN_OCC_PER_WEEKDAY + ' ครั้งภายใน ' + LOOKBACK_DAYS + ' วันล่าสุด)');
+        return;
+      }
+      for (let i = 0; i < writes.length; i += 400) {
+        const batch = writeBatch(db);
+        writes.slice(i, i + 400).forEach((w) => {
+          batch.update(doc(db, 'meds', w.id), w.factor
+            ? { weekdayPeakFactor: w.factor, weekdayPeakDay: w.day }
+            : { weekdayPeakFactor: deleteField(), weekdayPeakDay: deleteField() });
+        });
+        await withTimeout(batch.commit());
+      }
+      logAudit({ type: 'par_updated', note: 'วิเคราะห์รูปแบบการใช้ยารายวัน (จ-ศ) จากประวัติ HOSxP ' + LOOKBACK_DAYS + ' วันล่าสุด — พบรูปแบบชัดเจน ' + patterned + ' รายการ จากที่วิเคราะห์ได้ ' + analyzed + ' รายการ' });
+      toast('วิเคราะห์แล้ว ' + analyzed + ' รายการที่มีข้อมูลพอ — พบรูปแบบรายวันชัดเจน ' + patterned + ' รายการ (กด "ใช้ค่าแนะนำทั้งหมด" เพื่ออัปเดต par หน้างานตามรูปแบบใหม่)');
+    } catch (e) { toastErr(e, 'วิเคราะห์รูปแบบการใช้ยาไม่สำเร็จ ลองใหม่อีกครั้ง'); }
+  }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce]);
+
   // Persists to meta/settings (see the onSnapshot listener above) — a merge write so this
   // can be called with just the one field that changed without clobbering the other two.
   const updateGlobalSettings = useCallback(async (patchFields: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => {
@@ -4886,7 +4991,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
-    applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, updateGlobalSettings,
+    applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, analyzeWeekdayUsage, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, autoRouteAll, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, fetchFloorLedger, fetchStockAsOf, exportStockAsOfCsv, fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,

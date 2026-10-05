@@ -4,10 +4,11 @@ import { suggestPar, halfOfMaxRounded, floorMinOf, parAnomalies, usageAnomalies 
 import { nf, digitsOnly, parseIntSafe, isoDate, fiscalYearStartIso, DAY } from '../utils/format';
 import { notificationsSupported } from '../utils/notify';
 import { StatusDot } from '../components/Badge';
+import { WEEKDAY_NAME, WEEKDAY_CLINICS } from '../data/clinics';
 
 export default function SettingsScreen() {
   const {
-    state, warn, applyAllSuggested, setAllMinHalfOfMax, recomputeUsageStats, go, updateGlobalSettings,
+    state, warn, applyAllSuggested, setAllMinHalfOfMax, recomputeUsageStats, analyzeWeekdayUsage, go, updateGlobalSettings,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify,
     lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify,
@@ -59,6 +60,14 @@ export default function SettingsScreen() {
   const anomalies = parAnomalies(meds, state.parFloorCoverDays, state.parSubCoverDays);
   const anomalyErrors = anomalies.filter((a) => a.severity === 'error');
   const anomalyReviews = anomalies.filter((a) => a.severity === 'review');
+
+  // Real-world request: "นำข้อมูลการจ่ายยาหน้างานจริงในแต่ละวันจันทร์-ศุกร์ นำมาวิเคราะห์การใช้ยา
+  // จริง...ยาที่ใช้ในแต่ละวันก็จะต่างกัน" — a durable insight view of every med analyzeWeekdayUsage()
+  // (AppContext.tsx) found a real weekday pattern for, not just a one-time toast after running
+  // it — so an admin can come back and review the list at any time, not only right after a click.
+  const weekdayPatternMeds = meds
+    .filter((m) => m.weekdayPeakFactor && m.weekdayPeakDay)
+    .sort((a, b) => (b.weekdayPeakFactor || 0) - (a.weekdayPeakFactor || 0));
 
   const usageRows = state.usageRows || [];
   const usageMatched = usageRows.filter((r) => r.match.kind === 'exact').length;
@@ -222,6 +231,14 @@ export default function SettingsScreen() {
             <button onClick={recomputeUsageStats} disabled={!!state.busy['recomputeUsageStats']} style={{ border: '1px solid var(--green)', background: 'var(--bg-card)', color: 'var(--green)', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40, opacity: state.busy['recomputeUsageStats'] ? 0.7 : 1 }}>
               {state.busy['recomputeUsageStats'] ? 'กำลังคำนวณ…' : 'คำนวณสถิติการใช้ใหม่จากประวัติ HOSxP ↺'}
             </button>
+            <button
+              onClick={analyzeWeekdayUsage}
+              disabled={!!state.busy['analyzeWeekdayUsage']}
+              title="วิเคราะห์รูปแบบการใช้ยารายวันจันทร์-ศุกร์จากประวัติ HOSxP 91 วันล่าสุด — ยาที่มีวันใช้มากผิดปกติชัดเจน (เช่น ตรงกับวันคลินิกเฉพาะทาง) จะได้ par หน้างานที่สูงพอรองรับวันนั้นโดยเฉพาะ"
+              style={{ border: '1px solid var(--ipd)', background: 'var(--bg-card)', color: 'var(--ipd)', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40, opacity: state.busy['analyzeWeekdayUsage'] ? 0.7 : 1 }}
+            >
+              {state.busy['analyzeWeekdayUsage'] ? 'กำลังวิเคราะห์…' : 'วิเคราะห์รูปแบบการใช้ยารายวัน (จ-ศ) ↺'}
+            </button>
             {minHalfDiffCount > 0 && (
               <button
                 onClick={setAllMinHalfOfMax}
@@ -235,7 +252,34 @@ export default function SettingsScreen() {
           </div>
         )}
         <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 8 }}>อัตราการใช้คำนวณจากประวัติ "นำเข้าจาก HOSxP" เท่านั้น ไม่ได้อัปเดตอัตโนมัติทุกวัน — ควรกด "คำนวณสถิติการใช้ใหม่" เป็นระยะ (เช่น เดือนละครั้ง) หลังจากใช้งานนำเข้า HOSxP มาสม่ำเสมอแล้ว ถ้ากดตอนที่ยังไม่มีประวัติ HOSxP เลย ค่าจะกลายเป็น 0 ทั้งหมด</div>
+        <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>"วิเคราะห์รูปแบบการใช้ยารายวัน" ตรวจแยกแต่ละวันจันทร์-ศุกร์จากประวัติ HOSxP 91 วันล่าสุด (ต้องมีข้อมูลอย่างน้อย 4 ครั้งต่อวันถึงจะนับ) — ยาที่พบวันใช้มากผิดปกติชัดเจนจะได้ par หน้างานที่แนะนำสูงขึ้นเฉพาะให้พอรองรับวันนั้น โดยไม่กระทบ par substock (รอบเบิกคลังใหญ่ยาวพอที่จะเกลี่ยยอดในแต่ละวันออกไปเองอยู่แล้ว)</div>
       </div>
+
+      {weekdayPatternMeds.length > 0 && (
+        <div className="card" style={{ padding: 13, marginBottom: 13, border: '1px solid var(--ipd)', background: 'var(--ipd-bg)' }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 4, color: 'var(--ipd)' }}>
+            📅 ยาที่มีรูปแบบการใช้รายวันชัดเจน ({weekdayPatternMeds.length} รายการ)
+          </div>
+          <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginBottom: 10 }}>
+            จากการวิเคราะห์ประวัติ HOSxP ล่าสุด — par หน้างานที่แนะนำของรายการเหล่านี้คิดรวมวันที่ใช้มากที่สุดของแต่ละตัวไว้แล้ว (ไม่ใช่แค่ค่าเฉลี่ยทั้งสัปดาห์)
+          </div>
+          <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {weekdayPatternMeds.slice(0, 30).map((m) => (
+              <div key={m.id} style={{ background: 'var(--bg-card)', borderRadius: 9, padding: '8px 10px', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{m.name}</span>
+                  <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: 'var(--ipd)' }}>×{m.weekdayPeakFactor?.toFixed(2)}</span>
+                </div>
+                <div className="muted" style={{ fontSize: 11, lineHeight: 1.5 }}>
+                  ใช้มากสุดวัน{WEEKDAY_NAME[m.weekdayPeakDay as number]}
+                  {WEEKDAY_CLINICS[m.weekdayPeakDay as number] ? ' — ตรงกับคลินิก: ' + WEEKDAY_CLINICS[m.weekdayPeakDay as number] : ''}
+                </div>
+              </div>
+            ))}
+            {weekdayPatternMeds.length > 30 && <div className="muted" style={{ fontSize: 11 }}>และอีก {weekdayPatternMeds.length - 30} รายการ</div>}
+          </div>
+        </div>
+      )}
 
       {anomalies.length > 0 && (
         <div className="card" style={{ padding: 13, marginBottom: 13, border: '1px solid ' + (anomalyErrors.length > 0 ? 'var(--red)' : 'var(--amber)'), background: anomalyErrors.length > 0 ? 'var(--red-bg, #fbeceb)' : 'var(--amber-bg)' }}>
