@@ -333,6 +333,9 @@ export interface AppCtx {
   setMedBinSub: (medId: string, v: string) => void;
   /** Quick-fix counterpart for category — see its own doc comment at the implementation. */
   setMedCategory: (medId: string, categoryId: string) => void;
+  /** Quick-fix counterpart for route (ยากิน/ยาฉีด/อื่นๆ) — see its own doc comment at the
+   * implementation. */
+  setMedRoute: (medId: string, route: '' | 'oral' | 'injection' | 'other') => void;
   recomputeUsageStats: () => void;
   updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => void;
 
@@ -2843,6 +2846,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [canEditMeds, state.meds, toast]);
 
+  // Real-world request: "ข้อมูลที่ยังไม่ครบ อยากให้แจ้งที่ตัวยาเลย...แล้วสามารถเติมตรงนั้นได้เลยอย่าง
+  // รวดเร็ว" — same "ข้อมูลยังไม่ครบ" quick-fix need as setMedCategory above, now that route
+  // (ยากิน/ยาฉีด/อื่นๆ) is also tracked as a field every active med should have explicitly set
+  // (see missingFields() in MedsScreen.tsx). Same immediate-write-no-debounce shape as category —
+  // a tap on one of 3 chips, not keystroke-by-keystroke text entry.
+  const setMedRoute = useCallback(async (medId: string, route: '' | 'oral' | 'injection' | 'other') => {
+    if (!canEditMeds) return;
+    const m = state.meds.find((x) => x.id === medId);
+    if (!m) return;
+    const prevRoute = m.route;
+    setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, route: route || undefined } : x)) }));
+    try {
+      await withTimeout(updateDoc(doc(db, 'meds', medId), route ? { route } : { route: deleteField() }));
+    } catch (e) {
+      console.error(e);
+      toast('บันทึกประเภทการให้ยาไม่สำเร็จ — กำลังดึงค่าจริงกลับมาแสดง');
+      setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, route: prevRoute } : x)) }));
+    }
+  }, [canEditMeds, state.meds, toast]);
+
   /**
    * `used30`/`usedPrev30` (the daily-usage stats behind "แนะนำ par" and the turnover report)
    * come from the seed data and are never touched again on their own — there's no server to
@@ -4855,7 +4878,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot,
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
-    applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, recomputeUsageStats, updateGlobalSettings,
+    applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, autoRouteAll, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, fetchFloorLedger, fetchStockAsOf, exportStockAsOfCsv, fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,

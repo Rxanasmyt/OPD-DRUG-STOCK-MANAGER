@@ -27,15 +27,21 @@ type Filter = 'active' | 'inactive' | 'all' | 'parOne' | 'onHold' | 'incomplete'
  *   (usesSubstock() — a noSubstock med never gets one, by design, not a gap).
  * - category (หมวดกลุ่มยา): every active med should have one — categoryOf() itself falls back
  *   to UNCATEGORIZED, so "ยังไม่ระบุหมวด" never crashes anything, but that fallback is exactly
- *   the state this diagnostic is for catching and clearing out, not leaving silently forever. */
-type MissingField = 'bin' | 'binSub' | 'category';
-const MISSING_LABEL: Record<MissingField, string> = { bin: 'ชั้นหน้างาน', binSub: 'ชั้น substock', category: 'หมวดกลุ่มยา' };
+ *   the state this diagnostic is for catching and clearing out, not leaving silently forever.
+ * - route (ยากิน/ยาฉีด/อื่นๆ): same reasoning as category — flagged whenever `m.route` itself is
+ *   unset, even for a med effectiveRouteOf() (selectors.ts) can already guess confidently for
+ *   DISPLAY purposes on TransferScreen. A live guess is not the same thing as a pharmacist having
+ *   actually confirmed it: a wrong guess for one specific drug would otherwise never surface
+ *   anywhere for someone to notice and correct, since TransferScreen looks identical either way. */
+type MissingField = 'bin' | 'binSub' | 'category' | 'route';
+const MISSING_LABEL: Record<MissingField, string> = { bin: 'ชั้นหน้างาน', binSub: 'ชั้น substock', category: 'หมวดกลุ่มยา', route: 'ประเภทการให้ยา (ยากิน/ยาฉีด)' };
 
 function missingFields(m: Med): MissingField[] {
   const out: MissingField[] = [];
   if (!m.bin.trim()) out.push('bin');
   if (usesSubstock(m) && !m.binSub?.trim()) out.push('binSub');
   if (categoryOf(m) === UNCATEGORIZED) out.push('category');
+  if (!m.route) out.push('route');
   return out;
 }
 
@@ -164,7 +170,8 @@ function formFromMed(m: Med): MedFormValues {
  * incomplete meds without leaving this filtered list.
  */
 function IncompleteQuickFix({ med, missing }: { med: Med; missing: MissingField[] }) {
-  const { setMedBin, setMedBinSub, setMedCategory } = useApp();
+  const { setMedBin, setMedBinSub, setMedCategory, setMedRoute } = useApp();
+  const routeChip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
   // Bug fix (reported live while testing): missing's live value tracks "is this STILL
   // missing right now" — if the bin input's own presence were driven by that same live value,
   // typing a single non-blank character into it (bin.trim() is now truthy) would make the
@@ -199,6 +206,16 @@ function IncompleteQuickFix({ med, missing }: { med: Med; missing: MissingField[
             {DRUG_CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
           </select>
         </label>
+      )}
+      {frozenMissing.includes('route') && (
+        <div>
+          <span className="muted" style={{ display: 'block', fontSize: 10.5, marginBottom: 3 }}>ประเภทการให้ยา</span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button type="button" className="chip" style={routeChip(med.route === 'oral')} onClick={() => setMedRoute(med.id, med.route === 'oral' ? '' : 'oral')}>💊 ยากิน</button>
+            <button type="button" className="chip" style={routeChip(med.route === 'injection')} onClick={() => setMedRoute(med.id, med.route === 'injection' ? '' : 'injection')}>💉 ยาฉีด</button>
+            <button type="button" className="chip" style={routeChip(med.route === 'other')} onClick={() => setMedRoute(med.id, med.route === 'other' ? '' : 'other')}>📦 อื่นๆ</button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -558,9 +575,10 @@ export default function MedsScreen() {
       {incompleteOnly && (
         <div className="muted" style={{ fontSize: 11, lineHeight: 1.6, marginBottom: 10, background: 'var(--amber-bg)', color: 'var(--amber-ink)', borderRadius: 10, padding: '9px 11px' }}>
           ยา {incompleteCount} รายการนี้ยังขาดข้อมูลสำคัญ — รหัสชั้นหน้างาน, รหัสชั้น substock
-          (เฉพาะยาที่มี substock), หรือหมวดกลุ่มยา ยังไม่ได้กรอกไว้ ทำให้ฟีเจอร์ที่ต้องใช้ข้อมูลนี้
-          (เช่น ป้ายบอกตำแหน่งหยิบบนหน้าเติมหน้างาน) ใช้งานไม่ได้เต็มที่สำหรับยาตัวนี้ — ดูรายละเอียด
-          ว่าขาดอะไรใต้ชื่อยาแต่ละตัวด้านล่าง แล้วแตะ "แก้ไขข้อมูล" เพื่อกรอกให้ครบ
+          (เฉพาะยาที่มี substock), หมวดกลุ่มยา หรือประเภทการให้ยา (ยากิน/ยาฉีด) ยังไม่ได้กรอกไว้
+          ทำให้ฟีเจอร์ที่ต้องใช้ข้อมูลนี้ (เช่น ป้ายบอกตำแหน่งหยิบบนหน้าเติมหน้างาน, การจัดกลุ่มยากิน/
+          ยาฉีด) ใช้งานไม่ได้เต็มที่สำหรับยาตัวนี้ — ดูรายละเอียดว่าขาดอะไรใต้ชื่อยาแต่ละตัวด้านล่าง
+          แล้วกรอกตรงนั้นได้เลย หรือแตะ "แก้ไขข้อมูล" เพื่อกรอกให้ครบ
         </div>
       )}
 
