@@ -585,11 +585,37 @@ describe('suggestTransferQty', () => {
     expect(suggestTransferQty(st, med({ id: 'm1', parFloor: 100, floor: 25 }))).toBe(80);
   });
 
-  it('rounds UP to a whole multiple of packSize for a box-only med, not the generic magnitude step', () => {
+  it('rounds a box-only med to the NEAREST whole multiple of packSize, not the generic magnitude step', () => {
     const st = { lots: [{ id: 'l1', code: 'L1', medId: 'm1', lotNo: '1', exp: 0, qty: 999, loc: 'x' }] } as unknown as AppState;
     // Deficit is 75 (parFloor 100 - floor 25); packSize 30 means the generic 10-step is
-    // overridden — 75 rounds up to 90 (3 boxes of 30), never a fractional box.
+    // overridden — 75 is exactly 2.5 boxes, which rounds up to 90 (3 boxes of 30, JS's own
+    // round-half-up), never a fractional box.
     expect(suggestTransferQty(st, med({ id: 'm1', parFloor: 100, floor: 25, packSize: 30 }))).toBe(90);
+  });
+
+  // Real-world request: "พอคำนวนออกมาได้ 1 กล่องกับเศษนิดหน่อย ปัดเป็น 2 ทำให้ยาที่เติมเยอะเกินไป
+  // ครับเนื่องจากบางตัวยากล่องละ 1000" — a box-only med must round to the NEAREST box, not always
+  // UP, or a tiny leftover over 1 box badly overfills the floor for a large box size.
+  it('rounds a box-only med DOWN when the leftover is less than half a box, instead of always rounding up', () => {
+    const st = { lots: [{ id: 'l1', code: 'L1', medId: 'm1', lotNo: '1', exp: 0, qty: 9999, loc: 'x' }] } as unknown as AppState;
+    // Deficit is 1,050 (parFloor 1200 - floor 150); packSize 1,000 — without the fix this used
+    // to round up to 2 full boxes (2,000), over twice the real need.
+    expect(suggestTransferQty(st, med({ id: 'm1', parFloor: 1200, floor: 150, packSize: 1000 }))).toBe(1000);
+  });
+
+  it('still rounds a box-only med UP when the leftover is more than half a box', () => {
+    const st = { lots: [{ id: 'l1', code: 'L1', medId: 'm1', lotNo: '1', exp: 0, qty: 9999, loc: 'x' }] } as unknown as AppState;
+    // Deficit is 1,900 (parFloor 2050 - floor 150); packSize 1,000 — rounds up to 2 boxes
+    // (2,000), since 1 box alone (1,000) would leave the floor well short of par.
+    expect(suggestTransferQty(st, med({ id: 'm1', parFloor: 2050, floor: 150, packSize: 1000 }))).toBe(2000);
+  });
+
+  it('never suggests 0 boxes for a box-only med with a real deficit smaller than half a box', () => {
+    const st = { lots: [{ id: 'l1', code: 'L1', medId: 'm1', lotNo: '1', exp: 0, qty: 9999, loc: 'x' }] } as unknown as AppState;
+    // Deficit is 200 (parFloor 1000 - floor 800); packSize 1,000 — rounds to the nearest box
+    // would naively be 0 boxes, but floor being under par always means at least 1 box is
+    // genuinely worth moving.
+    expect(suggestTransferQty(st, med({ id: 'm1', parFloor: 1000, floor: 800, packSize: 1000 }))).toBe(1000);
   });
 
   it('caps a box-only med at what substock actually has, same as any other med', () => {

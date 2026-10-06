@@ -669,10 +669,26 @@ export function packStep(m: Med): number {
   return m.parFloor >= 500 ? 100 : m.parFloor >= 100 ? 10 : 1;
 }
 
+// Real-world request: "พอคำนวนออกมาได้ 1 กล่องกับเศษนิดหน่อย ปัดเป็น 2 ทำให้ยาที่เติมเยอะเกินไป
+// ครับเนื่องจากบางตัวยากล่องละ 1000 หากเบิกมา 2 กล่อง ยาก็จะเยอะเกินไป" — for a med with a REAL
+// box size (Med.packSize), always rounding the deficit UP to the next whole box badly overfills
+// the floor when the box is large relative to the leftover (e.g. a deficit of 1,050 for a
+// 1,000-unit box used to round up to 2 boxes/2,000 units instead of 1 box/1,000). Rounds to the
+// NEAREST whole box instead — still never 0 boxes when there's a real deficit (Math.max(step, …)
+// below), since floor being under par always means at least one box is worth moving.
+//
+// The generic magnitude step (10/100, used when a med has no real packSize) is deliberately left
+// rounding UP as before: unlike a real box, that step is just a round-number display convenience,
+// not a physical "can only move whole units of this size" constraint, so there's no overfill risk
+// there worth trading away "a transfer never falls short of reaching par" for.
 export function suggestTransferQty(state: AppState, m: Med): number {
   const need = Math.max(0, m.parFloor - m.floor);
+  if (need <= 0) return 0;
   const step = packStep(m);
-  return Math.min(subQty(state, m.id), Math.ceil(need / step) * step);
+  const qty = m.packSize && m.packSize > 1
+    ? Math.max(step, Math.round(need / step) * step)
+    : Math.ceil(need / step) * step;
+  return Math.min(subQty(state, m.id), qty);
 }
 
 /**
