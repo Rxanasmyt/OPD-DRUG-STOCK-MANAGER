@@ -4,7 +4,7 @@
 // period-total tiles already use, colored in the same tone the live-balance number already
 // uses. Verifies the chart renders once there's enough history, and that hovering a point shows
 // its exact date+balance (the numbers the compact line itself can't show directly).
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import SubstockCardScreen from './SubstockCardScreen';
@@ -22,7 +22,19 @@ const MED = {
   price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 10, bin: 'A1',
   used30: 0, usedPrev30: 0, volatility: 0,
 };
-const now = Date.now();
+// Bug fix (test flake at the Thai fiscal year boundary): this used to build fixtures off plain
+// `Date.now()` — a real `now` that lands shortly after Oct 1 (a new fiscal year's start, see
+// fiscalYear() in format.ts) makes `now - 20 days`/`now - 10 days` fall BACK into the PREVIOUS
+// fiscal year while this screen defaults to showing the CURRENT one, so only 1 of the 3 seeded
+// rows (not the required 2+) ever lands in the period actually shown — the chart silently never
+// renders, with no connection to whatever real change the suite was actually checking that day.
+// Pinning "now" via vi.setSystemTime() to a fixed date safely mid-fiscal-year (mid-January, far
+// from the Oct 1 boundary in both directions) makes every offset below always land in the same
+// fiscal year regardless of which real calendar day actually runs this suite.
+const FIXED_NOW = Date.UTC(2026, 0, 15, 12, 0, 0);
+beforeEach(() => vi.setSystemTime(FIXED_NOW));
+afterEach(() => vi.useRealTimers());
+const now = FIXED_NOW;
 // Three substock movements this fiscal year, building a real up-then-down balance trend:
 // +100 -> 100, +50 -> 150, -30 (transfer_to_floor) -> 120.
 const TXS = [
