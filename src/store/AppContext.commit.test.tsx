@@ -180,9 +180,12 @@ const BOXED_MED = {
   price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 10, bin: 'A1', packSize: 10,
   used30: 0, usedPrev30: 0, volatility: 0,
 };
-// setCartQty now rounds a typed quantity for a box-only med UP to the next whole box (see its
-// own "Real-world request" comment, AppContext.tsx) — ample substock here (100) so that
-// rounding never gets folded back down by the cap, isolating just the up-rounding behavior.
+// Real-world request: "อยากให้การบวกเพิ่มตัวเลขเติมยาชั้นหน้างาน...ให้มีหน่วยเป็น 1 กล่องเป็นหลัก
+// หากมีเสษค่อยใส่จำนวนเม็ด" — setCartQty() no longer force-rounds a typed quantity up to a whole
+// box (see its own "Real-world request" comment, AppContext.tsx); a typed 23 for a 10-unit box
+// stays exactly 23 (2 boxes + 3 loose), letting staff add a real remainder on top of whole boxes
+// instead of always being bumped to the next full box. Ample substock here (100) so the
+// unchanged cap never clips this.
 function SeedBoxCart() {
   const { setCartQty, sub } = useApp();
   const qty = sub(BOXED_MED.id);
@@ -191,7 +194,7 @@ function SeedBoxCart() {
 }
 
 describe('commitTransfer — box-breakdown tx-note regression', () => {
-  it('logs the real box count for a box-only med (23 typed → rounded up to 30 → 3 กล่อง)', async () => {
+  it('keeps a typed quantity with a remainder exactly as typed, and logs the "NxSIZE + remainder" split', async () => {
     const user = userEvent.setup();
     renderWithApp(<><SeedBoxCart /><TConfirmScreen /></>);
     await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
@@ -210,8 +213,8 @@ describe('commitTransfer — box-breakdown tx-note regression', () => {
 
     const writes = getLastTransactionWrites();
     const txWrite = writes.find((w) => w.path.startsWith('txs/'));
-    expect(txWrite?.data?.qty).toBe(30);
-    expect(txWrite?.data?.note).toContain('3 กล่อง (กล่องละ 10)');
+    expect(txWrite?.data?.qty).toBe(23);
+    expect(txWrite?.data?.note).toContain('2x10 + 3 เม็ด');
   });
 });
 
@@ -225,8 +228,12 @@ function SetBoxCartQtyHarness({ medId, raw }: { medId: string; raw: string }) {
   );
 }
 
-describe('setCartQty — box-rounding regression', () => {
-  it('rounds a typed quantity UP to the next whole box for a box-only med', async () => {
+// Real-world request: "อยากให้การบวกเพิ่มตัวเลขเติมยาชั้นหน้างาน...ให้มีหน่วยเป็น 1 กล่องเป็นหลัก
+// หากมีเสษค่อยใส่จำนวนเม็ด" — setCartQty() no longer force-rounds a typed quantity up to a whole
+// box for a box-only med (the +/- stepper and suggestTransferQty() still default to whole boxes —
+// see bump()'s own unchanged behavior); typing lets staff add a real remainder on top.
+describe('setCartQty — typed-remainder regression', () => {
+  it('keeps a typed quantity with a remainder exactly as typed for a box-only med', async () => {
     const user = userEvent.setup();
     renderWithApp(<SetBoxCartQtyHarness medId={BOXED_MED.id} raw="23" />);
     await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
@@ -235,18 +242,17 @@ describe('setCartQty — box-rounding regression', () => {
     fireCollection('lots', [{ id: 'lot1', medId: BOXED_MED.id, qty: 100, lotNo: 'L1', exp: Date.now() + 30 * 86400000 }]);
 
     await user.click(screen.getByRole('button', { name: 'set-qty' }));
-    // Without the fix, this would be 23 — a non-whole-box quantity nothing caught.
-    await waitFor(() => expect(screen.getByTestId('cartQty').textContent).toBe('30'));
+    await waitFor(() => expect(screen.getByTestId('cartQty').textContent).toBe('23'));
   });
 
-  it('folds back down to the largest whole box that fits when rounding up would exceed substock', async () => {
+  it('still caps a typed quantity at what substock actually has, same as any other med', async () => {
     const user = userEvent.setup();
     renderWithApp(<SetBoxCartQtyHarness medId={BOXED_MED.id} raw="23" />);
     await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
     fireCollection('meds', [BOXED_MED]);
-    // Only 25 on hand — rounding 23 up to 30 would ask for more than substock actually has.
-    fireCollection('lots', [{ id: 'lot1', medId: BOXED_MED.id, qty: 25, lotNo: 'L1', exp: Date.now() + 30 * 86400000 }]);
+    // Only 20 on hand — typing 23 must still clip to what's actually available.
+    fireCollection('lots', [{ id: 'lot1', medId: BOXED_MED.id, qty: 20, lotNo: 'L1', exp: Date.now() + 30 * 86400000 }]);
 
     await user.click(screen.getByRole('button', { name: 'set-qty' }));
     await waitFor(() => expect(screen.getByTestId('cartQty').textContent).toBe('20'));
@@ -1397,6 +1403,35 @@ describe('printTodayReplenishList — substock pick-location regression', () => 
   });
 });
 
+// Real-world request: "ในใบคุมสต็อก หรือใบหน้างาน ให้เขียนเป็นรูปแบบเช่น 1x60 แปลว่าเบิกยา 1 กล่อง
+// กล่องละ 60 เม็ด" — boxBreakdownLabel() (selectors.ts), reused by every print sheet/ledger note
+// that needs to say how many boxes a quantity breaks down into.
+const REPL_BOXED_MED = {
+  id: 'm11', code: 'MED-0011', name: 'Ibuprofen 400mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  price: 1, had: false, active: true, parSub: 500, parFloor: 130, floorMin: 65, floor: 10,
+  bin: 'A11', binSub: 'S50', noSubstock: false, packSize: 60, used30: 0, usedPrev30: 0, volatility: 0,
+};
+
+describe('printTodayReplenishList — box-breakdown note format regression', () => {
+  it('writes the pick-list note in "NxSIZE" notation for a box-only med', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<PrintTodayReplenishHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [REPL_BOXED_MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    // Deficit 120 (parFloor 130 - floor 10), packSize 60 → rounds to nearest box (2x60=120).
+    fireCollection('lots', [{ id: 'lot-replbox-1', medId: REPL_BOXED_MED.id, qty: 500, lotNo: 'RB1', exp: Date.now() + 300 * 86400000 }]);
+
+    const callsBefore = vi.mocked(printModule.printPickListSheet).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'print-today-replenish' }));
+    await waitFor(() => expect(vi.mocked(printModule.printPickListSheet).mock.calls.length).toBeGreaterThan(callsBefore));
+    const rows = vi.mocked(printModule.printPickListSheet).mock.calls[callsBefore][0];
+    const row = rows.find((r) => r.name === REPL_BOXED_MED.name);
+    expect(row?.note).toContain('หยิบ 2x60');
+  });
+});
+
 const WH_SUB_MED = {
   id: 'm6', code: 'MED-0006', name: 'Cefazolin 1g', unit: 'Vial', dosageForm: 'ฉีด',
   price: 1, had: false, active: true, parSub: 500, parFloor: 100, floorMin: 50, floor: 80,
@@ -1453,6 +1488,33 @@ describe('printWarehouseRequestList — substock-bin-instead-of-med-code regress
     const row = rows.find((r) => r.name?.startsWith(WH_NOSUB_MED.name));
     expect(row?.bin).toBe(WH_NOSUB_MED.bin);
     expect(row?.bin).not.toBe(WH_NOSUB_MED.code);
+  });
+});
+
+const WH_BOXED_MED = {
+  id: 'm12', code: 'MED-0012', name: 'Diclofenac 25mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  price: 1, had: false, active: true, parSub: 500, parFloor: 100, floorMin: 50, floor: 80,
+  bin: 'B12', binSub: 'S60', noSubstock: false, packSize: 30, used30: 0, usedPrev30: 0, volatility: 0,
+};
+
+describe('printWarehouseRequestList — box-breakdown note format regression', () => {
+  it('writes the row note in "NxSIZE" notation for a box-only med', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<PrintWarehouseRequestHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [WH_BOXED_MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', []);
+
+    const callsBefore = vi.mocked(printModule.printPickListSheet).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'print-warehouse-request' }));
+    await waitFor(() => expect(vi.mocked(printModule.printPickListSheet).mock.calls.length).toBeGreaterThan(callsBefore));
+    const rows = vi.mocked(printModule.printPickListSheet).mock.calls[callsBefore][0];
+    const row = rows.find((r) => r.name === WH_BOXED_MED.name);
+    // Deficit 500 (parSub 500 - subQty 0), packSize 30 → rounds UP (this list has no substock
+    // cap, see packStep()/this function's own comment) to ceil(500/30)=17 boxes (510 units).
+    expect(row?.note).toBe('17x30');
   });
 });
 

@@ -669,6 +669,24 @@ export function packStep(m: Med): number {
   return m.parFloor >= 500 ? 100 : m.parFloor >= 100 ? 10 : 1;
 }
 
+/** Real-world request: "ในใบคุมสต็อก หรือใบหน้างาน ให้เขียนเป็นรูปแบบเช่น 1x60 แปลว่าเบิกยา 1 กล่อง
+ * กล่องละ 60 เม็ด" — the compact box-count×box-size notation pharmacy staff already use on paper,
+ * shared by every print sheet/ledger note that needs to say how many whole boxes (plus any loose
+ * remainder) a quantity breaks down into for a box-only med (Med.packSize set). Returns undefined
+ * for a med with no real box size, or a non-positive qty — callers fall back to a plain unit
+ * count in that case (same as before this existed). Never rounds qty itself (that's
+ * suggestTransferQty()/packStep()'s own job) — just describes whatever whole-box/remainder split
+ * the given qty actually has, including a non-whole-box qty (e.g. substock didn't have enough to
+ * cover a full last box) — "0x60 + 17 เม็ด" would be a confusing way to say "17 เม็ด" with no real
+ * box in it, so a qty under one full box shows as a plain unit count instead. */
+export function boxBreakdownLabel(m: Pick<Med, 'packSize' | 'unit'>, qty: number): string | undefined {
+  if (!m.packSize || m.packSize <= 1 || qty <= 0) return undefined;
+  const boxes = Math.floor(qty / m.packSize);
+  const rem = qty % m.packSize;
+  if (boxes <= 0) return nf(rem) + ' ' + m.unit;
+  return nf(boxes) + 'x' + nf(m.packSize) + (rem > 0 ? ' + ' + nf(rem) + ' ' + m.unit : '');
+}
+
 // Real-world request: "พอคำนวนออกมาได้ 1 กล่องกับเศษนิดหน่อย ปัดเป็น 2 ทำให้ยาที่เติมเยอะเกินไป
 // ครับเนื่องจากบางตัวยากล่องละ 1000 หากเบิกมา 2 กล่อง ยาก็จะเยอะเกินไป" — for a med with a REAL
 // box size (Med.packSize), always rounding the deficit UP to the next whole box badly overfills

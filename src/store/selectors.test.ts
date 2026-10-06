@@ -6,7 +6,7 @@ import {
   daysOfStockLeft, fefoLot, toneFor, subTone, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
   categoryOf, categoryStats, parAnomaliesFor, packStep, isOnStockHold, routeOf, effectiveRouteOf,
   topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes,
-  monthlyDaySplits,
+  monthlyDaySplits, boxBreakdownLabel,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
 import { DAY } from '../utils/format';
@@ -638,6 +638,31 @@ describe('packStep', () => {
     expect(packStep(med({ parFloor: 25 }))).toBe(1);
     expect(packStep(med({ parFloor: 200 }))).toBe(10);
     expect(packStep(med({ parFloor: 600 }))).toBe(100);
+  });
+});
+
+// Real-world request: "ในใบคุมสต็อก หรือใบหน้างาน ให้เขียนเป็นรูปแบบเช่น 1x60 แปลว่าเบิกยา 1 กล่อง
+// กล่องละ 60 เม็ด"
+describe('boxBreakdownLabel', () => {
+  it('shows a clean whole-box quantity as "NxSIZE" with no remainder', () => {
+    expect(boxBreakdownLabel(med({ packSize: 60, unit: 'เม็ด' }), 120)).toBe('2x60');
+  });
+
+  it('appends the remainder when qty is not a clean multiple of the box size', () => {
+    expect(boxBreakdownLabel(med({ packSize: 60, unit: 'เม็ด' }), 65)).toBe('1x60 + 5 เม็ด');
+  });
+
+  it('shows a plain unit count (no "0xSIZE") when qty is under one full box', () => {
+    expect(boxBreakdownLabel(med({ packSize: 60, unit: 'เม็ด' }), 17)).toBe('17 เม็ด');
+  });
+
+  it('returns undefined for a med with no real box size', () => {
+    expect(boxBreakdownLabel(med({ packSize: undefined }), 65)).toBeUndefined();
+    expect(boxBreakdownLabel(med({ packSize: 1 }), 65)).toBeUndefined();
+  });
+
+  it('returns undefined for a non-positive qty', () => {
+    expect(boxBreakdownLabel(med({ packSize: 60 }), 0)).toBeUndefined();
   });
 });
 
