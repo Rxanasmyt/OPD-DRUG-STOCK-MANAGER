@@ -679,12 +679,16 @@ export function packStep(m: Med): number {
  * the given qty actually has, including a non-whole-box qty (e.g. substock didn't have enough to
  * cover a full last box) — "0x60 + 17 เม็ด" would be a confusing way to say "17 เม็ด" with no real
  * box in it, so a qty under one full box shows as a plain unit count instead. */
-export function boxBreakdownLabel(m: Pick<Med, 'packSize' | 'unit'>, qty: number): string | undefined {
+// `compact` (default false) drops the spaces/unit word around a remainder — "1x60+54" instead of
+// "1x60 + 54 เม็ด" — for a narrow on-screen field (TransferScreen's qty stepper) where the full
+// wording would overflow; a printed sheet/ledger note has room and uses the full wording instead.
+export function boxBreakdownLabel(m: Pick<Med, 'packSize' | 'unit'>, qty: number, compact = false): string | undefined {
   if (!m.packSize || m.packSize <= 1 || qty <= 0) return undefined;
   const boxes = Math.floor(qty / m.packSize);
   const rem = qty % m.packSize;
-  if (boxes <= 0) return nf(rem) + ' ' + m.unit;
-  return nf(boxes) + 'x' + nf(m.packSize) + (rem > 0 ? ' + ' + nf(rem) + ' ' + m.unit : '');
+  if (boxes <= 0) return nf(rem) + (compact ? '' : ' ' + m.unit);
+  if (rem <= 0) return nf(boxes) + 'x' + nf(m.packSize);
+  return nf(boxes) + 'x' + nf(m.packSize) + (compact ? '+' + nf(rem) : ' + ' + nf(rem) + ' ' + m.unit);
 }
 
 // Real-world request: "พอคำนวนออกมาได้ 1 กล่องกับเศษนิดหน่อย ปัดเป็น 2 ทำให้ยาที่เติมเยอะเกินไป
