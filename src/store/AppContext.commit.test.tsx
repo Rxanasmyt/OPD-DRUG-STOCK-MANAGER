@@ -1029,6 +1029,59 @@ describe('printLabels — lot-label HIGH ALERT regression', () => {
   });
 });
 
+// Real-world request: "ปริ้นยังไงให้สามารถปริ้นตามชั้นวางเรียงไปเรื่อยๆตามลำดับ เพื่อง่ายต่อการแปะ
+// ป้ายชั้นวางยา" — printLabels() used to emit labels in whatever order `state.meds` happened to
+// iterate in (Firestore snapshot order), not physical shelf order — see binCompare()'s own doc
+// comment (binRange.ts) for the fix.
+const SHELF_MED_B1 = { ...HAD_MED, id: 'mB1', code: 'MED-B1', name: 'Med B1', had: false, bin: 'B1' };
+const SHELF_MED_A2 = { ...HAD_MED, id: 'mA2', code: 'MED-A2', name: 'Med A2', had: false, bin: 'A2' };
+const SHELF_MED_A1 = { ...HAD_MED, id: 'mA1', code: 'MED-A1', name: 'Med A1', had: false, bin: 'A1' };
+
+function PrintMedLabelsHarness() {
+  const { printLabels } = useApp();
+  return <button onClick={printLabels}>print-labels</button>;
+}
+
+describe('printLabels — shelf-order regression', () => {
+  it('prints med labels sorted by shelf code (A1, A2, B1), not plain formulary/snapshot order', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<PrintMedLabelsHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    // Seeded out of shelf order on purpose — B1, then A2, then A1.
+    fireCollection('meds', [SHELF_MED_B1, SHELF_MED_A2, SHELF_MED_A1]);
+    fireCollection('lots', []);
+
+    const callsBefore = vi.mocked(printModule.printLabelSheet).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'print-labels' }));
+    await waitFor(() => expect(vi.mocked(printModule.printLabelSheet).mock.calls.length).toBeGreaterThan(callsBefore));
+
+    const labels = vi.mocked(printModule.printLabelSheet).mock.calls[callsBefore][0];
+    expect(labels.map((l) => l.bin)).toEqual(['A1', 'A2', 'B1']);
+  });
+
+  it('prints lot labels sorted by their med\'s shelf code too', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<PrintLotLabelsHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [SHELF_MED_B1, SHELF_MED_A2, SHELF_MED_A1]);
+    fireCollection('lots', [
+      { id: 'lB1', medId: SHELF_MED_B1.id, code: 'LOT-B1', lotNo: 'L1', qty: 5, exp: Date.now() + 300 * 86400000 },
+      { id: 'lA2', medId: SHELF_MED_A2.id, code: 'LOT-A2', lotNo: 'L2', qty: 5, exp: Date.now() + 300 * 86400000 },
+      { id: 'lA1', medId: SHELF_MED_A1.id, code: 'LOT-A1', lotNo: 'L3', qty: 5, exp: Date.now() + 300 * 86400000 },
+    ]);
+
+    await user.click(screen.getByRole('button', { name: 'set-lot-type' }));
+    const callsBefore = vi.mocked(printModule.printLabelSheet).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'print-labels' }));
+    await waitFor(() => expect(vi.mocked(printModule.printLabelSheet).mock.calls.length).toBeGreaterThan(callsBefore));
+
+    const labels = vi.mocked(printModule.printLabelSheet).mock.calls[callsBefore][0];
+    expect(labels.map((l) => l.id)).toEqual(['LOT-A1', 'LOT-A2', 'LOT-B1']);
+  });
+});
+
 const MED2_ACTIVE = { ...MED_BOTTLE, id: 'm2', code: 'MED-0002', name: 'Ventolin inhaler', floor: 3, active: true };
 
 function CountAllInactiveMedHarness() {

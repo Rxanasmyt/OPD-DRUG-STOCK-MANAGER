@@ -20,6 +20,7 @@ import { shortLabelName } from '../utils/labelName';
 import { printLabelSheet, printPickListSheet, printExecutiveSummarySheet, type PrintLabel, type ExecSummaryStat, type ExecSummaryRow } from '../utils/print';
 import { parseHosxpUsageWorkbook, parseUsageCsvTextWithSkipped, splitNameQty, type RawUsageRow } from '../utils/usageImport';
 import { LOCS, FRIDGE_LOCS } from '../data/locations';
+import { binCompare } from '../utils/binRange';
 import { suggestCategoryId } from '../data/categorySuggest';
 import { suggestRoute } from '../data/routeSuggest';
 import { categoryLabel } from '../data/categories';
@@ -2661,6 +2662,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           sub: 'หน่วย ' + m.unit + ' · ชั้น ' + s.bin, tag: printTag(m), bin: s.bin, ward: s.ward,
         }));
       });
+      // Real-world request: "ปริ้นยังไงให้สามารถปริ้นตามชั้นวางเรียงไปเรื่อยๆตามลำดับ เพื่อง่ายต่อ
+      // การแปะป้ายชั้นวางยา" — see binCompare()'s own doc comment (binRange.ts) for why plain
+      // formulary order (what `meds` iterates in) isn't shelf order, and why reusing the picker's
+      // own binSortKey() (single-prefix only) would interleave different shelf letters.
+      labels.sort((a, b) => binCompare(a.bin || '', b.bin || ''));
     } else if (state.labelType === 'lot') {
       heading = 'ฉลาก lot';
       // Bug fix: this used to iterate state.lots directly, ignoring both the active-only and
@@ -2683,6 +2689,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const lotTag = [m.had ? 'HIGH ALERT' : '', daysUntil(l.exp) <= state.expiryWarnDays ? 'ใกล้หมดอายุ' : ''].filter(Boolean).join(' · ') || undefined;
         return { payload: encodeQr('lot', l.code), id: l.code, title: m.name, sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: lotTag, ward: wardOf(m) };
       });
+      // Same shelf-order fix as the med-label branch above — a lot label's own layout has no
+      // bin field to sort by directly (see PrintLabel.bin's doc comment: adding one here would
+      // switch it to the strip layout med/substock labels use, a visual change out of scope for
+      // this fix), so this sorts by the real-world shelf spot the physical batch actually sits
+      // in instead — binSub (substock shelf code), since every lot here IS substock stock, with
+      // the floor-side bin as a fallback for a med that has no substock rack assigned at all.
+      // Precomputed once per lot code (not per comparison) to keep the sort itself O(n log n).
+      const lotBinByCode = new Map(state.lots.map((l) => {
+        const m = meds.find((x) => x.id === l.medId);
+        return [l.code, m?.binSub || m?.bin || ''] as const;
+      }));
+      labels.sort((a, b) => binCompare(lotBinByCode.get(a.id) || '', lotBinByCode.get(b.id) || ''));
     } else if (state.locScope === 'sub') {
       // Bug fix: the first cut of this (v3.12.0) printed a generic, drug-less location sheet
       // here (one label per SUB_LOCS code, no med name on it at all) — but a real substock
@@ -2698,6 +2716,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         payload: encodeQr('med', m.code), id: m.code, title: shortLabelName(m.name),
         sub: 'หน่วย ' + m.unit + ' · substock ' + m.binSub, tag: printTag(m), bin: m.binSub,
       }));
+      // Same shelf-order fix as the med-label branch above.
+      labels.sort((a, b) => binCompare(a.bin || '', b.bin || ''));
     } else if (state.locScope === 'fridge') {
       // Real-world request: the pharmacy's own cold-chain fridges (vaccine/cold-drug storage,
       // 2 shared OPD+IPD service fridges — see FRIDGE_LOCS' own doc comment) need their

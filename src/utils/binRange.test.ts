@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseBinRange, binInRange, binSortKey } from './binRange';
+import { parseBinRange, binInRange, binSortKey, binCompare } from './binRange';
 
 describe('parseBinRange', () => {
   it('parses a full "A1-A7" range', () => {
@@ -76,5 +76,35 @@ describe('binSortKey', () => {
 
   it('pushes a code with no numeric suffix to the end', () => {
     expect(binSortKey('ABC')).toBe(Number.MAX_SAFE_INTEGER);
+  });
+});
+
+// Regression tests for printLabels()' shelf-order fix (AppContext.tsx/LabelsScreen.tsx) — see
+// binCompare()'s own doc comment for the real-world request and why binSortKey alone (number-only,
+// correct only WITHIN one already-same-prefix range) isn't enough once a whole formulary spanning
+// multiple shelf letters needs printing in one pass.
+describe('binCompare', () => {
+  it('groups by shelf-letter prefix first, never interleaving different prefixes by number', () => {
+    const codes = ['B1', 'A2', 'A1', 'B2', 'C1'];
+    expect(codes.slice().sort(binCompare)).toEqual(['A1', 'A2', 'B1', 'B2', 'C1']);
+  });
+
+  it('sorts numerically within the same prefix, not lexicographically ("A2" before "A10")', () => {
+    const codes = ['A10', 'A2', 'A1'];
+    expect(codes.slice().sort(binCompare)).toEqual(['A1', 'A2', 'A10']);
+  });
+
+  it('is case-insensitive', () => {
+    expect(binCompare('a1', 'A2')).toBeLessThan(0);
+  });
+
+  it('pushes a code with no numeric suffix to the end of its own prefix group', () => {
+    const codes = ['A2', 'ABC', 'A1'];
+    expect(codes.slice().sort(binCompare)).toEqual(['A1', 'A2', 'ABC']);
+  });
+
+  it('pushes an empty/missing code to the very end, after every real shelf code', () => {
+    const codes = ['B1', '', 'A1'];
+    expect(codes.slice().sort(binCompare)).toEqual(['A1', 'B1', '']);
   });
 });

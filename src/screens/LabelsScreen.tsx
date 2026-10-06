@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
 import { daysUntil, wardOf, binFor, binDisplayAll, isSharedMed } from '../store/selectors';
-import { parseBinRange, binInRange, binSortKey } from '../utils/binRange';
+import { parseBinRange, binInRange, binSortKey, binCompare } from '../utils/binRange';
 import { thDate } from '../utils/format';
 import { QrCode } from '../components/QrCode';
 import { encodeQr } from '../utils/qr';
@@ -215,10 +215,19 @@ export default function LabelsScreen() {
   // prints. Now that this renders one row per real side too, every row has a genuine ward —
   // always show it, which also happens to be exactly what tells two sides of the same drug
   // apart when labelWardScope is 'all' and both are mixed into the same preview.
+  // Bug fix (preview parity): mirrors AppContext.tsx's printLabels() own shelf-order fix (see
+  // binCompare()'s doc comment, binRange.ts) — the preview must show the same physical-shelf
+  // order the real printout now does, not plain formulary order, or someone checking the preview
+  // before printing would see a different order than what actually comes out of the printer.
+  const wardLotsShelfOrdered = [...wardLots].sort((a, b) => {
+    const ma = meds.find((x) => x.id === a.medId);
+    const mb = meds.find((x) => x.id === b.medId);
+    return binCompare(ma?.binSub || ma?.bin || '', mb?.binSub || mb?.bin || '');
+  });
   const rows = state.labelType === 'med'
-    ? meds.flatMap((m) => medSides(m).map((s) => ({ code: m.code, bin: s.bin, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + s.bin, tag: printTag(m), tagColor: m.had ? 'var(--had)' : 'var(--fridge)', ward: s.ward as Ward | undefined }))).slice(0, 8)
+    ? meds.flatMap((m) => medSides(m).map((s) => ({ code: m.code, bin: s.bin, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · ชั้น ' + s.bin, tag: printTag(m), tagColor: m.had ? 'var(--had)' : 'var(--fridge)', ward: s.ward as Ward | undefined }))).sort((a, b) => binCompare(a.bin || '', b.bin || '')).slice(0, 8)
     : state.labelType === 'lot'
-    ? wardLots.slice(0, 8).map((l) => {
+    ? wardLotsShelfOrdered.slice(0, 8).map((l) => {
         const m = meds.find((x) => x.id === l.medId);
         // Bug fix (patient safety, preview parity): mirrors AppContext.tsx's printLabels() own
         // matching fix — the preview must show the same combined "HIGH ALERT · ใกล้หมดอายุ" tag
@@ -230,7 +239,7 @@ export default function LabelsScreen() {
         return { code: l.code, bin: undefined as string | undefined, payload: encodeQr('lot', l.code), title: m ? m.name : '—', sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: lotTag, tagColor: m?.had ? 'var(--had)' : 'var(--amber)', ward: m && !isSharedMed(m) ? wardOf(m) : undefined };
       })
     : state.locScope === 'sub'
-    ? subMeds.slice(0, 8).map((m) => ({ code: m.code, bin: m.binSub, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · substock ' + m.binSub, tag: printTag(m), tagColor: m.had ? 'var(--had)' : 'var(--fridge)', ward: undefined as Ward | undefined }))
+    ? [...subMeds].sort((a, b) => binCompare(a.binSub || '', b.binSub || '')).slice(0, 8).map((m) => ({ code: m.code, bin: m.binSub, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · substock ' + m.binSub, tag: printTag(m), tagColor: m.had ? 'var(--had)' : 'var(--fridge)', ward: undefined as Ward | undefined }))
     : state.locScope === 'fridge'
     ? FRIDGE_LOCS.map(([code, name]) => ({ code: 'LOC-' + code, bin: undefined as string | undefined, payload: encodeQr('loc', 'LOC-' + code), title: '🧊 ' + name, sub: 'สแกนเพื่อเปิดรายการยาในตู้นี้', tag: '', tagColor: 'var(--fridge)', ward: undefined as Ward | undefined }))
     : LOCS.map((b) => ({ code: 'LOC-' + b, bin: undefined as string | undefined, payload: encodeQr('loc', 'LOC-' + b), title: 'ชั้นจ่ายยา ' + b, sub: 'หน้างาน OPD · สแกนเพื่อเปิดรายการในชั้นนี้', tag: '', tagColor: 'var(--muted)', ward: undefined as Ward | undefined }));
