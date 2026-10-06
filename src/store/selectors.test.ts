@@ -664,6 +664,12 @@ describe('boxBreakdownLabel', () => {
   it('returns undefined for a non-positive qty', () => {
     expect(boxBreakdownLabel(med({ packSize: 60 }), 0)).toBeUndefined();
   });
+
+  it('drops the spaces/unit word in compact mode, for a narrow on-screen field', () => {
+    expect(boxBreakdownLabel(med({ packSize: 60, unit: 'เม็ด' }), 65, true)).toBe('1x60+5');
+    expect(boxBreakdownLabel(med({ packSize: 60, unit: 'เม็ด' }), 120, true)).toBe('2x60');
+    expect(boxBreakdownLabel(med({ packSize: 60, unit: 'เม็ด' }), 17, true)).toBe('17');
+  });
 });
 
 describe('suggestPar', () => {

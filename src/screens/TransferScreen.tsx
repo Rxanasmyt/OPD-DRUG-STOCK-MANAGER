@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, effectiveRouteOf, binDisplayAll, daysOfStockLeft, expTone, isOnStockHold } from '../store/selectors';
+import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, effectiveRouteOf, binDisplayAll, daysOfStockLeft, expTone, isOnStockHold, boxBreakdownLabel } from '../store/selectors';
 import { nf, thDate, digitsOnly, isoDate, daysUntil, bangkokWeekday } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
@@ -30,6 +30,34 @@ function readDismissedToday(key: string): boolean {
 }
 function dismissToday(key: string) {
   try { sessionStorage.setItem(key, isoDate(Date.now())); } catch { /* ignore */ }
+}
+
+// Real-world request: "กด + แล้วยังขึ้นเป็นจำนวนเม็ด ไม่ใช่จำนวนกล่องที่เราคุยกันไว้" — the cart
+// qty field (between the −/+ buttons) always showed the raw tablet total, even for a box-only
+// med whose whole point was to think in boxes. Shows the compact "NxSIZE[+remainder]" form
+// (boxBreakdownLabel, compact mode — no spaces/unit word, fits this narrow field) while the field
+// ISN'T focused, so every tap of +/- immediately reads back as boxes; switches to the plain raw
+// number the moment someone taps in to type a value by hand (that compact string isn't itself
+// parseable back into a number), and back to the box label on blur. A non-boxed med (no
+// packSize) just shows the plain number always — nothing to translate into boxes for.
+function CartQtyInput({ med, value, onChange }: { med: { packSize?: number; unit: string; name: string }; value: number; onChange: (v: string) => void }) {
+  const [focused, setFocused] = useState(false);
+  const boxed = !!med.packSize && med.packSize > 1;
+  const label = boxed && !focused ? boxBreakdownLabel(med, value, true) : undefined;
+  return (
+    <input
+      value={label ?? (value || '')}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onChange={(e) => onChange(digitsOnly(e.target.value))}
+      inputMode="numeric"
+      aria-label={'จำนวน ' + med.name}
+      // Bug fix (mobile fit): under 16px, iOS Safari zooms the whole page in on focus — this is
+      // the highest-traffic numeric field on the busiest screen in the app (walking the shelf,
+      // bumping cart quantities item by item).
+      style={{ width: boxed ? 80 : 62, height: 44, textAlign: 'center', border: '1px solid var(--border)', borderRadius: 10, fontSize: boxed ? 14 : 16, fontWeight: 600 }}
+    />
+  );
 }
 
 export default function TransferScreen() {
@@ -379,16 +407,7 @@ export default function TransferScreen() {
                             every other actionable button on this screen (scan/clear/print/submit),
                             which already used 44px+. */}
                         <button onClick={() => bump(m.id, -1)} aria-label={'ลดจำนวน ' + m.name} className="press-spring" style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', width: 44, height: 44, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>−</button>
-                        <input
-                          value={state.cart[m.id] || ''}
-                          onChange={(e) => setCartQty(m.id, digitsOnly(e.target.value))}
-                          inputMode="numeric"
-                          aria-label={'จำนวน ' + m.name}
-                          // Bug fix (mobile fit): under 16px, iOS Safari zooms the whole page in on
-                          // focus — this is the highest-traffic numeric field on the busiest screen
-                          // in the app (walking the shelf, bumping cart quantities item by item).
-                          style={{ width: 62, height: 44, textAlign: 'center', border: '1px solid var(--border)', borderRadius: 10, fontSize: 16, fontWeight: 600 }}
-                        />
+                        <CartQtyInput med={m} value={state.cart[m.id] || 0} onChange={(v) => setCartQty(m.id, v)} />
                         <button onClick={() => bump(m.id, 1)} aria-label={'เพิ่มจำนวน ' + m.name} className="press-spring" style={{ border: '1px solid var(--green)', background: 'var(--green-tint)', color: 'var(--green)', width: 44, height: 44, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>+</button>
                       </div>
                     </div>
