@@ -12,7 +12,7 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -1423,22 +1423,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setCartQty = useCallback((id: string, raw: string) => {
     setState((st) => {
-      const m = st.meds.find((x) => x.id === id);
       const cap = subQty(st, id);
-      let v = Math.max(0, Math.min(cap, parseIntSafe(raw)));
-      // Real-world request: "เติมยาหน้างาน...ต้องเติมหรือเบิกเป็นจำนวนกล่อง เพื่อง่ายต่อการหยิบยา
-      // ขนยาเติมยา" — bump()'s own +/- stepper already steps by packStep(m) (a whole box for a
-      // box-only med), but typing a number directly into this field had nothing enforcing the
-      // same rule — a typo or an arbitrary hand-typed number could land a non-whole-box quantity
-      // in the cart with no correction. Rounds UP to the next whole box (never under what was
-      // actually typed), then folds back down to the largest whole-box amount that still fits
-      // within what substock actually has, if rounding up overshot the cap. A non-boxed med
-      // (Med.packSize unset) is untouched — its real/actual unit count IS the quantity to
-      // request, not an artificial box count.
-      if (m && m.packSize && m.packSize > 1) {
-        const boxed = Math.ceil(v / m.packSize) * m.packSize;
-        v = boxed > cap ? Math.floor(cap / m.packSize) * m.packSize : boxed;
-      }
+      const v = Math.max(0, Math.min(cap, parseIntSafe(raw)));
+      // Real-world request: "อยากให้การบวกเพิ่มตัวเลขเติมยาชั้นหน้างาน...ให้มีหน่วยเป็น 1 กล่องเป็น
+      // หลัก หากมีเสษค่อยใส่จำนวนเม็ด" — bump()'s own +/- stepper still steps by packStep(m) (a
+      // whole box for a box-only med) and suggestTransferQty() still SUGGESTS a whole-box amount
+      // by default, so boxes stay the normal/expected unit for both. This field is the explicit
+      // override for the "กับเศษ" case that convention needs room for — a typed quantity is kept
+      // exactly as typed (only capped at what substock actually has), not force-rounded up to the
+      // next whole box the way it used to be. boxBreakdownLabel() (selectors.ts) is what then
+      // shows that exact split back as "1x60 + 5 เม็ด" everywhere a printed sheet/ledger note
+      // reads this quantity, so a remainder typed here is never silently hidden either.
       const cart = { ...st.cart };
       if (v <= 0) delete cart[id]; else cart[id] = v;
       return { ...st, cart };
@@ -1549,20 +1544,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // shelf under par; the person carrying this sheet should know to also flag it for
         // the next "เบิกจากคลังใหญ่" run instead of assuming the job's done.
         const shortNote = qty < need ? 'substock เหลือไม่พอเติมเต็ม par (ขาดอีก ' + nf(need - qty) + ' ' + m.unit + ')' : undefined;
-        // Bug fix: unlike printWarehouseRequestList (which rounds its own qty UP to a packStep
-        // multiple before computing this note, so qty/packSize is always a clean integer), qty
-        // here is suggestTransferQty()'s result — capped at whatever substock actually has,
-        // which is NOT guaranteed to be a whole number of boxes. nf()'s rounding used to hide
-        // that gap: e.g. packSize 30 with only 47 units actually available printed "2 กล่อง"
-        // (implying 60 units) instead of the true 1 full box + 17 loose — a wrong count on an
-        // official pick-list. Show the exact split instead of ever rounding it away.
-        const boxNote = (() => {
-          if (!m.packSize || m.packSize <= 1) return undefined;
-          const boxes = Math.floor(qty / m.packSize);
-          const rem = qty % m.packSize;
-          const boxesLabel = boxes + ' กล่อง' + (rem > 0 ? ' + ' + nf(rem) + ' ' + m.unit + ' (ไม่ครบกล่อง)' : '');
-          return 'บรรจุกล่องละ ' + nf(m.packSize) + ' ' + m.unit + ' — หยิบ ' + boxesLabel;
-        })();
+        // Bug fix: qty here is suggestTransferQty()'s result — capped at whatever substock
+        // actually has, which is NOT guaranteed to be a whole number of boxes (unlike
+        // printWarehouseRequestList, which rounds its own qty up to a packStep multiple first).
+        // boxBreakdownLabel() shows the exact split (e.g. "1x30 + 17 เม็ด" for 47 units out of a
+        // 30-unit box) instead of ever rounding it away into a misleading whole-box count.
+        const boxLabel = boxBreakdownLabel(m, qty);
+        const boxNote = boxLabel ? 'หยิบ ' + boxLabel : undefined;
         const note = [boxNote, shortNote].filter(Boolean).join(' · ') || undefined;
         // Real-world request: this sheet already says where the qty is headed (bin, the floor
         // shelf) but gave no clue where to physically go pick it from — add the substock shelf
@@ -1630,7 +1618,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // everything else it's the same generic magnitude step packStep() already falls back to.
       const step = packStep(m);
       const qty = Math.ceil(need / step) * step;
-      const note = m.packSize && m.packSize > 1 ? 'เบิกเป็นกล่อง กล่องละ ' + nf(m.packSize) + ' ' + m.unit + ' (' + nf(qty / m.packSize) + ' กล่อง)' : undefined;
+      const note = boxBreakdownLabel(m, qty);
       // Real-world request: รหัสยา (m.code, e.g. MED-0002) isn't actually used in practice — what
       // staff actually need on this sheet is where to put the stock once the warehouse releases
       // it, i.e. the substock shelf code. A med with its own substock stage uses that shelf
@@ -1798,11 +1786,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // moved in, not just a raw unit total — same split printTodayReplenishList's own print
           // sheet already shows (boxes, never rounded away since cart[medId] isn't guaranteed to
           // land on a clean multiple of packSize).
-          const boxNote = m.packSize && m.packSize > 1 ? (() => {
-            const boxes = Math.floor(cart[medId] / m.packSize!);
-            const rem = cart[medId] % m.packSize!;
-            return boxes > 0 ? nf(boxes) + ' กล่อง' + (rem > 0 ? '+' + nf(rem) : '') + ' (กล่องละ ' + nf(m.packSize!) + ')' : undefined;
-          })() : undefined;
+          const boxNote = boxBreakdownLabel(m, cart[medId]);
           trx.set(doc(collection(db, 'txs')), {
             type: 'transfer_to_floor', name: m.name, medId, qty: cart[medId], unit: m.unit, from: 'substock', to: 'floor',
             note: 'FEFO lot ' + used.join(', ') + (boxNote ? ' · ' + boxNote : ''), by: userName(), ts,
@@ -1916,9 +1900,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const uniqueMedIds = [...new Set(items.map((it) => it.medId))];
       const liveMedEntries = await Promise.all(uniqueMedIds.map(async (medId) => {
         const snap = await getDoc(doc(db, 'meds', medId));
-        return snap.exists() ? [medId, snap.data() as { code?: string; noSubstock?: boolean }] as const : null;
+        return snap.exists() ? [medId, snap.data() as { code?: string; noSubstock?: boolean; packSize?: number }] as const : null;
       }));
-      const liveMeds = new Map(liveMedEntries.filter((e): e is readonly [string, { code?: string; noSubstock?: boolean }] => e !== null));
+      const liveMeds = new Map(liveMedEntries.filter((e): e is readonly [string, { code?: string; noSubstock?: boolean; packSize?: number }] => e !== null));
       if (items.some((it) => !liveMeds.has(it.medId))) {
         toast('มีรายการที่ถูกลบออกจากระบบไปแล้ว — กลับไปลบรายการนั้นออกจากรายการรับเข้าก่อน');
         return;
@@ -2001,9 +1985,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const m = liveMeds.get(it.medId);
           if (m && m.noSubstock) {
             trx.update(doc(db, 'meds', it.medId), { floor: increment(it.qty) });
+            const noSubBoxLabel = m.packSize ? boxBreakdownLabel({ packSize: m.packSize, unit: it.unit }, it.qty) : undefined;
             trx.set(doc(collection(db, 'txs')), {
               type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'floor',
-              note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp) + ' — ไม่มี substock ขึ้นหน้างานทันที', by: userName(), ts: Date.now(),
+              note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp) + (noSubBoxLabel ? ' · ' + noSubBoxLabel : '') + ' — ไม่มี substock ขึ้นหน้างานทันที', by: userName(), ts: Date.now(),
             });
             return;
           }
@@ -2021,9 +2006,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             trx.set(lotRef, { code: genLotCode(m?.code, it.medId, lotRef.id), medId: it.medId, lotNo: it.lotNo, exp: it.exp, qty: it.qty, loc: 'ชั้น bulk' });
             stagedLotRefs.set(key, lotRef);
           }
+          const boxLabel = m?.packSize ? boxBreakdownLabel({ packSize: m.packSize, unit: it.unit }, it.qty) : undefined;
           trx.set(doc(collection(db, 'txs')), {
             type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'substock',
-            note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp), by: userName(), ts: Date.now(),
+            note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp) + (boxLabel ? ' · ' + boxLabel : ''), by: userName(), ts: Date.now(),
           });
         });
       });
@@ -2060,13 +2046,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // correctly throws) if it's deleted concurrently, the same guarantee every other
         // transactional read in this file relies on.
         const mSnap = await trx.get(doc(db, 'meds', pr.medId));
-        const m = mSnap.exists() ? (mSnap.data() as { code?: string; noSubstock?: boolean }) : undefined;
+        const m = mSnap.exists() ? (mSnap.data() as { code?: string; noSubstock?: boolean; packSize?: number }) : undefined;
         if (!m) throw new Error('missing-med');
+        const boxLabel = m.packSize ? boxBreakdownLabel({ packSize: m.packSize, unit: pr.unit }, pr.qty) : undefined;
         if (m.noSubstock) {
           trx.update(doc(db, 'meds', pr.medId), { floor: increment(pr.qty) });
           trx.set(doc(collection(db, 'txs')), {
             type: 'receive_from_central' as TxType, name: pr.name, medId: pr.medId, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'floor',
-            note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + ' — ไม่มี substock ขึ้นหน้างานทันที — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
+            note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + (boxLabel ? ' · ' + boxLabel : '') + ' — ไม่มี substock ขึ้นหน้างานทันที — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
           });
         } else {
           // Bug fix (lot duplication): same fix as commitReceive's own — merge into an existing
@@ -2093,7 +2080,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
           trx.set(doc(collection(db, 'txs')), {
             type: 'receive_from_central' as TxType, name: pr.name, medId: pr.medId, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'substock',
-            note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + ' — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
+            note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + (boxLabel ? ' · ' + boxLabel : '') + ' — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
           });
         }
         trx.update(ref, { status: 'approved', resolvedBy: userName(), resolvedTs: Date.now() });

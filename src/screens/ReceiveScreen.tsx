@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useApp } from '../store/AppContext';
-import { usesSubstock, needsWarehouseRequest, subTone, daysOfStockLeft, packStep } from '../store/selectors';
+import { usesSubstock, needsWarehouseRequest, subTone, daysOfStockLeft, packStep, boxBreakdownLabel } from '../store/selectors';
 import { nf, thDate, thTime } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty, DaysLeftBadge, PackSizeBadge } from '../components/Qty';
@@ -26,7 +26,8 @@ function needsReceiveRatio(m: Med, curSub: number): number {
 function boxRequestNote(m: Med, need: number): string | null {
   if (!m.packSize || m.packSize <= 1 || need <= 0) return null;
   const qty = Math.ceil(need / packStep(m)) * packStep(m);
-  return 'เบิกเป็นกล่อง กล่องละ ' + nf(m.packSize) + ' ' + m.unit + ' — ' + nf(qty / m.packSize) + ' กล่อง';
+  const label = boxBreakdownLabel(m, qty);
+  return label ? 'เบิกเป็นกล่อง — ' + label : null;
 }
 
 export default function ReceiveScreen() {
