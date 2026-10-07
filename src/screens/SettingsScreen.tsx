@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { suggestPar, halfOfMaxRounded, floorMinOf, parAnomalies, usageAnomalies } from '../store/selectors';
-import { nf, digitsOnly, parseIntSafe, isoDate, fiscalYearStartIso, DAY } from '../utils/format';
+import { nf, digitsOnly, parseIntSafe, isoDate, fiscalYearStartIso, thDate, DAY } from '../utils/format';
 import { notificationsSupported } from '../utils/notify';
 import { StatusDot } from '../components/Badge';
 import { WEEKDAY_NAME, WEEKDAY_CLINICS } from '../data/clinics';
 
 export default function SettingsScreen() {
   const {
-    state, warn, applyAllSuggested, setAllMinHalfOfMax, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, go, updateGlobalSettings,
+    state, warn, applyAllSuggested, setAllMinHalfOfMax, setAllMinSuggested, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, go, updateGlobalSettings,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify,
     lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify,
@@ -51,6 +51,13 @@ export default function SettingsScreen() {
   const suggestDiffIds = new Set(suggestDiff.map((m) => m.id));
   const unstableSuggestions = usageAnomalies(meds).filter((a) => suggestDiffIds.has(a.med.id));
   const minHalfDiffCount = meds.filter((m) => halfOfMaxRounded(m.parFloor) !== floorMinOf(m)).length;
+  // Real-world request: "วิเคราะห์ Min Max...ให้เหมาะกับการใช้งานหน้างานจริง" — same diff-count
+  // pattern as minHalfDiffCount above, but against suggestPar()'s own data-driven Min (real usage
+  // rate × half the cover-days Max represents) instead of a flat 50%-of-Max ratio.
+  const minSuggestedDiffCount = meds.filter((m) => {
+    const s = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
+    return !!s && s.min !== floorMinOf(m);
+  }).length;
 
   // Real-world request: Min/Max/par substock are hand-typed numbers — an extra/missing zero,
   // or Min and Max swapped, is a genuinely easy typo to make and easy to miss just glancing at
@@ -239,19 +246,49 @@ export default function SettingsScreen() {
             >
               {state.busy['analyzeWeekdayUsage'] ? 'กำลังวิเคราะห์…' : 'วิเคราะห์รูปแบบการใช้ยารายวัน (จ-ศ) ↺'}
             </button>
+            {minSuggestedDiffCount > 0 && (
+              <button
+                onClick={setAllMinSuggested}
+                disabled={!!state.busy['setAllMinSuggested']}
+                title="เขียนทับค่า Min ของยาทุกตัวที่มีสถิติการใช้ (รวมที่เคยตั้งเองไว้) ด้วยค่าที่คำนวณจากอัตราการใช้จริงของยาตัวนั้นๆ"
+                style={{ border: '1px solid var(--green)', background: 'var(--green-tint)', color: 'var(--green)', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40, opacity: state.busy['setAllMinSuggested'] ? 0.7 : 1 }}
+              >
+                {state.busy['setAllMinSuggested'] ? 'กำลังบันทึก…' : `ตั้ง Min ตามอัตราการใช้จริงทั้งหมด (${minSuggestedDiffCount} รายการเปลี่ยน)`}
+              </button>
+            )}
             {minHalfDiffCount > 0 && (
               <button
                 onClick={setAllMinHalfOfMax}
                 disabled={!!state.busy['setAllMinHalfOfMax']}
-                title="เขียนทับค่า Min ของยาทุกตัว (รวมที่เคยตั้งเองไว้) ให้เป็น 50% ของ Max"
+                title="เขียนทับค่า Min ของยาทุกตัว (รวมที่เคยตั้งเองไว้) ให้เป็น 50% ของ Max — สำหรับยาที่ยังไม่มีสถิติการใช้พอให้คำนวณตามจริง"
                 style={{ border: '1px solid var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40, opacity: state.busy['setAllMinHalfOfMax'] ? 0.7 : 1 }}
               >
-                {state.busy['setAllMinHalfOfMax'] ? 'กำลังบันทึก…' : `ตั้ง Min ทั้งหมด = 50% ของ Max (${minHalfDiffCount} รายการเปลี่ยน)`}
+                {state.busy['setAllMinHalfOfMax'] ? 'กำลังบันทึก…' : `ตั้ง Min ที่เหลือ = 50% ของ Max (${minHalfDiffCount} รายการเปลี่ยน)`}
               </button>
             )}
           </div>
         )}
-        <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 8 }}>อัตราการใช้คำนวณจากประวัติ "นำเข้าจาก HOSxP" เท่านั้น ไม่ได้อัปเดตอัตโนมัติทุกวัน — ควรกด "คำนวณสถิติการใช้ใหม่" เป็นระยะ (เช่น เดือนละครั้ง) หลังจากใช้งานนำเข้า HOSxP มาสม่ำเสมอแล้ว ถ้ากดตอนที่ยังไม่มีประวัติ HOSxP เลย ค่าจะกลายเป็น 0 ทั้งหมด</div>
+        {/* Real-world request: "used30 ไม่มีการคำนวณใหม่อัตโนมัติ...ไม่มีสัญญาณเตือนว่าข้อมูลเก่า
+            แค่ไหนแล้ว" — scripts/recompute-usage-stats.mjs now runs this same calculation
+            automatically every day (see its own header comment), but staff still need to actually
+            SEE that it's current — or notice if the scheduled job ever silently stops running
+            (a missing/expired secret, a billing issue) — not just trust it blindly. */}
+        {(() => {
+          const at = state.usageStatsRecomputedAt;
+          const daysAgo = at ? Math.floor((Date.now() - at) / DAY) : null;
+          // The scheduled job runs daily — 2 days of silence already means it skipped at least
+          // one run; anything past that is worth flagging in amber/red rather than staying quiet.
+          const stale = daysAgo === null || daysAgo >= 2;
+          const veryStale = daysAgo === null || daysAgo >= 7;
+          return (
+            <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 8, color: veryStale ? 'var(--red)' : stale ? 'var(--amber-ink)' : undefined, fontWeight: stale ? 600 : undefined }}>
+              {at
+                ? 'คำนวณสถิติการใช้ยาล่าสุด: ' + thDate(at) + (daysAgo === 0 ? ' (วันนี้)' : ' (' + nf(daysAgo || 0) + ' วันที่แล้ว)') + (stale ? ' — นานกว่าปกติ ตรวจสอบระบบอัตโนมัติ (recompute-usage-stats.yml) หรือกด "คำนวณสถิติการใช้ใหม่" เองด้านบน' : ' — ระบบคำนวณให้อัตโนมัติทุกวันแล้ว')
+                : 'ยังไม่เคยคำนวณสถิติการใช้ยาเลย — กด "คำนวณสถิติการใช้ใหม่จากประวัติ HOSxP" ด้านบนอย่างน้อย 1 ครั้ง ค่าแนะนำ par ทั้งหมดจะยังไม่แม่นยำจนกว่าจะทำขั้นตอนนี้'}
+              {' '}อัตราการใช้คำนวณจากประวัติ "นำเข้าจาก HOSxP" เท่านั้น ถ้ากดตอนที่ยังไม่มีประวัติ HOSxP เลย ค่าจะกลายเป็น 0 ทั้งหมด
+            </div>
+          );
+        })()}
         <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>"วิเคราะห์รูปแบบการใช้ยารายวัน" ตรวจแยกแต่ละวันจันทร์-ศุกร์จากประวัติ HOSxP 91 วันล่าสุด (ต้องมีข้อมูลอย่างน้อย 4 ครั้งต่อวันถึงจะนับ) — ยาที่พบวันใช้มากผิดปกติชัดเจนจะได้ par หน้างานที่แนะนำสูงขึ้นเฉพาะให้พอรองรับวันนั้น โดยไม่กระทบ par substock (รอบเบิกคลังใหญ่ยาวพอที่จะเกลี่ยยอดในแต่ละวันออกไปเองอยู่แล้ว)</div>
       </div>
 

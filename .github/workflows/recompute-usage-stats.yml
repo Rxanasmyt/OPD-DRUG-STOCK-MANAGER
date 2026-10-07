@@ -1,0 +1,30 @@
+name: Recompute Usage Stats
+
+# Daily recompute of every active med's used30/usedPrev30 (the ONLY inputs the whole Min/Max/par
+# substock suggestion reads — see src/store/selectors.ts's suggestPar()) from real HOSxP
+# dispensing history — see scripts/recompute-usage-stats.mjs for exactly how (same aggregation as
+# SettingsScreen's manual "คำนวณสถิติการใช้ใหม่จากประวัติ HOSxP ↺" button) and why this needed to
+# stop depending on someone remembering to click that button.
+#
+# Runs shortly after stock-drift-check.yml (00:15 Asia/Bangkok) — reuses the same
+# FIREBASE_SERVICE_ACCOUNT_KEY secret every other scheduled script here already uses, nothing
+# more to set up if any of those are already configured for this repo.
+
+on:
+  schedule:
+    - cron: '30 17 * * *' # 17:30 UTC = 00:30 Asia/Bangkok
+  workflow_dispatch:
+
+jobs:
+  recompute:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/recompute-usage-stats.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}

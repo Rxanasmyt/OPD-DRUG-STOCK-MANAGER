@@ -681,16 +681,16 @@ describe('suggestPar', () => {
     // daily = 30 / (30*5/7) ≈ 1.4286 — not the naive used30/30 = 1 (see dailyUsageRate()).
     const daily = 30 / (30 * (5 / 7));
     const out = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
-    expect(out).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21) });
+    expect(out).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21), min: roundStep(daily * (3 / 2)) });
   });
 
   it('sizes a no-substock med\'s floor par off subCoverDays, not floorCoverDays — it has no substock buffer to absorb the wait for the next central-warehouse refill', () => {
     const daily = 30 / (30 * (5 / 7));
     const withSubstock = suggestPar(med({ used30: 30, volatility: 1, noSubstock: false }), 3, 21);
     const noSubstock = suggestPar(med({ used30: 30, volatility: 1, noSubstock: true }), 3, 21);
-    expect(withSubstock).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21) });
+    expect(withSubstock).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21), min: roundStep(daily * (3 / 2)) });
     // Same subCoverDays basis drives both floor and sub once there's no substock stage.
-    expect(noSubstock).toEqual({ floor: roundStep(daily * 21), sub: roundStep(daily * 21) });
+    expect(noSubstock).toEqual({ floor: roundStep(daily * 21), sub: roundStep(daily * 21), min: roundStep(daily * (21 / 2)) });
   });
 
   // Regression for a real request: "การใช้ยาแต่ละวันในคลินิกที่แตกต่างกัน ยาที่ใช้ในแต่ละวันก็จะ
@@ -701,7 +701,7 @@ describe('suggestPar', () => {
     const daily = 30 / (30 * (5 / 7));
     const flat = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
     const withPattern = suggestPar(med({ used30: 30, volatility: 1, weekdayPeakFactor: 2 }), 3, 21);
-    expect(withPattern).toEqual({ floor: roundStep(daily * 3 * 2), sub: roundStep(daily * 21) });
+    expect(withPattern).toEqual({ floor: roundStep(daily * 3 * 2), sub: roundStep(daily * 21), min: roundStep(daily * (3 / 2) * 2) });
     expect(withPattern!.sub).toBe(flat!.sub); // substock par completely unaffected
     expect(withPattern!.floor).toBeGreaterThan(flat!.floor); // floor par scaled up
   });
@@ -709,7 +709,7 @@ describe('suggestPar', () => {
   it('defaults weekdayPeakFactor to 1 (no change at all) for a med analyzeWeekdayUsage hasn\'t run for yet', () => {
     const daily = 30 / (30 * (5 / 7));
     const out = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
-    expect(out).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21) });
+    expect(out).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21), min: roundStep(daily * (3 / 2)) });
   });
 
   // Regression for a real request: "การคำนวณ min max หรือ par substock ให้อิงตัวเลขจำนวนกล่องยาร่วม
@@ -727,7 +727,72 @@ describe('suggestPar', () => {
     // A med with no packSize must be completely unaffected — same numbers as before this fix.
     const noPackSize = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
     const daily = 30 / (30 * (5 / 7));
-    expect(noPackSize).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21) });
+    expect(noPackSize).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21), min: roundStep(daily * (3 / 2)) });
+  });
+
+  // Real-world request: "วิเคราะห์ Min Max...ให้เหมาะกับการใช้งานหน้างานจริง" item 1 — Min used to
+  // only ever be a flat 50%-of-Max fallback (floorMinOf(), unrelated to this drug's own real usage
+  // rate) or a hand-typed guess, with no data-driven suggestion at all.
+  describe('suggested `min` (item 1 — data-driven reorder point)', () => {
+    it('sizes min off the SAME real usage rate as floor, over half the days-of-cover floor represents', () => {
+      const daily = 30 / (30 * (5 / 7));
+      const out = suggestPar(med({ used30: 30, volatility: 1 }), 10, 21);
+      expect(out!.min).toBe(roundStep(daily * (10 / 2)));
+      expect(out!.min).toBeLessThan(out!.floor);
+      expect(out!.min).toBeGreaterThan(0);
+    });
+
+    it('never lands at or above the suggested floor, even when rounding would otherwise coincide', () => {
+      // A very low-use boxed med: both the half-days min and the full floor round UP to the
+      // same single whole box, which would otherwise make min === floor (a useless reorder point
+      // that triggers the instant the shelf isn't 100% full).
+      const out = suggestPar(med({ used30: 1, volatility: 1, packSize: 1000 }), 3, 21);
+      expect(out!.min).toBeLessThan(out!.floor);
+    });
+
+    it('scales min by weekdayPeakFactor too, same as floor', () => {
+      const daily = 30 / (30 * (5 / 7));
+      const withPattern = suggestPar(med({ used30: 30, volatility: 1, weekdayPeakFactor: 2 }), 3, 21);
+      expect(withPattern!.min).toBe(roundStep(daily * (3 / 2) * 2));
+    });
+  });
+
+  // Real-world request: "วิเคราะห์ Min Max...ให้เหมาะกับการใช้งานหน้างานจริง" item 4 — a HIGH ALERT
+  // drug (Med.had) gets extra floor-par margin automatically, reusing a signal the system already
+  // tracks (printed labels, the TransferScreen "High alert" filter) instead of leaving its real
+  // criticality entirely up to whatever volatility number someone happened to type in by hand.
+  describe('HIGH ALERT (Med.had) floor-par margin (item 4)', () => {
+    it('gives a HAD drug a larger suggested floor par than an otherwise-identical non-HAD drug', () => {
+      const normal = suggestPar(med({ used30: 30, volatility: 1, had: false }), 3, 21);
+      const hadDrug = suggestPar(med({ used30: 30, volatility: 1, had: true }), 3, 21);
+      expect(hadDrug!.floor).toBeGreaterThan(normal!.floor);
+    });
+
+    it('never applies the HAD margin to substock par — its longer cycle already carries enough slack', () => {
+      const normal = suggestPar(med({ used30: 30, volatility: 1, had: false }), 3, 21);
+      const hadDrug = suggestPar(med({ used30: 30, volatility: 1, had: true }), 3, 21);
+      expect(hadDrug!.sub).toBe(normal!.sub);
+    });
+  });
+
+  // Real-world request: "วิเคราะห์ Min Max...ให้เหมาะกับการใช้งานหน้างานจริง" item 3 — a single
+  // month's usage swing used to fully drive the suggested par the moment it's read, with only the
+  // separate usageAnomalies() ≥40%-swing flag (easy to miss on a bulk apply) as any warning.
+  describe('blended used30/usedPrev30 rate (item 3 — damping a one-off monthly swing)', () => {
+    it('blends 70/30 (recent-weighted) toward the suggested par when a real prior-month baseline exists', () => {
+      // used30 alone would suggest a much bigger jump than the blended 70/30 figure does.
+      const spiked = suggestPar(med({ used30: 1000, usedPrev30: 100, volatility: 1 }), 3, 21);
+      const blendedDaily = (1000 * 0.7 + 100 * 0.3) / (30 * (5 / 7));
+      const naiveDaily = 1000 / (30 * (5 / 7));
+      expect(spiked!.floor).toBe(roundStep(blendedDaily * 3));
+      expect(spiked!.floor).toBeLessThan(roundStep(naiveDaily * 3));
+    });
+
+    it('falls back to used30 alone when there is no real prior-month baseline yet', () => {
+      const daily = 30 / (30 * (5 / 7));
+      const noBaseline = suggestPar(med({ used30: 30, usedPrev30: 0, volatility: 1 }), 3, 21);
+      expect(noBaseline!.floor).toBe(roundStep(daily * 3));
+    });
   });
 });
 
