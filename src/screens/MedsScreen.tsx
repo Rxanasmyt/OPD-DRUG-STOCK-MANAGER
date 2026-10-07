@@ -5,7 +5,7 @@ import { wardOf, wardLabel, floorMinOf, toneFor, subTone, isSharedMed, categoryO
 import { MedDot } from '../components/MedDot';
 import { Badge, HadTag } from '../components/Badge';
 import { BottomSheet } from '../components/BottomSheet';
-import { Qty, DaysLeftBadge } from '../components/Qty';
+import { Qty, DaysLeftBadge, UsageRateBadge, PAR_LABEL_COLOR } from '../components/Qty';
 import type { Med, Ward } from '../types';
 import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
@@ -647,6 +647,7 @@ export default function MedsScreen() {
                       <span>{m.name}</span>
                       {m.had && <HadTag />}
                       {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
+                      <span style={{ marginLeft: 'auto', flex: 'none' }}><UsageRateBadge m={m} /></span>
                     </div>
                     <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
                       {m.code} · ชั้น {isSharedMed(m) ? ('OPD ' + (m.bin || '—') + ' / IPD ' + (m.binIpd || '—')) : (m.bin || '—')}{!m.noSubstock && m.binSub ? ' · substock ' + m.binSub : ''} · {m.unit} · {nf(m.price)} บาท
@@ -657,7 +658,7 @@ export default function MedsScreen() {
                         {/* Only surfaced under the Max=Min=1 diagnostic filter above — showing
                             the actual numbers right on the row is the whole point of that
                             filter (spot them without opening each edit form one by one). */}
-                        {parOneOnly && <span style={{ color: 'var(--amber-ink)', fontWeight: 600 }}> · Max {nf(m.parFloor)} / Min {nf(floorMinOf(m))} {m.unit}</span>}
+                        {parOneOnly && <span> · <span style={{ color: PAR_LABEL_COLOR.max, fontWeight: 700 }}>Max {nf(m.parFloor)}</span> / <span style={{ color: PAR_LABEL_COLOR.min, fontWeight: 700 }}>Min {nf(floorMinOf(m))}</span> {m.unit}</span>}
                       </div>
                     )}
                     <div style={{ display: 'flex', gap: 5, marginTop: 5, flexWrap: 'wrap' }}>
@@ -1044,16 +1045,16 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
       )}
       <div className="grid-2" style={{ marginBottom: 9 }}>
         <label>
-          <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>par substock</span>
+          <span style={{ display: 'block', fontSize: 12, marginBottom: 4, color: PAR_LABEL_COLOR.sub, fontWeight: 700 }}>par substock</span>
           <input value={v.parSub} onChange={(e) => set('parSub', digitsOnly(e.target.value))} inputMode="numeric" disabled={v.noSubstock} style={{ ...inputStyle, ...(v.noSubstock ? { background: 'var(--bg-subtle)', color: 'var(--muted)' } : {}) }} />
         </label>
         <label>
-          <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>par หน้างาน (Max — เติมขึ้นถึงจุดนี้)</span>
+          <span style={{ display: 'block', fontSize: 12, marginBottom: 4, color: PAR_LABEL_COLOR.max, fontWeight: 700 }}>par หน้างาน (Max — เติมขึ้นถึงจุดนี้)</span>
           <input value={v.parFloor} onChange={(e) => set('parFloor', digitsOnly(e.target.value))} inputMode="numeric" style={inputStyle} />
         </label>
       </div>
       <label style={{ display: 'block', marginBottom: 9 }}>
-        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>จุดต่ำสุดต้องเติม (Min)</span>
+        <span style={{ display: 'block', fontSize: 12, marginBottom: 4, color: PAR_LABEL_COLOR.min, fontWeight: 700 }}>จุดต่ำสุดต้องเติม (Min)</span>
         <input value={v.floorMin} onChange={(e) => set('floorMin', digitsOnly(e.target.value))} placeholder={'ว่างไว้ = ' + nf(floorMinOf({ parFloor: parseInt(v.parFloor, 10) || 0 } as Med)) + ' (50% ของ Max ปัดเป็นเลขลงตัว)'} inputMode="numeric" style={inputStyle} />
         <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>ต่ำกว่าจุดนี้คือของจริงที่ต้องเติมตอนเช้า — คนละจุดกับ Max เพราะอัตราการใช้ OPD/IPD ไม่เท่ากัน แม้ยารหัสเดียวกันก็ตั้ง Min-Max ต่างกันได้ตามชั้นวางจริง</div>
         {minExceedsMax && (

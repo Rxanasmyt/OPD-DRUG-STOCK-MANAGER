@@ -299,6 +299,30 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // ---- คืนยา (AppContext.tsx: commitAdjust, 'return' type — see DrugReturnRecord in
+    // types.ts) — written in the SAME transaction as the floor/txs write for a patient return,
+    // same append-only "durable side record" shape as usageHistory/parAdjustments above. Unlike
+    // those two (admin-only imports/par changes), any active pharm/tech processes a return at
+    // the counter, so this needs the same isActive()-only trust level as txs itself. ----
+    match /returns/{id} {
+      allow read: if isActive();
+      allow create: if isActive()
+                    && request.resource.data.medId is string
+                    && request.resource.data.medName is string
+                    && request.resource.data.medCode is string
+                    && request.resource.data.unit is string
+                    && request.resource.data.category is string
+                    && request.resource.data.hn is string
+                    && isNonNegNum(request.resource.data.qty)
+                    && isNonNegNum(request.resource.data.unitPrice)
+                    && isNonNegNum(request.resource.data.value)
+                    && request.resource.data.note is string
+                    && request.resource.data.date is string
+                    && request.resource.data.ts is number
+                    && request.resource.data.by is string;
+      allow update, delete: if false;
+    }
+
     // ---- pre-delete safety snapshots (AppContext.tsx: snapshotBeforeDelete()) ----
     // Before resetAllStockLedgers()/resetAllQuantities() delete anything, they first copy every
     // document about to be destroyed in here — an in-app undo layer that doesn't depend on

@@ -2,6 +2,7 @@ import { qrSvgMarkup } from './qr';
 import { fitSingleLineFontSizePx, splitTitleForDisplay } from './labelName';
 import { fiscalYear, thDateLong } from './format';
 import { HOSPITAL_CREST_DATA_URI } from './crestImage';
+import { boxBreakdownLabel } from '../store/selectors';
 import type { DailyMetrics } from '../types';
 
 // The real crest (see HospitalCrest.tsx / crestImage.ts) as a plain <img>, sized to fit an
@@ -589,7 +590,7 @@ export function printSubstockCardSheet(
   // selectors.ts) print the SAME sheet shape against its floor par instead of substock par,
   // for a drug whose floor plays substock's role (see fetchFloorLedger in AppContext.tsx) —
   // both default to the original substock wording so every existing call site is unaffected.
-  med: { code: string; name: string; parSub: number; unit: string; ward?: 'opd' | 'ipd'; parLabel?: string; heading?: string },
+  med: { code: string; name: string; parSub: number; unit: string; ward?: 'opd' | 'ipd'; parLabel?: string; heading?: string; packSize?: number },
   rows: SubstockCardRow[],
   fyLabel?: number | 'all',
   // Real-world request: this used to be a flat row-by-row table with nothing to tie the
@@ -634,13 +635,22 @@ export function printSubstockCardSheet(
       <td class="num bal">${meta.openingBalance.toLocaleString('en-US')}</td>
       <td class="by"></td>
     </tr>` : '';
+  // Real-world request: "ในส่วนบัตรสต็อคหรือบัตรหน้างาน เขียนรูปแบบนี้ด้วยเพื่อให้ง่ายต่อการมอง
+  // ข้อมูล" — the printed card's รับ/จ่าย/คงเหลือ columns get the same "1x60" box breakdown
+  // already shown on screen (SubstockCardScreen) and in the cart (TransferScreen), via the same
+  // boxBreakdownLabel() helper. `?.includes('x')` skips the sub-line for a sub-one-box remainder
+  // (nothing useful to add under a number that's already shown in full).
+  const boxSub = (qty: number): string => {
+    const label = med.packSize ? boxBreakdownLabel({ packSize: med.packSize, unit: med.unit }, qty, true) : undefined;
+    return label?.includes('x') ? `<br><span style="font-size:7.5pt;font-weight:500;color:#667">${escapeHtml(label)}</span>` : '';
+  };
   const body = openingRow + rows
     .map((r, i) => `<tr${r.balance < 0 ? ' style="background:#fbeceb"' : ''}>
       <td class="no">${i + 1}</td>
       <td class="date">${escapeHtml(new Date(r.ts).toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: '2-digit' }))}</td>
-      <td class="num recv">${r.received ? r.received.toLocaleString('en-US') : ''}</td>
-      <td class="num disp">${r.dispensed ? r.dispensed.toLocaleString('en-US') : ''}</td>
-      <td class="num bal" style="${r.balance < 0 ? 'color:#a32b22' : ''}">${r.balance.toLocaleString('en-US')}${r.balance < 0 ? ' *' : ''}</td>
+      <td class="num recv">${r.received ? r.received.toLocaleString('en-US') + boxSub(r.received) : ''}</td>
+      <td class="num disp">${r.dispensed ? r.dispensed.toLocaleString('en-US') + boxSub(r.dispensed) : ''}</td>
+      <td class="num bal" style="${r.balance < 0 ? 'color:#a32b22' : ''}">${r.balance.toLocaleString('en-US')}${r.balance < 0 ? ' *' : ''}${boxSub(Math.abs(r.balance))}</td>
       <td class="by">${escapeHtml(r.by)}</td>
     </tr>`)
     .join('');

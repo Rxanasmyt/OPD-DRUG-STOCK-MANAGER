@@ -104,7 +104,13 @@ export function halfOfMaxRounded(parFloor: number): number {
   const raw = parFloor * 0.5;
   if (raw <= 0) return 0;
   const step = raw >= 500 ? 100 : raw >= 100 ? 10 : raw >= 10 ? 5 : 1;
-  return Math.round(raw / step) * step;
+  const rounded = Math.round(raw / step) * step;
+  // Bug fix (edge case): for a tiny parFloor (1 or 2), Math.round(raw/step)*step can round
+  // back UP to parFloor itself (e.g. halfOfMaxRounded(1): raw=0.5, rounds to 1) — silently
+  // breaking this function's own "always strictly below a positive Max" contract that
+  // suggestPar()'s min-vs-floor safety net (and AppContext.tsx's bulk "ตั้ง Min ทั้งหมดเป็น 50%
+  // ของ Max" action) both rely on. Clamp to at most one below parFloor itself.
+  return Math.min(rounded, parFloor - 1);
 }
 
 /** Real min-max par: `parFloor` is the shelf's capacity ("Max" — fill up TO this), `floorMin`
@@ -565,7 +571,13 @@ export function dailyUsageRate(m: Med): number {
 // fluke to less than a third of its naive effect on the suggested number. Falls back to plain
 // `used30` alone (unchanged from before) when there's no usedPrev30 yet — a newly added or
 // recently-reconciled drug with only one real month on record has nothing to blend against.
-function parSuggestionDailyRate(m: Med): number {
+// Exported (not just suggestPar()'s own internal helper) — real-world request: "อยากให้ที่หัว
+// มุมรายการยาทุกตัวให้มีข้อมูลว่ายาตัวนี้ 1 วันใช้ยาจำนวนยาเท่าไร โดยใช้ข้อมูลที่คำนวณมาได้ที่ใช้
+// สำหรับคำนวน min max par เลยครับ" — this is the exact daily rate suggestPar() sizes Min/Max/par
+// off of (the blended 70/30 rate, not the plain dailyUsageRate() used elsewhere for "เหลือใช้กี่
+// วัน"), so every med row showing "~N หน่วย/วัน" shows the SAME number that justifies its own
+// Min/Max, not a second, subtly different usage figure someone would have to reconcile by hand.
+export function parSuggestionDailyRate(m: Med): number {
   if (!(m.usedPrev30 > 0)) return dailyUsageRate(m);
   return (m.used30 * 0.7 + m.usedPrev30 * 0.3) / WEEKDAYS_PER_30_DAYS;
 }
@@ -667,10 +679,10 @@ export function expTone(d: number, warnDays: number): string {
   return d < 0 ? 'var(--red)' : d < 30 ? 'var(--red)' : d < warnDays ? 'var(--amber)' : 'var(--green)';
 }
 
-// Real-world request: "การคำนวณ min max หรือ par substock ให้อิงตัวเลขจำนวนกล่องยาร่วมด้วยว่า 1 กล่อง
-// มีจำนวนยาเท่าไร เพราะการเบิกจะเบิกทีละกล่องทีละขวดทีละแพคอยู่แล้ว" — `packSize` is optional so every
-// caller (seed data, suggestPar() below) keeps working unchanged for a med with no box size set,
-// falling back to the exact same generic magnitude-based step (1/10/100) this always used.
+// `packSize` is optional, kept for any caller that genuinely wants a box-rounded number — every
+// current caller (seed data, suggestPar()) passes none and gets the plain generic magnitude-based
+// step (1/10/100) instead; see suggestPar()'s own comment for why its Min/Max/par no longer round
+// to a box multiple at all (that's suggestTransferQty()'s job now, not the par number itself).
 export function roundStep(v: number, packSize?: number): number {
   const step = packSize && packSize > 1 ? packSize : (v >= 500 ? 100 : v >= 100 ? 10 : 1);
   return Math.max(step, Math.ceil(v / step) * step);
@@ -709,25 +721,24 @@ export function boxBreakdownLabel(m: Pick<Med, 'packSize' | 'unit'>, qty: number
   return nf(boxes) + 'x' + nf(m.packSize) + (compact ? '+' + nf(rem) : ' + ' + nf(rem) + ' ' + m.unit);
 }
 
-// Real-world request: "พอคำนวนออกมาได้ 1 กล่องกับเศษนิดหน่อย ปัดเป็น 2 ทำให้ยาที่เติมเยอะเกินไป
-// ครับเนื่องจากบางตัวยากล่องละ 1000 หากเบิกมา 2 กล่อง ยาก็จะเยอะเกินไป" — for a med with a REAL
-// box size (Med.packSize), always rounding the deficit UP to the next whole box badly overfills
-// the floor when the box is large relative to the leftover (e.g. a deficit of 1,050 for a
-// 1,000-unit box used to round up to 2 boxes/2,000 units instead of 1 box/1,000). Rounds to the
-// NEAREST whole box instead — still never 0 boxes when there's a real deficit (Math.max(step, …)
-// below), since floor being under par always means at least one box is worth moving.
+// Real-world request (v3.121.0): "พอคำนวนออกมาได้ 1 กล่องกับเศษนิดหน่อย ปัดเป็น 2 ทำให้ยาที่เติม
+// เยอะเกินไปครับเนื่องจากบางตัวยากล่องละ 1000 หากเบิกมา 2 กล่อง ยาก็จะเยอะเกินไป" — this used to
+// round the deficit to the NEAREST whole box instead of always up, specifically because `parFloor`
+// (Max) was ALSO being rounded up to a box multiple by suggestPar()/roundStep() back then, which
+// could inflate the "real" target before this function ever saw it.
 //
-// The generic magnitude step (10/100, used when a med has no real packSize) is deliberately left
-// rounding UP as before: unlike a real box, that step is just a round-number display convenience,
-// not a physical "can only move whole units of this size" constraint, so there's no overfill risk
-// there worth trading away "a transfer never falls short of reaching par" for.
+// Real-world request (this round): "การโชว์แสดง min max par ให้โชว์ตัวเลขจริงๆที่คำนวนได้จริง แต่
+// หลักการเติมยา...จะต้องเติมเป็นกล่องอยู่แล้ว ดังนั้นตอนคำนวนการเติมยา ก็ให้คำนวนเป็นกล่องแล้วยาถึง
+// max พอดี หรือเกิน max ได้ตามความเหมาะสม" — suggestPar() no longer box-rounds Max/Min/par at all
+// (see its own comment), so `parFloor` here is now the real, un-inflated target. Reverted to always
+// rounding UP to the next whole box: the one way to guarantee a fill never leaves floor SHORT of
+// its real Max, now that there's no risk of compounding two separate up-roundings on top of each
+// other the way the v3.121.0 fix was guarding against.
 export function suggestTransferQty(state: AppState, m: Med): number {
   const need = Math.max(0, m.parFloor - m.floor);
   if (need <= 0) return 0;
   const step = packStep(m);
-  const qty = m.packSize && m.packSize > 1
-    ? Math.max(step, Math.round(need / step) * step)
-    : Math.ceil(need / step) * step;
+  const qty = Math.max(step, Math.ceil(need / step) * step);
   return Math.min(subQty(state, m.id), qty);
 }
 
@@ -763,21 +774,18 @@ export function matchHosxpMed(meds: Med[], rawName: string): HosxpMatch {
   return { kind: 'none' };
 }
 
-// Real-world request: "การคำนวณ min max หรือ par substock ให้อิงตัวเลขจำนวนกล่องยาร่วมด้วยว่า 1 กล่อง
-// มีจำนวนยาเท่าไร เพราะการเบิกจะเบิกทีละกล่องทีละขวดทีละแพคอยู่แล้ว" — a med with a real box size
-// (Med.packSize) can only ever be ordered/received in whole boxes (see packStep()'s own doc
-// comment, used for the actual REQUISITION quantity already), so a suggested par target that
-// lands mid-box (e.g. "287 เม็ด" for a drug boxed 300/box) is never actually achievable — someone
-// topping up to it either over- or under-shoots by definition. roundStep() now rounds UP to the
-// nearest whole box when packSize is set, same "always round UP, never down" contract it already
-// had for the generic magnitude-based step (a par that's short of its target days of cover is a
-// worse failure mode than one that's a little generous). The illustrative case that prompted this
-// (a slow-moving drug boxed 1000/box): daily*days*volatility might compute to something small,
-// like 40 — roundStep(40, 1000) still correctly returns one whole box (1000), which may well cover
-// that drug for months, exactly the "เติมแค่ 1 ครั้งก็อยู่ได้หลายวัน" case described — this was
-// already true before this fix (the old step-1 rounding would have suggested 40, which can't
-// actually be ordered either), so the box-awareness here is what makes the suggested number one a
-// real requisition can satisfy, not a change in how "low-use" drugs are sized.
+// Real-world request (this round): "การโชว์แสดง min max par ให้โชว์ตัวเลขจริงๆที่คำนวนได้จริง แต่
+// หลักการเติมยา หรือเบิกยาจากคลังจะต้องเติมเป็นกล่องอยู่แล้ว ดังนั้นตอนคำนวนการเติมยา ก็ให้คำนวน
+// เป็นกล่องแล้วยาถึง max พอดี หรือเกิน max ได้ตามความเหมาะสมของจำนวนยา 1 กล่องของแต่ละรายการยา" —
+// an earlier fix (see the commented-out history this replaces) had roundStep() snap Min/Max/par
+// themselves to whole-box multiples, on the reasoning that a mid-box target is never physically
+// achievable. The user now wants the OPPOSITE split: Min/Max/par shown/stored here should be the
+// real, un-rounded (except for the plain cosmetic 1/10/100 magnitude step every par already got)
+// calculated numbers — the actual target a shelf is trying to reach — while the physical ACT of
+// filling it (suggestTransferQty()/packStep() below, and the central-warehouse request list,
+// AppContext.tsx) is what rounds up to whole boxes. That still guarantees a fill never falls short
+// of the real target (suggestTransferQty always ceils now — see its own comment), it just no
+// longer inflates the target ITSELF to a box multiple before that rounding even happens.
 export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number): { floor: number; sub: number; min: number } | null {
   if (!(m.used30 > 0)) return null; // ไม่มีสถิติการใช้จริง ห้ามแนะนำ par (roundStep(0) จะได้ 1 เสมอ ทำให้ค่าแนะนำผิดเพี้ยน)
   const daily = parSuggestionDailyRate(m);
@@ -804,8 +812,8 @@ export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number)
   // extra margin to whatever volatility someone happened to type in by hand). Floor only, same
   // reasoning as weekdayFactor — substock's long cycle already carries enough slack on its own.
   const criticalityFactor = m.had ? 1.5 : 1;
-  const floor = roundStep(daily * floorDays * m.volatility * weekdayFactor * criticalityFactor, m.packSize);
-  const sub = roundStep(daily * subCoverDays * m.volatility, m.packSize);
+  const floor = roundStep(daily * floorDays * m.volatility * weekdayFactor * criticalityFactor);
+  const sub = roundStep(daily * subCoverDays * m.volatility);
   // Real-world request: "Min ควรอิงอัตราการใช้จริงเหมือน Max ไม่ใช่สัดส่วนคงที่ของ Max" — floorMinOf()
   // (selectors.ts) falls back to a flat 50%-of-Max default when no Min is explicitly set, which
   // makes Min track whatever Max happens to be rather than this drug's own real usage rate — a
@@ -818,7 +826,7 @@ export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number)
   // could otherwise coincidentally round both to the same number for a low-use boxed drug) — falls
   // back to the same halfOfMaxRounded() default the rest of the app already uses in that case,
   // which is always strictly below a positive Max.
-  const rawMin = roundStep(daily * (floorDays / 2) * m.volatility * weekdayFactor * criticalityFactor, m.packSize);
+  const rawMin = roundStep(daily * (floorDays / 2) * m.volatility * weekdayFactor * criticalityFactor);
   const min = rawMin < floor ? rawMin : halfOfMaxRounded(floor);
   return { floor, sub, min };
 }

@@ -107,7 +107,7 @@ export default function ReceiveConfirmSheet() {
                   earlier on the page already scrolled past. */}
               <PackSizeBadge packSize={recvMed.packSize} unit={recvMed.unit} />
             </span>
-            <NumberStepper value={state.recvQty} onChange={setRecvQty} unit={recvMed.unit} />
+            <NumberStepper value={state.recvQty} onChange={setRecvQty} unit={recvMed.unit} packSize={recvMed.packSize} />
           </label>
           <button
             onClick={cancelReceivePick}

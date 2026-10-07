@@ -6,7 +6,7 @@ import {
   daysOfStockLeft, fefoLot, toneFor, subTone, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
   categoryOf, categoryStats, parAnomaliesFor, packStep, isOnStockHold, routeOf, effectiveRouteOf,
   topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes,
-  monthlyDaySplits, boxBreakdownLabel,
+  monthlyDaySplits, boxBreakdownLabel, halfOfMaxRounded,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
 import { DAY } from '../utils/format';
@@ -191,6 +191,22 @@ describe('floorMinOf', () => {
     // Explicitly set equal to Max is a legitimate, deliberate choice (MedsScreen's own edit-form
     // validation only blocks STRICTLY greater) — must not also be defaulted away.
     expect(floorMinOf(med({ floorMin: 110, parFloor: 110 }))).toBe(110);
+  });
+});
+
+describe('halfOfMaxRounded — strictly-below-parFloor edge case', () => {
+  it('never returns a value equal to or above a tiny positive parFloor (1 or 2)', () => {
+    // Bug fix: Math.round(0.5/1)*1 rounds back UP to exactly 1, silently breaking this
+    // function's own "always strictly below a positive Max" contract — surfaced by suggestPar()'s
+    // min-vs-floor safety net once a very-low-use med's suggested floor itself lands at 1 (see
+    // its own "never lands at or above the suggested floor" test below).
+    expect(halfOfMaxRounded(1)).toBe(0);
+    expect(halfOfMaxRounded(2)).toBeLessThan(2);
+  });
+
+  it('is unaffected for every normal (non-degenerate) parFloor', () => {
+    expect(halfOfMaxRounded(110)).toBe(55);
+    expect(halfOfMaxRounded(10)).toBe(5);
   });
 });
 
@@ -585,22 +601,26 @@ describe('suggestTransferQty', () => {
     expect(suggestTransferQty(st, med({ id: 'm1', parFloor: 100, floor: 25 }))).toBe(80);
   });
 
-  it('rounds a box-only med to the NEAREST whole multiple of packSize, not the generic magnitude step', () => {
+  it('rounds a box-only med UP to the next whole multiple of packSize, not the generic magnitude step', () => {
     const st = { lots: [{ id: 'l1', code: 'L1', medId: 'm1', lotNo: '1', exp: 0, qty: 999, loc: 'x' }] } as unknown as AppState;
     // Deficit is 75 (parFloor 100 - floor 25); packSize 30 means the generic 10-step is
-    // overridden — 75 is exactly 2.5 boxes, which rounds up to 90 (3 boxes of 30, JS's own
-    // round-half-up), never a fractional box.
+    // overridden — 75 is 2.5 boxes, which rounds UP to 90 (3 boxes of 30), never a fractional box.
     expect(suggestTransferQty(st, med({ id: 'm1', parFloor: 100, floor: 25, packSize: 30 }))).toBe(90);
   });
 
-  // Real-world request: "พอคำนวนออกมาได้ 1 กล่องกับเศษนิดหน่อย ปัดเป็น 2 ทำให้ยาที่เติมเยอะเกินไป
-  // ครับเนื่องจากบางตัวยากล่องละ 1000" — a box-only med must round to the NEAREST box, not always
-  // UP, or a tiny leftover over 1 box badly overfills the floor for a large box size.
-  it('rounds a box-only med DOWN when the leftover is less than half a box, instead of always rounding up', () => {
+  // Real-world request (this round): "การโชว์แสดง min max par ให้โชว์ตัวเลขจริงๆที่คำนวนได้จริง
+  // แต่หลักการเติมยา...จะต้องเติมเป็นกล่องอยู่แล้ว ดังนั้นตอนคำนวนการเติมยา ก็ให้คำนวนเป็นกล่องแล้ว
+  // ยาถึง max พอดี หรือเกิน max ได้ตามความเหมาะสม" — always rounds UP now (see
+  // suggestTransferQty's own comment for why this reverts the earlier v3.121.0 "round to nearest"
+  // fix: Max itself is no longer box-rounded by suggestPar() — see its own comment — so there's
+  // no risk of compounding two separate up-roundings the way that earlier fix was guarding against).
+  it('always rounds a box-only med UP to the next whole box, even when the leftover is less than half a box', () => {
     const st = { lots: [{ id: 'l1', code: 'L1', medId: 'm1', lotNo: '1', exp: 0, qty: 9999, loc: 'x' }] } as unknown as AppState;
-    // Deficit is 1,050 (parFloor 1200 - floor 150); packSize 1,000 — without the fix this used
-    // to round up to 2 full boxes (2,000), over twice the real need.
-    expect(suggestTransferQty(st, med({ id: 'm1', parFloor: 1200, floor: 150, packSize: 1000 }))).toBe(1000);
+    // Deficit is 1,050 (parFloor 1200 - floor 150); packSize 1,000 — rounds UP to 2 full boxes
+    // (2,000) so the floor never falls short of its real Max (1200) after the fill.
+    const qty = suggestTransferQty(st, med({ id: 'm1', parFloor: 1200, floor: 150, packSize: 1000 }));
+    expect(qty).toBe(2000);
+    expect(150 + qty).toBeGreaterThanOrEqual(1200); // floor after the fill reaches/exceeds Max
   });
 
   it('still rounds a box-only med UP when the leftover is more than half a box', () => {
@@ -712,20 +732,17 @@ describe('suggestPar', () => {
     expect(out).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21), min: roundStep(daily * (3 / 2)) });
   });
 
-  // Regression for a real request: "การคำนวณ min max หรือ par substock ให้อิงตัวเลขจำนวนกล่องยาร่วม
-  // ด้วยว่า 1 กล่องมีจำนวนยาเท่าไร เพราะการเบิกจะเบิกทีละกล่องทีละขวดทีละแพคอยู่แล้ว" — a med with a
-  // real box size must get a suggested par that's actually a whole number of boxes, never a
-  // mid-box quantity nobody could actually order.
-  it('rounds the suggested par UP to a whole box when the med has a real packSize, instead of the generic 1/10/100 step', () => {
-    // daily usage low enough that the generic step (1) would suggest a small, non-box number —
-    // packSize=1000 must still win out and suggest one whole box.
-    const lowUseBoxed = suggestPar(med({ used30: 30, volatility: 1, packSize: 1000 }), 3, 21);
-    expect(lowUseBoxed!.floor % 1000).toBe(0);
-    expect(lowUseBoxed!.sub % 1000).toBe(0);
-    expect(lowUseBoxed!.floor).toBeGreaterThan(0);
-
-    // A med with no packSize must be completely unaffected — same numbers as before this fix.
+  // Real-world request (this round): "การโชว์แสดง min max par ให้โชว์ตัวเลขจริงๆที่คำนวนได้จริง แต่
+  // หลักการเติมยา...จะต้องเติมเป็นกล่องอยู่แล้ว ดังนั้นตอนคำนวนการเติมยา ก็ให้คำนวนเป็นกล่องแล้วยาถึง
+  // max พอดี หรือเกิน max ได้ตามความเหมาะสม" — this used to round the suggested par ITSELF up to a
+  // whole box (an earlier fix this replaces — see suggestPar()'s own comment); the user now wants
+  // the displayed/stored Min/Max/par to be the real, un-box-rounded calculated numbers, with the
+  // box-rounding moved entirely to suggestTransferQty()/the actual fill, so a med's own packSize
+  // must leave its suggested par completely unaffected — identical to a med with no packSize at all.
+  it('never box-rounds the suggested par, even for a med with a real packSize — identical to the same med with no packSize', () => {
+    const boxed = suggestPar(med({ used30: 30, volatility: 1, packSize: 1000 }), 3, 21);
     const noPackSize = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
+    expect(boxed).toEqual(noPackSize);
     const daily = 30 / (30 * (5 / 7));
     expect(noPackSize).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21), min: roundStep(daily * (3 / 2)) });
   });
@@ -743,10 +760,10 @@ describe('suggestPar', () => {
     });
 
     it('never lands at or above the suggested floor, even when rounding would otherwise coincide', () => {
-      // A very low-use boxed med: both the half-days min and the full floor round UP to the
-      // same single whole box, which would otherwise make min === floor (a useless reorder point
+      // A very low-use med: both the half-days min and the full floor round UP to the same
+      // minimum step (1), which would otherwise make min === floor (a useless reorder point
       // that triggers the instant the shelf isn't 100% full).
-      const out = suggestPar(med({ used30: 1, volatility: 1, packSize: 1000 }), 3, 21);
+      const out = suggestPar(med({ used30: 1, volatility: 1 }), 3, 21);
       expect(out!.min).toBeLessThan(out!.floor);
     });
 

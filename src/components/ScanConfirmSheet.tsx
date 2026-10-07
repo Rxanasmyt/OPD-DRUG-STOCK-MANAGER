@@ -48,6 +48,7 @@ export default function ScanConfirmSheet() {
             onChange={(v) => setCartQty(med.id, v)}
             unit={med.unit}
             max={sub(med.id)}
+            packSize={med.packSize}
           />
           <button
             onClick={() => cancelScanConfirm(med.id)}
