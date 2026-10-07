@@ -647,7 +647,6 @@ export default function MedsScreen() {
                       <span>{m.name}</span>
                       {m.had && <HadTag />}
                       {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
-                      <span style={{ marginLeft: 'auto', flex: 'none' }}><UsageRateBadge m={m} /></span>
                     </div>
                     <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
                       {m.code} · ชั้น {isSharedMed(m) ? ('OPD ' + (m.bin || '—') + ' / IPD ' + (m.binIpd || '—')) : (m.bin || '—')}{!m.noSubstock && m.binSub ? ' · substock ' + m.binSub : ''} · {m.unit} · {nf(m.price)} บาท
@@ -662,6 +661,11 @@ export default function MedsScreen() {
                       </div>
                     )}
                     <div style={{ display: 'flex', gap: 5, marginTop: 5, flexWrap: 'wrap' }}>
+                      {/* Bug fix (real-device report, mobile overlap): UsageRateBadge used to sit
+                          in the title line above via marginLeft:auto — on a real phone a long
+                          drug name already fills that non-wrapping row, so the badge overflowed
+                          sideways. Moved into this already-wrapping badge row instead. */}
+                      <UsageRateBadge m={m} />
                       {isSharedMed(m) ? (
                         <Badge color="var(--green)" bg="var(--green-tint)">OPD+IPD ร่วมกัน</Badge>
                       ) : (

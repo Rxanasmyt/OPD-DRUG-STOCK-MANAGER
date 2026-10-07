@@ -244,7 +244,6 @@ export default function HomeScreen() {
                 <span>{m.name}</span>
                 {m.had && <HadTag />}
                 {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
-                <span style={{ marginLeft: 'auto', flex: 'none' }}><UsageRateBadge m={m} /></span>
               </div>
               <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
                 หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={12.5} /> ·{' '}
@@ -255,7 +254,12 @@ export default function HomeScreen() {
               <div className="bar-track" style={{ height: 4, background: 'var(--border-soft)', borderRadius: 2, marginTop: 6 }}>
                 <div className="bar-fill" style={{ height: '100%', transform: 'scaleX(' + Math.max(3, Math.min(100, Math.round((m.floor / Math.max(1, m.parFloor)) * 100))) / 100 + ')', background: toneFor(m), borderRadius: 2 }} />
               </div>
-              <div style={{ marginTop: 6 }}>
+              {/* Bug fix (real-device report, mobile overlap): UsageRateBadge used to sit in the
+                  title line above via marginLeft:auto — a non-wrapping flex row that a long drug
+                  name already fills on a real phone, so the badge had nowhere to go but overflow
+                  sideways onto the action button next to it. Moved into this wrapping row instead. */}
+              <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <UsageRateBadge m={m} />
                 <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={isUrgentLow(m)} packSize={m.packSize} />
               </div>
             </div>
@@ -303,13 +307,13 @@ export default function HomeScreen() {
                 <span>{m.name}</span>
                 {m.had && <HadTag />}
                 {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
-                <span style={{ marginLeft: 'auto', flex: 'none' }}><UsageRateBadge m={m} /></span>
               </div>
               <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
                 substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={12.5} /> /{' '}
                 <span style={{ color: PAR_LABEL_COLOR.sub, fontWeight: 700 }}>par {nf(m.parSub)}</span>
               </div>
-              <div style={{ marginTop: 6 }}>
+              <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <UsageRateBadge m={m} />
                 <DeficitBadge amount={Math.max(0, m.parSub - sub(m.id))} unit={m.unit} urgent={sub(m.id) === 0} packSize={m.packSize} />
               </div>
             </div>

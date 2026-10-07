@@ -290,7 +290,6 @@ export default function CountScreen() {
                         walking shelf order (sort === 'bin') to confirm you're at the right spot. */}
                     {binOf(m) && <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 6, padding: '1px 6px' }}>{binOf(m)}</span>}
                     <span>{m.name}</span>
-                    <span style={{ marginLeft: 'auto', flex: 'none' }}><UsageRateBadge m={m} /></span>
                   </div>
                   <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
                     ระบบคำนวณ {nf(sysQty)} {m.unit}{boxCapable && <> (กล่องละ {nf(m.packSize as number)} {m.unit})</>} · <span style={stale ? { color: 'var(--amber-ink)', fontWeight: 700 } : undefined}>นับล่าสุด {daysSince === null ? 'ยังไม่เคยนับ' : daysSince <= 0 ? 'วันนี้' : daysSince + ' วันก่อน'}</span>
@@ -306,7 +305,12 @@ export default function CountScreen() {
                       before tapping "บันทึก"). Substitutes only the side actually being counted
                       (floor or substock) into the same floor+substock total the untyped default
                       already uses — the other side's live value is untouched either way. */}
-                  <div style={{ marginTop: 3 }}>
+                  {/* Bug fix (real-device report, mobile overlap): UsageRateBadge used to sit in
+                      the title line above via marginLeft:auto — on a real phone a long drug name
+                      already fills that non-wrapping row, so the badge overflowed sideways onto
+                      the กล่อง/เศษ count fields next to it. Moved into this wrapping row. */}
+                  <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <UsageRateBadge m={m} />
                     <DaysLeftBadge days={daysOfStockLeft(state, m, has ? (loc === 'floor' ? parsed + subQty(state, m.id) : m.floor + parsed) : undefined)} />
                   </div>
                   {has && delta !== 0 && (

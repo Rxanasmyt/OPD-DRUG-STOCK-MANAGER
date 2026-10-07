@@ -321,10 +321,6 @@ export default function TransferScreen() {
                           <span>{m.name}</span>
                           {m.had && <HadTag />}
                           {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
-                          {/* Real-world request: "อยากให้ที่หัวมุมรายการยาทุกตัวให้มีข้อมูลว่ายาตัวนี้
-                              1 วันใช้ยาจำนวนยาเท่าไร" — pushed to the row's own top-right corner via
-                              marginLeft: auto, same flex row as the name itself. */}
-                          <span style={{ marginLeft: 'auto', flex: 'none' }}><UsageRateBadge m={m} /></span>
                         </div>
                         <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>
                           หน้างาน <Qty value={m.floor} unit={m.unit} tone={toneFor(m)} size={12.5} /> ·{' '}
@@ -383,6 +379,15 @@ export default function TransferScreen() {
                           );
                         })()}
                         <div style={{ marginTop: 5, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          {/* Real-world request: "อยากให้ที่หัวมุมรายการยาทุกตัวให้มีข้อมูลว่ายาตัวนี้
+                              1 วันใช้ยาจำนวนยาเท่าไร" — lives in this wrapping badge row, not the
+                              title line above. Bug fix (real-device report, mobile overlap): the
+                              title line has no flexWrap and a long drug name already fills it —
+                              a badge pushed there via marginLeft:auto had nowhere to go but
+                              overflow sideways, visually landing on top of the qty stepper next
+                              to it. Every badge row on this screen already wraps safely; this one
+                              now does too. */}
+                          <UsageRateBadge m={m} />
                           {/* Shown unconditionally (not tied to today's deficit, unlike DeficitBadge's
                               own box breakdown below) — see PackSizeBadge's own doc comment. */}
                           <PackSizeBadge packSize={m.packSize} unit={m.unit} />
