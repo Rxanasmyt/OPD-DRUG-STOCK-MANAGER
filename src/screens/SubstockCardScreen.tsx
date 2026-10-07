@@ -410,7 +410,10 @@ export default function SubstockCardScreen() {
               </div>
             )}
             <div style={{ background: 'var(--amber-bg)', display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
-              <Field label="ชื่อยา" full><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MedDot code={med.code} size={9} />{med.name} <WardBadge med={med} size="md" /><span style={{ marginLeft: 'auto', flex: 'none' }}><UsageRateBadge m={med} /></span></span></Field>
+              {/* Bug fix (real-device report, mobile overlap): a marginLeft:auto badge in a
+                  non-wrapping flex span can overflow past the card's own edge on a narrow phone
+                  for a long drug name — flexWrap lets it drop to its own line instead. */}
+              <Field label="ชื่อยา" full><span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}><MedDot code={med.code} size={9} />{med.name} <WardBadge med={med} size="md" /><UsageRateBadge m={med} /></span></Field>
               <Field label="รหัสยา">{med.code}</Field>
               <Field label="หน่วยนับ" noBorderRight>{med.unit}</Field>
               <Field label={hasSub ? 'par substock' : 'par หน้างาน (Max)'} noBorder><span style={{ color: hasSub ? PAR_LABEL_COLOR.sub : PAR_LABEL_COLOR.max, fontWeight: 700 }}>{nf(hasSub ? med.parSub : med.parFloor)} {med.unit}</span></Field>

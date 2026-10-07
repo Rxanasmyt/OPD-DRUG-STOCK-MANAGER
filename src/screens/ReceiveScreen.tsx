@@ -233,7 +233,6 @@ export default function ReceiveScreen() {
                   <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}>
                     <MedDot code={m.code} /> {m.name} <WardBadge med={m} />
                     {recvItemCountByMed[m.id] > 0 && <span className="muted" style={{ fontSize: 11 }}>· เพิ่มแล้ว {recvItemCountByMed[m.id]} lot</span>}
-                    <span style={{ marginLeft: 'auto', flex: 'none' }}><UsageRateBadge m={m} /></span>
                   </span>
                   {/* Bug fix (misleading number): this used to show "substock 0 · par N" for a
                       noSubstock med unconditionally — a real number since noSubstock meds never
@@ -249,6 +248,11 @@ export default function ReceiveScreen() {
                     <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>ไม่มี substock · หน้างาน <Qty value={m.floor} tone={subTone(m.floor, m.parFloor)} size={11.5} /> · <span style={{ color: PAR_LABEL_COLOR.max, fontWeight: 700 }}>par {nf(m.parFloor)}</span></span>
                   )}
                   <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    {/* Bug fix (real-device report, mobile overlap): UsageRateBadge used to sit
+                        in the title line above via marginLeft:auto — on a real phone a long drug
+                        name already fills that non-wrapping row, so the badge overflowed
+                        sideways onto the 📋 button next to it. Moved into this wrapping row. */}
+                    <UsageRateBadge m={m} />
                     <DaysLeftBadge days={daysOfStockLeft(state, m)} />
                     {/* Real-world request: "...อยากให้มีรายละเอียดว่า 1 กล่องมีจำนวนยาเท่าไร...ให้
                         ทุกคนรู้ได้ว่า 1 กล่องจำนวนเท่าไร" — visible right here, BEFORE picking the
@@ -276,7 +280,6 @@ export default function ReceiveScreen() {
                     <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}>
                       <MedDot code={m.code} /> {m.name} <WardBadge med={m} />
                       {recvItemCountByMed[m.id] > 0 && <span className="muted" style={{ fontSize: 11 }}>· เพิ่มแล้ว {recvItemCountByMed[m.id]} lot</span>}
-                      <span style={{ marginLeft: 'auto', flex: 'none' }}><UsageRateBadge m={m} /></span>
                     </span>
                     {/* A noSubstock med has no real substock number to show (always 0) — its
                         shelf (floor/parFloor) IS the number that matters for "should this be on
@@ -293,6 +296,7 @@ export default function ReceiveScreen() {
                       return note ? <span className="muted" style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--amber-ink)' }}>{note}</span> : null;
                     })()}
                     <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <UsageRateBadge m={m} />
                       <DaysLeftBadge days={daysOfStockLeft(state, m)} />
                       <PackSizeBadge packSize={m.packSize} unit={m.unit} />
                     </div>
