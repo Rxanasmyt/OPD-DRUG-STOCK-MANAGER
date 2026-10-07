@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { nf } from '../utils/format';
+import { parSuggestionDailyRate } from '../store/selectors';
+import type { Med } from '../types';
 
 /**
  * A quantity number, colored by severity (tone) and weighted bold so it reads at a glance
@@ -126,6 +128,41 @@ export function PackSizeBadge({ packSize, unit }: { packSize?: number; unit: str
  * data yet — used30<=0) renders nothing, same "don't show a number this can't back up" rule
  * every other conditional badge here already follows.
  */
+/**
+ * Real-world request: "ช่วยทำสีให้ min max par เห็นได้ชัดเจน แยกกันชัดเจนเพื่อให้ไม่สับสน" — Min/
+ * Max (หน้างาน) และ par (substock) used to render as plain muted text everywhere they appear
+ * together (TransferScreen/HomeScreen/ReceiveScreen/MedsScreen row lines), reading as one
+ * indistinguishable string of numbers. One fixed color per target, shared from a single place so
+ * "Min is always amber, Max is always green, par-substock is always purple" holds everywhere
+ * these three ever appear side by side, not just coincidentally matching per screen.
+ */
+export const PAR_LABEL_COLOR = { min: 'var(--amber-ink)', max: 'var(--green)', sub: 'var(--ipd)' } as const;
+
+/**
+ * Real-world request: "อยากให้ที่หัวมุมรายการยาทุกตัวให้มีข้อมูลว่ายาตัวนี้ 1 วันใช้ยาจำนวนยาเท่าไร
+ * โดยใช้ข้อมูลที่คำนวณมาได้ที่ใช้สำหรับคำนวน min max par เลยครับ ทุกคนที่ใช้งานจะได้รู้ว่ายาที่เรา
+ * กำลังจัดการอยู่ มี rate การใช้เป็นอย่างไร" — a small, unconditional (every med row, not just a
+ * low-stock one) badge showing the exact daily rate suggestPar() itself sizes Min/Max/par off of
+ * (parSuggestionDailyRate() — the blended 70/30 rate, NOT dailyUsageRate()'s plain single-month
+ * figure used elsewhere for "เหลือใช้กี่วัน"), so the number here always matches whatever Min/Max
+ * a "ใช้ค่าแนะนำ" tap would produce — no second, subtly different usage number to reconcile.
+ * Renders nothing for a med with no real usage data yet (used30<=0), same "don't show a number
+ * this can't back up" rule DaysLeftBadge/DeficitBadge above already follow.
+ */
+export function UsageRateBadge({ m }: { m: Med }) {
+  if (!(m.used30 > 0)) return null;
+  const rate = parSuggestionDailyRate(m);
+  // nf() always rounds to a whole number (see its own implementation) — wrong here for a
+  // sub-1-per-day drug, where collapsing straight to "1" or "0" loses the one piece of
+  // information this badge exists to show. One decimal place, formatted directly instead.
+  const rateLabel = (Math.round(rate * 10) / 10).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  return (
+    <span title="อัตราการใช้ยาเฉลี่ยต่อวัน (ข้อมูลเดียวกับที่ใช้คำนวณ Min/Max/par)" style={{ flex: 'none', display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', background: 'var(--bg-subtle)', borderRadius: 20, padding: '2.5px 8px', whiteSpace: 'nowrap' }}>
+      📊 ~{rateLabel} {m.unit}/วัน
+    </span>
+  );
+}
+
 export function DaysLeftBadge({ days }: { days: number | null }) {
   if (days === null) return null;
   // Thresholds keyed to how these three screens actually work: floor gets refilled on demand

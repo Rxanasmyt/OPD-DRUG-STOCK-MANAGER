@@ -32,11 +32,12 @@ describe('TransferScreen — CartQtyInput box notation regression', () => {
 
     const input = await screen.findByLabelText('จำนวน ' + BOXED_MED.name);
     await user.click(screen.getByLabelText('เพิ่มจำนวน ' + BOXED_MED.name));
-    // bump() steps by packStep (60) from 0 — a plain field would show "60".
-    expect(input).toHaveValue('1x60');
+    // bump() on an empty cart seeds suggestTransferQty() (deficit 75 = parFloor 100 - floor 25,
+    // packSize 60 — always rounds UP now, ceil(75/60)=2 boxes), not a single packStep from 0.
+    expect(input).toHaveValue('2x60');
 
     await user.click(screen.getByLabelText('เพิ่มจำนวน ' + BOXED_MED.name));
-    expect(input).toHaveValue('2x60');
+    expect(input).toHaveValue('3x60');
   });
 
   it('switches to the plain raw number while the field is focused for typing, and back to the box form on blur', async () => {
@@ -49,13 +50,14 @@ describe('TransferScreen — CartQtyInput box notation regression', () => {
 
     const input = await screen.findByLabelText('จำนวน ' + BOXED_MED.name);
     await user.click(screen.getByLabelText('เพิ่มจำนวน ' + BOXED_MED.name));
-    expect(input).toHaveValue('1x60');
+    // Same suggestTransferQty() seed as the test above — ceil(75/60)=2 boxes.
+    expect(input).toHaveValue('2x60');
 
     fireEvent.focus(input);
-    expect(input).toHaveValue('60');
+    expect(input).toHaveValue('120');
 
     fireEvent.blur(input);
-    expect(input).toHaveValue('1x60');
+    expect(input).toHaveValue('2x60');
   });
 
   it('shows the remainder compactly ("1x60+5", no spaces/unit word) when typed by hand', async () => {

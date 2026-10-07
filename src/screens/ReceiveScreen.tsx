@@ -3,7 +3,7 @@ import { useApp } from '../store/AppContext';
 import { usesSubstock, needsWarehouseRequest, subTone, daysOfStockLeft, packStep, boxBreakdownLabel } from '../store/selectors';
 import { nf, thDate, thTime } from '../utils/format';
 import { MedDot } from '../components/MedDot';
-import { Qty, DaysLeftBadge, PackSizeBadge } from '../components/Qty';
+import { Qty, DaysLeftBadge, PackSizeBadge, UsageRateBadge, PAR_LABEL_COLOR } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
 import { StepIndicator, RECEIVE_STEPS } from '../components/StepIndicator';
 import { SearchInput } from '../components/SearchInput';
@@ -233,6 +233,7 @@ export default function ReceiveScreen() {
                   <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}>
                     <MedDot code={m.code} /> {m.name} <WardBadge med={m} />
                     {recvItemCountByMed[m.id] > 0 && <span className="muted" style={{ fontSize: 11 }}>· เพิ่มแล้ว {recvItemCountByMed[m.id]} lot</span>}
+                    <span style={{ marginLeft: 'auto', flex: 'none' }}><UsageRateBadge m={m} /></span>
                   </span>
                   {/* Bug fix (misleading number): this used to show "substock 0 · par N" for a
                       noSubstock med unconditionally — a real number since noSubstock meds never
@@ -243,9 +244,9 @@ export default function ReceiveScreen() {
                       which of the two paths someone used to reach the same drug decided which
                       (correct or misleading) number they saw. */}
                   {usesSubstock(m) ? (
-                    <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={11.5} /> · par {nf(m.parSub)}</span>
+                    <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={11.5} /> · <span style={{ color: PAR_LABEL_COLOR.sub, fontWeight: 700 }}>par {nf(m.parSub)}</span></span>
                   ) : (
-                    <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>ไม่มี substock · หน้างาน <Qty value={m.floor} tone={subTone(m.floor, m.parFloor)} size={11.5} /> · par {nf(m.parFloor)}</span>
+                    <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>ไม่มี substock · หน้างาน <Qty value={m.floor} tone={subTone(m.floor, m.parFloor)} size={11.5} /> · <span style={{ color: PAR_LABEL_COLOR.max, fontWeight: 700 }}>par {nf(m.parFloor)}</span></span>
                   )}
                   <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <DaysLeftBadge days={daysOfStockLeft(state, m)} />
@@ -275,15 +276,16 @@ export default function ReceiveScreen() {
                     <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}>
                       <MedDot code={m.code} /> {m.name} <WardBadge med={m} />
                       {recvItemCountByMed[m.id] > 0 && <span className="muted" style={{ fontSize: 11 }}>· เพิ่มแล้ว {recvItemCountByMed[m.id]} lot</span>}
+                      <span style={{ marginLeft: 'auto', flex: 'none' }}><UsageRateBadge m={m} /></span>
                     </span>
                     {/* A noSubstock med has no real substock number to show (always 0) — its
                         shelf (floor/parFloor) IS the number that matters for "should this be on
                         the warehouse request" here, so show that instead — see needsReceive's
                         doc comment above for why it's judged the same way. */}
                     {usesSubstock(m) ? (
-                      <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={11.5} /> · par {nf(m.parSub)}</span>
+                      <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={11.5} /> · <span style={{ color: PAR_LABEL_COLOR.sub, fontWeight: 700 }}>par {nf(m.parSub)}</span></span>
                     ) : (
-                      <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>ไม่มี substock · หน้างาน <Qty value={m.floor} tone={subTone(m.floor, m.parFloor)} size={11.5} /> · par {nf(m.parFloor)}</span>
+                      <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>ไม่มี substock · หน้างาน <Qty value={m.floor} tone={subTone(m.floor, m.parFloor)} size={11.5} /> · <span style={{ color: PAR_LABEL_COLOR.max, fontWeight: 700 }}>par {nf(m.parFloor)}</span></span>
                     )}
                     {(() => {
                       const need = Math.max(0, usesSubstock(m) ? m.parSub - sub(m.id) : m.parFloor - m.floor);

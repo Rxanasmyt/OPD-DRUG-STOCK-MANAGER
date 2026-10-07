@@ -5,7 +5,7 @@ import { nf, thDate, fiscalYear } from '../utils/format';
 import { printSubstockCardSheet } from '../utils/print';
 import { downloadCsv } from '../utils/csv';
 import { MedDot } from '../components/MedDot';
-import { Qty } from '../components/Qty';
+import { Qty, UsageRateBadge, PAR_LABEL_COLOR } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
 import { SkeletonList } from '../components/Skeleton';
 import { EmptyState } from '../components/EmptyState';
@@ -410,10 +410,10 @@ export default function SubstockCardScreen() {
               </div>
             )}
             <div style={{ background: 'var(--amber-bg)', display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
-              <Field label="ชื่อยา" full><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MedDot code={med.code} size={9} />{med.name} <WardBadge med={med} size="md" /></span></Field>
+              <Field label="ชื่อยา" full><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MedDot code={med.code} size={9} />{med.name} <WardBadge med={med} size="md" /><span style={{ marginLeft: 'auto', flex: 'none' }}><UsageRateBadge m={med} /></span></span></Field>
               <Field label="รหัสยา">{med.code}</Field>
               <Field label="หน่วยนับ" noBorderRight>{med.unit}</Field>
-              <Field label={hasSub ? 'par substock' : 'par หน้างาน (Max)'} noBorder>{nf(hasSub ? med.parSub : med.parFloor)} {med.unit}</Field>
+              <Field label={hasSub ? 'par substock' : 'par หน้างาน (Max)'} noBorder><span style={{ color: hasSub ? PAR_LABEL_COLOR.sub : PAR_LABEL_COLOR.max, fontWeight: 700 }}>{nf(hasSub ? med.parSub : med.parFloor)} {med.unit}</span></Field>
             </div>
             <div style={{ padding: '12px 14px', background: 'var(--bg-card)', display: 'flex', gap: 10 }}>
               {/* The one number everyone actually walks up to this screen for — sized to read

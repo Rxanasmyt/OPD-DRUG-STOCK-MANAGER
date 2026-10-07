@@ -5,7 +5,7 @@ import { SearchInput } from '../components/SearchInput';
 import { categoryOf, subQty, usesSubstock, binDisplayAll, daysOfStockLeft } from '../store/selectors';
 import { DRUG_CATEGORIES } from '../data/categories';
 import { EmptyState } from '../components/EmptyState';
-import { DaysLeftBadge } from '../components/Qty';
+import { DaysLeftBadge, UsageRateBadge } from '../components/Qty';
 import type { Med } from '../types';
 
 const DAY = 86400000;
@@ -290,6 +290,7 @@ export default function CountScreen() {
                         walking shelf order (sort === 'bin') to confirm you're at the right spot. */}
                     {binOf(m) && <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 6, padding: '1px 6px' }}>{binOf(m)}</span>}
                     <span>{m.name}</span>
+                    <span style={{ marginLeft: 'auto', flex: 'none' }}><UsageRateBadge m={m} /></span>
                   </div>
                   <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
                     ระบบคำนวณ {nf(sysQty)} {m.unit}{boxCapable && <> (กล่องละ {nf(m.packSize as number)} {m.unit})</>} · <span style={stale ? { color: 'var(--amber-ink)', fontWeight: 700 } : undefined}>นับล่าสุด {daysSince === null ? 'ยังไม่เคยนับ' : daysSince <= 0 ? 'วันนี้' : daysSince + ' วันก่อน'}</span>

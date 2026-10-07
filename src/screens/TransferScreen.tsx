@@ -4,7 +4,7 @@ import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, ef
 import { nf, thDate, digitsOnly, isoDate, daysUntil, bangkokWeekday } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
-import { Qty, DeficitBadge, DaysLeftBadge, PackSizeBadge } from '../components/Qty';
+import { Qty, DeficitBadge, DaysLeftBadge, PackSizeBadge, UsageRateBadge, PAR_LABEL_COLOR } from '../components/Qty';
 import { HadTag } from '../components/Badge';
 import { MedMiniCard } from '../components/MedMiniCard';
 import { EmptyState } from '../components/EmptyState';
@@ -321,9 +321,17 @@ export default function TransferScreen() {
                           <span>{m.name}</span>
                           {m.had && <HadTag />}
                           {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
+                          {/* Real-world request: "อยากให้ที่หัวมุมรายการยาทุกตัวให้มีข้อมูลว่ายาตัวนี้
+                              1 วันใช้ยาจำนวนยาเท่าไร" — pushed to the row's own top-right corner via
+                              marginLeft: auto, same flex row as the name itself. */}
+                          <span style={{ marginLeft: 'auto', flex: 'none' }}><UsageRateBadge m={m} /></span>
                         </div>
                         <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>
-                          หน้างาน <Qty value={m.floor} unit={m.unit} tone={toneFor(m)} size={12.5} /> · Min {nf(floorMinOf(m))} / Max {nf(m.parFloor)} · substock <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={12.5} /> / par {nf(m.parSub)} {m.unit}
+                          หน้างาน <Qty value={m.floor} unit={m.unit} tone={toneFor(m)} size={12.5} /> ·{' '}
+                          <span style={{ color: PAR_LABEL_COLOR.min, fontWeight: 700 }}>Min {nf(floorMinOf(m))}</span> /{' '}
+                          <span style={{ color: PAR_LABEL_COLOR.max, fontWeight: 700 }}>Max {nf(m.parFloor)}</span> · substock{' '}
+                          <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={12.5} /> /{' '}
+                          <span style={{ color: PAR_LABEL_COLOR.sub, fontWeight: 700 }}>par {nf(m.parSub)}</span> {m.unit}
                         </div>
                         {/* Same at-a-glance floor-vs-par bar HomeScreen's low-stock list already uses
                             — brought here too so the screen someone actually works from all day shows
