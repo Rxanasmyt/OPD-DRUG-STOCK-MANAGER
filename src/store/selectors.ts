@@ -552,6 +552,24 @@ export function dailyUsageRate(m: Med): number {
   return m.used30 / WEEKDAYS_PER_30_DAYS;
 }
 
+// Real-world request: "การคำนวณ min max และ par ต้องมีความแม่นยำมากๆ ไม่มีข้อผิดพลาด" — suggestPar()
+// used to read `used30` alone, with `usedPrev30` sitting right next to it on the same Med doc but
+// only ever used for the SEPARATE usageAnomalies() ≥40%-swing warning, never folded into the
+// suggestion itself. That means a single off month — a short stockout that suppressed real demand,
+// a one-off outbreak, a data-entry gap in that period's HOSxP reconcile — fully drives the
+// suggested par the moment someone clicks "ใช้ค่าแนะนำ", with the anomaly flag as the only
+// (easy-to-miss, especially on a bulk "ใช้ค่าแนะนำทั้งหมด") warning that it might be skewed.
+// Blends the two months 70/30 (recent-weighted, not a flat average) whenever a real prior-month
+// baseline exists — still reacts quickly to a genuine, sustained change in usage (70% weight on
+// the latest month gets most of the way there in one recompute), while damping a single month's
+// fluke to less than a third of its naive effect on the suggested number. Falls back to plain
+// `used30` alone (unchanged from before) when there's no usedPrev30 yet — a newly added or
+// recently-reconciled drug with only one real month on record has nothing to blend against.
+function parSuggestionDailyRate(m: Med): number {
+  if (!(m.usedPrev30 > 0)) return dailyUsageRate(m);
+  return (m.used30 * 0.7 + m.usedPrev30 * 0.3) / WEEKDAYS_PER_30_DAYS;
+}
+
 /** Whole-number days until a drug's combined on-hand (floor + substock) runs out at its
  * current weekday-adjusted daily usage rate (see dailyUsageRate()) — null when there's no real
  * usage rate to project from (used30 <= 0), rather than the misleading Infinity a raw division
@@ -760,9 +778,9 @@ export function matchHosxpMed(meds: Med[], rawName: string): HosxpMatch {
 // already true before this fix (the old step-1 rounding would have suggested 40, which can't
 // actually be ordered either), so the box-awareness here is what makes the suggested number one a
 // real requisition can satisfy, not a change in how "low-use" drugs are sized.
-export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number): { floor: number; sub: number } | null {
+export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number): { floor: number; sub: number; min: number } | null {
   if (!(m.used30 > 0)) return null; // ไม่มีสถิติการใช้จริง ห้ามแนะนำ par (roundStep(0) จะได้ 1 เสมอ ทำให้ค่าแนะนำผิดเพี้ยน)
-  const daily = dailyUsageRate(m);
+  const daily = parSuggestionDailyRate(m);
   // Bug fix: a med with no substock stage (usesSubstock() false — see Med.noSubstock) skips
   // straight from the central-warehouse to the OPD/IPD shelf; its shelf stock has to survive
   // the full ~2-week central-warehouse refill cycle (subCoverDays) on its own, not the short
@@ -779,10 +797,30 @@ export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number)
   // single weekday's spike on its own — see Med.weekdayPeakFactor again). Defaults to 1 (no
   // change at all) for every med this analysis hasn't run for yet.
   const weekdayFactor = m.weekdayPeakFactor || 1;
-  return {
-    floor: roundStep(daily * floorDays * m.volatility * weekdayFactor, m.packSize),
-    sub: roundStep(daily * subCoverDays * m.volatility, m.packSize),
-  };
+  // Real-world request: "วิเคราะห์ Min Max...ให้เหมาะกับการใช้งานหน้างานจริง" — a HIGH ALERT drug
+  // (Med.had) running out on the floor is a worse failure than a non-HAD one (it's already flagged
+  // this way everywhere else — printed labels, the TransferScreen "High alert" filter chip — this
+  // just extends the same existing signal into the sizing math instead of leaving every HAD drug's
+  // extra margin to whatever volatility someone happened to type in by hand). Floor only, same
+  // reasoning as weekdayFactor — substock's long cycle already carries enough slack on its own.
+  const criticalityFactor = m.had ? 1.5 : 1;
+  const floor = roundStep(daily * floorDays * m.volatility * weekdayFactor * criticalityFactor, m.packSize);
+  const sub = roundStep(daily * subCoverDays * m.volatility, m.packSize);
+  // Real-world request: "Min ควรอิงอัตราการใช้จริงเหมือน Max ไม่ใช่สัดส่วนคงที่ของ Max" — floorMinOf()
+  // (selectors.ts) falls back to a flat 50%-of-Max default when no Min is explicitly set, which
+  // makes Min track whatever Max happens to be rather than this drug's own real usage rate — a
+  // fast-moving drug's Min could end up triggering too late to actually refill in time, a slow
+  // mover's too early. Sized the same way Max is (daily rate × days × volatility × the same
+  // weekday/criticality factors), just over HALF the days-of-cover Max represents — a reorder
+  // point partway through the refill cycle, the same spirit the old 50%-of-Max fallback had, but
+  // now driven by this drug's actual demand instead of a blind fraction of an unrelated number.
+  // Never allowed to land at or above the Max computed above (roundStep's box/magnitude rounding
+  // could otherwise coincidentally round both to the same number for a low-use boxed drug) — falls
+  // back to the same halfOfMaxRounded() default the rest of the app already uses in that case,
+  // which is always strictly below a positive Max.
+  const rawMin = roundStep(daily * (floorDays / 2) * m.volatility * weekdayFactor * criticalityFactor, m.packSize);
+  const min = rawMin < floor ? rawMin : halfOfMaxRounded(floor);
+  return { floor, sub, min };
 }
 
 export { daysUntil, DAY };

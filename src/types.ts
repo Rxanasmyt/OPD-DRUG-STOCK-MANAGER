@@ -647,6 +647,11 @@ export interface AppState {
   expiryWarnDays: number;
   parFloorCoverDays: number;
   parSubCoverDays: number;
+  // When used30/usedPrev30 (the par-suggestion inputs) were last recomputed from real HOSxP
+  // dispensing history — by recomputeUsageStats() (this app) or the scheduled
+  // scripts/recompute-usage-stats.mjs job, whichever ran last. null means neither has ever run.
+  // SettingsScreen uses this to warn when the numbers behind every par suggestion are stale.
+  usageStatsRecomputedAt: number | null;
 
   // In-app replacement for window.confirm() — see confirmAsync()/ConfirmDialog.tsx. The
   // browser's native confirm() is unreliable inside some Android WebView/PWA/in-app-browser

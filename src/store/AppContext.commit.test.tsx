@@ -1322,8 +1322,10 @@ describe('applyOnePar — stale-Min-above-new-Max regression', () => {
     const savedFields = vi.mocked(updateDoc).mock.calls[callsBefore][1] as unknown as Record<string, unknown>;
     expect(savedFields.parFloor).toBe(110);
     // Without the fix, floorMin would be left untouched at 400 — above the new Max (110),
-    // reproducing the real observed "Min 400 / Max 110" state.
-    expect(savedFields.floorMin).toBe(55);
+    // reproducing the real observed "Min 400 / Max 110" state. 53 is suggestPar()'s own
+    // data-driven `min` (daily rate × half the cover-days Max represents — see its own comment),
+    // not a flat 50%-of-Max guess: daily ≈ 26.13, roundStep(26.13 × 2) = 53.
+    expect(savedFields.floorMin).toBe(53);
   });
 
   it('leaves floorMin untouched when it already sits at or below the new parFloor', async () => {
@@ -1341,6 +1343,34 @@ describe('applyOnePar — stale-Min-above-new-Max regression', () => {
     const savedFields = vi.mocked(updateDoc).mock.calls[callsBefore][1] as unknown as Record<string, unknown>;
     expect(savedFields.parFloor).toBe(110);
     expect(savedFields.floorMin).toBeUndefined();
+  });
+});
+
+function SetAllMinSuggestedHarness() {
+  const { setAllMinSuggested } = useApp();
+  return <button onClick={setAllMinSuggested}>set-all-min-suggested</button>;
+}
+
+// Real-world request: "วิเคราะห์ Min Max...ให้เหมาะกับการใช้งานหน้างานจริง" item 1 — bulk sibling
+// to setAllMinHalfOfMax, writing suggestPar()'s own data-driven Min (real usage rate × half the
+// cover-days Max represents) instead of a flat 50%-of-Max ratio.
+describe('setAllMinSuggested — data-driven bulk Min regression', () => {
+  it('writes the suggested data-driven Min for every active med with real usage statistics, skipping one with none', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><SetAllMinSuggestedHarness /><AutoConfirmYes /></>);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    // STALE_MIN_MED: used30=560, floorMin=400 (stale) -> suggested min=53 (see its own comment above).
+    // NO_USAGE_MED: used30=0 -> suggestPar() returns null -> must be left untouched entirely.
+    const NO_USAGE_MED = { ...STALE_MIN_MED, id: 'm-no-usage', used30: 0, usedPrev30: 0 };
+    fireCollection('meds', [STALE_MIN_MED, NO_USAGE_MED]);
+
+    await user.click(screen.getByRole('button', { name: 'set-all-min-suggested' }));
+    await waitFor(() => expect(getLastBatchWrites().length).toBeGreaterThan(0));
+
+    const writes = getLastBatchWrites();
+    expect(writes.find((w) => w.path === 'meds/' + STALE_MIN_MED.id)?.data).toEqual({ floorMin: 53 });
+    expect(writes.find((w) => w.path === 'meds/' + NO_USAGE_MED.id)).toBeUndefined();
   });
 });
 

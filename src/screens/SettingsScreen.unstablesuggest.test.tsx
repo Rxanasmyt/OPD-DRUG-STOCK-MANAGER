@@ -36,8 +36,10 @@ const STABLE_BUT_CHANGING = {
 const UNSTABLE_BUT_NOT_CHANGING = {
   id: 'm3', code: 'MED-0003', name: 'Ventolin inhaler', unit: 'ขวด', dosageForm: 'พ่น',
   price: 1, had: false, active: true,
-  // daily = 1000/21.43 ≈ 46.66 -> floor = roundStep(46.66*4) = 190, sub = roundStep(46.66*28) = 1400
-  parSub: 1400, parFloor: 190, floor: 50, bin: 'A3',
+  // suggestPar() blends used30/usedPrev30 70/30 when a real prior-month baseline exists (see its
+  // own comment) — blended = 1000*0.7 + 100*0.3 = 730, daily = 730/21.43 ≈ 34.07 ->
+  // floor = roundStep(34.07*4) = 140, sub = roundStep(34.07*28) = 1000.
+  parSub: 1000, parFloor: 140, floor: 50, bin: 'A3',
   noSubstock: false, used30: 1000, usedPrev30: 100, volatility: 1,
 };
 

@@ -175,7 +175,7 @@ function freshState(): AppState {
     // always managing every single weekday top-up (see the "เร่งด่วนวันนี้" fill mode above —
     // deferring a merely-below-Min item a day or two is the whole point of that feature, so Max
     // needs enough room to absorb that without the shelf actually running dry).
-    expiryWarnDays: 90, parFloorCoverDays: 4, parSubCoverDays: 28,
+    expiryWarnDays: 90, parFloorCoverDays: 4, parSubCoverDays: 28, usageStatsRecomputedAt: null,
 
     confirmDialog: null,
     promptDialog: null,
@@ -328,6 +328,7 @@ export interface AppCtx {
   applyOnePar: (medId: string, which: 'sub' | 'floor') => void;
   applyAllSuggested: () => void;
   setAllMinHalfOfMax: () => void;
+  setAllMinSuggested: () => void;
   setParSub: (medId: string, v: string) => void;
   setParFloor: (medId: string, v: string) => void;
   setMedBin: (medId: string, v: string) => void;
@@ -1092,11 +1093,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // already has sane defaults, so a snapshot with no data simply leaves them as-is.
       onSnapshot(doc(db, 'meta', 'settings'), (snap) => {
         if (!snap.exists()) return;
-        const d = snap.data() as Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>;
+        const d = snap.data() as Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; usageStatsRecomputedAt: number }>;
         patch((st) => ({
           expiryWarnDays: typeof d.expiryWarnDays === 'number' ? d.expiryWarnDays : st.expiryWarnDays,
           parFloorCoverDays: typeof d.parFloorCoverDays === 'number' ? d.parFloorCoverDays : st.parFloorCoverDays,
           parSubCoverDays: typeof d.parSubCoverDays === 'number' ? d.parSubCoverDays : st.parSubCoverDays,
+          // Real-world request: "used30 ไม่มีการคำนวณใหม่อัตโนมัติ...ไม่มีสัญญาณเตือนว่าข้อมูลเก่า
+          // แค่ไหนแล้ว" — written by recomputeUsageStats() (this file) and by the scheduled
+          // scripts/recompute-usage-stats.mjs GitHub Actions job, whichever last ran. null until
+          // either has ever run at all (never defaults to "now" — that would hide genuinely never
+          // having been computed).
+          usageStatsRecomputedAt: typeof d.usageStatsRecomputedAt === 'number' ? d.usageStatsRecomputedAt : st.usageStatsRecomputedAt,
         }));
       }, onErr('settings')),
     ];
@@ -2733,12 +2740,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // against the med's existing hand-set floorMin (Min) — real usage dropping enough to
       // shrink Max below a Min set back when usage was higher leaves Min > Max sitting live in
       // Firestore (observed: "Min 400 / Max 110"), reading as permanently "ต่ำกว่า Min" no
-      // matter how full the shelf is. Re-derive Min as 50% of the NEW Max (same default ratio
-      // floorMinOf() itself falls back to) whenever applying this suggestion would otherwise
-      // leave Min above it — the same math the "ตั้ง Min ทั้งหมดเป็น 50% ของ Max" bulk action
-      // already uses.
+      // matter how full the shelf is. Re-derive Min whenever applying this suggestion would
+      // otherwise leave it above the new Max — using suggestPar()'s own data-driven `min` (real
+      // usage rate × half the cover-days Max represents), not a flat 50%-of-Max guess, so the
+      // corrected Min actually reflects this drug's own demand instead of just "not above Max
+      // any more". See suggestPar()'s own comment for why this replaced the old halfOfMaxRounded
+      // fallback.
       const newFloorMin = which === 'floor' && typeof m.floorMin === 'number' && m.floorMin > sug.floor
-        ? halfOfMaxRounded(sug.floor) : undefined;
+        ? sug.min : undefined;
       await withTimeout(updateDoc(doc(db, 'meds', medId), { ...(which === 'sub' ? { parSub: sug.sub } : { parFloor: sug.floor }), ...(newFloorMin !== undefined ? { floorMin: newFloorMin } : {}) }));
       logAudit({ type: 'par_updated', note: 'ปรับ par' + (which === 'sub' ? 'substock' : 'หน้างาน') + ' ' + m.name + ' เป็น ' + nf(which === 'sub' ? sug.sub : sug.floor) + ' ตามค่าแนะนำจากสถิติ' + (newFloorMin !== undefined ? ' (ปรับ Min ลงเหลือ ' + nf(newFloorMin) + ' ตามไปด้วย เพราะ Min เดิมสูงกว่า Max ใหม่)' : '') });
       // Real-world request: "ติดตามผลหลังปรับ par ว่านิ่งจริงไหม" — see ParAdjustmentRecord's own
@@ -2771,9 +2780,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (!sug) return; // ไม่มีสถิติการใช้ ข้าม ห้ามเขียนทับ par เดิม
           // Bug fix (data integrity): same gap as applyOnePar above, applied per-row here too —
           // a bulk apply across the whole formulary is exactly where a Max shrinking below an
-          // old hand-set Min is most likely to happen unnoticed (no per-med review step).
+          // old hand-set Min is most likely to happen unnoticed (no per-med review step). Uses
+          // suggestPar()'s own data-driven `min`, same reasoning as applyOnePar's own fix.
           const floorMinFix = typeof m.floorMin === 'number' && m.floorMin > sug.floor
-            ? { floorMin: halfOfMaxRounded(sug.floor) } : {};
+            ? { floorMin: sug.min } : {};
           batch.update(doc(db, 'meds', m.id), { parSub: sug.sub, parFloor: sug.floor, ...floorMinFix });
           // Real-world request: "ติดตามผลหลังปรับ par ว่านิ่งจริงไหม" — same durable record
           // applyOnePar writes for a single-med apply, here for every med this bulk action
@@ -2821,6 +2831,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast('ตั้งค่า Min เป็น 50% ของ Max แล้ว ' + nf(targets.length) + ' รายการ');
     } catch (e) { toastErr(e, 'ตั้งค่า Min ไม่สำเร็จ'); }
   }), [canEditMeds, state.meds, confirmAsync, logAudit, toast, toastErr, guardOnce]);
+
+  // Real-world request: "วิเคราะห์ Min Max...ให้เหมาะกับการใช้งานหน้างานจริง" — setAllMinHalfOfMax
+  // above writes a flat 50%-of-Max ratio for every drug alike; this sibling bulk action writes
+  // suggestPar()'s own data-driven Min instead (real usage rate × half the cover-days Max
+  // represents — see that function's own comment), so a drug's reorder point actually reflects
+  // how fast IT moves instead of a blind fraction of its own Max. Skips any med with no real
+  // usage statistics yet (suggestPar() returns null for those — same "never suggest off no data"
+  // guard every other suggestion flow in this file already respects), leaving its Min untouched
+  // rather than guessing.
+  const setAllMinSuggested = useCallback(guardOnce('setAllMinSuggested', async () => {
+    if (!canEditMeds) return;
+    const targets = state.meds
+      .map((m) => ({ m, sug: m.active ? suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays) : null }))
+      .filter((x): x is { m: Med; sug: NonNullable<ReturnType<typeof suggestPar>> } => !!x.sug && x.sug.min !== floorMinOf(x.m));
+    if (!targets.length) { toast('ยาทุกตัวที่มีสถิติการใช้ มี Min ตรงกับค่าแนะนำจากอัตราการใช้จริงอยู่แล้ว'); return; }
+    if (!(await confirmAsync(
+      'ตั้งค่า Min ของยาทุกตัวตามอัตราการใช้จริง?\n\n'
+      + 'จะเขียนทับค่า Min ปัจจุบันของยา ' + nf(targets.length) + ' รายการที่มีสถิติการใช้ (รวมถึงตัวที่เคยตั้งเองไว้) '
+      + 'ด้วยค่าที่คำนวณจากอัตราการใช้จริงของยาตัวนั้นๆ แทนสัดส่วนคงที่ — ยาที่ไม่มีสถิติการใช้จะไม่ถูกแตะต้อง\n\n'
+      + 'แก้กลับเป็นรายตัวได้ภายหลังที่หน้าจัดการรายการยา ยืนยันหรือไม่?',
+    ))) return;
+    try {
+      for (let i = 0; i < targets.length; i += 400) {
+        const batch = writeBatch(db);
+        targets.slice(i, i + 400).forEach(({ m, sug }) => {
+          batch.update(doc(db, 'meds', m.id), { floorMin: sug.min });
+        });
+        await withTimeout(batch.commit());
+      }
+      logAudit({ type: 'par_updated', note: 'ตั้งค่า Min ยาทุกตัวตามอัตราการใช้จริง (' + nf(targets.length) + ' รายการเปลี่ยนแปลง)' });
+      toast('ตั้งค่า Min ตามอัตราการใช้จริงแล้ว ' + nf(targets.length) + ' รายการ');
+    } catch (e) { toastErr(e, 'ตั้งค่า Min ไม่สำเร็จ'); }
+  }), [canEditMeds, state.meds, state.parFloorCoverDays, state.parSubCoverDays, confirmAsync, logAudit, toast, toastErr, guardOnce]);
 
   const debouncedParWrite = useCallback((medId: string, field: 'parSub' | 'parFloor', val: number) => {
     const key = 'par:' + medId + field;
@@ -3004,6 +3047,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
         await withTimeout(batch.commit());
       }
+      // Real-world request: "used30 ไม่มีการคำนวณใหม่อัตโนมัติ...ไม่มีสัญญาณเตือนว่าข้อมูลเก่าแค่ไหน
+      // แล้ว" — records when this last actually ran (merged into the same shared meta/settings doc
+      // expiryWarnDays/parFloorCoverDays/parSubCoverDays already live in), so SettingsScreen can
+      // warn when the numbers behind every par suggestion are stale instead of staying silent.
+      await withTimeout(setDoc(doc(db, 'meta', 'settings'), { usageStatsRecomputedAt: now }, { merge: true }));
       logAudit({ type: 'par_updated', note: 'คำนวณสถิติการใช้ยาใหม่จากประวัติ HOSxP 60 วันล่าสุด (' + targets.length + ' รายการ)' });
       toast('คำนวณสถิติใหม่แล้ว ' + targets.length + ' รายการ — กด "ใช้ค่าแนะนำทั้งหมด" ด้านบนอีกครั้งเพื่ออัปเดต par ตามสถิติใหม่');
     } catch (e) { toastErr(e, 'คำนวณสถิติไม่สำเร็จ ลองใหม่อีกครั้ง'); }
@@ -5153,7 +5201,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot, scrapFloorLot,
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
-    applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, updateGlobalSettings,
+    applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setAllMinSuggested, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, autoRouteAll, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, fetchFloorLedger, fetchStockAsOf, exportStockAsOfCsv, fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
