@@ -2,7 +2,7 @@ import { useApp } from '../store/AppContext';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes } from '../store/selectors';
 import { nf, thDate, isoDate, fiscalYearStartIso, DAY } from '../utils/format';
-import type { ReportTab, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord } from '../types';
+import type { ReportTab, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, DrugReturnRecord } from '../types';
 import { categoryLabel } from '../data/categories';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonList } from '../components/Skeleton';
@@ -19,8 +19,8 @@ const UsageCharts = lazy(() => import('./UsageCharts'));
 // everything else — it's a distinct kind of report (historical trend over a chosen range, not
 // "right now"), so it gets its own visual treatment (see isKpi below) the same way "insights"
 // already does for "computed, not just filtered".
-const TABS: [ReportTab, string][] = [['exec', '📊 ภาพรวมผู้บริหาร'], ['aging', 'Stock aging'], ['category', 'แยกตามหมวดยา'], ['turn', 'Turnover'], ['insights', '🧠 วิเคราะห์อัตโนมัติ'], ['disc', 'Discrepancy log'], ['kpi', '📅 ตัวชี้วัดย้อนหลัง'], ['usage', '📈 สถิติการใช้ยา'], ['stockasof', '📜 ยอดคงคลังย้อนหลัง']];
-const REPORT_NAMES: Record<ReportTab, string> = { exec: 'executive_summary.csv', aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', kpi: 'kpi_metrics.csv', usage: 'usage_history.csv', stockasof: 'stock_as_of.csv' };
+const TABS: [ReportTab, string][] = [['exec', '📊 ภาพรวมผู้บริหาร'], ['aging', 'Stock aging'], ['category', 'แยกตามหมวดยา'], ['turn', 'Turnover'], ['insights', '🧠 วิเคราะห์อัตโนมัติ'], ['disc', 'Discrepancy log'], ['kpi', '📅 ตัวชี้วัดย้อนหลัง'], ['usage', '📈 สถิติการใช้ยา'], ['stockasof', '📜 ยอดคงคลังย้อนหลัง'], ['returns', '↩️ รายงานคืนยา']];
+const REPORT_NAMES: Record<ReportTab, string> = { exec: 'executive_summary.csv', aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', kpi: 'kpi_metrics.csv', usage: 'usage_history.csv', stockasof: 'stock_as_of.csv', returns: 'drug_returns.csv' };
 const AGING_BUCKETS: [string, number, number, string][] = [
   ['หมดอายุแล้ว', -99999, 0, 'var(--red)'],
   ['เหลือ ≤ 30 วัน', 0, 30, 'var(--red)'],
@@ -36,7 +36,7 @@ const DISC_TYPE_LABEL: Record<string, string> = {
 export default function ReportScreen() {
   const {
     state, setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary, goSubstockCardFor, fetchExecTxsThisMonth,
-    fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, fetchStockAsOf, exportStockAsOfCsv, userName, toast,
+    fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, fetchStockAsOf, exportStockAsOfCsv, fetchDrugReturns, exportDrugReturnsCsv, userName, toast,
   } = useApp();
   // Discrepancy log had no way to narrow it down — always the same fixed most-recent-30 slice
   // of state.txs, with no type filter and no way to find one specific drug's history, unlike
@@ -270,6 +270,32 @@ export default function ReportScreen() {
   const usageTotalValue = usageRecords.reduce((s, r) => s + Math.round(r.value), 0);
   const usageMedCount = usageTopMeds.length;
 
+  // ---------- ↩️ รายงานคืนยา (returns tab) ----------
+  // Real-world request: "สามารถดึงรายงานข้อมูลยาคืนได้ทุกช่วง เพื่อนำข้อมูลไปวิเคราะห์ต่อได้" —
+  // same "own date range + fetched rows, local to this screen" shape as the usage tab above.
+  // Defaults to the current month rather than the fiscal year, since a return log is reviewed
+  // much more often/granularly than a yearly usage report.
+  const [rtnFrom, setRtnFrom] = useState(() => isoDate(Date.now()).slice(0, 8) + '01');
+  const [rtnTo, setRtnTo] = useState(() => isoDate(Date.now()));
+  const [rtnRecords, setRtnRecords] = useState<DrugReturnRecord[]>([]);
+  const [rtnLoading, setRtnLoading] = useState(false);
+  const [rtnLoaded, setRtnLoaded] = useState(false);
+  const rtnReqId = useRef(0);
+  const loadReturns = () => {
+    const reqId = ++rtnReqId.current;
+    setRtnLoading(true);
+    fetchDrugReturns(rtnFrom, rtnTo).then((records) => {
+      if (reqId !== rtnReqId.current) return;
+      setRtnRecords(records); setRtnLoaded(true);
+    }).finally(() => { if (reqId === rtnReqId.current) setRtnLoading(false); });
+  };
+  useEffect(() => {
+    if (state.reportTab === 'returns' && !rtnLoaded) loadReturns();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.reportTab]);
+  const rtnTotalQty = rtnRecords.reduce((s, r) => s + r.qty, 0);
+  const rtnTotalValue = rtnRecords.reduce((s, r) => s + Math.round(r.value), 0);
+
   // ---------- 📜 ยอดคงคลังย้อนหลัง (stockasof tab) ----------
   // Real-world request: "ดูยอดคงคลังย้อนหลังได้เสมอ เหมือน HOSxP" — a single-date fetch (not a
   // range like kpi/usage above), since this reconstructs a POINT-IN-TIME snapshot, not a trend
@@ -356,7 +382,7 @@ export default function ReportScreen() {
             (exportDailyMetricsCsv / exportUsageHistoryCsv / exportStockAsOfCsv on their own
             fetched rows) — the generic exportReportCsv here only ever knows how to export
             whatever's in state right now, which doesn't make sense for a historical range. */}
-        {state.reportTab !== 'kpi' && state.reportTab !== 'usage' && state.reportTab !== 'stockasof' && (
+        {state.reportTab !== 'kpi' && state.reportTab !== 'usage' && state.reportTab !== 'stockasof' && state.reportTab !== 'returns' && (
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <button onClick={exportReportCsv} className="btn-outline" style={{ flex: 1, padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44 }}>
               ↓ Export CSV — {REPORT_NAMES[state.reportTab]}
@@ -850,6 +876,80 @@ export default function ReportScreen() {
                       </span>
                       <span style={{ width: 90, textAlign: 'right', flex: 'none' }}>{nf(r.qty)} {r.unit}</span>
                       <span style={{ width: 80, textAlign: 'right', flex: 'none', fontWeight: 600 }}>{nf(Math.round(r.value))}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {state.reportTab === 'returns' && (
+          <>
+            <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, padding: '0 2px', marginBottom: 11 }}>
+              รวมทุกครั้งที่บันทึก "คืนยา" จากหน้าปรับยอด — วันที่คือวันที่บันทึกรับคืนจริง (ไม่ใช่วันที่ผู้ป่วยมา),
+              มูลค่าและหมวดยาคำนวณอัตโนมัติจากตัวยา ณ เวลาที่บันทึก เลือกช่วงวันที่แล้วกด "ดึงรายงาน"
+            </div>
+            <div className="grid-2" style={{ gap: 8, marginBottom: 10 }}>
+              <label>
+                <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>จากวันที่</span>
+                <input type="date" value={rtnFrom} onChange={(e) => setRtnFrom(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 15, minHeight: 40 }} />
+              </label>
+              <label>
+                <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>ถึงวันที่</span>
+                <input type="date" value={rtnTo} onChange={(e) => setRtnTo(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 15, minHeight: 40 }} />
+              </label>
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+              <button className="chip" style={chip(false)} onClick={() => { setRtnFrom(isoDate(Date.now()).slice(0, 8) + '01'); setRtnTo(isoDate(Date.now())); }}>เดือนนี้</button>
+              <button className="chip" style={chip(false)} onClick={() => { setRtnFrom(fiscalYearStartIso(Date.now())); setRtnTo(isoDate(Date.now())); }}>ปีงบประมาณนี้</button>
+              <button onClick={loadReturns} disabled={rtnLoading || rtnFrom > rtnTo} className="btn-primary" style={{ marginLeft: 'auto', padding: '9px 16px', borderRadius: 9, fontSize: 12.5, fontWeight: 700, minHeight: 38, opacity: rtnLoading || rtnFrom > rtnTo ? 0.6 : 1 }}>
+                {rtnLoading ? 'กำลังโหลด…' : 'ดึงรายงาน'}
+              </button>
+            </div>
+            {rtnFrom > rtnTo && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>"จากวันที่" ต้องไม่มากกว่า "ถึงวันที่"</div>}
+
+            {rtnLoading && !rtnLoaded && <SkeletonList rows={6} />}
+
+            {rtnLoaded && !rtnLoading && rtnRecords.length === 0 && (
+              <EmptyState icon="↩️" title="ยังไม่มีข้อมูลคืนยาในช่วงนี้" sub="ข้อมูลนี้มาจากการบันทึก “คืนยา” ในหน้าปรับยอดเท่านั้น" />
+            )}
+
+            {rtnRecords.length > 0 && (
+              <div style={{ opacity: rtnLoading ? 0.45 : 1, pointerEvents: rtnLoading ? 'none' : undefined, transition: 'opacity .15s var(--ease-out)' }}>
+                <button
+                  onClick={() => exportDrugReturnsCsv(rtnRecords)}
+                  className="btn-outline"
+                  style={{ width: '100%', padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44, marginBottom: 14 }}
+                >
+                  ↓ Export CSV — {nf(rtnRecords.length)} รายการ
+                </button>
+
+                <div className="grid-2 tablet-4" style={{ marginBottom: 16 }}>
+                  <ExecStat label="มูลค่ายาคืนรวมช่วงนี้" value={nf(rtnTotalValue) + ' บาท'} />
+                  <ExecStat label="จำนวนรวม (คละหน่วย)" value={nf(rtnTotalQty)} note="รวมหน่วยต่างกันของยาคนละตัว ดูเป็นภาพรวมเท่านั้น" />
+                  <ExecStat label="จำนวนครั้งที่บันทึกคืนยา" value={nf(rtnRecords.length)} />
+                  <ExecStat label="จำนวน HN ที่เกี่ยวข้อง" value={nf(new Set(rtnRecords.map((r) => r.hn)).size)} />
+                </div>
+
+                <div className="card stagger" style={{ overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', padding: '9px 13px', background: 'var(--bg-subtle)', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+                    <span style={{ width: 58, flex: 'none' }}>วันที่</span>
+                    <span style={{ width: 62, flex: 'none' }}>HN</span>
+                    <span style={{ flex: 1 }}>ยา / หมวด</span>
+                    <span style={{ width: 70, textAlign: 'right', flex: 'none' }}>จำนวน</span>
+                    <span style={{ width: 70, textAlign: 'right', flex: 'none' }}>มูลค่า</span>
+                  </div>
+                  {rtnRecords.slice().reverse().map((r, i) => (
+                    <div key={r.ts + '_' + i} style={{ display: 'flex', padding: '9px 13px', borderBottom: '1px solid var(--border-soft)', fontSize: 12.5, alignItems: 'center' }}>
+                      <span style={{ width: 58, flex: 'none', fontSize: 11 }}>{thDate(r.ts)}</span>
+                      <span style={{ width: 62, flex: 'none', fontSize: 11.5, fontWeight: 600 }}>{r.hn}</span>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--ink)' }}>{r.medName}</div>
+                        <div className="muted" style={{ fontSize: 10.5 }}>{categoryLabel(r.category)}</div>
+                      </span>
+                      <span style={{ width: 70, textAlign: 'right', flex: 'none' }}>{nf(r.qty)} {r.unit}</span>
+                      <span style={{ width: 70, textAlign: 'right', flex: 'none', fontWeight: 600 }}>{nf(Math.round(r.value))}</span>
                     </div>
                   ))}
                 </div>

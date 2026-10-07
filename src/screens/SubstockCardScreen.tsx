@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
-import { subQty, wardOf, subTone, usesSubstock, toneFor } from '../store/selectors';
+import { subQty, wardOf, subTone, usesSubstock, toneFor, boxBreakdownLabel } from '../store/selectors';
 import { nf, thDate, fiscalYear } from '../utils/format';
 import { printSubstockCardSheet } from '../utils/print';
 import { downloadCsv } from '../utils/csv';
@@ -298,8 +298,8 @@ export default function SubstockCardScreen() {
     const isMostRecentYear = year === 'all' || year === years[0];
     const ok = printSubstockCardSheet(
       hasSub
-        ? { code: med.code, name: med.name, parSub: med.parSub, unit: med.unit, ward: wardOf(med) }
-        : { code: med.code, name: med.name, parSub: med.parFloor, unit: med.unit, ward: wardOf(med), parLabel: 'par หน้างาน (Max)', heading: 'บัตรคุมยา (ไม่มี substock)' },
+        ? { code: med.code, name: med.name, parSub: med.parSub, unit: med.unit, ward: wardOf(med), packSize: med.packSize }
+        : { code: med.code, name: med.name, parSub: med.parFloor, unit: med.unit, ward: wardOf(med), parLabel: 'par หน้างาน (Max)', heading: 'บัตรคุมยา (ไม่มี substock)', packSize: med.packSize },
       cardRows,
       year,
       { totals: yearTotals ? { received: yearTotals.received, dispensed: yearTotals.dispensed } : undefined, openingBalance, liveBalance: isMostRecentYear ? liveBalance : undefined, printedBy: userName() },
@@ -549,17 +549,12 @@ export default function SubstockCardScreen() {
                   {viewRows.map((r, i) => {
                     const meta = TYPE_META[r.type];
                     const title = (meta ? meta.label : r.type) + (r.note ? ' — ' + r.note : '');
-                    // Real-world request: "ประวัติของการรับยาจาก substock ว่ารับมากี่กล่อง
-                    // จำนวนกี่เม็ด" — a box-only med's รับจาก substock/เติมหน้างาน row (the only
-                    // type that moves between the two sides) shows the real box count it was
-                    // actually moved in, not just the raw unit total — same split addRecv's own
-                    // box-request note and TransferScreen's DeficitBadge already show elsewhere.
-                    const boxLine = r.type === 'transfer_to_floor' && med.packSize && med.packSize > 1 ? (() => {
-                      const abs = Math.abs(r.qty);
-                      const boxes = Math.floor(abs / med.packSize!);
-                      const rem = abs % med.packSize!;
-                      return boxes > 0 ? nf(boxes) + ' กล่อง' + (rem > 0 ? '+' + nf(rem) : '') : null;
-                    })() : null;
+                    // Real-world request: "ให้ทุกส่วนที่เติมข้อมูลเรื่องจำนวน...ในส่วนบัตรสต็อค
+                    // หรือบัตรหน้างาน เขียนรูปแบบนี้ด้วย" — every row's รับ/จ่าย/คงเหลือ shows the
+                    // same "1x60" box breakdown already used on the printed sheet/cart, via the
+                    // same boxBreakdownLabel() helper (not just transfer_to_floor rows anymore).
+                    const boxLine = boxBreakdownLabel(med, Math.abs(r.qty), true);
+                    const balanceBoxLine = boxBreakdownLabel(med, Math.abs(r.balance), true);
                     return (
                       <tr key={i} title={title}>
                         <Td num style={{ color: 'var(--muted)', fontSize: 10.5 }}>{i + 1}</Td>
@@ -567,13 +562,16 @@ export default function SubstockCardScreen() {
                         <Td>{thDate(r.ts)}</Td>
                         <Td num style={{ fontWeight: 700, fontSize: 13, color: 'var(--green)' }}>
                           {r.qty > 0 ? nf(r.qty) : ''}
-                          {r.qty > 0 && boxLine && <div className="muted" style={{ fontSize: 9, fontWeight: 500 }}>{boxLine}</div>}
+                          {r.qty > 0 && boxLine?.includes('x') && <div className="muted" style={{ fontSize: 9, fontWeight: 500 }}>{boxLine}</div>}
                         </Td>
                         <Td num style={{ fontWeight: 700, fontSize: 13, color: 'var(--red)' }}>
                           {r.qty < 0 ? nf(-r.qty) : ''}
-                          {r.qty < 0 && boxLine && <div className="muted" style={{ fontSize: 9, fontWeight: 500 }}>{boxLine}</div>}
+                          {r.qty < 0 && boxLine?.includes('x') && <div className="muted" style={{ fontSize: 9, fontWeight: 500 }}>{boxLine}</div>}
                         </Td>
-                        <Td num style={{ fontWeight: 800, fontSize: 13.5 }}>{nf(r.balance)}</Td>
+                        <Td num style={{ fontWeight: 800, fontSize: 13.5 }}>
+                          {nf(r.balance)}
+                          {balanceBoxLine?.includes('x') && <div className="muted" style={{ fontSize: 9, fontWeight: 500 }}>{balanceBoxLine}</div>}
+                        </Td>
                         <Td style={{ color: 'var(--muted)', fontSize: 10.5, maxWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.by}</Td>
                       </tr>
                     );

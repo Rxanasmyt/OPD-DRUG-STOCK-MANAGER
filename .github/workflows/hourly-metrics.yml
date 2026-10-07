@@ -1,0 +1,32 @@
+name: Hourly KPI Metrics (today, real-time)
+
+# Real-world request: "ส่วนเรื่อง KPI ทั้งหมดให้เก็บข้อมูลอัตโนมัติแบบเรียลไทม์" — the existing
+# daily-metrics.yml only finalizes YESTERDAY once, shortly after midnight, so today's own numbers
+# never show up in dailyMetrics until the following midnight. This re-runs collect-daily-metrics.mjs
+# for TODAY (Asia/Bangkok) every hour throughout the day, overwriting that same day's doc each time
+# (the script already writes with .set(), keyed by date — see its own "Idempotent" comment), so the
+# "📅 ตัวชี้วัดย้อนหลัง" report tab can show a near-real-time view of today while the day is still
+# in progress. daily-metrics.yml still runs once at midnight to produce the FINAL, stable snapshot
+# of the day that just ended — this workflow never touches a past day.
+
+on:
+  schedule:
+    - cron: '0 * * * *' # every hour, all day — recomputes TODAY's (Asia/Bangkok) snapshot
+  workflow_dispatch: {}
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Compute today's date (Asia/Bangkok, fixed UTC+7)
+        id: today
+        run: echo "date=$(date -u -d '+7 hours' +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+      - run: node scripts/collect-daily-metrics.mjs --date=${{ steps.today.outputs.date }}
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}

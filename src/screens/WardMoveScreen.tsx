@@ -1,10 +1,11 @@
 import { useApp } from '../store/AppContext';
 import { wardOf, wardLabel, toneFor } from '../store/selectors';
-import { nf, digitsOnly } from '../utils/format';
+import { nf } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
 import { SearchInput } from '../components/SearchInput';
+import { NumberStepper } from '../components/NumberStepper';
 import type { Med } from '../types';
 
 // Bug fix (mobile fit): under 16px, iOS Safari auto-zooms the whole page on focus — every
@@ -68,7 +69,7 @@ export default function WardMoveScreen() {
         <div className="card" style={{ padding: 12, marginTop: 13, animation: 'fade .18s var(--ease-out)' }}>
           <label style={{ display: 'block', marginBottom: 10 }}>
             <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>จำนวนที่ย้าย ({fromMed.unit}) — ต้นทางมี {nf(fromMed.floor)} {fromMed.unit}</span>
-            <input value={state.wmQty} onChange={(e) => setWmQty(digitsOnly(e.target.value))} inputMode="numeric" style={{ ...inputStyle, fontSize: 17, fontWeight: 600 }} />
+            <NumberStepper value={state.wmQty} onChange={setWmQty} unit={fromMed.unit} max={fromMed.floor} packSize={fromMed.packSize} />
           </label>
           {qty > fromMed.floor && <div style={{ fontSize: 12, color: 'var(--red)', marginTop: -6, marginBottom: 10 }}>ต้นทางมีไม่พอ — เหลือ {nf(fromMed.floor)} {fromMed.unit}</div>}
           <label style={{ display: 'block', marginBottom: 10 }}>

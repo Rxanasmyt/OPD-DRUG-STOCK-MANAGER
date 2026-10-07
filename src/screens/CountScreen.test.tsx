@@ -24,6 +24,19 @@ const PLAIN_MED = {
 };
 
 describe('CountScreen — box-counting regression', () => {
+  // Real-world request: "ให้ทุกส่วนที่เติมข้อมูลเรื่องจำนวนให้เติมรูปแบบ...1x60 เป็นหลัก" — นับสต็อก
+  // defaults to นับเป็นกล่อง now (not นับเป็นหน่วย), so a boxed med shows the กล่อง/เศษ pair
+  // without having to tap the mode chip first.
+  it('defaults to นับเป็นกล่อง mode for a boxed med, with no chip tap needed', async () => {
+    renderWithApp(<CountScreen />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [BOXED_MED]);
+    fireCollection('lots', []);
+
+    expect(await screen.findByLabelText('จำนวนกล่องที่นับได้ ' + BOXED_MED.name)).toBeInTheDocument();
+  });
+
   it('multiplies กล่อง+เศษ into the same total the unit input would have needed, for a med with packSize set', async () => {
     const user = userEvent.setup();
     renderWithApp(<CountScreen />);
@@ -72,7 +85,9 @@ describe('CountScreen — box-counting regression', () => {
     fireCollection('meds', [BOXED_MED]);
     fireCollection('lots', []);
 
-    // Type a plain unit total (37) while still in 'unit' mode.
+    // Type a plain unit total (37) while in 'unit' mode (screen now defaults to 'box' — see the
+    // box-primary-entry regression test above — so switch to 'unit' explicitly first).
+    await user.click(screen.getByRole('button', { name: 'นับเป็นหน่วย' }));
     await user.type(await screen.findByLabelText('จำนวนที่นับได้ ' + BOXED_MED.name), '37');
     await user.click(screen.getByRole('button', { name: 'นับเป็นกล่อง' }));
 

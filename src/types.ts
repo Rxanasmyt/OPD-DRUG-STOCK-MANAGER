@@ -331,7 +331,7 @@ export type Screen =
   | 'report' | 'labels' | 'settings' | 'more' | 'count' | 'reconcile' | 'admin' | 'meds' | 'wardmove' | 'substockcard';
 
 export type AdjType = 'adjust' | 'return' | 'damaged' | 'expired';
-export type ReportTab = 'aging' | 'turn' | 'disc' | 'insights' | 'category' | 'exec' | 'kpi' | 'usage' | 'stockasof';
+export type ReportTab = 'aging' | 'turn' | 'disc' | 'insights' | 'category' | 'exec' | 'kpi' | 'usage' | 'stockasof' | 'returns';
 
 /**
  * One durable, append-only record of a drug's REAL total qty/value for one usage-import
@@ -394,6 +394,33 @@ export interface ParAdjustmentRecord {
   usedPrev30AtAdjust: number;
   adjustedAt: number; // ms epoch
   adjustedBy: string; // userName() at adjust time
+}
+
+/**
+ * One durable คืนยา (patient drug return) record — written alongside the existing commitAdjust
+ * 'return' flow (AdjustScreen.tsx), same "append-only side record next to the existing flat
+ * floor adjustment" shape as ParAdjustmentRecord above. Real-world request: "อยากให้เพิ่มข้อมูล
+ * ในการคืนยา เช่นวันที่ได้รับคืนยา...HN ผู้ป่วย รายการยา จำนวนยาที่คืน คำนวนราคายาให้อัตโนมัติ
+ * กลุ่มยาที่คืนให้ดึงจากตัวยาอัตโนมัติ...สามารถดึงรายงานข้อมูลยาคืนได้ทุกช่วง" — a generic
+ * `txs` row (type:'return') already recorded the stock movement itself but never captured HN,
+ * a value, or a category, and had no dedicated date-range report. Qty here is always typed in
+ * plain tablet counts (never box format) — most returns aren't by the box, so this one field
+ * deliberately stays outside the box-primary entry convention the rest of the app now uses.
+ */
+export interface DrugReturnRecord {
+  medId: string;
+  medName: string; // snapshot at return time — survives a later rename/deactivation of the med
+  medCode: string;
+  unit: string;
+  category: string; // categoryOf(m) snapshot at return time
+  hn: string; // HN ผู้ป่วย
+  qty: number;
+  unitPrice: number; // m.price snapshot at return time
+  value: number; // qty * unitPrice
+  note: string;
+  date: string; // ISO YYYY-MM-DD, defaults to the entry date — for a `where('date', ...)` range query
+  ts: number; // ms epoch
+  by: string; // userName() at return time
 }
 
 /**
@@ -550,6 +577,7 @@ export interface AppState {
   adjQty: string;
   adjReason: string;
   adjNote: string;
+  adjHn: string; // HN ผู้ป่วย — only used/shown when adjType === 'return', see DrugReturnRecord
 
   reportTab: ReportTab;
   labelType: LabelType;

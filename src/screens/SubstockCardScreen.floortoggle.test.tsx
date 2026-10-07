@@ -11,7 +11,8 @@ import SubstockCardScreen from './SubstockCardScreen';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import { signInAs, fireCollection, seedCollection, hasListener } from '../test-utils/firebaseTestDouble';
 
-// packSize 10 → the transfer_to_floor row below (qty 25) splits into 2 กล่อง+5.
+// packSize 10 → the transfer_to_floor row below (qty 25) splits into 2x10+5 (boxBreakdownLabel's
+// compact format — see the "1x60" box-primary-entry convention now shared across the whole app).
 const MED = {
   id: 'm1', code: 'MED-0001', name: 'Amoxicillin 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
   price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 25, bin: 'A1', packSize: 10,
@@ -55,7 +56,7 @@ describe('SubstockCardScreen — floor-ledger toggle regression', () => {
   it('shows the exact box+loose split on the transfer_to_floor row for a box-only med', async () => {
     await openCard();
     // Substock side (default): transfer_to_floor is a DISPENSE (จ่าย column).
-    await screen.findByText('2 กล่อง+5');
+    await screen.findByText('2x10+5');
   });
 
   it('switching back to substock restores the original substock-only ledger', async () => {

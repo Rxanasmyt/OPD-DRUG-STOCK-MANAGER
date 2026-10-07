@@ -58,7 +58,7 @@ export default function CountScreen() {
   const [sort, setSort] = useState<Sort>('stale');
   const [scope, setScope] = useState<Scope>('all');
   const [catTab, setCatTab] = useState<'all' | string>('all');
-  const [entryMode, setEntryMode] = useState<EntryMode>('unit');
+  const [entryMode, setEntryMode] = useState<EntryMode>('box');
   // Per-row กล่อง/เศษ breakdown, kept purely as local UI state (never sent anywhere on its
   // own) — the actual value that gets committed is always the multiplied-out total written into
   // countInputs/subCountInputs via setInput(), exactly like a typed unit total always was. Keyed

@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { boxBreakdownLabel } from '../store/selectors';
 
 // A short, neutral tick distinct from hapticSuccess()/hapticError() in utils/haptic.ts — this
 // fires many times per press-and-hold, so it needs to read as "counting up", not as a
@@ -14,7 +15,7 @@ function hapticTick(): void {
  * is an addition for fast one-handed adjustment at the counter, not a replacement for typing an
  * exact number someone already knows.
  */
-export function NumberStepper({ value, onChange, unit, step = 1, min = 0, max, inputStyle }: {
+export function NumberStepper({ value, onChange, unit, step, min = 0, max, inputStyle, packSize }: {
   /** Current value as the same raw string the rest of the app's qty fields already use
    * (digitsOnly-filtered by the caller's own setter — see setAdjQty/setRecvQty). */
   value: string;
@@ -24,7 +25,16 @@ export function NumberStepper({ value, onChange, unit, step = 1, min = 0, max, i
   min?: number;
   max?: number;
   inputStyle?: React.CSSProperties;
+  /** When set (>1), the ± buttons step a whole box at a time and the field shows the compact
+   * "1x60" box breakdown while unfocused — same box-primary entry as TransferScreen's cart,
+   * requested for every quantity field EXCEPT คืนยา/ปรับยอด (those stay plain tablet counts,
+   * since most returns aren't by the box). Typing an exact remainder by hand still works: the
+   * field falls back to the plain digit value as soon as it's focused. */
+  packSize?: number;
 }) {
+  const [focused, setFocused] = useState(false);
+  const boxed = !!packSize && packSize > 1;
+  const effectiveStep = step ?? (boxed ? packSize! : 1);
   const held = useRef<{ timeout: number; interval: number } | null>(null);
   // Bug fix: a held-down repeat's setInterval callback is created ONCE, at the moment the press
   // starts, and keeps calling that same closure for the rest of the hold — but `value` is a
@@ -39,7 +49,7 @@ export function NumberStepper({ value, onChange, unit, step = 1, min = 0, max, i
   const clamp = (n: number) => Math.max(min, max != null ? Math.min(max, n) : n);
   const bump = (dir: 1 | -1) => {
     const cur = parseInt(valueRef.current, 10) || 0;
-    const next = clamp(cur + dir * step);
+    const next = clamp(cur + dir * effectiveStep);
     if (next !== cur) { onChange(String(next)); hapticTick(); }
   };
 
@@ -52,6 +62,7 @@ export function NumberStepper({ value, onChange, unit, step = 1, min = 0, max, i
   const curNum = parseInt(value, 10) || 0;
   const atMax = max != null && curNum >= max;
   const atMin = curNum <= min;
+  const boxLabel = boxed && !focused ? boxBreakdownLabel({ packSize, unit: unit || '' }, curNum, true) : undefined;
 
   const startHold = (dir: 1 | -1) => {
     bump(dir);
@@ -84,7 +95,7 @@ export function NumberStepper({ value, onChange, unit, step = 1, min = 0, max, i
     <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
       <button
         type="button"
-        aria-label={'ลด' + (unit ? ' ' + unit : '') + ' ' + step}
+        aria-label={'ลด' + (unit ? ' ' + unit : '') + ' ' + effectiveStep}
         disabled={atMin}
         style={btnStyle(atMin)}
         onPointerDown={(e) => { e.preventDefault(); startHold(-1); }}
@@ -95,14 +106,16 @@ export function NumberStepper({ value, onChange, unit, step = 1, min = 0, max, i
         −
       </button>
       <input
-        value={value}
+        value={boxLabel ?? value}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         onChange={(e) => onChange(e.target.value)}
         inputMode="numeric"
-        style={{ flex: 1, textAlign: 'center', border: '1px solid var(--border)', borderRadius: 10, padding: 12, fontSize: 17, fontWeight: 600, minHeight: 48, ...inputStyle }}
+        style={{ flex: 1, textAlign: 'center', border: '1px solid var(--border)', borderRadius: 10, padding: 12, fontSize: boxed ? 15 : 17, fontWeight: 600, minHeight: 48, ...inputStyle }}
       />
       <button
         type="button"
-        aria-label={'เพิ่ม' + (unit ? ' ' + unit : '') + ' ' + step}
+        aria-label={'เพิ่ม' + (unit ? ' ' + unit : '') + ' ' + effectiveStep}
         disabled={atMax}
         style={btnStyle(atMax)}
         onPointerDown={(e) => { e.preventDefault(); startHold(1); }}

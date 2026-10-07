@@ -348,6 +348,57 @@ describe('commitAdjust — ledger-accuracy regression', () => {
   });
 });
 
+// Drives the same pick-type/pick-med/qty/reason sequence as AdjustHarness above, but for
+// adjType 'return' plus the new HN field — covers the new DrugReturnRecord write (real-world
+// request: "อยากให้เพิ่มข้อมูลในการคืนยา...HN ผู้ป่วย...คำนวนราคายาให้อัตโนมัติ กลุ่มยาที่คืน
+// ให้ดึงจากตัวยาอัตโนมัติ").
+function ReturnHarness({ hn }: { hn: string }) {
+  const { state, pickAdjType, pickAdjMed, setAdjQty, setAdjReason, setAdjHn, commitAdjust } = useApp();
+  useEffect(() => { if (!state.adjType) pickAdjType('return'); }, [state.adjType, pickAdjType]);
+  useEffect(() => { if (state.adjType && !state.adjMed) pickAdjMed(MED.id); }, [state.adjType, state.adjMed, pickAdjMed]);
+  useEffect(() => { if (state.adjMed && !state.adjQty) setAdjQty('7'); }, [state.adjMed, state.adjQty, setAdjQty]);
+  useEffect(() => { if (state.adjQty && !state.adjReason) setAdjReason('ผู้ป่วยคืนยา (ไม่เปิดซอง)'); }, [state.adjQty, state.adjReason, setAdjReason]);
+  useEffect(() => { if (state.adjReason && !state.adjHn) setAdjHn(hn); }, [state.adjReason, state.adjHn, setAdjHn, hn]);
+  return <button onClick={commitAdjust}>commit-adjust</button>;
+}
+
+describe('commitAdjust — คืนยา (DrugReturnRecord) regression', () => {
+  it('blocks the commit and toasts when HN is blank', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ReturnHarness hn="" /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'commit-adjust' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'commit-adjust' }));
+
+    await screen.findByText('ต้องกรอก HN ผู้ป่วยสำหรับการคืนยา');
+    expect(getLastTransactionWrites().length).toBe(0);
+  });
+
+  it('writes a durable returns record alongside the floor/txs write, with value and category auto-derived', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<ReturnHarness hn="1234567" />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'commit-adjust' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'commit-adjust' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+    const writes = getLastTransactionWrites();
+    const returnWrite = writes.find((w) => w.path.startsWith('returns/'));
+    expect(returnWrite?.data).toMatchObject({
+      medId: 'm1', medName: 'Paracetamol 500mg', hn: '1234567', qty: 7,
+      unitPrice: 1, value: 7, // MED.price is 1 — value = qty * price
+    });
+    expect(typeof returnWrite?.data.category).toBe('string');
+    expect(typeof returnWrite?.data.date).toBe('string');
+  });
+});
+
 function ScrapHarness() {
   const { scrapLot, state } = useApp();
   return <button onClick={() => scrapLot('lotKnown')} disabled={!state.lots.length}>scrap-lotKnown</button>;

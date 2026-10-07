@@ -41,7 +41,7 @@ const QTY_LABEL: Record<AdjType, string> = {
 
 export default function AdjustScreen() {
   const {
-    state, pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot, scrapFloorLot, go,
+    state, pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, scrapLot, scrapFloorLot, go,
     goSubstockCardFor,
   } = useApp();
   const meds = state.meds.filter((m) => m.active);
@@ -176,8 +176,27 @@ export default function AdjustScreen() {
                   </button>
                 </div>
               )}
+              {state.adjType === 'return' && (
+                // Real-world request: "อยากให้เพิ่มข้อมูลในการคืนยา...HN ผู้ป่วย...คำนวนราคายา
+                // ให้อัตโนมัติ กลุ่มยาที่คืนให้ดึงจากตัวยาอัตโนมัติ...ดึงรายงานได้ทุกช่วง" — HN is
+                // the one new field actually typed here; value and category are derived
+                // automatically from this med (see commitAdjust's DrugReturnRecord write) and the
+                // return date defaults to today (commit time), so neither needs its own input.
+                <label style={{ display: 'block', marginBottom: 9 }}>
+                  <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>HN ผู้ป่วย (บังคับ)</span>
+                  <input
+                    value={state.adjHn}
+                    onChange={(e) => setAdjHn(e.target.value)}
+                    placeholder="เช่น 1234567"
+                    style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 16, minHeight: 44 }}
+                  />
+                </label>
+              )}
               <label style={{ display: 'block', marginBottom: 9 }}>
                 <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{QTY_LABEL[state.adjType]} ({adjMed.unit})</span>
+                {/* คืนยา/ปรับยอด deliberately keep plain tablet-count entry (no packSize prop) —
+                    "ยาคืนส่วนใหญ่ไม่ได้คืนเป็นกล่อง" — unlike every other qty field in the app,
+                    which now defaults to box-primary entry (see NumberStepper's packSize prop). */}
                 <NumberStepper value={state.adjQty} onChange={setAdjQty} unit={adjMed.unit} />
               </label>
               <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>เหตุผล (บังคับ)</div>
@@ -196,13 +215,18 @@ export default function AdjustScreen() {
                 placeholder="รายละเอียดเพิ่มเติม เช่น เลข lot ที่นับได้ต่าง ผู้ร่วมตรวจนับ"
                 style={{ width: '100%', minHeight: 66, border: '1px solid var(--border)', borderRadius: 10, padding: '11px 12px', fontSize: 13.5, resize: 'vertical' }}
               />
-              <button
-                onClick={commitAdjust}
-                disabled={!state.adjReason || !state.adjQty || !!state.busy['adjust']}
-                style={{ width: '100%', border: 0, background: state.adjReason && state.adjQty ? 'var(--green)' : 'var(--border-strong)', color: state.adjReason && state.adjQty ? 'var(--ink-soft)' : 'var(--ink)', padding: 15, borderRadius: 11, fontSize: 15.5, fontWeight: 600, minHeight: 52, marginTop: 10, opacity: state.busy['adjust'] ? 0.7 : 1 }}
-              >
-                {state.busy['adjust'] ? 'กำลังบันทึก…' : (state.adjType === 'return' ? 'บันทึกรับคืน' : 'บันทึกปรับยอด')}
-              </button>
+              {(() => {
+                const canSubmit = !!state.adjReason && !!state.adjQty && (state.adjType !== 'return' || !!state.adjHn.trim());
+                return (
+                  <button
+                    onClick={commitAdjust}
+                    disabled={!canSubmit || !!state.busy['adjust']}
+                    style={{ width: '100%', border: 0, background: canSubmit ? 'var(--green)' : 'var(--border-strong)', color: canSubmit ? 'var(--ink-soft)' : 'var(--ink)', padding: 15, borderRadius: 11, fontSize: 15.5, fontWeight: 600, minHeight: 52, marginTop: 10, opacity: state.busy['adjust'] ? 0.7 : 1 }}
+                  >
+                    {state.busy['adjust'] ? 'กำลังบันทึก…' : (state.adjType === 'return' ? 'บันทึกรับคืน' : 'บันทึกปรับยอด')}
+                  </button>
+                );
+              })()}
             </>
           )}
         </div>

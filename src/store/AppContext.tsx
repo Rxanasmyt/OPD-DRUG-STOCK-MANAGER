@@ -137,7 +137,7 @@ function freshState(): AppState {
     recvNo: 'REQ-6908-' + (140 + (Date.now() % 9)), recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
     pendingReceives: [],
 
-    adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '',
+    adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '',
 
     reportTab: 'aging', labelType: 'med', labelSelected: {}, locScope: 'floor', labelWardScope: 'all',
 
@@ -298,7 +298,10 @@ export interface AppCtx {
   setAdjQty: (v: string) => void;
   setAdjReason: (v: string) => void;
   setAdjNote: (v: string) => void;
+  setAdjHn: (v: string) => void;
   commitAdjust: () => void;
+  fetchDrugReturns: (fromDate: string, toDate: string) => Promise<import('../types').DrugReturnRecord[]>;
+  exportDrugReturnsCsv: (records: import('../types').DrugReturnRecord[]) => Promise<void>;
   scrapLot: (lotId: string) => void;
   scrapFloorLot: (lotId: string) => void;
 
@@ -1378,7 +1381,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       search: '', filter: 'low', wardFilter: 'all',
       wmFromSearch: '', wmFromMed: null, wmToSearch: '', wmToMed: null, wmQty: '', wmReason: '',
       recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
-      adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '',
+      adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '',
       qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: null, scanConfirmMedId: null, hadOk: {},
       countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpConfirmSingleDay: false,
       usageDateFrom: '', usageDateTo: '', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
@@ -2204,7 +2207,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // is still selected) used to wipe out adjMed/adjReason too, even though nothing about the
   // workflow actually changed — only switching to a genuinely DIFFERENT type needs to clear
   // those, since the reason list and qty-field meaning differ by type.
-  const pickAdjType = useCallback((t: AdjType) => patch((st) => (t === st.adjType ? {} : { adjType: t, adjMed: null, adjReason: '' })), [patch]);
+  const pickAdjType = useCallback((t: AdjType) => patch((st) => (t === st.adjType ? {} : { adjType: t, adjMed: null, adjReason: '', adjHn: '' })), [patch]);
   // Editing the search box after a med is already picked needs to re-open the dropdown, or
   // there's no way to fix a wrong selection short of switching the adjustment type away and
   // back — this used to just patch adjSearch with nothing clearing adjMed, so options (which
@@ -2218,12 +2221,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setAdjQty = useCallback((v: string) => patch({ adjQty: digitsOnly(v) }), [patch]);
   const setAdjReason = useCallback((v: string) => patch({ adjReason: v }), [patch]);
   const setAdjNote = useCallback((v: string) => patch({ adjNote: v }), [patch]);
+  const setAdjHn = useCallback((v: string) => patch({ adjHn: v }), [patch]);
 
   const commitAdjust = useCallback(guardOnce('adjust', async () => {
     const m = state.meds.find((x) => x.id === state.adjMed);
     const q = parseIntSafe(state.adjQty);
     if (!m || !q || !state.adjReason) { toast('ต้องเลือกยา จำนวน และเหตุผลให้ครบ'); return; }
     const t = state.adjType!;
+    // Real-world request: "อยากให้เพิ่มข้อมูลในการคืนยา...HN ผู้ป่วย" — HN is required only for
+    // คืนยา (return), the one adjustment type that is tied to an actual patient and gets its own
+    // durable DrugReturnRecord below. The other three types (ปรับยอด/ยาเสีย/หมดอายุ) have no
+    // patient to attach and keep working exactly as before.
+    if (t === 'return' && !state.adjHn.trim()) { toast('ต้องกรอก HN ผู้ป่วยสำหรับการคืนยา'); return; }
     const sign = t === 'return' ? 1 : -1;
     // Bug fix (ledger accuracy): a 'damaged'/'adjust' deduction (sign -1) used to log qty as a
     // flat `sign * q` regardless of what actually happened to floor — but the write below
@@ -2241,6 +2250,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // "ledger drift" gap commitTransfer's own fix comment describes: a dropped connection
       // between the two left floor changed with no matching history row. Folded the tx-log
       // write into the same transaction (trx.set, not logTx()) so both commit atomically.
+      const now = Date.now();
       await runTx(async (trx) => {
         const ref = doc(db, 'meds', m.id);
         const snap = await trx.get(ref);
@@ -2249,8 +2259,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         trx.update(ref, { floor: after });
         trx.set(doc(collection(db, 'txs')), {
           type: t, name: m.name, medId: m.id, qty: after - before, unit: m.unit,
-          reason: state.adjReason, note: state.adjNote || '—', loc: 'floor', by: userName(), ts: Date.now(),
+          reason: state.adjReason, note: state.adjNote || '—', loc: 'floor', by: userName(), ts: now,
         } satisfies Omit<import('../types').Tx, 'id'>);
+        // Real-world request: "อยากให้เพิ่มข้อมูลในการคืนยา...วันที่ได้รับคืนยา...HN
+        // ผู้ป่วย...คำนวนราคายาให้อัตโนมัติ กลุ่มยาที่คืนให้ดึงจากตัวยาอัตโนมัติ...ดึงรายงานได้
+        // ทุกช่วง" — a durable side record (append-only, same shape as parAdjustments above),
+        // written in the SAME transaction as the floor/txs write so it can never drift from the
+        // stock movement it describes. Uses the real applied delta (after-before), not the raw
+        // typed `q`, for the same reason the txs row above does (floor clamps at 0).
+        if (t === 'return') {
+          trx.set(doc(collection(db, 'returns')), {
+            medId: m.id, medName: m.name, medCode: m.code, unit: m.unit, category: categoryOf(m),
+            hn: state.adjHn.trim(), qty: after - before, unitPrice: m.price, value: (after - before) * m.price,
+            note: state.adjNote || '—', date: isoDate(now), ts: now, by: userName(),
+          } satisfies import('../types').DrugReturnRecord);
+        }
       });
       const appliedQty = after - before;
       // Bug fix (flow friction): this used to also clear adjMed/adjSearch, forcing a full
@@ -2259,7 +2282,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // patient returns of the same item back-to-back) — a real extra search+tap on every single
       // commit, several times a shift, with no safety benefit: only qty/reason/note actually
       // need clearing between adjustments, not which med is selected.
-      patch({ adjQty: '', adjReason: '', adjNote: '' });
+      patch({ adjQty: '', adjReason: '', adjNote: '', adjHn: '' });
       hapticSuccess();
       toast('บันทึกแล้ว · ' + m.name + ' ' + (appliedQty > 0 ? '+' : appliedQty < 0 ? '−' : '') + nf(Math.abs(appliedQty)) + ' ' + m.unit);
     } catch (e) {
@@ -2339,7 +2362,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // export button for all three in favor of their own date-range-scoped export
     // (exportDailyMetricsCsv / exportUsageHistoryCsv / exportStockAsOfCsv) — but the map still
     // needs every ReportTab key to satisfy state.reportTab's type below.
-    const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', exec: 'executive_summary.csv', kpi: 'kpi_metrics.csv', usage: 'usage_history.csv', stockasof: 'stock_as_of.csv' };
+    const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', exec: 'executive_summary.csv', kpi: 'kpi_metrics.csv', usage: 'usage_history.csv', stockasof: 'stock_as_of.csv', returns: 'drug_returns.csv' };
     // Bug fix (report accuracy): ReportScreen.tsx dropped OPD/IPD ward tabs a while back ("reports
     // always cover the whole formulary" — see its own comment) and every on-screen computation
     // there (aging/category/turn/insights/exec/disc) reads straight from state.meds.filter(active)
@@ -4230,6 +4253,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return snap.docs.map((d) => d.data() as ParAdjustmentRecord);
   }, []);
 
+  // ---------- คืนยา (drug returns) — see DrugReturnRecord's own doc comment in types.ts ----------
+  // Same "plain one-shot fetch over a caller-chosen range, not a live listener" shape as
+  // fetchUsageHistory/fetchDailyMetrics above.
+  const fetchDrugReturns = useCallback(async (fromDate: string, toDate: string): Promise<import('../types').DrugReturnRecord[]> => {
+    const snap = await withTimeout(getDocs(query(
+      collection(db, 'returns'),
+      where('date', '>=', fromDate), where('date', '<=', toDate), orderBy('date', 'asc'),
+    )));
+    return snap.docs.map((d) => d.data() as import('../types').DrugReturnRecord);
+  }, []);
+
+  const exportDrugReturnsCsv = useCallback(async (records: import('../types').DrugReturnRecord[]) => {
+    const header = ['วันที่', 'HN', 'ชื่อยา', 'หมวดยา', 'จำนวนที่คืน', 'ราคาต่อหน่วย (บาท)', 'มูลค่า (บาท)', 'หมายเหตุ', 'ผู้บันทึก'];
+    const sorted = records.slice().sort((a, b) => a.date.localeCompare(b.date) || a.hn.localeCompare(b.hn));
+    const body = sorted.map((r) => [r.date, r.hn, r.medName, categoryLabel(r.category), r.qty, r.unitPrice, Math.round(r.value), r.note, r.by]);
+    await downloadCsv([header, ...body], 'คืนยา_' + (sorted[0]?.date || '') + '_ถึง_' + (sorted[sorted.length - 1]?.date || '') + '.csv');
+  }, []);
+
   // ---------- count ----------
   const setCountInput = useCallback((medId: string, v: string) => patch((st) => ({ countInputs: { ...st.countInputs, [medId]: digitsOnly(v) } })), [patch]);
 
@@ -5198,7 +5239,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, cancelReceivePick, removeRecvItem, commitReceive, printWarehouseRequestList,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
-    pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, commitAdjust, scrapLot, scrapFloorLot,
+    pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, fetchDrugReturns, exportDrugReturnsCsv, scrapLot, scrapFloorLot,
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setAllMinSuggested, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, updateGlobalSettings,
