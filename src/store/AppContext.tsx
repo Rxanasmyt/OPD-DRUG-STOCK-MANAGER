@@ -1426,7 +1426,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // setState updater) purely for this UX hint — a rapid double-tap could in theory read one tick
   // stale and show the toast once too many, but the actual cart write below is still the
   // original functional updater, unaffected and always correct either way.
-  const bump = useCallback((id: string, d: number) => {
+  //
+  // Real-world request (follow-up): "ต่อให้ถึงเกณฑ์ที่ไม่ต้องเติมแต่ยาบางตัวอาจจะต้องเบิกมาก่อน
+  // เพื่อมาทำ pre-pack ยา...ให้ขึ้นเตือนมาและกดยอมรับถึงจะเพิ่มได้" — floor already at/above Max
+  // isn't always "nothing to do here": a pre-pack workflow genuinely needs to pull extra stock
+  // ahead of real need. The empty-toast block above now only covers substock being genuinely
+  // empty (cap 0 — a hard physical limit no confirmation can override); the at/above-Max case
+  // instead asks once via the in-app confirm() replacement every other "are you sure" moment in
+  // this app already uses (window.confirm can silently no-op in some embedded WebView/PWA
+  // contexts — see confirmAsync's own doc comment), then seeds the cart with one whole
+  // box/magnitude step (packStep) once confirmed — there's no real "need" to size a suggestion
+  // off here, so a single step is the same reasonable starting point a normal first tap gives,
+  // left for the person to bump further or type an exact pre-pack quantity into the field.
+  const bump = useCallback(async (id: string, d: number) => {
     if (d > 0 && !(state.cart[id] > 0)) {
       const m = state.meds.find((x) => x.id === id);
       if (m) {
@@ -1436,8 +1448,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         if (suggestTransferQty(state, m) <= 0) {
-          toast('หน้างาน ' + m.name + ' ถึงหรือเกิน Max แล้ว (' + nf(m.floor) + ' / Max ' + nf(m.parFloor) + ') — ไม่ต้องเติมเพิ่ม');
-          return;
+          const ok = await confirmAsync(
+            'หน้างาน ' + m.name + ' ถึงหรือเกิน Max แล้ว (' + nf(m.floor) + ' / Max ' + nf(m.parFloor) + ') — '
+            + 'ยืนยันว่าต้องการเบิกเพิ่มจริงๆ ใช่ไหม (เช่น เบิกล่วงหน้าเพื่อทำ pre-pack)?'
+          );
+          if (!ok) return;
         }
       }
     }
@@ -1447,13 +1462,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const cap = subQty(st, id);
       const step = packStep(m);
       const cur = st.cart[id] || 0;
-      let v = cur === 0 && d > 0 ? suggestTransferQty(st, m) : cur + d * step;
+      let v = cur === 0 && d > 0 ? (suggestTransferQty(st, m) || step) : cur + d * step;
       v = Math.max(0, Math.min(cap, v));
       const cart = { ...st.cart };
       if (v <= 0) delete cart[id]; else cart[id] = v;
       return { ...st, cart };
     });
-  }, [state, toast]);
+  }, [state, toast, confirmAsync]);
 
   const setCartQty = useCallback((id: string, raw: string) => {
     setState((st) => {
