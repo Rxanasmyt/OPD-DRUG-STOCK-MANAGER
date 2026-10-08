@@ -298,7 +298,14 @@ export default function TransferScreen() {
                   >
                     <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                       <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
+                        {/* Bug fix (real-device report, mobile overlap): this title line had no
+                            flexWrap — a long drug name plus the bin badges next to it could add
+                            up to more than the column's own width, and since a flex item defaults
+                            to min-width:auto (won't shrink below its own content's natural
+                            width), the whole line just overflowed sideways past the column edge
+                            instead of wrapping, visually landing UNDER the qty stepper painted
+                            next to it. flexWrap lets it drop onto a second line instead. */}
+                        <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                           <MedDot code={m.code} />
                           {/* Real-world request: "รายการที่ต้องเติมหน้างานอยากให้มีชั้นวางโชว์ด้วยครับ
                               เพื่อหาตำแหน่งของยาได้อย่างถูกต้อง" — this list already sorts by shelf

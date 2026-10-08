@@ -285,7 +285,12 @@ export default function CountScreen() {
             <div key={m.id} {...rowToCard(m.id)} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', background: has ? 'var(--green-tint)' : undefined, cursor: 'pointer' }}>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {/* Bug fix (real-device report, mobile overlap): no flexWrap here — a long
+                      drug name plus the shelf-bin badge could overflow sideways past this
+                      column's own width (flex items default to min-width:auto, so they won't
+                      shrink below their content's natural width) and land UNDER the
+                      กล่อง/เศษ/− +/+ fields painted next to it. flexWrap drops it to a new line. */}
+                  <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     {/* Shown regardless of sort — useful context any time, essential while
                         walking shelf order (sort === 'bin') to confirm you're at the right spot. */}
                     {binOf(m) && <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 6, padding: '1px 6px' }}>{binOf(m)}</span>}

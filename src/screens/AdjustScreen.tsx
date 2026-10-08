@@ -94,7 +94,7 @@ export default function AdjustScreen() {
             return (
               <div key={l.id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', display: 'flex', gap: 10, alignItems: 'center' }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>{m.name} <WardBadge med={m} /></div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>{m.name} <WardBadge med={m} /></div>
                   <div style={{ fontSize: 11.5, marginTop: 2, color: d < 0 ? 'var(--red)' : 'var(--amber)' }}>lot {l.lotNo} · exp {thDate(l.exp)} · {nf(l.qty)} {m.unit} · มูลค่า {nf(l.qty * m.price)} บาท</div>
                 </div>
                 <button onClick={() => scrapLot(l.id)} disabled={!!state.busy[`scrapLot:${l.id}`]} className="btn-danger" style={{ padding: '9px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, flex: 'none', minHeight: 44, opacity: state.busy[`scrapLot:${l.id}`] ? 0.7 : 1 }}>
@@ -117,7 +117,7 @@ export default function AdjustScreen() {
             return (
               <div key={l.id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', display: 'flex', gap: 10, alignItems: 'center' }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>{m.name} <WardBadge med={m} /></div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>{m.name} <WardBadge med={m} /></div>
                   <div style={{ fontSize: 11.5, marginTop: 2, color: d < 0 ? 'var(--red)' : 'var(--amber)' }}>lot {l.lotNo} · exp {thDate(l.exp)} · {nf(l.qty)} {m.unit}</div>
                 </div>
                 <button onClick={() => scrapFloorLot(l.id)} disabled={!!state.busy[`scrapFloorLot:${l.id}`]} className="btn-danger" style={{ padding: '9px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, flex: 'none', minHeight: 44, opacity: state.busy[`scrapFloorLot:${l.id}`] ? 0.7 : 1 }}>
@@ -151,7 +151,7 @@ export default function AdjustScreen() {
                 // <button> can't contain the nested CardPeekButton <button>.
                 <div key={m.id} role="button" tabIndex={0} className="row-interactive" onClick={() => pickAdjMed(m.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickAdjMed(m.id); } }} style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 8px 10px 12px', minHeight: 44, cursor: 'pointer' }}>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={m.code} /> {m.name} <WardBadge med={m} /></span>
+                    <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}><MedDot code={m.code} /> {m.name} <WardBadge med={m} /></span>
                     <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>หน้างาน <Qty value={m.floor} tone={toneFor(m)} size={11.5} /> · substock <Qty value={subQty(state, m.id)} tone={subTone(subQty(state, m.id), m.parSub)} unit={m.unit} size={11.5} /></span>
                   </div>
                   <CardPeekButton medId={m.id} name={m.name} onOpen={goSubstockCardFor} />
@@ -163,7 +163,7 @@ export default function AdjustScreen() {
           {adjMed && (
             <>
               <div style={{ background: 'var(--green-tint)', borderRadius: 10, padding: '9px 11px', fontSize: 13.5, fontWeight: 600, marginBottom: 9 }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><MedDot code={adjMed.code} /> {adjMed.name} <WardBadge med={adjMed} size="md" /></span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}><MedDot code={adjMed.code} /> {adjMed.name} <WardBadge med={adjMed} size="md" /></span>
                 <span className="muted" style={{ display: 'block', fontSize: 11.5, fontWeight: 400 }}>หน้างาน <Qty value={adjMed.floor} tone={toneFor(adjMed)} size={11.5} /> · substock <Qty value={subQty(state, adjMed.id)} tone={subTone(subQty(state, adjMed.id), adjMed.parSub)} unit={adjMed.unit} size={11.5} /></span>
               </div>
               {state.adjType === 'adjust' && (

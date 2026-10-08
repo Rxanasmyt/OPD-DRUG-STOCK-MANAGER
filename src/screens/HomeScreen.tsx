@@ -239,7 +239,12 @@ export default function HomeScreen() {
         {low.slice(0, 5).map((m) => (
           <div key={m.id} className="row-interactive" {...rowToCard(m.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: '1px solid var(--border-soft)', cursor: 'pointer' }}>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
+              {/* Bug fix (real-device report, mobile overlap): no flexWrap here — a long drug
+                  name could overflow sideways past the column edge (flex items default to
+                  min-width:auto, so they won't shrink below their own content's natural width)
+                  and land UNDER the action button painted next to it. flexWrap lets it drop to a
+                  second line instead. */}
+              <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                 <MedDot code={m.code} />
                 <span>{m.name}</span>
                 {m.had && <HadTag />}
@@ -302,7 +307,7 @@ export default function HomeScreen() {
         {lowSub.slice(0, 5).map((m) => (
           <div key={m.id} className="row-interactive" {...rowToCard(m.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: '1px solid var(--border-soft)', cursor: 'pointer' }}>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                 <MedDot code={m.code} />
                 <span>{m.name}</span>
                 {m.had && <HadTag />}
@@ -347,7 +352,7 @@ export default function HomeScreen() {
                 <div style={{ fontSize: 10, lineHeight: 1.3 }}>{d <= 0 ? 'วันที่เกิน' : 'วัน'}</div>
               </div>
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                   <MedDot code={m.code} />
                   <span>{m.name}</span>
                 </div>

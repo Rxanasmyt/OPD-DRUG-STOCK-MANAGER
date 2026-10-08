@@ -230,7 +230,10 @@ export default function ReceiveScreen() {
               // can't contain the nested CardPeekButton <button> (invalid, un-clickable HTML).
               <div key={m.id} role="button" tabIndex={0} className="row-interactive" onClick={() => pickRecvMed(m.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickRecvMed(m.id); } }} style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 8px 10px 12px', minHeight: 44, cursor: 'pointer' }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}>
+                  {/* Bug fix (real-device report, mobile overlap): no flexWrap — a long drug
+                      name could overflow sideways past this column's width and land UNDER the
+                      📋 button painted next to it. flexWrap drops it to a new line instead. */}
+                  <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                     <MedDot code={m.code} /> {m.name} <WardBadge med={m} />
                     {recvItemCountByMed[m.id] > 0 && <span className="muted" style={{ fontSize: 11 }}>· เพิ่มแล้ว {recvItemCountByMed[m.id]} lot</span>}
                   </span>
@@ -277,7 +280,7 @@ export default function ReceiveScreen() {
               {needsReceive.map((m) => (
                 <div key={m.id} role="button" tabIndex={0} className="row-interactive" onClick={() => pickRecvMed(m.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickRecvMed(m.id); } }} style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 8px 10px 12px', minHeight: 44, cursor: 'pointer' }}>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                       <MedDot code={m.code} /> {m.name} <WardBadge med={m} />
                       {recvItemCountByMed[m.id] > 0 && <span className="muted" style={{ fontSize: 11 }}>· เพิ่มแล้ว {recvItemCountByMed[m.id]} lot</span>}
                     </span>
