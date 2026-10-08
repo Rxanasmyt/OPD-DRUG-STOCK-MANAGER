@@ -37,6 +37,14 @@ const MISSING_ROUTE_MED = {
   price: 1, had: false, active: true, parSub: 60, parFloor: 20, floor: 10, bin: 'C4', binSub: 'S4',
   category: 'antimicrobial', noSubstock: false, used30: 0, usedPrev30: 0, volatility: 0,
 };
+// Disabled AND missing its floor bin/category — a disabled med is never getting restocked, so
+// nobody's expected to go complete its data either. Must never count against (or show up under)
+// the diagnostic, same as a fully-complete med.
+const DISABLED_MISSING_MED = {
+  id: 'm5', code: 'MED-0005', name: 'Metformin 500mg (เลิกใช้)', unit: 'เม็ด', dosageForm: 'เม็ด',
+  price: 1, had: false, active: false, parSub: 500, parFloor: 100, floor: 50, bin: '', binSub: 'S5',
+  noSubstock: false, used30: 0, usedPrev30: 0, volatility: 0, route: 'oral' as const,
+};
 
 describe('MedsScreen — data-completeness diagnostic regression', () => {
   it('counts a med missing its floor bin/category, excludes a complete one, and never counts a missing substock bin against a noSubstock med', async () => {
@@ -98,5 +106,22 @@ describe('MedsScreen — data-completeness diagnostic regression', () => {
 
     await user.click(screen.getByRole('button', { name: '💉 ยาฉีด' }));
     await waitFor(() => expect(vi.mocked(updateDoc).mock.calls.some((c) => (c[1] as unknown as Record<string, unknown>).route === 'injection')).toBe(true));
+  });
+
+  it('excludes disabled meds from both the diagnostic count and the filtered list, even though they are also missing data', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<MedsScreen />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MISSING_BIN_MED, DISABLED_MISSING_MED]);
+    fireCollection('lots', []);
+
+    // The chip's own count must not include the disabled med — it was previously only kept out
+    // of the count, not out of the list that tapping the chip actually shows.
+    const chip = await screen.findByRole('button', { name: /ข้อมูลยังไม่ครบ \(1\)/ });
+    await user.click(chip);
+
+    await screen.findByText(MISSING_BIN_MED.name);
+    expect(screen.queryByText(DISABLED_MISSING_MED.name)).not.toBeInTheDocument();
   });
 });
