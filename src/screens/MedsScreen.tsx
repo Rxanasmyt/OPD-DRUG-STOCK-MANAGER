@@ -642,7 +642,7 @@ export default function MedsScreen() {
               <div style={{ padding: '11px 13px', background: isEditing ? 'var(--green-tint)' : undefined }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                       <MedDot code={m.code} />
                       <span>{m.name}</span>
                       {m.had && <HadTag />}

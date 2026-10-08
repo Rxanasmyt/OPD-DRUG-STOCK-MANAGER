@@ -86,7 +86,7 @@ export default function TConfirmScreen() {
         {rows.map(({ id, m, used, qty, short }, i) => (
           <div key={id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', borderLeft: '4px solid ' + medColor(m.code), display: 'flex', gap: 10, alignItems: 'flex-start', animation: 'fade .22s var(--ease-out) both', animationDelay: Math.min(i, 10) * 18 + 'ms' }}>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                 <MedDot code={m.code} />
                 <span>{m.name}</span>
                 {m.had && <HadTag />}
