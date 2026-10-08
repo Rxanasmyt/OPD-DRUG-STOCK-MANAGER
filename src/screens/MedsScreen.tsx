@@ -343,6 +343,11 @@ export default function MedsScreen() {
 
   // Count for the "📋 ข้อมูลยังไม่ครบ" diagnostic filter — see missingFields()'s own doc comment
   // for exactly what counts (floor bin / substock bin / category — never packSize).
+  // Real-world request: a disabled med is never getting its data completed (it's disabled —
+  // nobody's restocking it), so it shouldn't compete for attention with active meds that still
+  // need work. m.active here must stay in lockstep with medsBeforeWard's own 'incomplete'
+  // branch below (same for onHold/parOne) — this count is what the chip itself shows, so a
+  // mismatch there would make the chip's own number lie about what tapping it actually lists.
   const incompleteOnly = filter === 'incomplete';
   const incompleteCount = useMemo(
     () => state.meds.filter((m) => m.active && missingFields(m).length > 0).length,
@@ -358,7 +363,7 @@ export default function MedsScreen() {
   // dependency shape wardCounts/catCounts below already used (and correctly relied on).
   const medsBeforeWard = useMemo(
     () => state.meds
-      .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : filter === 'inactive' ? !m.active : filter === 'onHold' ? isOnStockHold(m) : filter === 'incomplete' ? missingFields(m).length > 0 : (m.parFloor === 1 && floorMinOf(m) === 1)))
+      .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : filter === 'inactive' ? !m.active : filter === 'onHold' ? m.active && isOnStockHold(m) : filter === 'incomplete' ? m.active && missingFields(m).length > 0 : m.active && m.parFloor === 1 && floorMinOf(m) === 1))
       .filter((m) => { const s = q.trim().toLowerCase(); return !s || m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0; }),
     [state.meds, filter, q],
   );
