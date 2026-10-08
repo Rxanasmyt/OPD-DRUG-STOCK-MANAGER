@@ -577,6 +577,13 @@ export interface SubstockCardRow {
   dispensed: number; // 0 when this row is a receive line
   balance: number;
   by: string;
+  // Real-world request: "ยังไม่มีรายละเอียดบอกว่าที่บอกเพิ่มหรือลบคือเกิดจากอะไร เช่นตัดยอดเข้า
+  // หน้างาน รับยาจากคลังยาเข้า substock คืนยา นับสต็อก" — the on-screen ledger and the CSV export
+  // already showed WHY each row's รับ/จ่าย happened (TYPE_META's label, +note — see
+  // SubstockCardScreen.tsx), but this printed sheet (🖨, the same "ใบหน้างาน" staff print and
+  // keep at the shelf) silently dropped that and only ever showed the bare number.
+  typeLabel: string;
+  note?: string;
 }
 
 /**
@@ -630,6 +637,7 @@ export function printSubstockCardSheet(
   const openingRow = meta.openingBalance !== undefined ? `<tr style="background:#f3f6f4">
       <td class="no">—</td>
       <td class="date" style="font-style:italic;color:#245a59">ยอดยกมา</td>
+      <td class="type"></td>
       <td class="num"></td>
       <td class="num"></td>
       <td class="num bal">${meta.openingBalance.toLocaleString('en-US')}</td>
@@ -648,6 +656,7 @@ export function printSubstockCardSheet(
     .map((r, i) => `<tr${r.balance < 0 ? ' style="background:#fbeceb"' : ''}>
       <td class="no">${i + 1}</td>
       <td class="date">${escapeHtml(new Date(r.ts).toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: '2-digit' }))}</td>
+      <td class="type">${escapeHtml(r.typeLabel)}${r.note ? `<br><span style="font-size:7.5pt;font-weight:500;color:#667">${escapeHtml(r.note)}</span>` : ''}</td>
       <td class="num recv">${r.received ? r.received.toLocaleString('en-US') + boxSub(r.received) : ''}</td>
       <td class="num disp">${r.dispensed ? r.dispensed.toLocaleString('en-US') + boxSub(r.dispensed) : ''}</td>
       <td class="num bal" style="${r.balance < 0 ? 'color:#a32b22' : ''}">${r.balance.toLocaleString('en-US')}${r.balance < 0 ? ' *' : ''}${boxSub(Math.abs(r.balance))}</td>
@@ -705,6 +714,7 @@ export function printSubstockCardSheet(
   td { padding: 1.8mm 2.6mm; border: 0.4pt solid #cdd6d1; text-align: left; }
   td.no { text-align: center; color: #667; width: 9mm; font-size: 9pt; }
   td.date { width: 22mm; }
+  td.type { font-size: 9pt; }
   .recv { color: #175554; font-weight: 700; }
   .disp { color: #a32b22; font-weight: 700; }
   .bal { font-weight: 700; }
@@ -754,7 +764,7 @@ export function printSubstockCardSheet(
         <div class="field"><span class="lbl">${escapeHtml(med.parLabel || 'par substock')}</span><span class="val">${med.parSub.toLocaleString('en-US')} ${escapeHtml(med.unit)}</span></div>
       </div>
       <table>
-        <thead><tr><th style="width:9mm">ลำดับ</th><th style="width:22mm">วันที่</th><th class="num">รับ</th><th class="num">จ่าย</th><th class="num">คงเหลือ</th><th>ผู้บันทึก</th></tr></thead>
+        <thead><tr><th style="width:9mm">ลำดับ</th><th style="width:22mm">วันที่</th><th>ประเภท / รายละเอียด</th><th class="num">รับ</th><th class="num">จ่าย</th><th class="num">คงเหลือ</th><th>ผู้บันทึก</th></tr></thead>
         <tbody>${body}</tbody>
       </table>
       ${rows.length === 0 ? '<div style="text-align:center;color:#245a59;padding:12mm 0;">รายการยานี้ยังไม่มีประวัติการเคลื่อนไหวในระบบสำรองคลังย่อย (Substock)</div>' : ''}
