@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { subQty, daysUntil, toneFor, subTone } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
@@ -16,9 +17,15 @@ const TYPES: [AdjType, string, string][] = [
   ['expired', 'ยาหมดอายุ', 'ตัดออกจาก substock'],
 ];
 
+// Real-world request: "อยากให้ปรับเหตุผลการคืนมีให้เลือกตามนี้คือ ปรับเปลี่ยนการรักษา
+// แพ้ยา/ผลข้างเคียงการรักษา Non-compliance ได้ยาเกินจากวันนัดรอบก่อน ไม่ประสงค์รับยา
+// ยาตามอาการเหลือ ยาโรคเรื้อรังเหลือเยอะ อื่นๆมีให้ใส่ข้อความเองได้" — replaces the old generic
+// 3-chip list with the real clinical-return reasons staff actually pick from. "อื่นๆ" below isn't
+// a real list item — it's a synthetic chip (see customReasonOpen in the component) that reveals a
+// free-text input instead; nothing is ever literally stored as the word "อื่นๆ".
 const REASONS: Record<AdjType, string[]> = {
   adjust: ['นับได้ต่างจากระบบ', 'บันทึกจ่ายผิดรายการ', 'เบิกใช้ในหน่วยงาน'],
-  return: ['ผู้ป่วยคืนยา (ไม่เปิดซอง)', 'เหลือจากหน่วยงาน', 'จ่ายเกินและได้รับคืน'],
+  return: ['ปรับเปลี่ยนการรักษา', 'แพ้ยา/ผลข้างเคียงการรักษา', 'Non-compliance', 'ได้ยาเกินจากวันนัดรอบก่อน', 'ไม่ประสงค์รับยา', 'ยาตามอาการเหลือ', 'ยาโรคเรื้อรังเหลือเยอะ'],
   damaged: ['ภาชนะแตก/หก', 'ฉลากหลุด ระบุไม่ได้', 'เก็บผิดอุณหภูมิ'],
   expired: [],
 };
@@ -51,6 +58,13 @@ export default function AdjustScreen() {
     ? meds.filter((m) => { const s = state.adjSearch.trim().toLowerCase(); return m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0; }).slice(0, 10)
     : [];
 
+  // "อื่นๆ" (คืนยา only) reveals a free-text reason input instead of picking a preset chip — the
+  // typed text itself becomes state.adjReason (never the literal word "อื่นๆ"), so nothing
+  // downstream (commitAdjust, DrugReturnRecord, reports) needs to know this mode exists at all.
+  // Local, not global AppContext state: purely a "which input is showing" UI toggle — picking any
+  // preset chip switches it back off, same as it switching on is a plain click handler.
+  const [customReasonOpen, setCustomReasonOpen] = useState(false);
+
   const scrapRows = state.lots
     .filter((l) => l.qty > 0 && daysUntil(l.exp) <= 30)
     .sort((a, b) => a.exp - b.exp)
@@ -76,7 +90,7 @@ export default function AdjustScreen() {
           return (
             <button
               key={t}
-              onClick={() => pickAdjType(t)}
+              onClick={() => { setCustomReasonOpen(false); pickAdjType(t); }}
               style={{ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)', padding: '13px 12px', borderRadius: 12, textAlign: 'left', minHeight: 64 }}
             >
               <div style={{ fontSize: 14.5, fontWeight: 600 }}>{label}</div>
@@ -202,13 +216,27 @@ export default function AdjustScreen() {
               <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>เหตุผล (บังคับ)</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 9 }}>
                 {REASONS[state.adjType].map((r) => {
-                  const active = state.adjReason === r;
+                  const active = !customReasonOpen && state.adjReason === r;
                   return (
                     // Bug fix (accessibility): 38px, under the 44px minimum touch target.
-                    <button key={r} onClick={() => setAdjReason(r)} className="chip" style={{ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green-tint)' : 'var(--bg-card)', color: active ? 'var(--green)' : 'var(--ink)', minHeight: 44 }}>{r}</button>
+                    <button key={r} onClick={() => { setCustomReasonOpen(false); setAdjReason(r); }} className="chip" style={{ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green-tint)' : 'var(--bg-card)', color: active ? 'var(--green)' : 'var(--ink)', minHeight: 44 }}>{r}</button>
                   );
                 })}
+                {/* Real-world request: "อื่นๆมีให้ใส่ข้อความเองได้" — คืนยา only, since the other
+                    types (ปรับยอด/ยาเสีย) keep their original fixed reason lists untouched. */}
+                {state.adjType === 'return' && (
+                  <button onClick={() => { setCustomReasonOpen(true); setAdjReason(''); }} className="chip" style={{ border: customReasonOpen ? '1px solid var(--green)' : '1px solid var(--border)', background: customReasonOpen ? 'var(--green-tint)' : 'var(--bg-card)', color: customReasonOpen ? 'var(--green)' : 'var(--ink)', minHeight: 44 }}>อื่นๆ</button>
+                )}
               </div>
+              {customReasonOpen && state.adjType === 'return' && (
+                <input
+                  value={state.adjReason}
+                  onChange={(e) => setAdjReason(e.target.value)}
+                  placeholder="ระบุเหตุผลการคืนยา"
+                  autoFocus
+                  style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 14, marginBottom: 9, minHeight: 44 }}
+                />
+              )}
               <textarea
                 value={state.adjNote}
                 onChange={(e) => setAdjNote(e.target.value)}
