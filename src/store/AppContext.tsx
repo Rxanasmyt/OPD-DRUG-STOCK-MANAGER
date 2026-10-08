@@ -1416,7 +1416,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setFilter = useCallback((f: AppState['filter']) => patch({ filter: f }), [patch]);
   const setWardFilter = useCallback((w: AppState['wardFilter']) => patch({ wardFilter: w }), [patch]);
 
+  // Bug fix (silent no-op, reported live): pressing + on a med already at/above its own Max
+  // (suggestTransferQty returns 0 — nothing left to top up) or with substock genuinely empty
+  // (cap 0) used to do absolutely nothing, with zero on-screen explanation — read as "the button
+  // is broken" rather than "there's genuinely nothing to add here". ScanConfirmSheet's own
+  // NumberStepper already disables + with a reason in this exact situation (see its "Bug fix
+  // (reported live)" comment); this screen's +/- pair never got the equivalent since it's a
+  // plain button pair, not that shared component. Uses the live `state` (not a functional
+  // setState updater) purely for this UX hint — a rapid double-tap could in theory read one tick
+  // stale and show the toast once too many, but the actual cart write below is still the
+  // original functional updater, unaffected and always correct either way.
   const bump = useCallback((id: string, d: number) => {
+    if (d > 0 && !(state.cart[id] > 0)) {
+      const m = state.meds.find((x) => x.id === id);
+      if (m) {
+        const cap = subQty(state, id);
+        if (cap <= 0) {
+          toast('substock ไม่มี ' + m.unit + 'เหลือให้เติม — ต้องรับเข้า substock ก่อนถึงจะเติมหน้างานได้');
+          return;
+        }
+        if (suggestTransferQty(state, m) <= 0) {
+          toast('หน้างาน ' + m.name + ' ถึงหรือเกิน Max แล้ว (' + nf(m.floor) + ' / Max ' + nf(m.parFloor) + ') — ไม่ต้องเติมเพิ่ม');
+          return;
+        }
+      }
+    }
     setState((st) => {
       const m = st.meds.find((x) => x.id === id);
       if (!m) return st;
@@ -1429,7 +1453,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (v <= 0) delete cart[id]; else cart[id] = v;
       return { ...st, cart };
     });
-  }, []);
+  }, [state, toast]);
 
   const setCartQty = useCallback((id: string, raw: string) => {
     setState((st) => {
