@@ -285,6 +285,10 @@ export type AuditType =
   // TYPES/SUBSTOCK_LEDGER_TYPES tx classification — it's a report ABOUT the ledger, not a
   // transaction against it.
   | 'stock_drift_detected'
+  // Logged by the idle-timeout auto-logout (AppContext.tsx, IdleLogoutWarning.tsx) — the only
+  // logout path that happens with nobody at the keyboard to have actually chosen it, so it gets
+  // its own durable trail of who was signed out and when, distinct from an ordinary 'login'.
+  | 'idle_logout'
   | TxType;
 
 export interface AuditEntry {
@@ -682,6 +686,12 @@ export interface AppState {
   expiryWarnDays: number;
   parFloorCoverDays: number;
   parSubCoverDays: number;
+  // Real-world request: "ถ้า login นานทิ้งไว้ จะไม่ logout ออกให้อัตโนมัติเลย ซึ่งอันตรายสำหรับ
+  // ข้อมูลยา" — minutes of no activity (no click/tap/key/scroll) before logout() fires
+  // automatically. Shared hospital-wide setting like expiryWarnDays above (meta/settings), not
+  // per-device — see updateGlobalSettings/idleWarnVisible below and the idle-tracking effect in
+  // AppContext.tsx.
+  idleLogoutMinutes: number;
   // When used30/usedPrev30 (the par-suggestion inputs) were last recomputed from real HOSxP
   // dispensing history — by recomputeUsageStats() (this app) or the scheduled
   // scripts/recompute-usage-stats.mjs job, whichever ran last. null means neither has ever run.
@@ -704,6 +714,12 @@ export interface AppState {
   // 'autoUpdate') specifically so this never reloads the page on its own mid-task; it just
   // shows a dismissible banner and updates only when someone taps it.
   updateAvailable: boolean;
+
+  // True for exactly the last minute before an auto-logout from inactivity actually fires —
+  // see IdleLogoutWarning.tsx/dismissIdleWarning() in AppContext.tsx. Never set directly to
+  // false by the idle-check itself without the person acting; tapping "ยังอยู่" (or any ordinary
+  // activity — click/key/scroll) clears it and restarts the idle clock from zero.
+  idleWarnVisible: boolean;
 
   // Reactive mirror of guardOnce()'s internal busy-key tracking (AppContext.tsx) — guardOnce
   // itself already prevents a double-tap from running the same commit action twice, but

@@ -11,6 +11,7 @@ import Toast from './components/Toast';
 import ConfirmDialog from './components/ConfirmDialog';
 import PromptDialog from './components/PromptDialog';
 import UpdateBanner from './components/UpdateBanner';
+import IdleLogoutWarning from './components/IdleLogoutWarning';
 import { SkeletonHome, SkeletonScreen } from './components/Skeleton';
 import { ContextBar } from './components/ContextBar';
 import HospitalCrest from './components/HospitalCrest';
@@ -278,6 +279,7 @@ export default function App() {
       </Suspense>
       <ConfirmDialog />
       <PromptDialog />
+      <IdleLogoutWarning />
       <UpdateBanner />
       <Toast />
     </div>

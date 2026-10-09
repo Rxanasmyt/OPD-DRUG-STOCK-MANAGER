@@ -180,10 +180,12 @@ function freshState(): AppState {
     // deferring a merely-below-Min item a day or two is the whole point of that feature, so Max
     // needs enough room to absorb that without the shelf actually running dry).
     expiryWarnDays: 90, parFloorCoverDays: 4, parSubCoverDays: 28, usageStatsRecomputedAt: null,
+    idleLogoutMinutes: 30,
 
     confirmDialog: null,
     promptDialog: null,
     updateAvailable: false,
+    idleWarnVisible: false,
     busy: {},
   } as AppState;
 }
@@ -218,6 +220,11 @@ export interface AppCtx {
   /** Dismisses the "มีเวอร์ชันใหม่" banner without applying it — the update stays downloaded
    * and waiting; applyUpdate() (or just closing/reopening the app later) picks it up whenever. */
   dismissUpdate: () => void;
+  /** Dismisses the "จะออกจากระบบอัตโนมัติ" idle warning (IdleLogoutWarning.tsx) and restarts the
+   * idle clock from zero — same effect any ordinary activity (click/key/scroll) already has;
+   * exposed separately so the warning's own "ยังอยู่" button works even if the person doesn't
+   * otherwise touch/click/type anything else on screen. */
+  dismissIdleWarning: () => void;
   // ยาใกล้หมดอายุ notification — per-device opt-in, see utils/notify.ts.
   notifyEnabled: boolean;
   notifyPermission: NotificationPermission;
@@ -354,7 +361,7 @@ export interface AppCtx {
   /** Quick-fix counterpart that clears an analyzed weekday pattern by hand — see its own doc
    * comment at the implementation. */
   clearMedWeekdayPattern: (medId: string) => void;
-  updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => void;
+  updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; idleLogoutMinutes: number }>) => void;
 
   // meds (formulary) management
   // Bug fix (flow friction): returns whether the add actually succeeded — MedsScreen's "add
@@ -1100,11 +1107,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // already has sane defaults, so a snapshot with no data simply leaves them as-is.
       onSnapshot(doc(db, 'meta', 'settings'), (snap) => {
         if (!snap.exists()) return;
-        const d = snap.data() as Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; usageStatsRecomputedAt: number; latestVersion: string }>;
+        const d = snap.data() as Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; idleLogoutMinutes: number; usageStatsRecomputedAt: number; latestVersion: string }>;
         patch((st) => ({
           expiryWarnDays: typeof d.expiryWarnDays === 'number' ? d.expiryWarnDays : st.expiryWarnDays,
           parFloorCoverDays: typeof d.parFloorCoverDays === 'number' ? d.parFloorCoverDays : st.parFloorCoverDays,
           parSubCoverDays: typeof d.parSubCoverDays === 'number' ? d.parSubCoverDays : st.parSubCoverDays,
+          idleLogoutMinutes: typeof d.idleLogoutMinutes === 'number' ? d.idleLogoutMinutes : st.idleLogoutMinutes,
           // Real-world request: "used30 ไม่มีการคำนวณใหม่อัตโนมัติ...ไม่มีสัญญาณเตือนว่าข้อมูลเก่า
           // แค่ไหนแล้ว" — written by recomputeUsageStats() (this file) and by the scheduled
           // scripts/recompute-usage-stats.mjs GitHub Actions job, whichever last ran. null until
@@ -1409,6 +1417,60 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, [patch]);
   const setDevice = useCallback((d: 'phone' | 'tablet') => patch({ device: d }), [patch]);
+
+  // Real-world request: "ตอนนี้ถ้า login นานทิ้งไว้ จะไม่ logout ออกให้อัตโนมัติเลย ซึ่งอันตราย
+  // สำหรับข้อมูลยา" — nothing in the app ever signed anyone out for being idle; a tablet left
+  // open on a med screen stayed signed in indefinitely. lastActivityRef tracks the real wall-
+  // clock time of the last genuine interaction (pointer/key/touch/scroll) — a ref rather than
+  // state so it can be updated on every single event firing at normal browsing frequency
+  // without re-rendering the whole app each time; only the periodic check effect below ever
+  // turns elapsed idle time into an actual state change (idleWarnVisible / logout()).
+  const lastActivityRef = useRef(Date.now());
+  // Guards against calling logout() more than once for the SAME idle period. signOut(auth) is
+  // async — real Firebase Auth only flips state.authStatus away from 'signedIn' once its own
+  // onAuthStateChanged listener actually fires some time after this, not synchronously — so
+  // without this guard the 15s interval below could tick again (and again) before that happens
+  // and re-trigger logout()/logAudit() repeatedly for what's really one single idle timeout.
+  const idleFiredRef = useRef(false);
+  useEffect(() => {
+    if (state.authStatus !== 'signedIn') return;
+    const bump = () => { lastActivityRef.current = Date.now(); idleFiredRef.current = false; };
+    bump(); // signing in itself counts — otherwise a slow first paint could already look "idle"
+    const EVENTS: (keyof DocumentEventMap)[] = ['pointerdown', 'keydown', 'touchstart', 'wheel'];
+    EVENTS.forEach((ev) => document.addEventListener(ev, bump, { passive: true }));
+    return () => EVENTS.forEach((ev) => document.removeEventListener(ev, bump));
+  }, [state.authStatus]);
+  // Checked on a plain interval rather than one setTimeout rescheduled on every activity event
+  // — re-registering a timer on every click/keystroke/scroll tick (far more frequent than this
+  // 15s check) would be pure waste for a threshold measured in minutes. The 1-minute warning
+  // (IdleLogoutWarning.tsx's "ยังอยู่" button, same non-silent/always-dismissible pattern as
+  // UpdateBanner) always has an exactly 60s window before the real logout fires, regardless of
+  // idleLogoutMinutes — warnAtMs is just logoutAtMs minus that fixed 60s.
+  useEffect(() => {
+    if (state.authStatus !== 'signedIn') { patch((st) => (st.idleWarnVisible ? { idleWarnVisible: false } : st)); return; }
+    const logoutAtMs = Math.max(5, state.idleLogoutMinutes) * 60 * 1000;
+    const warnAtMs = logoutAtMs - 60 * 1000;
+    const checkIdle = () => {
+      const idleMs = Date.now() - lastActivityRef.current;
+      if (idleMs >= logoutAtMs) {
+        if (idleFiredRef.current) return;
+        idleFiredRef.current = true;
+        logAudit({ type: 'idle_logout', note: 'ไม่มีการใช้งานเกิน ' + state.idleLogoutMinutes + ' นาที' });
+        logout();
+        toast('ออกจากระบบอัตโนมัติ เนื่องจากไม่มีการใช้งานเป็นเวลานาน');
+      } else {
+        const shouldWarn = idleMs >= warnAtMs;
+        patch((st) => (st.idleWarnVisible === shouldWarn ? st : { idleWarnVisible: shouldWarn }));
+      }
+    };
+    const intervalId = setInterval(checkIdle, 15000);
+    return () => clearInterval(intervalId);
+  }, [state.authStatus, state.idleLogoutMinutes, patch, logAudit, logout, toast]);
+  const dismissIdleWarning = useCallback(() => {
+    lastActivityRef.current = Date.now();
+    idleFiredRef.current = false;
+    patch({ idleWarnVisible: false });
+  }, [patch]);
 
   // Bug fix: this was the only bulk-write action in the app neither wrapped in guardOnce nor
   // backed by a state.busy[...] flag — every other bulk button (MedsScreen/SettingsScreen)
@@ -3279,7 +3341,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Persists to meta/settings (see the onSnapshot listener above) — a merge write so this
   // can be called with just the one field that changed without clobbering the other two.
-  const updateGlobalSettings = useCallback(async (patchFields: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number }>) => {
+  const updateGlobalSettings = useCallback(async (patchFields: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; idleLogoutMinutes: number }>) => {
     if (!canEditMeds) return;
     // Bug fix (data integrity): parFloorCoverDays/parSubCoverDays feed suggestPar()'s
     // `roundStep(daily * coverDays * volatility)` for the WHOLE shared formulary (this is
@@ -3292,6 +3354,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // 0 there just narrows "near expiry" to lots already expired, so it's left unclamped.
     if (patchFields.parFloorCoverDays !== undefined) patchFields = { ...patchFields, parFloorCoverDays: Math.max(1, patchFields.parFloorCoverDays) };
     if (patchFields.parSubCoverDays !== undefined) patchFields = { ...patchFields, parSubCoverDays: Math.max(1, patchFields.parSubCoverDays) };
+    // Bug fix (lockout risk): a fat-finger near-zero value here would auto-logout everyone on
+    // the shared formulary almost immediately (including whoever just set it) with no way back
+    // in except someone else fixing it from Firestore directly. 5 minutes is a hard floor —
+    // still short enough to matter for "ลืมปิดหน้าจอไว้นาน" but not so short a brief pause to
+    // read a label or answer a phone call triggers it.
+    if (patchFields.idleLogoutMinutes !== undefined) patchFields = { ...patchFields, idleLogoutMinutes: Math.max(5, patchFields.idleLogoutMinutes) };
     try {
       await withTimeout(setDoc(doc(db, 'meta', 'settings'), patchFields, { merge: true }));
       logAudit({ type: 'par_updated', note: 'แก้ไขการตั้งค่า: ' + Object.entries(patchFields).map(([k, v]) => k + '=' + v).join(', ') });
@@ -5297,7 +5365,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.historyFrom, state.historyTo, patch, toast, toastErr]);
 
   const value = useMemo<AppCtx>(() => ({
-    state, myProfile, theme, toggleTheme, sub, fefo, fefoFloor, userName, roleLabel, roleLabelOf, warn, toast, respondConfirm, promptAsync, respondPrompt, applyUpdate, dismissUpdate,
+    state, myProfile, theme, toggleTheme, sub, fefo, fefoFloor, userName, roleLabel, roleLabelOf, warn, toast, respondConfirm, promptAsync, respondPrompt, applyUpdate, dismissUpdate, dismissIdleWarning,
     notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify,
     lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify, go, back, setFormDirty, confirmLeaveIfDirty,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
