@@ -849,8 +849,18 @@ export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number)
   // extra margin to whatever volatility someone happened to type in by hand). Floor only, same
   // reasoning as weekdayFactor — substock's long cycle already carries enough slack on its own.
   const criticalityFactor = m.had ? 1.5 : 1;
-  const floor = roundStep(daily * floorDays * m.volatility * weekdayFactor * criticalityFactor);
-  const sub = roundStep(daily * subCoverDays * m.volatility);
+  // Real-world request: "ยาบางตัว min max par ไม่เหมาะสม...จำนวนยาในการใช้ 1 ครั้ง เยอะกว่าค่า min
+  // max ปัจจุบันอย่างมาก" (เช่น phenytoin สั่ง 3 เดือน 270 เม็ดใน 1 เคส) — every multiplier above is
+  // still just scaling an AVERAGED daily rate, which a single large one-off dispense (infrequent
+  // enough to barely move a 30-day average) can blow straight through no matter how it's scaled.
+  // peakDayQty (Med, see its own doc comment) is the real worst single calendar day actually
+  // seen for this drug — clamping floor/sub par to never size below it means the exact same case
+  // showing up again is already covered, not a repeat emergency central-warehouse pull.
+  const avgFloor = roundStep(daily * floorDays * m.volatility * weekdayFactor * criticalityFactor);
+  const avgSub = roundStep(daily * subCoverDays * m.volatility);
+  const peakFloor = m.peakDayQty ? roundStep(m.peakDayQty) : 0;
+  const floor = Math.max(avgFloor, peakFloor);
+  const sub = Math.max(avgSub, peakFloor);
   // Real-world request: "Min ควรอิงอัตราการใช้จริงเหมือน Max ไม่ใช่สัดส่วนคงที่ของ Max" — floorMinOf()
   // (selectors.ts) falls back to a flat 50%-of-Max default when no Min is explicitly set, which
   // makes Min track whatever Max happens to be rather than this drug's own real usage rate — a

@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event';
 import { updateDoc } from 'firebase/firestore';
 import { useApp } from './AppContext';
 import { renderWithApp } from '../test-utils/renderWithApp';
+import Toast from '../components/Toast';
 import { signInAs, fireCollection, hasListener, seedCollection, getLastBatchWrites } from '../test-utils/firebaseTestDouble';
 
 function bangkokNoon(y: number, m: number, d: number): number {
@@ -48,6 +49,22 @@ const SPARSE_MED = {
   price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 40, bin: 'A4',
   ward: 'opd' as const, noSubstock: false, volatility: 1, used30: 20, usedPrev30: 20,
 };
+// Real-world request: "ยาบางตัว min max par ไม่เหมาะสม...จำนวนยาในการใช้ 1 ครั้ง เยอะกว่าค่า min
+// max ปัจจุบันอย่างมาก" (เช่น phenytoin สั่ง 3 เดือน 270 เม็ดใน 1 เคส) — a drug with almost no
+// ordinary daily usage, but ONE huge one-off dispense ~120 days ago: outside the 91-day
+// weekday-pattern window entirely (so no weekdayPeakFactor gets set — there's no regular
+// pattern, just a single real spike), but still inside the longer 180-day peak-day window.
+const BURST_MED = {
+  id: 'm5', code: 'MED-0005', name: 'Phenytoin 100mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  price: 1, had: false, active: true, parSub: 50, parFloor: 20, floor: 10, bin: 'A5',
+  ward: 'opd' as const, noSubstock: false, volatility: 1, used30: 10, usedPrev30: 10,
+};
+// MONDAY(14) = 14 weeks (98 days) before the 2026-01-05 anchor — ~102 days before "now"
+// (2026-01-09): past the 91-day weekday window, comfortably inside the 180-day peak window.
+// A real Monday (not a weekend) so it isn't skipped by the "never reconciles on a weekend" gate.
+const burstRows = [
+  { type: 'reconcile_hosxp', name: BURST_MED.name, medId: BURST_MED.id, qty: -270, unit: 'เม็ด', by: 'u1', ts: MONDAY(14) },
+];
 
 // 8 weeks of history for SPIKE_MED: a clear, real Tuesday spike (50 vs 10 every other weekday) —
 // avg = (10+50+10+10+10)/5 = 18, peak/avg ≈ 2.78 (well past the 1.15 "meaningful" threshold).
@@ -94,8 +111,8 @@ describe('analyzeWeekdayUsage — real weekday-pattern regression', () => {
     renderWithApp(<Harness />);
     await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
-    fireCollection('meds', [SPIKE_MED, FLAT_MED, STALE_MED, SPARSE_MED]);
-    seedCollection('txs', [...spikeRows, ...flatRows(FLAT_MED), ...flatRows(STALE_MED), ...sparseRows]);
+    fireCollection('meds', [SPIKE_MED, FLAT_MED, STALE_MED, SPARSE_MED, BURST_MED]);
+    seedCollection('txs', [...spikeRows, ...flatRows(FLAT_MED), ...flatRows(STALE_MED), ...sparseRows, ...burstRows]);
 
     await user.click(screen.getByRole('button', { name: 'analyze-weekday' }));
     await waitFor(() => expect(getLastBatchWrites().length).toBeGreaterThan(0));
@@ -115,8 +132,13 @@ describe('analyzeWeekdayUsage — real weekday-pattern regression', () => {
     const spikePattern = byPath['meds/m1']!.weekdayPattern as number[];
     expect(spikePattern[1]).toBe(Math.max(...spikePattern));
 
-    // FLAT_MED: genuinely flat usage, never had a factor — no write at all needed or made.
-    expect(byPath['meds/m2']).toBeUndefined();
+    // FLAT_MED: genuinely flat usage — no weekday-pattern write (never had a factor, data is
+    // flat), but a real peak-day value still gets recorded (its own worst-day scan doesn't
+    // require regular weekday confidence — see the dedicated peak-day describe block below for
+    // what that signal is actually FOR; a flat med's "peak" is simply its ordinary daily amount).
+    expect(byPath['meds/m2']).toBeDefined();
+    expect(byPath['meds/m2']!.weekdayPeakFactor).toBeUndefined();
+    expect(byPath['meds/m2']!.peakDayQty).toBe(20);
 
     // STALE_MED: had a stale factor from a previous run, but this round's data is flat —
     // explicitly cleared (deleteField() resolves to undefined in the test double).
@@ -126,9 +148,64 @@ describe('analyzeWeekdayUsage — real weekday-pattern regression', () => {
     expect(byPath['meds/m3']!.weekdayPeakOccurrences).toBeUndefined();
     expect(byPath['meds/m3']!.weekdayPattern).toBeUndefined();
 
-    // SPARSE_MED: a real-looking spike shape, but only 2 weeks of data — not enough to trust,
-    // so untouched entirely (never even considered "analyzed").
-    expect(byPath['meds/m4']).toBeUndefined();
+    // SPARSE_MED: a real-looking spike shape, but only 2 weeks of data — not enough to trust a
+    // WEEKDAY pattern from, so no weekdayPeakFactor write; its peak-day scan has no such
+    // confidence bar though, so the real 20-unit day it did see still gets recorded.
+    expect(byPath['meds/m4']).toBeDefined();
+    expect(byPath['meds/m4']!.weekdayPeakFactor).toBeUndefined();
+    expect(byPath['meds/m4']!.peakDayQty).toBe(20);
+
+    // BURST_MED (the real-world "phenytoin" case): a single huge one-off dispense ~102 days
+    // ago — outside the 91-day weekday window entirely (no regular pattern to detect, so no
+    // weekdayPeakFactor), but inside the 180-day peak window. This is the actual fix: Max/sub
+    // par now gets clamped to at least this real worst-case day (see suggestPar() in
+    // selectors.ts), not just the smoothed 30-day average that would otherwise hide it.
+    expect(byPath['meds/m5']).toBeDefined();
+    expect(byPath['meds/m5']!.weekdayPeakFactor).toBeUndefined();
+    expect(byPath['meds/m5']!.peakDayQty).toBe(270);
+  });
+});
+
+// Real-world request: "ยาบางตัว min max par ไม่เหมาะสม...จำนวนยาในการใช้ 1 ครั้ง เยอะกว่าค่า min
+// max ปัจจุบันอย่างมาก" — dedicated coverage for the peak-day signal itself, independent of the
+// combined-fixture test above: a med whose single worst real day already exceeds its current
+// Max is exactly the "เบิกฉุกเฉิน" risk this exists to catch.
+describe('analyzeWeekdayUsage — peak single-day usage regression', () => {
+  it('records the real worst single calendar day for a med with an infrequent large one-off dispense, with the date that backs it', async () => {
+    vi.setSystemTime(bangkokNoon(2026, 0, 9));
+    const user = userEvent.setup();
+    renderWithApp(<Harness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [BURST_MED]);
+    seedCollection('txs', burstRows);
+
+    await user.click(screen.getByRole('button', { name: 'analyze-weekday' }));
+    await waitFor(() => expect(getLastBatchWrites().length).toBeGreaterThan(0));
+
+    const [write] = getLastBatchWrites();
+    expect(write.path).toBe('meds/m5');
+    expect(write.data!.peakDayQty).toBe(270);
+    expect(write.data!.peakDayDate).toBe('2025-09-29'); // MONDAY(14) — see burstRows' own comment
+  });
+
+  it('does not re-write an unchanged peak on a later run', async () => {
+    vi.setSystemTime(bangkokNoon(2026, 0, 9));
+    const user = userEvent.setup();
+    renderWithApp(<><Harness /><Toast /></>);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    // Already carries the exact same peak this run would find — nothing new to write.
+    fireCollection('meds', [{ ...BURST_MED, peakDayQty: 270, peakDayDate: '2025-09-29' }]);
+    seedCollection('txs', burstRows);
+
+    await user.click(screen.getByRole('button', { name: 'analyze-weekday' }));
+    // BURST_MED's single real day sits outside the 91-day weekday window entirely, so it's
+    // never even counted as "analyzed" for that purpose — this lone-med run falls through to
+    // the "no history at all within the weekday window" message, not the "found nothing NEW"
+    // one. Either way, the real assertion is the same: nothing gets written.
+    await screen.findByText(/ยังไม่มียาตัวไหนมีประวัติ HOSxP ต่อเนื่องพอจะวิเคราะห์/);
+    expect(getLastBatchWrites().length).toBe(0);
   });
 });
 
@@ -159,5 +236,36 @@ describe('clearMedWeekdayPattern — manual override regression', () => {
     expect(fields.weekdayPeakDay).toBeUndefined();
     expect(fields.weekdayPeakOccurrences).toBeUndefined();
     expect(fields.weekdayPattern).toBeUndefined();
+  });
+});
+
+// Same immediate-clear escape hatch as clearMedWeekdayPattern above, for the separate
+// peakDayQty/peakDayDate signal.
+function ClearPeakHarness({ medId }: { medId: string }) {
+  const { clearMedPeakDay } = useApp();
+  return <button onClick={() => clearMedPeakDay(medId)}>clear-peak</button>;
+}
+
+describe('clearMedPeakDay — manual override regression', () => {
+  it('clears both peak-day fields immediately via a real Firestore write, without waiting for new history to age it out', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<ClearPeakHarness medId={BURST_MED.id} />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [{ ...BURST_MED, peakDayQty: 270, peakDayDate: '2025-09-29' }]);
+
+    const callsBefore = vi.mocked(updateDoc).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'clear-peak' }));
+    await waitFor(() => expect(vi.mocked(updateDoc).mock.calls.length).toBeGreaterThan(callsBefore));
+
+    // Not calls[0] — updateDoc's mock call history isn't reset between tests in this file (the
+    // earlier clearMedWeekdayPattern test above already made one), so the LATEST call is this
+    // test's own one.
+    const [, data] = vi.mocked(updateDoc).mock.calls[vi.mocked(updateDoc).mock.calls.length - 1];
+    const fields = data as unknown as Record<string, unknown>;
+    expect(Object.keys(fields).sort()).toEqual(['peakDayDate', 'peakDayQty'].sort());
+    // deleteField() resolves to undefined in the test double.
+    expect(fields.peakDayQty).toBeUndefined();
+    expect(fields.peakDayDate).toBeUndefined();
   });
 });

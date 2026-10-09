@@ -833,6 +833,46 @@ describe('suggestPar', () => {
       expect(noBaseline!.floor).toBe(roundStep(daily * 3));
     });
   });
+
+  // Real-world request: "ยาบางตัว min max par ไม่เหมาะสมกับยาตัวนั่นเนื่องจากบางที่จำนวนยาในการใช้
+  // 1 ครั้ง เยอะกว่าค่า min max ปัจจุบันอย่างมาก ยกตัวอย่างนะครับ เช่นยา phenytoin 100 mg 3x1 hs
+  // ก่อนนอน สั่งยาจำนวน 3 เดือนใน 1 เคส ใช้ยาจำนวน 270 เม็ด...ดังนั้นยาก็ต้องเบิกฉุกเฉินหน้างานจริง"
+  // — a smoothed 30-day average (every multiplier above, weekdayPeakFactor/had included) can
+  // never protect against an infrequent single-day burst large enough to barely move that
+  // average at all. Med.peakDayQty (written by analyzeWeekdayUsage(), see its own doc comment)
+  // is the real worst single calendar day on record — this is the actual fix for the reported
+  // case: Max/sub par can never size BELOW it, regardless of how small the smoothed daily rate
+  // alone would have suggested.
+  describe('peakDayQty clamp (a real one-off large-case burst, e.g. a 3-month phenytoin refill)', () => {
+    it('clamps floor par up to peakDayQty when the average-based number would leave it far short', () => {
+      // A low, steady daily rate (the phenytoin case: 10/day most of the time) whose averaged
+      // floor par would be tiny compared to the real 270-tablet burst actually seen once.
+      const out = suggestPar(med({ used30: 10, volatility: 1, peakDayQty: 270 }), 3, 21);
+      const averageBasedFloor = roundStep((10 / WEEKDAYS_PER_30_DAYS) * 3);
+      expect(averageBasedFloor).toBeLessThan(270); // proves the average alone WOULD have undersized it
+      expect(out!.floor).toBe(roundStep(270));
+    });
+
+    it('clamps substock par up to peakDayQty too — it has to be able to refill the floor after that same burst', () => {
+      const out = suggestPar(med({ used30: 10, volatility: 1, peakDayQty: 270 }), 3, 21);
+      expect(out!.sub).toBe(roundStep(270));
+    });
+
+    it('never lowers floor/sub below what the average-based number already suggests on its own', () => {
+      // A genuinely busy drug whose smoothed average already exceeds a modest historical peak —
+      // the clamp is a floor, never a ceiling that could shrink an otherwise-larger par.
+      const daily = 1000 / WEEKDAYS_PER_30_DAYS;
+      const out = suggestPar(med({ used30: 1000, volatility: 1, peakDayQty: 5 }), 3, 21);
+      expect(out!.floor).toBe(roundStep(daily * 3));
+      expect(out!.floor).toBeGreaterThan(5);
+    });
+
+    it('leaves floor/sub completely unaffected for a med analyzeWeekdayUsage hasn\'t found a peak for yet', () => {
+      const withPeak = suggestPar(med({ used30: 10, volatility: 1 }), 3, 21);
+      const noPeakField = suggestPar(med({ used30: 10, volatility: 1, peakDayQty: undefined }), 3, 21);
+      expect(withPeak).toEqual(noPeakField);
+    });
+  });
 });
 
 describe('roundStep — box-aware rounding', () => {

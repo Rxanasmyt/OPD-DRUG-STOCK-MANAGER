@@ -364,11 +364,15 @@ export interface AppCtx {
   setMedRoute: (medId: string, route: '' | 'oral' | 'injection' | 'other') => void;
   recomputeUsageStats: () => void;
   /** See its own doc comment at the implementation — computes Med.weekdayPeakFactor/
-   * weekdayPeakDay from real reconcile_hosxp history, feeding suggestPar()'s floor-par sizing. */
+   * weekdayPeakDay AND Med.peakDayQty/peakDayDate from real reconcile_hosxp history, feeding
+   * suggestPar()'s floor/sub par sizing. */
   analyzeWeekdayUsage: () => void;
   /** Quick-fix counterpart that clears an analyzed weekday pattern by hand — see its own doc
    * comment at the implementation. */
   clearMedWeekdayPattern: (medId: string) => void;
+  /** Same escape hatch as clearMedWeekdayPattern, for the separate peakDayQty/peakDayDate
+   * signal — see its own doc comment at the implementation. */
+  clearMedPeakDay: (medId: string) => void;
   updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; idleLogoutMinutes: number }>) => void;
 
   // meds (formulary) management
@@ -3270,11 +3274,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const LOOKBACK_DAYS = 91; // ~13 weeks — up to 13 real occurrences of each weekday to average
     const MIN_OCC_PER_WEEKDAY = 4; // below this, a weekday's own average isn't trustworthy yet
     const MEANINGFUL_FACTOR = 1.15; // peak-vs-average ratio below this reads as flat/noise
-    toast('กำลังวิเคราะห์รูปแบบการใช้ยารายวัน (จันทร์-ศุกร์)…');
+    // Real-world request: "ยาบางตัว min max par ไม่เหมาะสม...จำนวนยาในการใช้ 1 ครั้ง เยอะกว่าค่า
+    // min max ปัจจุบันอย่างมาก" (เช่น phenytoin สั่ง 3 เดือน 270 เม็ดใน 1 เคส) — a single large
+    // one-off dispense is, by definition, infrequent — maybe once a quarter for a given drug —
+    // so it needs a LONGER window than the 91-day weekday-pattern scan above to reliably have
+    // actually been seen at least once; a 91-day window sits right at the edge of missing a
+    // genuinely-quarterly case entirely depending on exact timing. See Med.peakDayQty's own
+    // doc comment for the full "why" and how suggestPar() uses it.
+    const PEAK_LOOKBACK_DAYS = 180; // ~26 weeks — reliably covers at least one quarterly refill cycle
+    toast('กำลังวิเคราะห์รูปแบบการใช้ยารายวันและวันจ่ายสูงสุด…');
     try {
       const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('type', '==', 'reconcile_hosxp'))));
       const now = Date.now();
       const cutoff = now - LOOKBACK_DAYS * DAY;
+      const peakCutoff = now - PEAK_LOOKBACK_DAYS * DAY;
       // Same OPD/IPD name-twin hazard as recomputeUsageStats above — see its own comment.
       const dupNames = new Set<string>();
       const seenNames = new Set<string>();
@@ -3283,74 +3296,125 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // calendar day (not raw tx count) so a med with two reconcile_hosxp entries on the same
       // real day still only counts as ONE occurrence of that weekday, not two.
       const byKeyWeekday = new Map<string, Map<string, number>[]>();
+      // Same per-real-calendar-day summing as above, but over the longer PEAK_LOOKBACK_DAYS
+      // window and not split by weekday — just "how much went out THIS day" per med, so the
+      // single worst day (peakDayQty) can be found regardless of which weekday it happened to
+      // fall on, independent of whether that med has enough regular history to trust a
+      // weekday-pattern average at all (an infrequent one-off never would).
+      const byKeyDay = new Map<string, Map<string, number>>();
       snap.docs.forEach((d) => {
         const x = d.data() as { name?: string; medId?: string; qty?: number; ts?: number };
         if (!x.name || typeof x.qty !== 'number' || x.qty >= 0 || typeof x.ts !== 'number') return; // dispensed only
-        if (x.ts < cutoff || x.ts > now) return;
+        if (x.ts > now) return;
         const wd = bangkokWeekday(x.ts);
         if (wd === 0 || wd === 6) return; // this hospital never reconciles on a weekend
         const key = dupNames.has(x.name) ? (x.medId ? 'id:' + x.medId : null) : 'name:' + x.name;
         if (!key) return;
+        const dayKey = isoDate(x.ts);
+        if (x.ts >= peakCutoff) {
+          let dayMap = byKeyDay.get(key);
+          if (!dayMap) { dayMap = new Map<string, number>(); byKeyDay.set(key, dayMap); }
+          dayMap.set(dayKey, (dayMap.get(dayKey) || 0) + Math.abs(x.qty));
+        }
+        if (x.ts < cutoff) return;
         let buckets = byKeyWeekday.get(key);
         if (!buckets) { buckets = [0, 1, 2, 3, 4, 5, 6].map(() => new Map<string, number>()); byKeyWeekday.set(key, buckets); }
-        const dayKey = isoDate(x.ts);
         buckets[wd].set(dayKey, (buckets[wd].get(dayKey) || 0) + Math.abs(x.qty));
       });
 
       const targets = state.meds.filter((m) => m.active);
       let analyzed = 0;
       let patterned = 0;
-      const writes: { id: string; factor?: number; day?: number; occ?: number; pattern?: number[] }[] = [];
+      let peaksFound = 0;
+      const writes: { id: string; weekday?: { factor: number; day: number; occ: number; pattern: number[] } | 'clear'; peak?: { qty: number; date: string } | 'clear' }[] = [];
       for (const m of targets) {
         const key = dupNames.has(m.name) ? 'id:' + m.id : 'name:' + m.name;
+        let weekday: { factor: number; day: number; occ: number; pattern: number[] } | 'clear' | undefined;
+        let peak: { qty: number; date: string } | 'clear' | undefined;
+
+        // Peak single-day dispense — decoupled from the weekday-pattern confidence gate below
+        // (MIN_OCC_PER_WEEKDAY per weekday) on purpose: the whole point of this signal is to
+        // catch an infrequent large one-off that would never accumulate enough regular
+        // occurrences to pass that bar.
+        const dayMap = byKeyDay.get(key);
+        if (dayMap && dayMap.size > 0) {
+          let peakQty = 0; let peakDate = '';
+          for (const [day, qty] of dayMap) { if (qty > peakQty) { peakQty = qty; peakDate = day; } }
+          const roundedPeak = Math.round(peakQty);
+          if (roundedPeak > 0 && (roundedPeak !== m.peakDayQty || peakDate !== m.peakDayDate)) {
+            peak = { qty: roundedPeak, date: peakDate };
+            peaksFound++;
+          }
+        } else if (m.peakDayQty) {
+          // No reconcile_hosxp history at all left within the (longer) peak window — the old
+          // peak is no longer traceable to any real remaining data; clear it rather than let a
+          // stale number linger forever with nothing backing it.
+          peak = 'clear';
+        }
+
         const buckets = byKeyWeekday.get(key);
-        if (!buckets) continue;
-        const weekdayAvgs: { wd: number; avg: number; occ: number }[] = [];
-        for (let wd = 1; wd <= 5; wd++) {
-          const days = buckets[wd];
-          if (days.size < MIN_OCC_PER_WEEKDAY) { weekdayAvgs.length = 0; break; }
-          const sum = Array.from(days.values()).reduce((s, v) => s + v, 0);
-          weekdayAvgs.push({ wd, avg: sum / days.size, occ: days.size });
+        if (buckets) {
+          const weekdayAvgs: { wd: number; avg: number; occ: number }[] = [];
+          for (let wd = 1; wd <= 5; wd++) {
+            const days = buckets[wd];
+            if (days.size < MIN_OCC_PER_WEEKDAY) { weekdayAvgs.length = 0; break; }
+            const sum = Array.from(days.values()).reduce((s, v) => s + v, 0);
+            weekdayAvgs.push({ wd, avg: sum / days.size, occ: days.size });
+          }
+          if (weekdayAvgs.length === 5) { // not enough confirmed history for every weekday otherwise
+            analyzed++;
+            const overallAvg = weekdayAvgs.reduce((s, w) => s + w.avg, 0) / 5;
+            if (overallAvg > 0) {
+              // Follow-up to weekdayPeakFactor: keep the FULL per-weekday shape (Mon..Fri ratio
+              // to average), not just the single busiest day — see Med.weekdayPattern's own doc
+              // comment for why (a drug genuinely busy on two different clinic days was
+              // otherwise only ever shown its single highest one here).
+              const pattern = weekdayAvgs.map((w) => Math.round((w.avg / overallAvg) * 100) / 100);
+              const peakDay = weekdayAvgs.reduce((a, b) => (b.avg > a.avg ? b : a));
+              const factor = peakDay.avg / overallAvg;
+              if (factor >= MEANINGFUL_FACTOR) {
+                // Follow-up to weekdayPeakFactor: occurrences is the SMALLEST count across all 5
+                // weekdays (the least-confident one in the set), not just the peak day's own
+                // count — see Med.weekdayPeakOccurrences's own doc comment for why that's the
+                // honest number.
+                const minOcc = Math.min(...weekdayAvgs.map((w) => w.occ));
+                weekday = { factor: Math.round(factor * 100) / 100, day: peakDay.wd, occ: minOcc, pattern };
+                patterned++;
+              } else if (m.weekdayPeakFactor || m.weekdayPattern) {
+                weekday = 'clear'; // pattern flattened out since the last run
+              }
+            }
+          }
         }
-        if (weekdayAvgs.length !== 5) continue; // not enough confirmed history for every weekday
-        analyzed++;
-        const overallAvg = weekdayAvgs.reduce((s, w) => s + w.avg, 0) / 5;
-        if (overallAvg <= 0) continue;
-        // Follow-up to weekdayPeakFactor: keep the FULL per-weekday shape (Mon..Fri ratio to
-        // average), not just the single busiest day — see Med.weekdayPattern's own doc comment
-        // for why (a drug genuinely busy on two different clinic days was otherwise only ever
-        // shown its single highest one here).
-        const pattern = weekdayAvgs.map((w) => Math.round((w.avg / overallAvg) * 100) / 100);
-        const peak = weekdayAvgs.reduce((a, b) => (b.avg > a.avg ? b : a));
-        const factor = peak.avg / overallAvg;
-        if (factor >= MEANINGFUL_FACTOR) {
-          // Follow-up to weekdayPeakFactor: occurrences is the SMALLEST count across all 5
-          // weekdays (the least-confident one in the set), not just the peak day's own count —
-          // see Med.weekdayPeakOccurrences's own doc comment for why that's the honest number.
-          const minOcc = Math.min(...weekdayAvgs.map((w) => w.occ));
-          writes.push({ id: m.id, factor: Math.round(factor * 100) / 100, day: peak.wd, occ: minOcc, pattern });
-          patterned++;
-        } else if (m.weekdayPeakFactor || m.weekdayPattern) {
-          writes.push({ id: m.id }); // pattern flattened out since the last run — clear it
-        }
+
+        if (weekday || peak) writes.push({ id: m.id, weekday, peak });
       }
       if (!writes.length) {
         toast(analyzed > 0
-          ? 'วิเคราะห์ ' + analyzed + ' รายการที่มีข้อมูลพอ — ไม่พบรูปแบบรายวันที่ชัดเจนพอจะปรับ par'
+          ? 'วิเคราะห์ ' + analyzed + ' รายการที่มีข้อมูลพอ — ไม่พบรูปแบบรายวันหรือวันจ่ายพีคใหม่ที่ต้องปรับ'
           : 'ยังไม่มียาตัวไหนมีประวัติ HOSxP ต่อเนื่องพอจะวิเคราะห์ (ต้องมีข้อมูลแต่ละวันจันทร์-ศุกร์อย่างน้อย ' + MIN_OCC_PER_WEEKDAY + ' ครั้งภายใน ' + LOOKBACK_DAYS + ' วันล่าสุด)');
         return;
       }
       for (let i = 0; i < writes.length; i += 400) {
         const batch = writeBatch(db);
         writes.slice(i, i + 400).forEach((w) => {
-          batch.update(doc(db, 'meds', w.id), w.factor
-            ? { weekdayPeakFactor: w.factor, weekdayPeakDay: w.day, weekdayPeakOccurrences: w.occ, weekdayPattern: w.pattern }
-            : { weekdayPeakFactor: deleteField(), weekdayPeakDay: deleteField(), weekdayPeakOccurrences: deleteField(), weekdayPattern: deleteField() });
+          const fields: Record<string, unknown> = {};
+          if (w.weekday === 'clear') {
+            fields.weekdayPeakFactor = deleteField(); fields.weekdayPeakDay = deleteField(); fields.weekdayPeakOccurrences = deleteField(); fields.weekdayPattern = deleteField();
+          } else if (w.weekday) {
+            fields.weekdayPeakFactor = w.weekday.factor; fields.weekdayPeakDay = w.weekday.day; fields.weekdayPeakOccurrences = w.weekday.occ; fields.weekdayPattern = w.weekday.pattern;
+          }
+          if (w.peak === 'clear') {
+            fields.peakDayQty = deleteField(); fields.peakDayDate = deleteField();
+          } else if (w.peak) {
+            fields.peakDayQty = w.peak.qty; fields.peakDayDate = w.peak.date;
+          }
+          batch.update(doc(db, 'meds', w.id), fields);
         });
         await withTimeout(batch.commit());
       }
-      logAudit({ type: 'par_updated', note: 'วิเคราะห์รูปแบบการใช้ยารายวัน (จ-ศ) จากประวัติ HOSxP ' + LOOKBACK_DAYS + ' วันล่าสุด — พบรูปแบบชัดเจน ' + patterned + ' รายการ จากที่วิเคราะห์ได้ ' + analyzed + ' รายการ' });
-      toast('วิเคราะห์แล้ว ' + analyzed + ' รายการที่มีข้อมูลพอ — พบรูปแบบรายวันชัดเจน ' + patterned + ' รายการ (กด "ใช้ค่าแนะนำทั้งหมด" เพื่ออัปเดต par หน้างานตามรูปแบบใหม่)');
+      logAudit({ type: 'par_updated', note: 'วิเคราะห์รูปแบบการใช้ยารายวัน (จ-ศ) และวันจ่ายสูงสุด จากประวัติ HOSxP ' + LOOKBACK_DAYS + '/' + PEAK_LOOKBACK_DAYS + ' วันล่าสุด — พบรูปแบบรายวันชัดเจน ' + patterned + ' รายการ, พบวันจ่ายพีคใหม่ ' + peaksFound + ' รายการ จากที่วิเคราะห์ได้ ' + analyzed + ' รายการ' });
+      toast('วิเคราะห์แล้ว — พบรูปแบบรายวันชัดเจน ' + patterned + ' รายการ, พบวันที่จ่ายยาสูงสุดใหม่ ' + peaksFound + ' รายการ (กด "ใช้ค่าแนะนำทั้งหมด" เพื่ออัปเดต par ตามข้อมูลใหม่)');
     } catch (e) { toastErr(e, 'วิเคราะห์รูปแบบการใช้ยาไม่สำเร็จ ลองใหม่อีกครั้ง'); }
   }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce]);
 
@@ -3374,6 +3438,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       console.error(e);
       toast('ล้างรูปแบบการใช้ยารายวันไม่สำเร็จ — กำลังดึงค่าจริงกลับมาแสดง');
+      setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, ...prev } : x)) }));
+    }
+  }, [canEditMeds, state.meds, logAudit, toast]);
+
+  /** Same immediate-clear escape hatch as clearMedWeekdayPattern above, for the separate
+   * peakDayQty/peakDayDate signal (Med.peakDayQty's own doc comment) — a genuinely one-time
+   * event (an erroneous bulk entry, a drug being discontinued right after its last big refill)
+   * shouldn't have to wait for PEAK_LOOKBACK_DAYS of new history to age the old peak out on its
+   * own. Only ever clears these 2 fields — suggestPar()'s own clamp simply stops applying; par
+   * itself still needs a separate "ใช้ค่าแนะนำ" to actually move back down. */
+  const clearMedPeakDay = useCallback(async (medId: string) => {
+    if (!canEditMeds) return;
+    const m = state.meds.find((x) => x.id === medId);
+    if (!m) return;
+    const prev = { peakDayQty: m.peakDayQty, peakDayDate: m.peakDayDate };
+    setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, peakDayQty: undefined, peakDayDate: undefined } : x)) }));
+    try {
+      await withTimeout(updateDoc(doc(db, 'meds', medId), { peakDayQty: deleteField(), peakDayDate: deleteField() }));
+      logAudit({ type: 'par_updated', note: 'ล้างค่าวันจ่ายยาสูงสุดของ ' + m.name + ' ด้วยตนเอง' });
+    } catch (e) {
+      console.error(e);
+      toast('ล้างค่าวันจ่ายยาสูงสุดไม่สำเร็จ — กำลังดึงค่าจริงกลับมาแสดง');
       setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, ...prev } : x)) }));
     }
   }, [canEditMeds, state.meds, logAudit, toast]);
@@ -5415,7 +5501,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, fetchDrugReturns, exportDrugReturnsCsv, scrapLot, scrapFloorLot,
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
-    applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setAllMinSuggested, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, updateGlobalSettings,
+    applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setAllMinSuggested, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, clearMedPeakDay, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, autoRouteAll, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, fetchFloorLedger, fetchStockAsOf, exportStockAsOfCsv, fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
