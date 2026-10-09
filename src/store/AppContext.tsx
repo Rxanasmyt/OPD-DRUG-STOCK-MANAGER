@@ -321,6 +321,7 @@ export interface AppCtx {
   setAdjNote: (v: string) => void;
   setAdjHn: (v: string) => void;
   commitAdjust: () => void;
+  commitSingleReturn: () => void;
   addToReturnCart: () => void;
   removeReturnCartItem: (i: number) => void;
   commitReturnCart: () => void;
@@ -2471,6 +2472,71 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const removeReturnCartItem = useCallback((i: number) => patch((st) => ({ returnCart: st.returnCart.filter((_, j) => j !== i) })), [patch]);
 
+  // One transaction for the WHOLE batch (one item or many — the caller decides), not a loop of
+  // separate commitAdjust-style calls — a dropped connection partway through a loop would leave
+  // some of this one patient's drugs recorded as returned and others not, exactly the "ledger
+  // drift" class of bug this codebase has fixed elsewhere (see commitReceive/commitAdjust's own
+  // notes on folding separate writes into one atomic transaction). All of a transaction's reads
+  // must happen before its writes (same constraint commitReceive's own multi-item commit works
+  // around), so every unique med's current floor is read first, then every item's floor/txs/
+  // returns triple is written from those already-read snapshots. Shared by commitSingleReturn
+  // (ทีละตัว — one item, immediate commit) and commitReturnCart (ทีละหลายตัว — the queued cart)
+  // below, both real-world request: "อยากให้เลือกคืนยาได้ทั้งแบบทีละตัวยา หรือทีละหลายๆตัวยา".
+  const writeReturnBatch = useCallback(async (items: ReturnCartItem[], hn: string) => {
+    const now = Date.now();
+    const uniqueMedIds = [...new Set(items.map((it) => it.medId))];
+    await runTx(async (trx) => {
+      const beforeByMed = new Map<string, number>();
+      for (const medId of uniqueMedIds) {
+        const snap = await trx.get(doc(db, 'meds', medId));
+        const m = state.meds.find((x) => x.id === medId);
+        beforeByMed.set(medId, (snap.data() as { floor?: number } | undefined)?.floor ?? m?.floor ?? 0);
+      }
+      for (const it of items) {
+        const m = state.meds.find((x) => x.id === it.medId)!;
+        const before = beforeByMed.get(it.medId)!;
+        const after = before + it.qty;
+        beforeByMed.set(it.medId, after); // a second line for the same drug in this batch stacks onto the first, not onto the stale pre-batch floor
+        trx.update(doc(db, 'meds', it.medId), { floor: after });
+        trx.set(doc(collection(db, 'txs')), {
+          type: 'return', name: m.name, medId: it.medId, qty: after - before, unit: it.unit,
+          reason: it.reason, note: it.note, loc: 'floor', by: userName(), ts: now,
+        } satisfies Omit<import('../types').Tx, 'id'>);
+        trx.set(doc(collection(db, 'returns')), {
+          medId: it.medId, medName: it.medName, medCode: it.medCode, unit: it.unit, category: categoryOf(m),
+          hn, qty: after - before, unitPrice: m.price, value: (after - before) * m.price,
+          reason: it.reason, note: it.note, date: isoDate(now), ts: now, by: userName(),
+        } satisfies import('../types').DrugReturnRecord);
+      }
+    });
+  }, [state.meds, userName, runTx]);
+
+  // ทีละตัว (single) — real-world request: "อยากให้เลือกคืนยาได้ทั้งแบบทีละตัวยา หรือทีละหลายๆ
+  // ตัวยา" — the ตะกร้าคืนยา flow (addToReturnCart/commitReturnCart) is genuinely better for one
+  // patient returning several drugs, but adds a second tap ("เพิ่มลงตะกร้า" then "บันทึกรับคืน
+  // ทั้งหมด") for the common case of just one. This commits the currently-picked drug directly,
+  // never touching returnCart at all — then resets EVERY return field (med/qty/reason/note/HN),
+  // unlike the cart flow's add (which keeps HN for the next drug): a single-item commit is a
+  // complete, standalone action with no "next drug, same patient" expectation to preserve state
+  // for, and clearing HN here closes off any risk of a later return being misattributed to a
+  // patient from a commit that's already finished.
+  const commitSingleReturn = useCallback(guardOnce('returnSingle', async () => {
+    const m = state.meds.find((x) => x.id === state.adjMed);
+    const q = parseIntSafe(state.adjQty);
+    if (!m || !q || !state.adjReason) { toast('ต้องเลือกยา จำนวน และเหตุผลให้ครบ'); return; }
+    if (!state.adjHn.trim()) { toast('ต้องกรอก HN ผู้ป่วยสำหรับการคืนยา'); return; }
+    const hn = state.adjHn.trim();
+    const item: ReturnCartItem = { medId: m.id, medName: m.name, medCode: m.code, unit: m.unit, qty: q, reason: state.adjReason, note: state.adjNote || '—' };
+    try {
+      await writeReturnBatch([item], hn);
+      patch({ adjMed: null, adjSearch: '', adjQty: '', adjReason: '', adjNote: '', adjHn: '' });
+      hapticSuccess();
+      toast('บันทึกรับคืนแล้ว · ' + m.name + ' +' + nf(q) + ' ' + m.unit);
+    } catch (e) {
+      toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
+    }
+  }), [state.meds, state.adjMed, state.adjQty, state.adjReason, state.adjNote, state.adjHn, writeReturnBatch, toast, toastErr, patch, guardOnce]);
+
   const commitReturnCart = useCallback(guardOnce('returnCart', async () => {
     const items = state.returnCart;
     if (!items.length) return;
@@ -2483,47 +2549,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (missingMed) { toast('มีรายการที่ถูกลบออกจากระบบไปแล้ว — กลับไปลบรายการนั้นออกจากตะกร้าก่อน'); return; }
     const hn = state.adjHn.trim();
     try {
-      const now = Date.now();
-      // One transaction for the WHOLE batch, not a loop of separate commitAdjust-style calls —
-      // a dropped connection partway through a loop would leave some of this one patient's drugs
-      // recorded as returned and others not, exactly the "ledger drift" class of bug this
-      // codebase has fixed elsewhere (see commitReceive/commitAdjust's own notes on folding
-      // separate writes into one atomic transaction). All of a transaction's reads must happen
-      // before its writes (same constraint commitReceive's own multi-item commit works around),
-      // so every unique med's current floor is read first, then every item's floor/txs/returns
-      // triple is written from those already-read snapshots.
-      const uniqueMedIds = [...new Set(items.map((it) => it.medId))];
-      await runTx(async (trx) => {
-        const beforeByMed = new Map<string, number>();
-        for (const medId of uniqueMedIds) {
-          const snap = await trx.get(doc(db, 'meds', medId));
-          const m = state.meds.find((x) => x.id === medId);
-          beforeByMed.set(medId, (snap.data() as { floor?: number } | undefined)?.floor ?? m?.floor ?? 0);
-        }
-        for (const it of items) {
-          const m = state.meds.find((x) => x.id === it.medId)!;
-          const before = beforeByMed.get(it.medId)!;
-          const after = before + it.qty;
-          beforeByMed.set(it.medId, after); // a second line for the same drug in this batch stacks onto the first, not onto the stale pre-batch floor
-          trx.update(doc(db, 'meds', it.medId), { floor: after });
-          trx.set(doc(collection(db, 'txs')), {
-            type: 'return', name: m.name, medId: it.medId, qty: after - before, unit: it.unit,
-            reason: it.reason, note: it.note, loc: 'floor', by: userName(), ts: now,
-          } satisfies Omit<import('../types').Tx, 'id'>);
-          trx.set(doc(collection(db, 'returns')), {
-            medId: it.medId, medName: it.medName, medCode: it.medCode, unit: it.unit, category: categoryOf(m),
-            hn, qty: after - before, unitPrice: m.price, value: (after - before) * m.price,
-            reason: it.reason, note: it.note, date: isoDate(now), ts: now, by: userName(),
-          } satisfies import('../types').DrugReturnRecord);
-        }
-      });
+      await writeReturnBatch(items, hn);
       patch({ returnCart: [], adjHn: '' });
       hapticSuccess();
       toast('บันทึกรับคืนแล้ว · HN ' + hn + ' · ' + items.length + ' รายการ');
     } catch (e) {
       toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [state.returnCart, state.adjHn, state.meds, userName, toast, toastErr, patch, guardOnce]);
+  }), [state.returnCart, state.adjHn, state.meds, writeReturnBatch, toast, toastErr, patch, guardOnce]);
 
   const scrapLot = useCallback(guardOnce('scrapLot', async (lotId: string) => {
     const l = state.lots.find((x) => x.id === lotId);
@@ -5570,7 +5603,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, cancelReceivePick, removeRecvItem, commitReceive, printWarehouseRequestList,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
-    pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, addToReturnCart, removeReturnCartItem, commitReturnCart, fetchDrugReturns, exportDrugReturnsCsv, scrapLot, scrapFloorLot,
+    pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, commitSingleReturn, addToReturnCart, removeReturnCartItem, commitReturnCart, fetchDrugReturns, exportDrugReturnsCsv, scrapLot, scrapFloorLot,
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setAllMinSuggested, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, clearMedPeakDay, updateGlobalSettings,

@@ -48,7 +48,7 @@ const QTY_LABEL: Record<AdjType, string> = {
 
 export default function AdjustScreen() {
   const {
-    state, pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, addToReturnCart, removeReturnCartItem, commitReturnCart, scrapLot, scrapFloorLot, go,
+    state, pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, commitSingleReturn, addToReturnCart, removeReturnCartItem, commitReturnCart, scrapLot, scrapFloorLot, go,
     goSubstockCardFor,
   } = useApp();
   const meds = state.meds.filter((m) => m.active);
@@ -64,6 +64,13 @@ export default function AdjustScreen() {
   // Local, not global AppContext state: purely a "which input is showing" UI toggle — picking any
   // preset chip switches it back off, same as it switching on is a plain click handler.
   const [customReasonOpen, setCustomReasonOpen] = useState(false);
+
+  // Real-world request: "อยากให้เลือกคืนยาได้ทั้งแบบทีละตัวยา หรือทีละหลายๆตัวยา" — which
+  // submit flow (direct commitSingleReturn vs queue-then-batch addToReturnCart/commitReturnCart)
+  // the per-drug section further down uses. Local, not global AppContext state: purely a "which
+  // button/flow is showing" UI toggle, same shape as customReasonOpen above — no need to survive
+  // a crash/reload the way the actual in-progress cart data (state.returnCart) does.
+  const [returnMode, setReturnMode] = useState<'single' | 'batch'>('single');
 
   const scrapRows = state.lots
     .filter((l) => l.qty > 0 && daysUntil(l.exp) <= 30)
@@ -150,14 +157,32 @@ export default function AdjustScreen() {
           </div>
 
           {state.adjType === 'return' && (
-            // Real-world request: "ผู้ป่วย HN 1 คนคืนยาหลายๆตัว...กรอกข้อมูลได้รวดเร็ว แต่ยังเก็บ
-            // ข้อมูลได้สมบูรณ์เหมือนเดิม" — HN used to live inside the per-drug section below and
-            // get wiped after every single commit, forcing a retype for the SAME patient's next
-            // drug. Moved up front, entered once per batch: the med-picker section further down
-            // only appears once this has something in it, so the flow is naturally HN-first,
-            // then add as many drugs as this one patient is returning, see them all listed below,
-            // then one final commit for the whole batch (see returnCart/addToReturnCart/
-            // commitReturnCart in AppContext.tsx).
+            // Real-world request: "อยากให้เลือกคืนยาได้ทั้งแบบทีละตัวยา หรือทีละหลายๆตัวยา" —
+            // ทีละหลายตัว (batch) is genuinely better for one patient returning several drugs
+            // (see ตะกร้าคืนยา's own comment further down), but it costs the common one-drug
+            // case a second tap ("+ เพิ่มลงตะกร้า" then "บันทึกรับคืนทั้งหมด"). ทีละตัว (single)
+            // trades that batching away for a single direct commit per drug — both share the
+            // same HN/search/qty/reason/note fields below; only the final action button differs
+            // (see commitSingleReturn vs addToReturnCart in AppContext.tsx).
+            <div className="grid-2" style={{ marginBottom: 9, gap: 7 }}>
+              {([['single', 'ทีละตัว'], ['batch', 'ทีละหลายตัว']] as const).map(([m, label]) => {
+                const active = returnMode === m;
+                return (
+                  <button key={m} onClick={() => setReturnMode(m)} className="chip" style={{ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green-tint)' : 'var(--bg-card)', color: active ? 'var(--green)' : 'var(--ink)', minHeight: 44, fontWeight: 600 }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {state.adjType === 'return' && (
+            // HN used to live inside the per-drug section below and get wiped after every single
+            // commit, forcing a retype for the SAME patient's next drug. Moved up front, entered
+            // once per patient: the med-picker section further down only appears once this has
+            // something in it, so the flow is naturally HN-first, then (ทีละหลายตัว) add as many
+            // drugs as this one patient is returning before one final batch commit, or (ทีละตัว)
+            // commit each drug immediately and move on to the next patient.
             <label style={{ display: 'block', marginBottom: 9 }}>
               <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>HN ผู้ป่วย (บังคับ — กรอกครั้งเดียวต่อผู้ป่วย 1 คน)</span>
               <input
@@ -265,15 +290,24 @@ export default function AdjustScreen() {
                 style={{ width: '100%', minHeight: 66, border: '1px solid var(--border)', borderRadius: 10, padding: '11px 12px', fontSize: 13.5, resize: 'vertical' }}
               />
               {(() => {
-                const canSubmit = !!state.adjReason && !!state.adjQty;
                 const isReturn = state.adjType === 'return';
+                const isSingleReturn = isReturn && returnMode === 'single';
+                const canSubmit = !!state.adjReason && !!state.adjQty && (!isSingleReturn || !!state.adjHn.trim());
+                const busyKey = isSingleReturn ? 'returnSingle' : 'adjust';
+                const onClick = isSingleReturn ? commitSingleReturn : isReturn ? addToReturnCart : commitAdjust;
+                // ทีละหลายตัว's "+ เพิ่มลงตะกร้า" is local state only (addToReturnCart), never
+                // busy-gated; ทีละตัว's "บันทึกรับคืน" and ปรับยอด/ยาเสีย's commit both hit
+                // Firestore, so both need the busy guard.
+                const isNetworked = !isReturn || isSingleReturn;
                 return (
                   <button
-                    onClick={isReturn ? addToReturnCart : commitAdjust}
-                    disabled={!canSubmit || (!isReturn && !!state.busy['adjust'])}
-                    style={{ width: '100%', border: 0, background: canSubmit ? 'var(--green)' : 'var(--border-strong)', color: canSubmit ? 'var(--ink-soft)' : 'var(--ink)', padding: 15, borderRadius: 11, fontSize: 15.5, fontWeight: 600, minHeight: 52, marginTop: 10, opacity: !isReturn && state.busy['adjust'] ? 0.7 : 1 }}
+                    onClick={onClick}
+                    disabled={!canSubmit || (isNetworked && !!state.busy[busyKey])}
+                    style={{ width: '100%', border: 0, background: canSubmit ? 'var(--green)' : 'var(--border-strong)', color: canSubmit ? 'var(--ink-soft)' : 'var(--ink)', padding: 15, borderRadius: 11, fontSize: 15.5, fontWeight: 600, minHeight: 52, marginTop: 10, opacity: isNetworked && state.busy[busyKey] ? 0.7 : 1 }}
                   >
-                    {isReturn ? '+ เพิ่มลงตะกร้า' : (state.busy['adjust'] ? 'กำลังบันทึก…' : 'บันทึกปรับยอด')}
+                    {isReturn
+                      ? (isSingleReturn ? (state.busy['returnSingle'] ? 'กำลังบันทึก…' : 'บันทึกรับคืน') : '+ เพิ่มลงตะกร้า')
+                      : (state.busy['adjust'] ? 'กำลังบันทึก…' : 'บันทึกปรับยอด')}
                   </button>
                 );
               })()}

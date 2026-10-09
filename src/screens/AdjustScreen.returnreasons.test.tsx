@@ -52,15 +52,16 @@ describe('AdjustScreen — คืนยา reason chips regression', () => {
     await user.type(customInput, 'ผู้ป่วยเสียชีวิต');
     expect(customInput).toHaveValue('ผู้ป่วยเสียชีวิต');
 
-    // "+ เพิ่มลงตะกร้า" becomes enabled once a qty + the typed reason are both filled — confirms
-    // the typed text really is wired into state.adjReason, not just displayed. HN is already
-    // filled by openReturnForMed() (entered once per patient, before any drug is picked — see
-    // that helper's own comment). The qty label wraps NumberStepper's −/input/+ as a group (all
-    // three are "labelable" HTML elements), so getByLabelText alone could grab a button instead
-    // of the actual input — narrow to the one real textbox inside that specific label.
+    // "บันทึกรับคืน" (ทีละตัว, the default mode) becomes enabled once a qty + the typed reason
+    // are both filled — confirms the typed text really is wired into state.adjReason, not just
+    // displayed. HN is already filled by openReturnForMed() (entered once per patient, before
+    // any drug is picked — see that helper's own comment). The qty label wraps NumberStepper's
+    // −/input/+ as a group (all three are "labelable" HTML elements), so getByLabelText alone
+    // could grab a button instead of the actual input — narrow to the one real textbox inside
+    // that specific label.
     const qtyLabel = screen.getByText('จำนวนที่คืน (จะเพิ่มเข้ายอด) (เม็ด)').closest('label') as HTMLElement;
     await user.type(within(qtyLabel).getByRole('textbox'), '5');
-    await waitFor(() => expect(screen.getByRole('button', { name: '+ เพิ่มลงตะกร้า' })).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'บันทึกรับคืน' })).not.toBeDisabled());
   });
 
   it('picking a preset chip after "อื่นๆ" switches back off the free-text input', async () => {
