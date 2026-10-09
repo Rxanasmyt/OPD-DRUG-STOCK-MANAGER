@@ -76,4 +76,18 @@ describe('suggestCategoryId', () => {
   it('still never guesses for a genuinely unmatched/discontinued catalog entry', () => {
     expect(suggestCategoryId('Nataral EZ - ไม่มียานี้ใน รพ.กรงปินัง 5 เม็ด')).toBeNull();
   });
+
+  // Second follow-up pass on the same real-formulary review: closed most of the remaining gap
+  // (14 → 4 unmatched names out of 583) with narrow, specific keywords that can't shadow an
+  // existing more-specific rule checked earlier in RULES (e.g. "betamethasone 0.1" only matches
+  // the bare topical-strength form, never the already-handled "betamethasone inj"/"tab" forms).
+  it('closes the remaining real-formulary gaps from the follow-up review', () => {
+    expect(suggestCategoryId('HYDROCORTISONE - PL 100 mg. Vial')).toBe('steroid');
+    expect(suggestCategoryId('BETAMETHASONE 0.1 % หลอด (5 g.)')).toBe('derm');
+    expect(suggestCategoryId('GPO-L-ONE (ไม่มีใช้ในรพ.) 500 mg. เม็ด')).toBe('antimicrobial');
+    expect(suggestCategoryId('Sildenafil - ไม่มีในบัญชียากรงปินัง 20 mg. เม็ด')).toBe('cardio');
+    expect(suggestCategoryId('SODIUM  BICARBONATE 300 mg. เม็ด')).toBe('vitamin');
+    expect(suggestCategoryId('tuberculin PPD 0.4 mcg./ml. Vial')).toBe('vaccine_biologic');
+    expect(suggestCategoryId('น้ำยาลดบุหรี่ 300 ml. ขวด')).toBe('herbal');
+  });
 });

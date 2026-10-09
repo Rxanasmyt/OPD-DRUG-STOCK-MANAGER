@@ -21,10 +21,12 @@ const RULES: [string, string][] = [
   ['naproxen', 'pain'], ['mefenamic', 'pain'], ['celecoxib', 'pain'], ['etoricoxib', 'pain'],
   ['piroxicam', 'pain'], ['indomethacin', 'pain'], ['ketorolac', 'pain'], ['tramadol', 'pain'],
   ['aspirin', 'pain'], ['colchicine', 'pain'], ['allopurinol', 'pain'], ['febuxostat', 'pain'],
-  ['morphine', 'pain'], ['pethidine', 'pain'], ['พาราเซตามอล', 'pain'], ['ทรามาดอล', 'pain'],
+  ['morphine', 'pain'], ['pethidine', 'pain'], ['sulfinpyrazone', 'pain'], ['tenoxicam', 'pain'],
+  ['พาราเซตามอล', 'pain'], ['ทรามาดอล', 'pain'],
   // ยาสเตียรอยด์/คอร์ติโคสเตียรอยด์
   ['prednisolone', 'steroid'], ['dexamethasone', 'steroid'], ['hydrocortisone inj', 'steroid'],
-  ['hydrocortisone sodium', 'steroid'], ['methylprednisolone', 'steroid'], ['triamcinolone', 'steroid'],
+  ['hydrocortisone sodium', 'steroid'], ['hydrocortisone - pl', 'steroid'], ['hydrocortisone vial', 'steroid'],
+  ['methylprednisolone', 'steroid'], ['triamcinolone', 'steroid'],
   ['betamethasone inj', 'steroid'], ['betamethasone tab', 'steroid'],
   // ยาต้านจุลชีพ
   ['amoxicillin', 'antimicrobial'], ['co-amoxiclav', 'antimicrobial'], ['amoxy', 'antimicrobial'],
@@ -58,7 +60,7 @@ const RULES: [string, string][] = [
   ['remdesivir', 'antimicrobial'], ['molnupiravir', 'antimicrobial'], ['favipiravir', 'antimicrobial'],
   ['efavirenz', 'antimicrobial'], ['lamivudine', 'antimicrobial'], ['lopinavir', 'antimicrobial'],
   ['tenofovir', 'antimicrobial'], ['zidovudine', 'antimicrobial'], ['gpo-vir', 'antimicrobial'],
-  ['kaletra', 'antimicrobial'], ['dtg/3tc', 'antimicrobial'],
+  ['kaletra', 'antimicrobial'], ['dtg/3tc', 'antimicrobial'], ['gpo-l-one', 'antimicrobial'],
   // ยามะเร็ง/เคมีบำบัด/กดภูมิคุ้มกัน
   ['methotrexate', 'oncology'], ['tamoxifen', 'oncology'], ['flutamide', 'oncology'],
   ['deferasirox', 'oncology'], ['azathioprine', 'oncology'],
@@ -76,7 +78,7 @@ const RULES: [string, string][] = [
   ['cilostazol', 'cardio'], ['lercanidipine', 'cardio'], ['manidipine', 'cardio'], ['irbesartan', 'cardio'],
   ['fimasartan', 'cardio'], ['vastarel', 'cardio'], ['trimetazidine', 'cardio'], ['clonidine', 'cardio'],
   ['bemiparin', 'cardio'], ['plavix', 'cardio'], ['daflon', 'cardio'], ['tranexamic', 'cardio'],
-  ['transamin', 'cardio'], ['doxazocin', 'cardio'], ['ความดัน', 'cardio'],
+  ['transamin', 'cardio'], ['doxazocin', 'cardio'], ['sildenafil', 'cardio'], ['ความดัน', 'cardio'],
   // ยาเบาหวาน/ต่อมไร้ท่อ/ไขมัน
   ['metformin', 'endocrine'], ['glipizide', 'endocrine'], ['gliclazide', 'endocrine'],
   ['glibenclamide', 'endocrine'], ['glimepiride', 'endocrine'], ['pioglitazone', 'endocrine'],
@@ -160,6 +162,7 @@ const RULES: [string, string][] = [
   ['permethrin', 'derm'], ['benzyl benzoate', 'derm'], ['gentian violet', 'derm'],
   ['fusidic acid', 'derm'], ['mupirocin', 'derm'], ['neomycin cream', 'derm'],
   ['zinc  paste', 'derm'], ['zinc paste', 'derm'], ['urea 10', 'derm'], ['sofra-tulle', 'derm'],
+  ['betamethasone 0.1', 'derm'],
   ['proctosedyl', 'derm'], ['diprosone', 'derm'], ['analgesic balm', 'derm'], ['ยาทา', 'derm'],
   // ยาตา/หู/คอ/จมูก
   ['eye drop', 'eye_ent'], ['eye ointment', 'eye_ent'], ['ear drop', 'eye_ent'],
@@ -176,6 +179,7 @@ const RULES: [string, string][] = [
   ['zinc sulphate', 'vitamin'], ['b complex', 'vitamin'], ['b1-6-12', 'vitamin'],
   ['b-100 complex', 'vitamin'], ['alfacalcidol', 'vitamin'], ['calcitriol', 'vitamin'],
   ['kcl', 'vitamin'], ['dipotassium phosphate', 'vitamin'], ['nacl tab', 'vitamin'],
+  ['sodium  bicarbonate', 'vitamin'],
   ['triferdine', 'vitamin'],
   // สารน้ำ/IV fluid
   ['normal saline', 'iv_fluid'], ['0.9% nacl', 'iv_fluid'], ['dextrose', 'iv_fluid'],
@@ -189,7 +193,9 @@ const RULES: [string, string][] = [
   ['amiodarone', 'emergency'], ['dopamine', 'emergency'], ['norepinephrine', 'emergency'],
   ['succinylcholine', 'emergency'], ['adenosine', 'emergency'], ['streptokinase', 'emergency'],
   ['tenecteplase', 'emergency'], ['magnesium sulfate', 'emergency'], ['magnesium sulphate', 'emergency'],
+  ['aromatic ammonia', 'emergency'],
   // วัคซีน/เซรุ่ม/อิมมูโนโกลบูลิน
+  ['tuberculin', 'vaccine_biologic'],
   ['vaccine', 'vaccine_biologic'], ['วัคซีน', 'vaccine_biologic'], ['immunoglobulin', 'vaccine_biologic'],
   ['immune globulin', 'vaccine_biologic'], ['antitoxin', 'vaccine_biologic'], ['anti toxin', 'vaccine_biologic'], ['antivenin', 'vaccine_biologic'],
   ['antivenom', 'vaccine_biologic'], ['antivenum', 'vaccine_biologic'], ['งูกะปะ', 'vaccine_biologic'],
@@ -209,7 +215,7 @@ const RULES: [string, string][] = [
   ['พญายอ', 'herbal'], ['ยาเขียวหอม', 'herbal'], ['น้ำมันไพล', 'herbal'], ['มะแว้ง', 'herbal'],
   ['ตราธนัทเฮิร์บ', 'herbal'], ['ตราธงทอง', 'herbal'], ['ลูกประคบ', 'herbal'], ['มันทธาตุ', 'herbal'],
   ['ทำลายพระสุเมรุ', 'herbal'], ['ธรณีสันธะฆาต', 'herbal'], ['แก้ลมแก้เส้น', 'herbal'],
-  ['น้ำมันกัญชา', 'herbal'], ['มหาหิงค์', 'herbal'], ['สมุนไพร', 'herbal'],
+  ['น้ำมันกัญชา', 'herbal'], ['มหาหิงค์', 'herbal'], ['น้ำยาลดบุหรี่', 'herbal'], ['สมุนไพร', 'herbal'],
   // เวชภัณฑ์ที่ไม่ใช่ยา
   ['gauze', 'supply'], ['ผ้าก๊อซ', 'supply'], ['bandage', 'supply'], ['ผ้าพันแผล', 'supply'],
   ['syringe', 'supply'], ['กระบอกฉีดยา', 'supply'], ['needle', 'supply'], ['เข็มฉีดยา', 'supply'],
