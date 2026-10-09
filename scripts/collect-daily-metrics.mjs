@@ -57,9 +57,12 @@ function roundStep(v) {
   const step = v >= 500 ? 100 : v >= 100 ? 10 : 1;
   return Math.max(step, Math.ceil(v / step) * step);
 }
+// Mirrors selectors.ts's own WEEKDAYS_PER_30_DAYS exactly — see its doc comment for the
+// Thai-public-holiday real-world request this accounts for.
+const WEEKDAYS_PER_30_DAYS = 30 * (5 / 7) * (1 - 18 / (365 * (5 / 7)));
 function suggestPar(m, floorCoverDays, subCoverDays) {
   if (!(m.used30 > 0)) return null;
-  const daily = m.used30 / (30 * (5 / 7));
+  const daily = m.used30 / WEEKDAYS_PER_30_DAYS;
   const floorDays = usesSubstock(m) ? floorCoverDays : subCoverDays;
   return { floor: roundStep(daily * floorDays * m.volatility), sub: roundStep(daily * subCoverDays * m.volatility) };
 }

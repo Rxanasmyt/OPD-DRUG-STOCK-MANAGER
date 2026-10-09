@@ -1346,8 +1346,8 @@ describe('signIn — double-submit-consistency regression', () => {
 });
 
 // used30=560, volatility=1, default parFloorCoverDays=4 → suggestPar's floor = roundStep(560 /
-// (30*5/7) * 4 * 1) = roundStep(104.53...) = 110 — deterministic suggested Max well below the
-// med's existing hand-set Min (400).
+// WEEKDAYS_PER_30_DAYS * 4 * 1) = roundStep(112.29...) = 120 — deterministic suggested Max well
+// below the med's existing hand-set Min (400).
 const STALE_MIN_MED = {
   id: 'm3', code: 'MED-0003', name: 'Dexamethasone 4mg/ml', unit: 'Amp.', dosageForm: 'ฉีด',
   price: 1, had: false, active: true, parSub: 800, parFloor: 200, floorMin: 400, bin: 'T2',
@@ -1371,12 +1371,14 @@ describe('applyOnePar — stale-Min-above-new-Max regression', () => {
     await waitFor(() => expect(vi.mocked(updateDoc).mock.calls.length).toBeGreaterThan(callsBefore));
 
     const savedFields = vi.mocked(updateDoc).mock.calls[callsBefore][1] as unknown as Record<string, unknown>;
-    expect(savedFields.parFloor).toBe(110);
-    // Without the fix, floorMin would be left untouched at 400 — above the new Max (110),
-    // reproducing the real observed "Min 400 / Max 110" state. 53 is suggestPar()'s own
+    expect(savedFields.parFloor).toBe(120);
+    // Without the fix, floorMin would be left untouched at 400 — above the new Max (120),
+    // reproducing the real observed "Min 400 / Max 110" state (the exact numbers shifted once
+    // WEEKDAYS_PER_30_DAYS started accounting for Thai public holidays too — see that constant's
+    // own doc comment — but the bug and its fix are unchanged). 57 is suggestPar()'s own
     // data-driven `min` (daily rate × half the cover-days Max represents — see its own comment),
-    // not a flat 50%-of-Max guess: daily ≈ 26.13, roundStep(26.13 × 2) = 53.
-    expect(savedFields.floorMin).toBe(53);
+    // not a flat 50%-of-Max guess: daily ≈ 28.07, roundStep(28.07 × 2) = 57.
+    expect(savedFields.floorMin).toBe(57);
   });
 
   it('leaves floorMin untouched when it already sits at or below the new parFloor', async () => {
@@ -1392,7 +1394,7 @@ describe('applyOnePar — stale-Min-above-new-Max regression', () => {
     await waitFor(() => expect(vi.mocked(updateDoc).mock.calls.length).toBeGreaterThan(callsBefore));
 
     const savedFields = vi.mocked(updateDoc).mock.calls[callsBefore][1] as unknown as Record<string, unknown>;
-    expect(savedFields.parFloor).toBe(110);
+    expect(savedFields.parFloor).toBe(120);
     expect(savedFields.floorMin).toBeUndefined();
   });
 });
@@ -1411,7 +1413,7 @@ describe('setAllMinSuggested — data-driven bulk Min regression', () => {
     renderWithApp(<><SetAllMinSuggestedHarness /><AutoConfirmYes /></>);
     await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
-    // STALE_MIN_MED: used30=560, floorMin=400 (stale) -> suggested min=53 (see its own comment above).
+    // STALE_MIN_MED: used30=560, floorMin=400 (stale) -> suggested min=57 (see its own comment above).
     // NO_USAGE_MED: used30=0 -> suggestPar() returns null -> must be left untouched entirely.
     const NO_USAGE_MED = { ...STALE_MIN_MED, id: 'm-no-usage', used30: 0, usedPrev30: 0 };
     fireCollection('meds', [STALE_MIN_MED, NO_USAGE_MED]);
@@ -1420,7 +1422,7 @@ describe('setAllMinSuggested — data-driven bulk Min regression', () => {
     await waitFor(() => expect(getLastBatchWrites().length).toBeGreaterThan(0));
 
     const writes = getLastBatchWrites();
-    expect(writes.find((w) => w.path === 'meds/' + STALE_MIN_MED.id)?.data).toEqual({ floorMin: 53 });
+    expect(writes.find((w) => w.path === 'meds/' + STALE_MIN_MED.id)?.data).toEqual({ floorMin: 57 });
     expect(writes.find((w) => w.path === 'meds/' + NO_USAGE_MED.id)).toBeUndefined();
   });
 });

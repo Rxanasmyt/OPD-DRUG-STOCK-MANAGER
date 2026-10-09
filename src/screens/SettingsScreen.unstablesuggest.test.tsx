@@ -11,8 +11,9 @@ import SettingsScreen from './SettingsScreen';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import { signInAs, fireCollection, hasListener } from '../test-utils/firebaseTestDouble';
 
-// Default parFloorCoverDays=4 / parSubCoverDays=28 (AppContext.tsx) give daily=used30/21.43
-// -> floor=roundStep(daily*4), sub=roundStep(daily*28). Starting parFloor/parSub at 0
+// Default parFloorCoverDays=4 / parSubCoverDays=28 (AppContext.tsx) give daily=used30/
+// WEEKDAYS_PER_30_DAYS (≈19.95 — selectors.ts, accounts for Thai public holidays too) ->
+// floor=roundStep(daily*4), sub=roundStep(daily*28). Starting parFloor/parSub at 0
 // guarantees suggestPar's output differs from the live value for every med below.
 
 // Swings 100 -> 1000 (900% up, >= the 40% threshold) AND its suggested par differs from its
@@ -37,9 +38,9 @@ const UNSTABLE_BUT_NOT_CHANGING = {
   id: 'm3', code: 'MED-0003', name: 'Ventolin inhaler', unit: 'ขวด', dosageForm: 'พ่น',
   price: 1, had: false, active: true,
   // suggestPar() blends used30/usedPrev30 70/30 when a real prior-month baseline exists (see its
-  // own comment) — blended = 1000*0.7 + 100*0.3 = 730, daily = 730/21.43 ≈ 34.07 ->
-  // floor = roundStep(34.07*4) = 140, sub = roundStep(34.07*28) = 1000.
-  parSub: 1000, parFloor: 140, floor: 50, bin: 'A3',
+  // own comment) — blended = 1000*0.7 + 100*0.3 = 730, daily = 730/WEEKDAYS_PER_30_DAYS ≈ 36.59 ->
+  // floor = roundStep(36.59*4) = 150, sub = roundStep(36.59*28) = 1100.
+  parSub: 1100, parFloor: 150, floor: 50, bin: 'A3',
   noSubstock: false, used30: 1000, usedPrev30: 100, volatility: 1,
 };
 
