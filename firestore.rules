@@ -316,6 +316,7 @@ service cloud.firestore {
                     && isNonNegNum(request.resource.data.qty)
                     && isNonNegNum(request.resource.data.unitPrice)
                     && isNonNegNum(request.resource.data.value)
+                    && request.resource.data.reason is string
                     && request.resource.data.note is string
                     && request.resource.data.date is string
                     && request.resource.data.ts is number

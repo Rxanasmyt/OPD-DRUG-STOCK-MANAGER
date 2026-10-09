@@ -393,6 +393,10 @@ describe('commitAdjust — คืนยา (DrugReturnRecord) regression', () =>
     expect(returnWrite?.data).toMatchObject({
       medId: 'm1', medName: 'Paracetamol 500mg', hn: '1234567', qty: 7,
       unitPrice: 1, value: 7, // MED.price is 1 — value = qty * price
+      // Real-world request: "ดึงรายงานการคืนยายังไม่มีข้อมูลเหตุผลในการคืนยา" — the reason picked
+      // in the UI (ReturnHarness sets 'ผู้ป่วยคืนยา (ไม่เปิดซอง)') used to only ever land in the
+      // generic txs audit log, never on this dedicated returns-report record.
+      reason: 'ผู้ป่วยคืนยา (ไม่เปิดซอง)',
     });
     expect(typeof returnWrite?.data.category).toBe('string');
     expect(typeof returnWrite?.data.date).toBe('string');
