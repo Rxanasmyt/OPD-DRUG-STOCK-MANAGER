@@ -16,7 +16,7 @@ interface MenuGroup { title: string; items: MenuItem[] }
  * them, not cutting features nobody asked to remove.
  */
 export default function MoreScreen() {
-  const { state, go, userName, roleLabel, logout } = useApp();
+  const { state, go, userName, roleLabel, logout, checkForUpdateNow } = useApp();
   // Real-world request: editing the master drug record is Admin-only now (was pharm+admin) —
   // hide the menu item entirely for anyone else, same as MedsScreen's own full-page block for
   // a non-admin who reaches it some other way (e.g. a bookmarked/QR deep link).
@@ -88,7 +88,19 @@ export default function MoreScreen() {
       </div>
 
       <button onClick={logout} style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--red)', padding: 14, borderRadius: 11, fontSize: 14.5, fontWeight: 600, minHeight: 50 }}>ออกจากระบบ</button>
-      <div className="muted" style={{ textAlign: 'center', fontSize: 11, marginTop: 16 }}>เวอร์ชัน {APP_VERSION}</div>
+
+      {/* Real-world request: "อยากให้มีปุ่มที่ใช้สำหรับการตรวจหาว่ามีเวอร์ชั่นล่าสุดหรือยัง ดีกว่า
+          มานั่งรอ" — checkForUpdateNow() (AppContext.tsx) re-checks right now instead of waiting
+          for the hourly/visibility-change timer or the real-time meta/settings push to notice a
+          deploy that just landed. */}
+      <button
+        onClick={checkForUpdateNow}
+        disabled={state.checkingUpdate}
+        style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 46, marginTop: 10, opacity: state.checkingUpdate ? 0.6 : 1 }}
+      >
+        {state.checkingUpdate ? 'กำลังตรวจสอบ...' : 'ตรวจสอบเวอร์ชันล่าสุด'}
+      </button>
+      <div className="muted" style={{ textAlign: 'center', fontSize: 11, marginTop: 10 }}>เวอร์ชัน {APP_VERSION}</div>
     </div>
   );
 }

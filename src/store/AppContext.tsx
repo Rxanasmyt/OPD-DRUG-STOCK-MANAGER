@@ -185,6 +185,7 @@ function freshState(): AppState {
     confirmDialog: null,
     promptDialog: null,
     updateAvailable: false,
+    checkingUpdate: false,
     idleWarnVisible: false,
     busy: {},
   } as AppState;
@@ -220,6 +221,13 @@ export interface AppCtx {
   /** Dismisses the "มีเวอร์ชันใหม่" banner without applying it — the update stays downloaded
    * and waiting; applyUpdate() (or just closing/reopening the app later) picks it up whenever. */
   dismissUpdate: () => void;
+  /** Manual "ตรวจสอบเวอร์ชันล่าสุด" button (MoreScreen.tsx) — re-checks the service worker right
+   * now instead of waiting for the hourly/visibility-change timer or the real-time meta/settings
+   * push to get around to it. Shows a toast either way: "ใช้งานเวอร์ชันล่าสุดอยู่แล้ว" if nothing
+   * new turned up, or nothing extra if it did (state.updateAvailable flipping true and the
+   * existing UpdateBanner showing up is signal enough). Never reloads anything itself — same as
+   * every other update path, only applyUpdate() does that. */
+  checkForUpdateNow: () => Promise<void>;
   /** Dismisses the "จะออกจากระบบอัตโนมัติ" idle warning (IdleLogoutWarning.tsx) and restarts the
    * idle clock from zero — same effect any ordinary activity (click/key/scroll) already has;
    * exposed separately so the warning's own "ยังอยู่" button works even if the person doesn't
@@ -1035,6 +1043,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updateSWRef.current?.(true);
   }, [patch]);
   const dismissUpdate = useCallback(() => patch({ updateAvailable: false }), [patch]);
+
+  // Real-world request: "อยากให้มีปุ่มที่ใช้สำหรับการตรวจหาว่ามีเวอร์ชั่นล่าสุดหรือยัง ดีกว่ามานั่งรอ
+  // เนื่องจากบางที่เมื่อมีการอัพเดตเวอร์ชั่นใหม่แล้วก็อยากใช้งานทันทีเลยครับ" — every existing check
+  // (the hourly/visibility timer above, the real-time meta/settings push) is still a WAIT, even
+  // if a short one; this is the one path that actually runs right when someone taps it. A ref,
+  // not state, mirrors updateAvailable for the read below — state.updateAvailable captured in
+  // this callback's own closure would still read its value from WHEN checkForUpdateNow was
+  // called, not after the real registration.update() + grace-period wait that follows.
+  const updateAvailableRef = useRef(false);
+  useEffect(() => { updateAvailableRef.current = state.updateAvailable; }, [state.updateAvailable]);
+  const checkingUpdateRef = useRef(false);
+  const checkForUpdateNow = useCallback(async () => {
+    if (checkingUpdateRef.current) return;
+    if (updateAvailableRef.current) { toast('พบเวอร์ชันใหม่อยู่แล้ว — แตะ "อัปเดตเลย" ที่แบนเนอร์ด้านล่างได้เลย'); return; }
+    checkingUpdateRef.current = true;
+    patch({ checkingUpdate: true });
+    try {
+      if (!swRegistrationRef.current) { toast('ยังไม่พร้อมตรวจสอบเวอร์ชัน — ลองใหม่อีกครั้งในอีกสักครู่'); return; }
+      await swRegistrationRef.current.update();
+      // registration.update() only confirms the re-check itself happened — onNeedRefresh (if a
+      // new SW script turned up) fires some moments after that, not within this same promise.
+      // A short grace period lets it land before concluding there's nothing new to report.
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      if (!updateAvailableRef.current) toast('ใช้งานเวอร์ชันล่าสุดอยู่แล้ว');
+    } catch {
+      toast('ตรวจสอบเวอร์ชันไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง');
+    } finally {
+      checkingUpdateRef.current = false;
+      patch({ checkingUpdate: false });
+    }
+  }, [patch, toast]);
 
   // ---------- live data: only once approved ----------
   useEffect(() => {
@@ -5365,7 +5404,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.historyFrom, state.historyTo, patch, toast, toastErr]);
 
   const value = useMemo<AppCtx>(() => ({
-    state, myProfile, theme, toggleTheme, sub, fefo, fefoFloor, userName, roleLabel, roleLabelOf, warn, toast, respondConfirm, promptAsync, respondPrompt, applyUpdate, dismissUpdate, dismissIdleWarning,
+    state, myProfile, theme, toggleTheme, sub, fefo, fefoFloor, userName, roleLabel, roleLabelOf, warn, toast, respondConfirm, promptAsync, respondPrompt, applyUpdate, dismissUpdate, checkForUpdateNow, dismissIdleWarning,
     notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify,
     lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify, go, back, setFormDirty, confirmLeaveIfDirty,
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
