@@ -553,7 +553,28 @@ export function categoryStats(state: AppState, meds: Med[], expiryWarnDays: numb
 // fraction and that weekend dispensing is small enough to treat as part of that same weekday
 // total, which is the conservative (safer, not smaller) direction: it raises the daily rate
 // used for every par/runway calculation below, rather than lowering it.
-const WEEKDAYS_PER_30_DAYS = 30 * (5 / 7); // ≈ 21.43
+//
+// Real-world request: "min max par ต้องตัดวันหยุดนักขัตฤกษ์ด้วยมั้ย เนื่องจากมีการใช้ยาน้อย...
+// เราสามารถคาดการณ์วันหยุดนักขัตฤกษ์ได้มั้ย การมาใส่ตารางเองเป็นการเพิ่มงาน" — the plain 5/7 weekday
+// fraction above still counts every Mon-Fri as a working day, including Thai public holidays
+// that land on one (Songkran, New Year, the lunar Buddhist holidays, ...) — those genuinely
+// have little-to-no real dispensing, the same direction of error this whole constant already
+// exists to correct for (see the "Fix" paragraph above), just a second, smaller source of it on
+// top. A real per-day Thai holiday calendar would be the precise fix, but needs a government
+// calendar an admin would have to type in and keep current every single year (lunar-calculated
+// Buddhist holidays shift date annually, and "วันหยุดพิเศษ" bridge days are announced ad hoc with
+// no predictable rule at all) — real ongoing work for a correction this small. A flat statistical
+// average instead: Thai public holidays run ~16-20/year; ~5/7 of any fixed or lunar date falls on
+// a weekday by pure chance, so roughly HOLIDAY_WEEKDAYS_PER_YEAR of them (already covering
+// weekend-to-Monday compensation days, which only ever move a holiday from a non-working weekend
+// onto a working weekday) land on what would otherwise be a working day. Dividing that count by
+// the weekday total for the year gives the fraction of NOMINAL working days this constant was
+// still over-counting, and applying it here needs zero maintenance — no calendar, no admin data
+// entry, nothing to update as the actual dates shift year to year, just one number to revisit if
+// the real holiday count ever changes materially.
+const WEEKDAYS_PER_YEAR = 365 * (5 / 7); // ≈ 260.71
+const HOLIDAY_WEEKDAYS_PER_YEAR = 18;
+const WEEKDAYS_PER_30_DAYS = 30 * (5 / 7) * (1 - HOLIDAY_WEEKDAYS_PER_YEAR / WEEKDAYS_PER_YEAR); // ≈ 19.95
 export function dailyUsageRate(m: Med): number {
   return m.used30 / WEEKDAYS_PER_30_DAYS;
 }

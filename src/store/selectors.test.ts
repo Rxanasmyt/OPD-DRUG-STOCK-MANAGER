@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { AppState, Med, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord } from '../types';
 import {
   wardOf, matchesWard, binFor, binDisplayAll, floorMinOf, isUrgentLow, needsWarehouseRequest,
-  lastReconcileDateIso, subQty, usageAnomalies,
+  lastReconcileDateIso, subQty, usageAnomalies, dailyUsageRate,
   daysOfStockLeft, fefoLot, toneFor, subTone, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
   categoryOf, categoryStats, parAnomaliesFor, packStep, isOnStockHold, routeOf, effectiveRouteOf,
   topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes,
@@ -10,6 +10,12 @@ import {
 } from './selectors';
 import { categoryLabel } from '../data/categories';
 import { DAY } from '../utils/format';
+
+// Mirrors selectors.ts's own WEEKDAYS_PER_30_DAYS exactly (not exported — see its doc comment
+// for the Thai-public-holiday real-world request this answers). These tests verify the
+// resulting dailyUsageRate()/parSuggestionDailyRate()/daysOfStockLeft() numbers independently,
+// same as before this constant accounted for holidays too, just against the new value.
+const WEEKDAYS_PER_30_DAYS = 30 * (5 / 7) * (1 - 18 / (365 * (5 / 7)));
 
 // Minimal, fully-typed fixture — every test overrides only the fields it cares about, so a
 // future required field on Med surfaces here as a type error instead of a runtime surprise in
@@ -484,6 +490,22 @@ describe('parAdjustmentOutcomes', () => {
   });
 });
 
+// Regression test for a real request: "min max par ต้องตัดวันหยุดนักขัตฤกษ์ด้วยมั้ย เนื่องจากมีการ
+// ใช้ยาน้อย...เราสามารถคาดการณ์วันหยุดนักขัตฤกษ์ได้มั้ย การมาใส่ตารางเองเป็นการเพิ่มงาน" — see
+// WEEKDAYS_PER_30_DAYS's own doc comment (selectors.ts) for the full reasoning: a flat statistical
+// holiday discount (no calendar, no admin data entry) instead of a maintained per-day table.
+describe('dailyUsageRate — Thai-public-holiday-adjusted divisor', () => {
+  it('divides by the holiday-adjusted weekday count (≈19.95/30 days), not the plain 5/7 weekday fraction (≈21.43)', () => {
+    const naiveRate = 300 / (30 * (5 / 7));
+    const rate = dailyUsageRate(med({ used30: 300 }));
+    // The new rate must be measurably HIGHER than the pre-fix naive one — fewer assumed working
+    // days behind the same real used30 total means more usage per real working day, not less
+    // (see the constant's own comment on why this is the correct direction).
+    expect(rate).toBeGreaterThan(naiveRate);
+    expect(rate).toBeCloseTo(300 / WEEKDAYS_PER_30_DAYS, 6);
+  });
+});
+
 describe('daysOfStockLeft', () => {
   it('returns null when there is no usage rate to project from (used30 <= 0)', () => {
     expect(daysOfStockLeft(state(), med({ used30: 0 }))).toBeNull();
@@ -491,10 +513,10 @@ describe('daysOfStockLeft', () => {
 
   it('projects days remaining from combined floor + substock at the current weekday-adjusted daily rate', () => {
     const st = { lots: [{ id: 'l1', code: 'L1', medId: 'm1', lotNo: '1', exp: 0, qty: 30, loc: 'x' }] } as unknown as AppState;
-    // floor 30 + substock 30 = 60 on hand; used30=30 -> daily = 30 / (30*5/7) ≈ 1.4/day ->
-    // round(60 / 1.4) = 43 days — NOT the naive used30/30 = 1/day -> 60 days (see
+    // floor 30 + substock 30 = 60 on hand; used30=30 -> daily = 30 / WEEKDAYS_PER_30_DAYS ≈
+    // 1.5/day -> round(60 / 1.5) = 40 days — NOT the naive used30/30 = 1/day -> 60 days (see
     // dailyUsageRate()'s doc comment for why the divisor isn't a flat 30).
-    expect(daysOfStockLeft(st, med({ id: 'm1', floor: 30, used30: 30 }))).toBe(43);
+    expect(daysOfStockLeft(st, med({ id: 'm1', floor: 30, used30: 30 }))).toBe(40);
   });
 });
 
@@ -698,14 +720,14 @@ describe('suggestPar', () => {
   });
 
   it('scales floor/sub par by cover days and volatility', () => {
-    // daily = 30 / (30*5/7) ≈ 1.4286 — not the naive used30/30 = 1 (see dailyUsageRate()).
-    const daily = 30 / (30 * (5 / 7));
+    // daily = 30 / WEEKDAYS_PER_30_DAYS ≈ 1.504 — not the naive used30/30 = 1 (see dailyUsageRate()).
+    const daily = 30 / WEEKDAYS_PER_30_DAYS;
     const out = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
     expect(out).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21), min: roundStep(daily * (3 / 2)) });
   });
 
   it('sizes a no-substock med\'s floor par off subCoverDays, not floorCoverDays — it has no substock buffer to absorb the wait for the next central-warehouse refill', () => {
-    const daily = 30 / (30 * (5 / 7));
+    const daily = 30 / WEEKDAYS_PER_30_DAYS;
     const withSubstock = suggestPar(med({ used30: 30, volatility: 1, noSubstock: false }), 3, 21);
     const noSubstock = suggestPar(med({ used30: 30, volatility: 1, noSubstock: true }), 3, 21);
     expect(withSubstock).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21), min: roundStep(daily * (3 / 2)) });
@@ -718,7 +740,7 @@ describe('suggestPar', () => {
   // comment. Must apply to floor par (daily refill, must survive the real busiest day) but NEVER
   // to substock par (its much longer ~2-week cycle already absorbs a single weekday's spike).
   it('scales ONLY floor par (never substock par) by weekdayPeakFactor when a real weekday pattern was detected', () => {
-    const daily = 30 / (30 * (5 / 7));
+    const daily = 30 / WEEKDAYS_PER_30_DAYS;
     const flat = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
     const withPattern = suggestPar(med({ used30: 30, volatility: 1, weekdayPeakFactor: 2 }), 3, 21);
     expect(withPattern).toEqual({ floor: roundStep(daily * 3 * 2), sub: roundStep(daily * 21), min: roundStep(daily * (3 / 2) * 2) });
@@ -727,7 +749,7 @@ describe('suggestPar', () => {
   });
 
   it('defaults weekdayPeakFactor to 1 (no change at all) for a med analyzeWeekdayUsage hasn\'t run for yet', () => {
-    const daily = 30 / (30 * (5 / 7));
+    const daily = 30 / WEEKDAYS_PER_30_DAYS;
     const out = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
     expect(out).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21), min: roundStep(daily * (3 / 2)) });
   });
@@ -743,7 +765,7 @@ describe('suggestPar', () => {
     const boxed = suggestPar(med({ used30: 30, volatility: 1, packSize: 1000 }), 3, 21);
     const noPackSize = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
     expect(boxed).toEqual(noPackSize);
-    const daily = 30 / (30 * (5 / 7));
+    const daily = 30 / WEEKDAYS_PER_30_DAYS;
     expect(noPackSize).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21), min: roundStep(daily * (3 / 2)) });
   });
 
@@ -752,7 +774,7 @@ describe('suggestPar', () => {
   // rate) or a hand-typed guess, with no data-driven suggestion at all.
   describe('suggested `min` (item 1 — data-driven reorder point)', () => {
     it('sizes min off the SAME real usage rate as floor, over half the days-of-cover floor represents', () => {
-      const daily = 30 / (30 * (5 / 7));
+      const daily = 30 / WEEKDAYS_PER_30_DAYS;
       const out = suggestPar(med({ used30: 30, volatility: 1 }), 10, 21);
       expect(out!.min).toBe(roundStep(daily * (10 / 2)));
       expect(out!.min).toBeLessThan(out!.floor);
@@ -768,7 +790,7 @@ describe('suggestPar', () => {
     });
 
     it('scales min by weekdayPeakFactor too, same as floor', () => {
-      const daily = 30 / (30 * (5 / 7));
+      const daily = 30 / WEEKDAYS_PER_30_DAYS;
       const withPattern = suggestPar(med({ used30: 30, volatility: 1, weekdayPeakFactor: 2 }), 3, 21);
       expect(withPattern!.min).toBe(roundStep(daily * (3 / 2) * 2));
     });
@@ -799,14 +821,14 @@ describe('suggestPar', () => {
     it('blends 70/30 (recent-weighted) toward the suggested par when a real prior-month baseline exists', () => {
       // used30 alone would suggest a much bigger jump than the blended 70/30 figure does.
       const spiked = suggestPar(med({ used30: 1000, usedPrev30: 100, volatility: 1 }), 3, 21);
-      const blendedDaily = (1000 * 0.7 + 100 * 0.3) / (30 * (5 / 7));
-      const naiveDaily = 1000 / (30 * (5 / 7));
+      const blendedDaily = (1000 * 0.7 + 100 * 0.3) / WEEKDAYS_PER_30_DAYS;
+      const naiveDaily = 1000 / WEEKDAYS_PER_30_DAYS;
       expect(spiked!.floor).toBe(roundStep(blendedDaily * 3));
       expect(spiked!.floor).toBeLessThan(roundStep(naiveDaily * 3));
     });
 
     it('falls back to used30 alone when there is no real prior-month baseline yet', () => {
-      const daily = 30 / (30 * (5 / 7));
+      const daily = 30 / WEEKDAYS_PER_30_DAYS;
       const noBaseline = suggestPar(med({ used30: 30, usedPrev30: 0, volatility: 1 }), 3, 21);
       expect(noBaseline!.floor).toBe(roundStep(daily * 3));
     });

@@ -11,8 +11,9 @@ import { renderWithApp } from '../test-utils/renderWithApp';
 import { signInAs, fireCollection, hasListener } from '../test-utils/firebaseTestDouble';
 
 // floor 10 < floorMinOf(100)=50 → lands in the list. onHand = floor(10) + substock(0, no lots)
-// = 10; used30 300 → dailyUsageRate = 300 / (30 * 5/7) ≈ 14 units/weekday → daysOfStockLeft =
-// round(10 / 14) = 1 day — comfortably inside the "≤3 days" critical band.
+// = 10; used30 300 → dailyUsageRate = 300 / WEEKDAYS_PER_30_DAYS ≈ 15 units/weekday (see
+// selectors.ts's own doc comment) → daysOfStockLeft = round(10 / 15) = 1 day — comfortably
+// inside the "≤3 days" critical band.
 const FAST_MOVING_MED = {
   id: 'm1', code: 'MED-0001', name: 'Amoxicillin 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
   price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 10, bin: 'A1',
