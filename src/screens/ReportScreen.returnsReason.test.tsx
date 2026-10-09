@@ -2,8 +2,8 @@
 // จากการดึงข้อมูลรายงานเดิมครับ" — the return reason picked in AdjustScreen's own structured
 // list (ปรับเปลี่ยนการรักษา/แพ้ยา/Non-compliance/.../อื่นๆ) was always written to the generic txs
 // audit log, but DrugReturnRecord (the "รายงานคืนยา" tab/export's actual source) never carried
-// its own copy of it — see DrugReturnRecord's own doc comment (types.ts) and commitAdjust's
-// return-branch (AppContext.tsx) for the write-side fix this locks in from the read side.
+// its own copy of it — see DrugReturnRecord's own doc comment (types.ts) and commitReturnCart
+// (AppContext.tsx) for the write-side fix this locks in from the read side.
 import { describe, it, expect, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';

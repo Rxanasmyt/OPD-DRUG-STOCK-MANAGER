@@ -9,7 +9,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
-  AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord,
+  AppState, Med, Role, Screen, AdjType, RecvItem, ReturnCartItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable } from './selectors';
@@ -55,6 +55,7 @@ function pushNav(stack: Screen[], current: Screen): Screen[] {
 const PERSIST_MAX_AGE_MS = 8 * 60 * 60 * 1000; // one work shift — older than this reads as abandoned, not worth restoring
 function cartStorageKey(uid: string): string { return 'opd-cart-' + uid; }
 function recvStorageKey(uid: string): string { return 'opd-recv-' + uid; }
+function returnCartStorageKey(uid: string): string { return 'opd-returncart-' + uid; }
 function writePersisted<T>(key: string, value: T): void {
   try {
     localStorage.setItem(key, JSON.stringify({ ts: Date.now(), value }));
@@ -142,7 +143,7 @@ function freshState(): AppState {
     recvNo: 'REQ-6908-' + (140 + (Date.now() % 9)), recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
     pendingReceives: [],
 
-    adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '',
+    adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [],
 
     reportTab: 'aging', labelType: 'med', labelSelected: {}, locScope: 'floor', labelWardScope: 'all',
 
@@ -320,6 +321,9 @@ export interface AppCtx {
   setAdjNote: (v: string) => void;
   setAdjHn: (v: string) => void;
   commitAdjust: () => void;
+  addToReturnCart: () => void;
+  removeReturnCartItem: (i: number) => void;
+  commitReturnCart: () => void;
   fetchDrugReturns: (fromDate: string, toDate: string) => Promise<import('../types').DrugReturnRecord[]>;
   exportDrugReturnsCsv: (records: import('../types').DrugReturnRecord[]) => Promise<void>;
   scrapLot: (lotId: string) => void;
@@ -819,15 +823,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     restoredForUid.current = state.myUid;
     const cart = readPersisted<Record<string, number>>(cartStorageKey(state.myUid));
     const recvItems = readPersisted<RecvItem[]>(recvStorageKey(state.myUid));
+    const returnCart = readPersisted<ReturnCartItem[]>(returnCartStorageKey(state.myUid));
     const hasCart = cart && Object.keys(cart).length > 0;
     const hasRecv = recvItems && recvItems.length > 0;
-    if (!hasCart && !hasRecv) return;
-    patch({ ...(hasCart ? { cart: cart! } : {}), ...(hasRecv ? { recvItems: recvItems! } : {}) });
-    toast(
-      (hasCart && hasRecv) ? 'กู้ตะกร้าเติมหน้างานและรายการรับเข้าที่ยังไม่บันทึกจากก่อนหน้านี้คืนแล้ว'
-        : hasCart ? 'กู้ตะกร้าเติมหน้างานที่ยังไม่บันทึกจากก่อนหน้านี้คืนแล้ว'
-        : 'กู้รายการรับเข้าที่ยังไม่บันทึกจากก่อนหน้านี้คืนแล้ว'
-    );
+    const hasReturnCart = returnCart && returnCart.length > 0;
+    if (!hasCart && !hasRecv && !hasReturnCart) return;
+    patch({ ...(hasCart ? { cart: cart! } : {}), ...(hasRecv ? { recvItems: recvItems! } : {}), ...(hasReturnCart ? { returnCart: returnCart! } : {}) });
+    const parts = [hasCart && 'ตะกร้าเติมหน้างาน', hasRecv && 'รายการรับเข้า', hasReturnCart && 'ตะกร้าคืนยา'].filter((x): x is string => !!x);
+    const joined = parts.length <= 1 ? (parts[0] || '') : parts.slice(0, -1).join(', ') + 'และ' + parts[parts.length - 1];
+    toast('กู้' + joined + 'ที่ยังไม่บันทึกจากก่อนหน้านี้คืนแล้ว');
   }, [state.myUid, patch, toast]);
   // Persists on every change, not debounced — both of these change at most once per button tap
   // (not per keystroke), so there's no meaningful write-volume cost to saving immediately, and
@@ -841,6 +845,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!state.myUid) return;
     writePersisted(recvStorageKey(state.myUid), state.recvItems);
   }, [state.myUid, state.recvItems]);
+  useEffect(() => {
+    if (!state.myUid) return;
+    writePersisted(returnCartStorageKey(state.myUid), state.returnCart);
+  }, [state.myUid, state.returnCart]);
 
   const enableExpiryNotify = useCallback(async () => {
     const perm = await requestPermission();
@@ -1453,7 +1461,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       search: '', filter: 'low', wardFilter: 'all',
       wmFromSearch: '', wmFromMed: null, wmToSearch: '', wmToMed: null, wmQty: '', wmReason: '',
       recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
-      adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '',
+      adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [],
       qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: null, scanConfirmMedId: null, hadOk: {},
       countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpConfirmSingleDay: false,
       usageDateFrom: '', usageDateTo: '', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
@@ -2391,26 +2399,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setAdjNote = useCallback((v: string) => patch({ adjNote: v }), [patch]);
   const setAdjHn = useCallback((v: string) => patch({ adjHn: v }), [patch]);
 
+  // Real-world request that moved คืนยา off this function entirely: "ผู้ป่วย HN 1 คนคืนยา
+  // หลายๆตัว...กรอกข้อมูลได้รวดเร็ว แต่ยังเก็บข้อมูลได้สมบูรณ์เหมือนเดิม" — see
+  // addToReturnCart/commitReturnCart below for the batch flow that replaced it (คืนยา no longer
+  // reaches this function from the UI at all). commitAdjust now only ever handles ปรับยอด/
+  // ยาเสีย — both a plain subtraction from floor, never an addition, so the old
+  // `t === 'return' ? 1 : -1` sign ternary and the HN/DrugReturnRecord branch it guarded are
+  // gone rather than left as unreachable dead code.
   const commitAdjust = useCallback(guardOnce('adjust', async () => {
     const m = state.meds.find((x) => x.id === state.adjMed);
     const q = parseIntSafe(state.adjQty);
     if (!m || !q || !state.adjReason) { toast('ต้องเลือกยา จำนวน และเหตุผลให้ครบ'); return; }
     const t = state.adjType!;
-    // Real-world request: "อยากให้เพิ่มข้อมูลในการคืนยา...HN ผู้ป่วย" — HN is required only for
-    // คืนยา (return), the one adjustment type that is tied to an actual patient and gets its own
-    // durable DrugReturnRecord below. The other three types (ปรับยอด/ยาเสีย/หมดอายุ) have no
-    // patient to attach and keep working exactly as before.
-    if (t === 'return' && !state.adjHn.trim()) { toast('ต้องกรอก HN ผู้ป่วยสำหรับการคืนยา'); return; }
-    const sign = t === 'return' ? 1 : -1;
-    // Bug fix (ledger accuracy): a 'damaged'/'adjust' deduction (sign -1) used to log qty as a
-    // flat `sign * q` regardless of what actually happened to floor — but the write below
-    // clamps at 0 (Math.max(0, ...)), same guard commitReconcile already needed for the exact
-    // same reason. A real, easy-to-hit case: floor reads 3 (already partly dispensed since the
-    // last sync) and someone enters "damaged 10" for what they physically found — floor really
-    // only drops 3→0 (delta -3), but the old code logged qty:-10 to the discrepancy log/audit
-    // trail regardless, a permanent record that overstates the write-off by 7 units against a
-    // floor that never held them. Track before/after like commitReconcile does and log the
-    // real applied delta, not the raw typed amount.
+    // Bug fix (ledger accuracy): a 'damaged'/'adjust' deduction used to log qty as a flat `-q`
+    // regardless of what actually happened to floor — but the write below clamps at 0
+    // (Math.max(0, ...)), same guard commitReconcile already needed for the exact same reason.
+    // A real, easy-to-hit case: floor reads 3 (already partly dispensed since the last sync)
+    // and someone enters "damaged 10" for what they physically found — floor really only drops
+    // 3→0 (delta -3), but the old code logged qty:-10 to the discrepancy log/audit trail
+    // regardless, a permanent record that overstates the write-off by 7 units against a floor
+    // that never held them. Track before/after like commitReconcile does and log the real
+    // applied delta, not the raw typed amount.
     let before = 0, after = 0;
     try {
       // Bug fix (data integrity): the stock write and its tx-log entry used to be two separate
@@ -2423,40 +2432,98 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const ref = doc(db, 'meds', m.id);
         const snap = await trx.get(ref);
         before = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
-        after = Math.max(0, before + sign * q);
+        after = Math.max(0, before - q);
         trx.update(ref, { floor: after });
         trx.set(doc(collection(db, 'txs')), {
           type: t, name: m.name, medId: m.id, qty: after - before, unit: m.unit,
           reason: state.adjReason, note: state.adjNote || '—', loc: 'floor', by: userName(), ts: now,
         } satisfies Omit<import('../types').Tx, 'id'>);
-        // Real-world request: "อยากให้เพิ่มข้อมูลในการคืนยา...วันที่ได้รับคืนยา...HN
-        // ผู้ป่วย...คำนวนราคายาให้อัตโนมัติ กลุ่มยาที่คืนให้ดึงจากตัวยาอัตโนมัติ...ดึงรายงานได้
-        // ทุกช่วง" — a durable side record (append-only, same shape as parAdjustments above),
-        // written in the SAME transaction as the floor/txs write so it can never drift from the
-        // stock movement it describes. Uses the real applied delta (after-before), not the raw
-        // typed `q`, for the same reason the txs row above does (floor clamps at 0).
-        if (t === 'return') {
-          trx.set(doc(collection(db, 'returns')), {
-            medId: m.id, medName: m.name, medCode: m.code, unit: m.unit, category: categoryOf(m),
-            hn: state.adjHn.trim(), qty: after - before, unitPrice: m.price, value: (after - before) * m.price,
-            reason: state.adjReason, note: state.adjNote || '—', date: isoDate(now), ts: now, by: userName(),
-          } satisfies import('../types').DrugReturnRecord);
-        }
       });
       const appliedQty = after - before;
       // Bug fix (flow friction): this used to also clear adjMed/adjSearch, forcing a full
       // retype-and-repick of the same med to log a second, unrelated adjustment right after the
-      // first (e.g. a "damaged" entry right after a "return" for the same drug, or several
-      // patient returns of the same item back-to-back) — a real extra search+tap on every single
-      // commit, several times a shift, with no safety benefit: only qty/reason/note actually
-      // need clearing between adjustments, not which med is selected.
-      patch({ adjQty: '', adjReason: '', adjNote: '', adjHn: '' });
+      // first (e.g. several "damaged" entries for the same item back-to-back) — a real extra
+      // search+tap on every single commit, several times a shift, with no safety benefit: only
+      // qty/reason/note actually need clearing between adjustments, not which med is selected.
+      patch({ adjQty: '', adjReason: '', adjNote: '' });
       hapticSuccess();
       toast('บันทึกแล้ว · ' + m.name + ' ' + (appliedQty > 0 ? '+' : appliedQty < 0 ? '−' : '') + nf(Math.abs(appliedQty)) + ' ' + m.unit);
     } catch (e) {
       toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
   }), [state, userName, toast, toastErr, patch, guardOnce]);
+
+  // ---------- ตะกร้าคืนยา (return cart) — see ReturnCartItem's own doc comment (types.ts) for
+  // the real-world request this answers ----------
+  // Adds the currently-picked drug (adjMed/adjQty/adjReason/adjNote) as one line in the cart,
+  // then resets only those per-drug fields — same "what needs clearing between items" split
+  // commitAdjust's own flow-friction fix uses, mirrored the other way: here it's the DRUG that
+  // changes between adds and the HN that stays, so adjHn is deliberately the one field this
+  // does NOT touch.
+  const addToReturnCart = useCallback(() => {
+    const m = state.meds.find((x) => x.id === state.adjMed);
+    const q = parseIntSafe(state.adjQty);
+    if (!m || !q || !state.adjReason) { toast('ต้องเลือกยา จำนวน และเหตุผลให้ครบ'); return; }
+    const item: ReturnCartItem = { medId: m.id, medName: m.name, medCode: m.code, unit: m.unit, qty: q, reason: state.adjReason, note: state.adjNote || '—' };
+    patch((st) => ({ returnCart: [...st.returnCart, item], adjMed: null, adjSearch: '', adjQty: '', adjReason: '', adjNote: '' }));
+    hapticSuccess();
+  }, [state.meds, state.adjMed, state.adjQty, state.adjReason, state.adjNote, toast, patch]);
+
+  const removeReturnCartItem = useCallback((i: number) => patch((st) => ({ returnCart: st.returnCart.filter((_, j) => j !== i) })), [patch]);
+
+  const commitReturnCart = useCallback(guardOnce('returnCart', async () => {
+    const items = state.returnCart;
+    if (!items.length) return;
+    if (!state.adjHn.trim()) { toast('ต้องกรอก HN ผู้ป่วยสำหรับการคืนยา'); return; }
+    // Bug fix (data integrity): same class of gap commitReceive's own missingMed check closes —
+    // the cart is purely local state, never reflected in Firestore until this commit, so nothing
+    // stops a med in it from being deleted (another device, another tab) in the gap between
+    // adding it here and confirming the whole batch.
+    const missingMed = items.some((it) => !state.meds.find((x) => x.id === it.medId));
+    if (missingMed) { toast('มีรายการที่ถูกลบออกจากระบบไปแล้ว — กลับไปลบรายการนั้นออกจากตะกร้าก่อน'); return; }
+    const hn = state.adjHn.trim();
+    try {
+      const now = Date.now();
+      // One transaction for the WHOLE batch, not a loop of separate commitAdjust-style calls —
+      // a dropped connection partway through a loop would leave some of this one patient's drugs
+      // recorded as returned and others not, exactly the "ledger drift" class of bug this
+      // codebase has fixed elsewhere (see commitReceive/commitAdjust's own notes on folding
+      // separate writes into one atomic transaction). All of a transaction's reads must happen
+      // before its writes (same constraint commitReceive's own multi-item commit works around),
+      // so every unique med's current floor is read first, then every item's floor/txs/returns
+      // triple is written from those already-read snapshots.
+      const uniqueMedIds = [...new Set(items.map((it) => it.medId))];
+      await runTx(async (trx) => {
+        const beforeByMed = new Map<string, number>();
+        for (const medId of uniqueMedIds) {
+          const snap = await trx.get(doc(db, 'meds', medId));
+          const m = state.meds.find((x) => x.id === medId);
+          beforeByMed.set(medId, (snap.data() as { floor?: number } | undefined)?.floor ?? m?.floor ?? 0);
+        }
+        for (const it of items) {
+          const m = state.meds.find((x) => x.id === it.medId)!;
+          const before = beforeByMed.get(it.medId)!;
+          const after = before + it.qty;
+          beforeByMed.set(it.medId, after); // a second line for the same drug in this batch stacks onto the first, not onto the stale pre-batch floor
+          trx.update(doc(db, 'meds', it.medId), { floor: after });
+          trx.set(doc(collection(db, 'txs')), {
+            type: 'return', name: m.name, medId: it.medId, qty: after - before, unit: it.unit,
+            reason: it.reason, note: it.note, loc: 'floor', by: userName(), ts: now,
+          } satisfies Omit<import('../types').Tx, 'id'>);
+          trx.set(doc(collection(db, 'returns')), {
+            medId: it.medId, medName: it.medName, medCode: it.medCode, unit: it.unit, category: categoryOf(m),
+            hn, qty: after - before, unitPrice: m.price, value: (after - before) * m.price,
+            reason: it.reason, note: it.note, date: isoDate(now), ts: now, by: userName(),
+          } satisfies import('../types').DrugReturnRecord);
+        }
+      });
+      patch({ returnCart: [], adjHn: '' });
+      hapticSuccess();
+      toast('บันทึกรับคืนแล้ว · HN ' + hn + ' · ' + items.length + ' รายการ');
+    } catch (e) {
+      toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
+    }
+  }), [state.returnCart, state.adjHn, state.meds, userName, toast, toastErr, patch, guardOnce]);
 
   const scrapLot = useCallback(guardOnce('scrapLot', async (lotId: string) => {
     const l = state.lots.find((x) => x.id === lotId);
@@ -5503,7 +5570,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, cancelReceivePick, removeRecvItem, commitReceive, printWarehouseRequestList,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
-    pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, fetchDrugReturns, exportDrugReturnsCsv, scrapLot, scrapFloorLot,
+    pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, addToReturnCart, removeReturnCartItem, commitReturnCart, fetchDrugReturns, exportDrugReturnsCsv, scrapLot, scrapFloorLot,
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setAllMinSuggested, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, clearMedPeakDay, updateGlobalSettings,

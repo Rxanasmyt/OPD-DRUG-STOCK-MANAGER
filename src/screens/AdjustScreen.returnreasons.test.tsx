@@ -25,6 +25,9 @@ async function openReturnForMed() {
   fireCollection('meds', [MED]);
 
   await user.click(screen.getByRole('button', { name: /คืนยา/ }));
+  // คืนยา gates the med-search box behind HN ผู้ป่วย — see "ตะกร้าคืนยา" (AdjustScreen.tsx's own
+  // comment on this): HN is entered once per patient, before any drug is searched/added.
+  await user.type(await screen.findByPlaceholderText('เช่น 1234567'), '0010643');
   const search = await screen.findByPlaceholderText('ค้นหาชื่อยา');
   await user.type(search, 'Paracetamol');
   await user.click(await screen.findByText(MED.name));
@@ -49,15 +52,15 @@ describe('AdjustScreen — คืนยา reason chips regression', () => {
     await user.type(customInput, 'ผู้ป่วยเสียชีวิต');
     expect(customInput).toHaveValue('ผู้ป่วยเสียชีวิต');
 
-    // Submit becomes enabled once a qty + HN + the typed reason are all filled — confirms the
-    // typed text really is wired into state.adjReason, not just displayed. The qty label wraps
-    // NumberStepper's −/input/+ as a group (all three are "labelable" HTML elements), so
-    // getByLabelText alone could grab a button instead of the actual input — narrow to the one
-    // real textbox inside that specific label.
+    // "+ เพิ่มลงตะกร้า" becomes enabled once a qty + the typed reason are both filled — confirms
+    // the typed text really is wired into state.adjReason, not just displayed. HN is already
+    // filled by openReturnForMed() (entered once per patient, before any drug is picked — see
+    // that helper's own comment). The qty label wraps NumberStepper's −/input/+ as a group (all
+    // three are "labelable" HTML elements), so getByLabelText alone could grab a button instead
+    // of the actual input — narrow to the one real textbox inside that specific label.
     const qtyLabel = screen.getByText('จำนวนที่คืน (จะเพิ่มเข้ายอด) (เม็ด)').closest('label') as HTMLElement;
     await user.type(within(qtyLabel).getByRole('textbox'), '5');
-    await user.type(screen.getByPlaceholderText('เช่น 1234567'), '0010643');
-    await waitFor(() => expect(screen.getByRole('button', { name: 'บันทึกรับคืน' })).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: '+ เพิ่มลงตะกร้า' })).not.toBeDisabled());
   });
 
   it('picking a preset chip after "อื่นๆ" switches back off the free-text input', async () => {
