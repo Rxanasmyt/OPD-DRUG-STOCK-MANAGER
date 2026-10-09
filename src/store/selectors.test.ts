@@ -6,7 +6,7 @@ import {
   daysOfStockLeft, fefoLot, toneFor, subTone, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
   categoryOf, categoryStats, parAnomaliesFor, packStep, isOnStockHold, routeOf, effectiveRouteOf,
   topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes,
-  monthlyDaySplits, boxBreakdownLabel, halfOfMaxRounded,
+  monthlyDaySplits, boxBreakdownLabel, halfOfMaxRounded, isNewerVersionAvailable,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
 import { DAY } from '../utils/format';
@@ -938,5 +938,24 @@ describe('subTone', () => {
     expect(subTone(33, 100)).toBe('var(--red)');
     expect(subTone(74, 100)).toBe('var(--amber)');
     expect(subTone(75, 100)).toBe('var(--green)');
+  });
+});
+
+// Regression test for a real request: "อยากให้เมื่อมีการ merge เข้า main แล้ว อยากให้มีการอัพเดต
+// เวอชั่นที่รวดเร็ว" — see this function's own doc comment (selectors.ts) and AppContext.tsx's
+// meta/settings onSnapshot handler for the full real-time-update-notice design this one decision
+// drives.
+describe('isNewerVersionAvailable', () => {
+  it('is true when Firestore carries a different version than the one actually running', () => {
+    expect(isNewerVersionAvailable('3.129.0', '3.128.1')).toBe(true);
+  });
+
+  it('is false once every open tab has caught up to the same version', () => {
+    expect(isNewerVersionAvailable('3.128.1', '3.128.1')).toBe(false);
+  });
+
+  it('is false when the field has never been published yet (undefined) or is blank', () => {
+    expect(isNewerVersionAvailable(undefined, '3.128.1')).toBe(false);
+    expect(isNewerVersionAvailable('', '3.128.1')).toBe(false);
   });
 });

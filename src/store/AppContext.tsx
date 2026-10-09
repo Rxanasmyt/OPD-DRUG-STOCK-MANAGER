@@ -12,7 +12,7 @@ import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord,
 } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -27,6 +27,10 @@ import { categoryLabel } from '../data/categories';
 import { withTimeout, TimeoutError } from '../utils/timeout';
 import { readNotifyEnabled, writeNotifyEnabled, readLowStockNotifyEnabled, writeLowStockNotifyEnabled, requestPermission, currentPermission, maybeNotifyExpiring, maybeNotifyLowStock } from '../utils/notify';
 import { hapticSuccess, hapticError } from '../utils/haptic';
+// Same "?raw" VERSION import LoginScreen.tsx/MoreScreen.tsx already use — see the
+// meta/settings onSnapshot handler below for why this file needs it too.
+import versionRaw from '../../VERSION?raw';
+const APP_VERSION = versionRaw.trim();
 
 // Caps navStack length so a session left open for days (this is a PWA people keep pinned,
 // not something reloaded every visit) can't grow it unboundedly — nothing needs more than a
@@ -1096,7 +1100,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // already has sane defaults, so a snapshot with no data simply leaves them as-is.
       onSnapshot(doc(db, 'meta', 'settings'), (snap) => {
         if (!snap.exists()) return;
-        const d = snap.data() as Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; usageStatsRecomputedAt: number }>;
+        const d = snap.data() as Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; usageStatsRecomputedAt: number; latestVersion: string }>;
         patch((st) => ({
           expiryWarnDays: typeof d.expiryWarnDays === 'number' ? d.expiryWarnDays : st.expiryWarnDays,
           parFloorCoverDays: typeof d.parFloorCoverDays === 'number' ? d.parFloorCoverDays : st.parFloorCoverDays,
@@ -1108,6 +1112,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // having been computed).
           usageStatsRecomputedAt: typeof d.usageStatsRecomputedAt === 'number' ? d.usageStatsRecomputedAt : st.usageStatsRecomputedAt,
         }));
+        // Real-world request: "อยากให้เมื่อมีการ merge เข้า main แล้ว อยากให้มีการอัพเดตเวอชั่นที่
+        // รวดเร็ว ตอนนี้ต้องรอนานกว่าจะขึ้นป็อปอัพให้อัพเดต" — the service worker's own update
+        // check (checkForUpdate() below) only ever runs on a timer (every 3 min) or on
+        // visibility/focus change, so a deploy landing while this tab sits open and idle could
+        // still take up to 3 extra minutes to even be NOTICED, on top of however long the deploy
+        // itself took. scripts/publish-app-version.mjs writes this exact field right after
+        // deploy-pages.yml's build actually goes live, and every open tab already holds a live
+        // subscription to this doc (same onSnapshot as the settings above) — Firestore pushes
+        // the change to every connected client in real time, no polling needed. Used ONLY to
+        // kick off an immediate SW re-check (never to set updateAvailable directly) — the SW
+        // still has to actually fetch+install the new build before there's anything real to
+        // offer, and onNeedRefresh (registerSW below) is the one source of truth for "ready to
+        // apply" so the banner's own "อัปเดตเลย" button never shows before it would actually do
+        // something. A version string that happens to equal this build's own is a no-op (every
+        // OTHER still-open tab on the OLD version is the one this actually helps).
+        if (isNewerVersionAvailable(d.latestVersion, APP_VERSION)) swRegistrationRef.current?.update().catch(() => {});
       }, onErr('settings')),
     ];
     if (myProfile?.role === 'admin') {

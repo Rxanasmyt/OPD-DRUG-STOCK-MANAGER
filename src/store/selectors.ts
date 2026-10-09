@@ -847,4 +847,17 @@ export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number)
   return { floor, sub, min };
 }
 
+// Real-world request: "อยากให้เมื่อมีการ merge เข้า main แล้ว อยากให้มีการอัพเดตเวอชั่นที่รวดเร็ว
+// ตอนนี้ต้องรอนานกว่าจะขึ้นป็อปอัพให้อัพเดต" — see AppContext.tsx's meta/settings onSnapshot
+// handler for the full design (scripts/publish-app-version.mjs pushes the just-deployed version
+// into Firestore right after a deploy, so every open tab's live subscription to that doc gets it
+// in real time instead of waiting on the service worker's own up-to-3-minute poll). Pulled out as
+// its own pure predicate so this one real decision — "is there actually a newer build than the
+// one I'm running?" — is unit-testable on its own, without needing to mock the service worker
+// registration (not available at all in this project's test environment — virtual:pwa-register
+// only exists in the real built PWA) or a live Firestore connection just to exercise one `&&`.
+export function isNewerVersionAvailable(latestVersion: string | undefined, currentVersion: string): boolean {
+  return !!latestVersion && latestVersion !== currentVersion;
+}
+
 export { daysUntil, DAY };

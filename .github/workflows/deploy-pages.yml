@@ -48,3 +48,21 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist
+      # Real-world request: "อยากให้เมื่อมีการ merge เข้า main แล้ว อยากให้มีการอัพเดตเวอชั่นที่
+      # รวดเร็ว" — see scripts/publish-app-version.mjs's own header comment for the full design:
+      # this pushes the new version to every open tab via Firestore's real-time listener instead
+      # of waiting on the service worker's own up-to-3-minute poll. The step above only pushes to
+      # the gh-pages BRANCH — GitHub's own publish of that branch to the live site (a separate,
+      # GitHub-run step this workflow doesn't control) takes a bit longer, observed consistently
+      # around 25-30s. The sleep gives that a safety margin so this signal doesn't fire while the
+      # new build is still a few seconds from actually being fetchable — a client whose SW
+      # re-check lands in that gap just finds nothing new yet and the existing 3-minute poll
+      # catches it moments later regardless, so this is a latency optimization, not a
+      # correctness requirement. continue-on-error: a hiccup here (e.g. a transient Firestore
+      # write failure) must never mark the deploy itself as failed — the real deploy already
+      # succeeded by this point, and the pre-existing polling-based update check still works as
+      # the fallback either way.
+      - run: sleep 30 && node scripts/publish-app-version.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+        continue-on-error: true
