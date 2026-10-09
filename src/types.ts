@@ -715,6 +715,12 @@ export interface AppState {
   // shows a dismissible banner and updates only when someone taps it.
   updateAvailable: boolean;
 
+  // Real-world request: "อยากให้มีปุ่มที่ใช้สำหรับการตรวจหาว่ามีเวอร์ชั่นล่าสุดหรือยัง ดีกว่ามานั่งรอ"
+  // — true only while a manual "ตรวจสอบเวอร์ชันล่าสุด" tap (MoreScreen.tsx/checkForUpdateNow() in
+  // AppContext.tsx) is in flight, purely to show a spinner/disable the button against a double
+  // tap. Unrelated to updateAvailable above, which is the real signal that a new build is ready.
+  checkingUpdate: boolean;
+
   // True for exactly the last minute before an auto-logout from inactivity actually fires —
   // see IdleLogoutWarning.tsx/dismissIdleWarning() in AppContext.tsx. Never set directly to
   // false by the idle-check itself without the person acting; tapping "ยังอยู่" (or any ordinary
