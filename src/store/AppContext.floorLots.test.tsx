@@ -67,7 +67,8 @@ describe('commitTransfer — floor-lot creation regression', () => {
     await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
 
     const writes = getLastTransactionWrites();
-    const flWrite = writes.find((w) => w.path === 'floorLots/m1__LA');
+    // Path includes exp (not just medId+lotNo) — see floorLotDocId's own doc comment for why.
+    const flWrite = writes.find((w) => w.path === 'floorLots/m1__LA__' + exp);
     expect(flWrite?.data).toEqual({ medId: 'm1', lotNo: 'LA', exp, qty: 4 });
   });
 
@@ -85,17 +86,77 @@ describe('commitTransfer — floor-lot creation regression', () => {
     seedDoc('meds/m1', { floor: MED.floor });
     seedCollection('lots', [{ id: 'lotA', medId: MED.id, qty: 10, exp }]);
     seedDoc('lots/lotA', { qty: 10, lotNo: 'LA', exp });
-    // An earlier transfer of the same physical batch already put 6 units on the floor.
-    seedCollection('floorLots', [{ id: 'm1__LA', medId: MED.id, qty: 6, lotNo: 'LA', exp }]);
-    seedDoc('floorLots/m1__LA', { medId: MED.id, lotNo: 'LA', exp, qty: 6 });
+    // An earlier transfer of the same physical batch (same lotNo AND same exp — a real repeat
+    // transfer of the SAME batch) already put 6 units on the floor.
+    seedCollection('floorLots', [{ id: 'm1__LA__' + exp, medId: MED.id, qty: 6, lotNo: 'LA', exp }]);
+    seedDoc('floorLots/m1__LA__' + exp, { medId: MED.id, lotNo: 'LA', exp, qty: 6 });
 
     await user.click(screen.getByRole('button', { name: 'confirm-transfer' }));
     await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
 
     const writes = getLastTransactionWrites();
-    const flWrite = writes.find((w) => w.path === 'floorLots/m1__LA');
+    const flWrite = writes.find((w) => w.path === 'floorLots/m1__LA__' + exp);
     // Without the merge fix this would be overwritten back down to just the newly-drawn 4.
     expect(flWrite?.data).toEqual({ medId: 'm1', lotNo: 'LA', exp, qty: 10 });
+  });
+});
+
+function SeedCart10() {
+  const { setCartQty, sub } = useApp();
+  const qty = sub(MED.id);
+  useEffect(() => { if (qty > 0) setCartQty(MED.id, '10'); }, [setCartQty, qty]);
+  return null;
+}
+
+// Real-world report: tapping "ยืนยันการเติมหน้างาน" for Atorvastatin failed every single retry
+// with a flat "เติมหน้างานไม่สำเร็จ ลองใหม่อีกครั้ง" — the lot it was drawing from was a "ปรับยอด
+// (นับสต็อก)" substock-count-surplus lot (commitSubCount/commitAllSubCounts, selectors.ts). Every
+// such lot reuses that exact literal lotNo string, but each gets its OWN freshly-computed exp
+// (Date.now()+100y) — a med with more than one count-surplus in its history, each later
+// transferred to the floor, used to collide onto the SAME floorLots doc id (floorLotDocId was
+// keyed by medId+lotNo only), and the second transfer's write tried to silently change that doc's
+// already-stored exp — which firestore.rules correctly rejects (exp is immutable once a floorLots
+// doc exists, same as `lots`). That permission-denied is exactly this flat, non-specific,
+// deterministically-repeating failure toast (not the 'insufficient'/'missing-med' cases, which
+// both have their own specific toasts). See floorLotDocId's own doc comment (selectors.ts).
+describe('commitTransfer — same-lotNo/different-exp floor-lot collision regression', () => {
+  it('gives two batches that share a lotNo but have different real exp their own separate floorLots docs, not one colliding doc', async () => {
+    const user = userEvent.setup();
+    const expA = Date.now() + 100 * 365 * 86400000; // an earlier count-surplus's "100 years out"
+    const expB = expA + 7 * 86400000; // a later count-surplus, computed days afterward — different
+    const SHARED_LOT_NO = 'ปรับยอด (นับสต็อก)';
+    renderWithApp(<><SeedCart10 /><TransferHarness /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    // FEFO draws the soonest-expiring (lotA, expA) first — 6 units — then spills the remaining
+    // 4 of the cart's 10 into lotB (expB), splitting this ONE transfer across both batches.
+    fireCollection('lots', [
+      { id: 'lotA', medId: MED.id, qty: 6, lotNo: SHARED_LOT_NO, exp: expA },
+      { id: 'lotB', medId: MED.id, qty: 10, lotNo: SHARED_LOT_NO, exp: expB },
+    ]);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'confirm-transfer' })).toBeInTheDocument());
+
+    seedDoc('meds/m1', { floor: MED.floor });
+    seedCollection('lots', [
+      { id: 'lotA', medId: MED.id, qty: 6, exp: expA },
+      { id: 'lotB', medId: MED.id, qty: 10, exp: expB },
+    ]);
+    seedDoc('lots/lotA', { qty: 6, lotNo: SHARED_LOT_NO, exp: expA });
+    seedDoc('lots/lotB', { qty: 10, lotNo: SHARED_LOT_NO, exp: expB });
+    seedCollection('floorLots', []);
+
+    await user.click(screen.getByRole('button', { name: 'confirm-transfer' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+    const writes = getLastTransactionWrites();
+    const flWrites = writes.filter((w) => w.path.startsWith('floorLots/'));
+    // The real bug: these two used to be the SAME doc path (medId+lotNo only), so the second
+    // write would try to overwrite the first doc's exp — exactly what firestore.rules blocks.
+    expect(new Set(flWrites.map((w) => w.path)).size).toBe(2);
+    expect(flWrites.find((w) => (w.data as { exp?: number }).exp === expA)?.data).toEqual({ medId: 'm1', lotNo: SHARED_LOT_NO, exp: expA, qty: 6 });
+    expect(flWrites.find((w) => (w.data as { exp?: number }).exp === expB)?.data).toEqual({ medId: 'm1', lotNo: SHARED_LOT_NO, exp: expB, qty: 4 });
   });
 });
 
