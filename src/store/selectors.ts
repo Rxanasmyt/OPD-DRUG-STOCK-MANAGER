@@ -622,11 +622,27 @@ export function fefoLot(state: AppState, medId: string) {
 }
 
 // Deterministic Firestore doc id for a floorLots record — see FloorLot in types.ts for why this
-// is a separate collection from `lots`. Keyed by (medId, lotNo) so repeated transfers of the same
-// physical batch accumulate into one doc instead of creating duplicates. lotNo is sanitized since
-// Firestore doc ids can't contain '/', and a missing lotNo still needs a stable, non-colliding id.
-export function floorLotDocId(medId: string, lotNo: string): string {
-  return medId + '__' + (lotNo ? lotNo.replace(/[/]/g, '_') : 'nolot');
+// is a separate collection from `lots`. Keyed by (medId, lotNo, exp) so repeated transfers of the
+// SAME real physical batch (same lotNo AND same exp) accumulate into one doc instead of creating
+// duplicates. lotNo is sanitized since Firestore doc ids can't contain '/', and a missing lotNo
+// still needs a stable, non-colliding id.
+// Bug fix (real-world report): exp used to be left OUT of this key — fine for a real
+// warehouse-received lot (one lotNo always carries one fixed real exp), but every "ปรับยอด
+// (นับสต็อก)" adjustment lot (commitSubCount/commitAllSubCounts, a substock count surplus) reuses
+// that exact same literal lotNo string every single time one gets created, while its exp is a
+// freshly-computed Date.now()+100y — different on every occurrence. Two separate count-surplus
+// events for the same med, both later transferred to the floor, collapsed onto the SAME floorLots
+// doc id despite being two genuinely different (fake) batches with two different exp values — the
+// second transfer then tried to silently overwrite the first's stored exp, which firestore.rules
+// correctly rejects (a floorLots doc's exp is immutable once created, same as `lots`). That
+// permission-denied surfaced as a flat, deterministically-repeating "เติมหน้างานไม่สำเร็จ
+// ลองใหม่อีกครั้ง" — retrying could never help, since the same collision happens every attempt.
+// Folding exp into the key makes two batches that only coincidentally share a lotNo (adjustment
+// lots always do; a real warehouse restock from the same manufacturer batch number occasionally
+// might) land in separate floorLots docs instead of colliding — correct either way, since they
+// really are different physical stock with different real expiries.
+export function floorLotDocId(medId: string, lotNo: string, exp: number): string {
+  return medId + '__' + (lotNo ? lotNo.replace(/[/]/g, '_') : 'nolot') + '__' + exp;
 }
 
 export function floorLotsFor(state: AppState, medId: string) {

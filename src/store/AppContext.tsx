@@ -1751,14 +1751,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             lotReads[lotId] = { qty: data?.qty ?? 0, lotNo: data?.lotNo ?? '', exp: data?.exp ?? Infinity };
           }));
         }));
-        // Best-effort read of any existing floorLots doc for each distinct (medId, lotNo) this
-        // transfer might draw from, so the write phase below can merge qty instead of overwriting
-        // it. Never blocks/throws on failure to find one — a missing doc just means "no floor
-        // stock of this batch yet", handled the same as any other read miss.
+        // Best-effort read of any existing floorLots doc for each distinct (medId, lotNo, exp)
+        // this transfer might draw from, so the write phase below can merge qty instead of
+        // overwriting it. Never blocks/throws on failure to find one — a missing doc just means
+        // "no floor stock of this batch yet", handled the same as any other read miss.
         const floorLotIdsSeen = new Set<string>();
         await Promise.all(ids.flatMap((medId) => lotIdsByMed[medId].map((lotId) => {
           const lotNo = lotReads[lotId]?.lotNo || '';
-          const flId = floorLotDocId(medId, lotNo);
+          const exp = lotReads[lotId]?.exp ?? Infinity;
+          const flId = floorLotDocId(medId, lotNo, exp);
           if (floorLotIdsSeen.has(flId)) return Promise.resolve();
           floorLotIdsSeen.add(flId);
           return trx.get(doc(db, 'floorLots', flId)).then((snap) => {
@@ -1806,8 +1807,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         for (const medId of ids) {
           let need = cart[medId];
           const used: string[] = [];
-          // Floor-lot tracking: accumulate per-(medId,lotNo) qty drawn this round so a batch
-          // split across more than one substock lot doc still lands in a single floorLots doc.
+          // Floor-lot tracking: accumulate per-(medId,lotNo,exp) qty drawn this round so a batch
+          // split across more than one substock lot doc still lands in a single floorLots doc —
+          // see floorLotDocId's own doc comment (selectors.ts) for why exp must be part of this
+          // key, not just lotNo.
           const floorTake: Record<string, { add: number; exp: number; lotNo: string }> = {};
           for (const lotId of lotIdsByMed[medId]) {
             if (need <= 0) break;
@@ -1817,7 +1820,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             trx.update(doc(db, 'lots', lotId), { qty: lotData.qty - take });
             need -= take;
             used.push(lotData.lotNo + ' (' + nf(take) + ')');
-            const flId = floorLotDocId(medId, lotData.lotNo);
+            const flId = floorLotDocId(medId, lotData.lotNo, lotData.exp);
             if (!floorTake[flId]) floorTake[flId] = { add: 0, exp: lotData.exp, lotNo: lotData.lotNo };
             floorTake[flId].add += take;
           }
