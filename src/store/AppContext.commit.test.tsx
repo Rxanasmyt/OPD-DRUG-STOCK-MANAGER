@@ -354,11 +354,77 @@ describe('commitAdjust — ledger-accuracy regression', () => {
 //     survives across any number of added drugs, while commitReturnCart still writes one full
 //     DrugReturnRecord per drug in a single atomic transaction (never a merged/less-detailed
 //     record) — see ReturnCartItem's own doc comment (types.ts).
+// 21. ทีละตัว (single) — follow-up real-world request: "อยากให้เลือกคืนยาได้ทั้งแบบทีละตัวยา
+//     หรือทีละหลายๆตัวยา" — commitSingleReturn (AppContext.tsx) commits one drug directly,
+//     reusing the SAME writeReturnBatch transaction helper ตะกร้าคืนยา uses (so it still writes
+//     one full DrugReturnRecord, not a shortcut/less-detailed path) but clearing every return
+//     field afterward (including HN), unlike addToReturnCart's "keep HN for the next drug".
 const MED2 = {
   id: 'm2', code: 'MED-0002', name: 'Amoxicillin 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
   price: 2, had: false, active: true, parSub: 500, parFloor: 100, floor: 20, bin: 'A2',
   used30: 0, usedPrev30: 0, volatility: 0,
 };
+
+// Explicit "fill" button (not auto-fill effects, unlike ReturnCartHarness above) — this harness
+// needs to assert the POST-commit state is genuinely empty, which an effect that reacts to "this
+// field is empty" by refilling it would immediately undo.
+function SingleReturnHarness({ hn }: { hn: string }) {
+  const { state, pickAdjType, pickAdjMed, setAdjQty, setAdjReason, setAdjHn, commitSingleReturn } = useApp();
+  useEffect(() => { if (!state.adjType) pickAdjType('return'); }, [state.adjType, pickAdjType]);
+  const fill = () => { pickAdjMed(MED.id); setAdjQty('7'); setAdjReason('ผู้ป่วยคืนยา (ไม่เปิดซอง)'); setAdjHn(hn); };
+  return (
+    <>
+      <button onClick={fill}>fill</button>
+      <button onClick={commitSingleReturn}>commit-single-return</button>
+      <div data-testid="hn">{state.adjHn}</div>
+      <div data-testid="medId">{state.adjMed ?? ''}</div>
+    </>
+  );
+}
+
+describe('ทีละตัว (single return) — commitSingleReturn regression', () => {
+  it('blocks the commit and toasts when HN is blank', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><SingleReturnHarness hn="" /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'fill' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'fill' }));
+    await user.click(screen.getByRole('button', { name: 'commit-single-return' }));
+
+    await screen.findByText('ต้องกรอก HN ผู้ป่วยสำหรับการคืนยา');
+    expect(getLastTransactionWrites().length).toBe(0);
+  });
+
+  it('writes one full DrugReturnRecord and clears EVERY return field afterward, including HN', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<SingleReturnHarness hn="1234567" />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'fill' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'fill' }));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'commit-single-return' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'commit-single-return' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+    const writes = getLastTransactionWrites();
+    const returnWrite = writes.find((w) => w.path.startsWith('returns/'));
+    expect(returnWrite?.data).toMatchObject({
+      medId: 'm1', medName: 'Paracetamol 500mg', hn: '1234567', qty: 7, unitPrice: 1, value: 7,
+      reason: 'ผู้ป่วยคืนยา (ไม่เปิดซอง)',
+    });
+
+    // Unlike addToReturnCart (which deliberately keeps HN for the batch's next drug),
+    // commitSingleReturn is a complete standalone action — HN must NOT survive it, closing off
+    // any risk of a later return silently landing under a patient whose return already finished.
+    await waitFor(() => expect(screen.getByTestId('hn').textContent).toBe(''));
+    expect(screen.getByTestId('medId').textContent).toBe('');
+  });
+});
 
 // Drives pick-type/HN/add-to-cart/commit through the real useApp() plumbing, for N drugs under
 // one shared HN — mirrors how AdjustScreen.tsx itself drives these same actions.

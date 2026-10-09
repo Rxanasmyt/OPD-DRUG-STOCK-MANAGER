@@ -29,6 +29,10 @@ async function openReturnTab() {
   await waitFor(() => expect(hasListener('meds')).toBe(true));
   fireCollection('meds', [MED, MED2]);
   await user.click(screen.getByRole('button', { name: /^คืนยา/ }));
+  // Real-world request: "อยากให้เลือกคืนยาได้ทั้งแบบทีละตัวยา หรือทีละหลายๆตัวยา" — ทีละตัว
+  // (single, direct commit) is now the default; this file is specifically about the ทีละหลายตัว
+  // (batch/cart) flow, so every test here switches to it first.
+  await user.click(screen.getByRole('button', { name: 'ทีละหลายตัว' }));
   return user;
 }
 
