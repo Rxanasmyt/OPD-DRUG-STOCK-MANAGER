@@ -167,6 +167,25 @@ export interface Med {
   // "genuinely flat" honestly instead of nothing) — but weekdayPeakFactor/Day themselves still
   // stay unset in that case, exactly as before.
   weekdayPattern?: number[];
+
+  // Real-world request: "ยาบางตัว min max par ไม่เหมาะสมกับยาตัวนั่น เนื่องจากบางที่จำนวนยาในการใช้
+  // 1 ครั้ง เยอะกว่าค่า min max ปัจจุบันอย่างมาก" (เช่น phenytoin 100 mg สั่ง 3 เดือน 270 เม็ดใน 1
+  // เคส ดังนั้นยาก็ต้องเบิกฉุกเฉินหน้างานจริง) — weekdayPeakFactor above only ever corrects for a
+  // REGULAR, repeating weekday pattern (a clinic that's predictably busier every Tuesday); a
+  // single large one-off prescription (a long-cover refill, a bulk IPD order) is a different
+  // shape of risk entirely — infrequent, maybe only once a quarter, but big enough in ONE real
+  // calendar day to blow straight through a par sized off the smoothed 30-day average alone.
+  // peakDayQty is the single highest real one-day reconcile_hosxp total seen for this drug within
+  // the lookback window (see analyzeWeekdayUsage() in AppContext.tsx — same scan, longer window).
+  // suggestPar() (selectors.ts) clamps both floor and sub par to never size BELOW this, so the
+  // exact same real-world case showing up again never forces an emergency central-warehouse pull
+  // (เบิกฉุกเฉิน) a second time.
+  peakDayQty?: number;
+  // The real calendar date (ISO, YYYY-MM-DD) peakDayQty above came from — shown alongside the
+  // bare number so an admin reviewing it can judge plausibility (a genuinely huge one-time refill
+  // vs. a suspicious data-entry spike) instead of taking it on faith, same reasoning as
+  // weekdayPeakDay.
+  peakDayDate?: string;
 }
 
 export interface Lot {

@@ -84,7 +84,7 @@ describe('SettingsScreen — weekday-usage-pattern insight regression', () => {
     fireCollection('lots', []);
     seedCollection('txs', []);
 
-    const button = await screen.findByRole('button', { name: 'วิเคราะห์รูปแบบการใช้ยารายวัน (จ-ศ) ↺' });
+    const button = await screen.findByRole('button', { name: 'วิเคราะห์รูปแบบการใช้ยารายวัน/วันจ่ายสูงสุด ↺' });
     await user.click(button);
     // No reconcile_hosxp history seeded at all -> the "no history yet" toast specifically.
     await screen.findByText(/ยังไม่มียาตัวไหนมีประวัติ HOSxP ต่อเนื่องพอจะวิเคราะห์/);

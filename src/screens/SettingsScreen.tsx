@@ -8,7 +8,7 @@ import { WEEKDAY_NAME, WEEKDAY_CLINICS } from '../data/clinics';
 
 export default function SettingsScreen() {
   const {
-    state, warn, applyAllSuggested, setAllMinHalfOfMax, setAllMinSuggested, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, go, updateGlobalSettings,
+    state, warn, applyAllSuggested, setAllMinHalfOfMax, setAllMinSuggested, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, clearMedPeakDay, go, updateGlobalSettings,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     notifyEnabled, notifyPermission, enableExpiryNotify, disableExpiryNotify,
     lowStockNotifyEnabled, enableLowStockNotify, disableLowStockNotify,
@@ -78,6 +78,17 @@ export default function SettingsScreen() {
   const weekdayPatternMeds = meds
     .filter((m) => m.weekdayPeakFactor && m.weekdayPeakDay)
     .sort((a, b) => (b.weekdayPeakFactor || 0) - (a.weekdayPeakFactor || 0));
+
+  // Real-world request: "ยาบางตัว min max par ไม่เหมาะสม...จำนวนยาในการใช้ 1 ครั้ง เยอะกว่าค่า min
+  // max ปัจจุบันอย่างมาก" (เช่น phenytoin สั่ง 3 เดือน 270 เม็ดใน 1 เคส) — same durable-insight
+  // treatment as weekdayPatternMeds above, for the separate peakDayQty signal (Med's own doc
+  // comment) analyzeWeekdayUsage() also now writes. Flags the ones where the real peak day
+  // genuinely exceeds the med's CURRENT Max as the ones most worth a look first — those are
+  // exactly the "เบิกฉุกเฉิน" risk this exists to catch, even before anyone clicks "ใช้ค่าแนะนำ".
+  const peakDayMeds = meds
+    .filter((m) => m.peakDayQty)
+    .sort((a, b) => (b.peakDayQty || 0) - (a.peakDayQty || 0));
+  const peakDayExceedsMaxCount = peakDayMeds.filter((m) => (m.peakDayQty || 0) > m.parFloor).length;
 
   const usageRows = state.usageRows || [];
   const usageMatched = usageRows.filter((r) => r.match.kind === 'exact').length;
@@ -276,10 +287,10 @@ export default function SettingsScreen() {
             <button
               onClick={analyzeWeekdayUsage}
               disabled={!!state.busy['analyzeWeekdayUsage']}
-              title="วิเคราะห์รูปแบบการใช้ยารายวันจันทร์-ศุกร์จากประวัติ HOSxP 91 วันล่าสุด — ยาที่มีวันใช้มากผิดปกติชัดเจน (เช่น ตรงกับวันคลินิกเฉพาะทาง) จะได้ par หน้างานที่สูงพอรองรับวันนั้นโดยเฉพาะ"
+              title="วิเคราะห์รูปแบบการใช้ยารายวันจันทร์-ศุกร์ (91 วันล่าสุด) และวันจ่ายยาสูงสุดในวันเดียว (180 วันล่าสุด) จากประวัติ HOSxP — ยาที่มีวันใช้มากผิดปกติชัดเจน (เช่น ตรงกับวันคลินิกเฉพาะทาง หรือมีเคสสั่งยาคราวละมากๆ) จะได้ par หน้างาน/substock ที่สูงพอรองรับวันนั้นโดยเฉพาะ"
               style={{ border: '1px solid var(--ipd)', background: 'var(--bg-card)', color: 'var(--ipd)', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40, opacity: state.busy['analyzeWeekdayUsage'] ? 0.7 : 1 }}
             >
-              {state.busy['analyzeWeekdayUsage'] ? 'กำลังวิเคราะห์…' : 'วิเคราะห์รูปแบบการใช้ยารายวัน (จ-ศ) ↺'}
+              {state.busy['analyzeWeekdayUsage'] ? 'กำลังวิเคราะห์…' : 'วิเคราะห์รูปแบบการใช้ยารายวัน/วันจ่ายสูงสุด ↺'}
             </button>
             {minSuggestedDiffCount > 0 && (
               <button
@@ -324,7 +335,7 @@ export default function SettingsScreen() {
             </div>
           );
         })()}
-        <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>"วิเคราะห์รูปแบบการใช้ยารายวัน" ตรวจแยกแต่ละวันจันทร์-ศุกร์จากประวัติ HOSxP 91 วันล่าสุด (ต้องมีข้อมูลอย่างน้อย 4 ครั้งต่อวันถึงจะนับ) — ยาที่พบวันใช้มากผิดปกติชัดเจนจะได้ par หน้างานที่แนะนำสูงขึ้นเฉพาะให้พอรองรับวันนั้น โดยไม่กระทบ par substock (รอบเบิกคลังใหญ่ยาวพอที่จะเกลี่ยยอดในแต่ละวันออกไปเองอยู่แล้ว)</div>
+        <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>"วิเคราะห์รูปแบบการใช้ยารายวัน" ตรวจแยกแต่ละวันจันทร์-ศุกร์จากประวัติ HOSxP 91 วันล่าสุด (ต้องมีข้อมูลอย่างน้อย 4 ครั้งต่อวันถึงจะนับ) — ยาที่พบวันใช้มากผิดปกติชัดเจนจะได้ par หน้างานที่แนะนำสูงขึ้นเฉพาะให้พอรองรับวันนั้น โดยไม่กระทบ par substock (รอบเบิกคลังใหญ่ยาวพอที่จะเกลี่ยยอดในแต่ละวันออกไปเองอยู่แล้ว) — พร้อมกันนี้จะตรวจหาวันที่จ่ายยาสูงสุดในวันเดียวจากประวัติ 180 วันล่าสุดด้วย (เช่น เคสสั่งยา 3 เดือนครั้งเดียว) แล้วทำให้ par หน้างาน/substock ไม่ต่ำกว่าวันที่จ่ายสูงสุดนั้น ป้องกันไม่ให้ต้องเบิกฉุกเฉินซ้ำเมื่อเคสแบบเดียวกันเกิดขึ้นอีก</div>
       </div>
 
       {weekdayPatternMeds.length > 0 && (
@@ -377,6 +388,51 @@ export default function SettingsScreen() {
               );
             })}
             {weekdayPatternMeds.length > 30 && <div className="muted" style={{ fontSize: 11 }}>และอีก {weekdayPatternMeds.length - 30} รายการ</div>}
+          </div>
+        </div>
+      )}
+
+      {/* Real-world request: "ยาบางตัว min max par ไม่เหมาะสม...จำนวนยาในการใช้ 1 ครั้ง เยอะกว่า
+          ค่า min max ปัจจุบันอย่างมาก" (เช่น phenytoin สั่ง 3 เดือน 270 เม็ดใน 1 เคส ยาก็ต้องเบิก
+          ฉุกเฉินหน้างานจริง) — same durable-insight-card treatment as weekdayPatternMeds above,
+          red/amber (not the neutral ipd-blue the weekday card uses) specifically because a drug
+          whose peak already exceeds its current Max is an active, unresolved risk right now —
+          not just an interesting pattern to know about. */}
+      {peakDayMeds.length > 0 && (
+        <div className="card" style={{ padding: 13, marginBottom: 13, border: '1px solid ' + (peakDayExceedsMaxCount > 0 ? 'var(--red)' : 'var(--amber)'), background: peakDayExceedsMaxCount > 0 ? 'var(--red-bg, #fbeceb)' : 'var(--amber-bg)' }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 4, color: peakDayExceedsMaxCount > 0 ? 'var(--red)' : 'var(--amber-ink)' }}>
+            🚨 ยาที่มีวันจ่ายยาสูงสุดในวันเดียวสูงผิดปกติ ({peakDayMeds.length} รายการ{peakDayExceedsMaxCount > 0 ? `, ${peakDayExceedsMaxCount} รายการเกิน Max ปัจจุบัน` : ''})
+          </div>
+          <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginBottom: 10 }}>
+            จากการวิเคราะห์ประวัติ HOSxP 180 วันล่าสุด — เป็นวันที่มีการจ่ายยาตัวนี้มากที่สุดในวันเดียว (เช่น เคสสั่งยาคราวละมากๆ) ค่าแนะนำ par หน้างาน/substock ของรายการเหล่านี้จะไม่ต่ำกว่าตัวเลขนี้แล้ว — กด "ใช้ค่าแนะนำทั้งหมด" ด้านบนเพื่อให้มีผลจริง
+          </div>
+          <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {peakDayMeds.slice(0, 30).map((m) => {
+              const exceedsMax = (m.peakDayQty || 0) > m.parFloor;
+              return (
+                <div key={m.id} style={{ background: 'var(--bg-card)', borderRadius: 9, padding: '8px 10px', border: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{m.name}</span>
+                    <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: exceedsMax ? 'var(--red)' : 'var(--amber-ink)' }}>{nf(m.peakDayQty || 0)} {m.unit}</span>
+                  </div>
+                  <div className="muted" style={{ fontSize: 11, lineHeight: 1.5 }}>
+                    จ่ายสูงสุดวันที่ {m.peakDayDate ? thDate(new Date(m.peakDayDate + 'T00:00:00').getTime()) : '-'}
+                    {exceedsMax && <span style={{ color: 'var(--red)', fontWeight: 600 }}> — เกิน Max ปัจจุบัน ({nf(m.parFloor)} {m.unit})</span>}
+                  </div>
+                  {/* Same immediate-clear escape hatch as the weekday-pattern card's "✕ ล้าง
+                      รูปแบบนี้" — a genuinely one-time event (data-entry error, a med being
+                      discontinued) shouldn't have to wait PEAK_LOOKBACK_DAYS for new history to
+                      age the old peak out on its own. */}
+                  <button
+                    onClick={() => clearMedPeakDay(m.id)}
+                    style={{ marginTop: 5, border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 10.5, fontWeight: 600, padding: '2px 0' }}
+                  >
+                    ✕ ล้างค่านี้
+                  </button>
+                </div>
+              );
+            })}
+            {peakDayMeds.length > 30 && <div className="muted" style={{ fontSize: 11 }}>และอีก {peakDayMeds.length - 30} รายการ</div>}
           </div>
         </div>
       )}
