@@ -29,12 +29,15 @@ export default function SettingsScreen() {
   const [warnDraft, setWarnDraft] = useState(String(state.expiryWarnDays));
   const [floorDraft, setFloorDraft] = useState(String(state.parFloorCoverDays));
   const [subDraft, setSubDraft] = useState(String(state.parSubCoverDays));
+  const [idleDraft, setIdleDraft] = useState(String(state.idleLogoutMinutes));
   useEffect(() => setWarnDraft(String(state.expiryWarnDays)), [state.expiryWarnDays]);
   useEffect(() => setFloorDraft(String(state.parFloorCoverDays)), [state.parFloorCoverDays]);
   useEffect(() => setSubDraft(String(state.parSubCoverDays)), [state.parSubCoverDays]);
+  useEffect(() => setIdleDraft(String(state.idleLogoutMinutes)), [state.idleLogoutMinutes]);
   const warnDirty = warnDraft !== '' && parseIntSafe(warnDraft) !== state.expiryWarnDays;
   const coverDirty = (floorDraft !== '' && parseIntSafe(floorDraft) !== state.parFloorCoverDays)
     || (subDraft !== '' && parseIntSafe(subDraft) !== state.parSubCoverDays);
+  const idleDirty = idleDraft !== '' && parseIntSafe(idleDraft) !== state.idleLogoutMinutes;
 
   const suggestDiff = meds.filter((m) => {
     const s = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
@@ -117,6 +120,38 @@ export default function SettingsScreen() {
       {!canEdit && (
         <div style={{ fontSize: 12, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>ดูค่าได้แต่แก้ไม่ได้ — การแก้ par level, ชั้นวาง และค่าตั้งค่าระบบสงวนไว้สำหรับ Admin เท่านั้น</div>
       )}
+
+      {/* Real-world request: "ตอนนี้ถ้า login นานทิ้งไว้ จะไม่ logout ออกให้อัตโนมัติเลย ซึ่ง
+          อันตรายสำหรับข้อมูลยา" — see the idle-tracking effect in AppContext.tsx and
+          IdleLogoutWarning.tsx for the actual countdown/warning; this is just where that
+          threshold gets set, same shape as เกณฑ์แจ้งเตือนวันหมดอายุ above. Shared hospital-wide
+          like every other setting on this screen, not per-device. */}
+      <div className="card" style={{ padding: 13, marginBottom: 13 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}>ออกจากระบบอัตโนมัติเมื่อไม่มีการใช้งาน</div>
+        <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>เพื่อความปลอดภัยของข้อมูลยา — จะแจ้งเตือนล่วงหน้า 1 นาทีก่อนออกจากระบบจริง</div>
+        {canEdit ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input
+              value={idleDraft}
+              onChange={(e) => setIdleDraft(digitsOnly(e.target.value))}
+              inputMode="numeric"
+              style={{ width: 84, border: '1px solid var(--border)', borderRadius: 10, padding: '9px 10px', fontSize: 20, fontWeight: 700, textAlign: 'center' }}
+            />
+            <span className="muted" style={{ fontSize: 14 }}>นาที (ต่ำสุด 5)</span>
+            {idleDirty && (
+              <button
+                onClick={() => updateGlobalSettings({ idleLogoutMinutes: parseIntSafe(idleDraft, state.idleLogoutMinutes) })}
+                className="btn-primary"
+                style={{ marginLeft: 'auto', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}
+              >
+                บันทึก
+              </button>
+            )}
+          </div>
+        ) : (
+          <div style={{ fontSize: 24, fontWeight: 700 }}>{state.idleLogoutMinutes} <span className="muted" style={{ fontSize: 14, fontWeight: 400 }}>นาที</span></div>
+        )}
+      </div>
 
       {/* Per-device opt-in, not a par setting — visible/settable to every role since it's just
           "แจ้งฉันตอนเปิดแอพ" on whatever phone/tablet this is, not something that affects anyone
