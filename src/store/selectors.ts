@@ -2,6 +2,7 @@ import type { AppState, HosxpMatch, Lot, Med, Role, Ward, Tx, UsageHistoryRecord
 import { DAY, daysUntil, isoDate, nf } from '../utils/format';
 import { UNCATEGORIZED, DRUG_CATEGORIES, categoryLabel } from '../data/categories';
 import { suggestRoute } from '../data/routeSuggest';
+import type { RouteType } from '../data/routes';
 
 /** Pure, stateless helpers derived from AppState — no mutation, safe to call during render. */
 
@@ -57,7 +58,7 @@ export function categoryOf(m: Med): string {
  * yet (every med added before this feature existed, or one genuinely never classified) reads as
  * 'other' rather than undefined, so it still lands in a visible "📦 อื่นๆ" bucket in a
  * route-grouped view instead of silently vanishing. */
-export function routeOf(m: Med): 'oral' | 'injection' | 'other' {
+export function routeOf(m: Med): RouteType {
   return m.route || 'other';
 }
 
@@ -70,9 +71,10 @@ export function routeOf(m: Med): 'oral' | 'injection' | 'other' {
 // falls back to the SAME suggestRoute() heuristic the bulk action and the form's one-tap chip
 // already use, so a drug whose name/unit/dosageForm clearly says "Vial"/"Amp"/"เม็ด" groups
 // correctly the moment it's added — no admin action required. A pharmacist who disagrees with a
-// specific guess still has the explicit field (MedsScreen's 💊/💉/📦 chips) to permanently
-// override it, which always wins here since this only ever guesses when `m.route` is unset.
-export function effectiveRouteOf(m: Med): 'oral' | 'injection' | 'other' {
+// specific guess still has the explicit field (MedsScreen's route chips — see data/routes.ts for
+// the full list) to permanently override it, which always wins here since this only ever guesses
+// when `m.route` is unset.
+export function effectiveRouteOf(m: Med): RouteType {
   if (m.route) return m.route;
   return suggestRoute(m) || 'other';
 }

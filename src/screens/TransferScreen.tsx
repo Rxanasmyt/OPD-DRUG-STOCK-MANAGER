@@ -12,6 +12,7 @@ import { StepIndicator, TRANSFER_STEPS } from '../components/StepIndicator';
 import { SearchInput } from '../components/SearchInput';
 import { DRUG_CATEGORIES } from '../data/categories';
 import { WEEKDAY_CLINICS } from '../data/clinics';
+import { ROUTES, routeGroupLabel } from '../data/routes';
 import StockHoldBanner from '../components/StockHoldBanner';
 
 // Bug fix (flow friction): these two banners used to be plain useState(true) — the intent (per
@@ -174,25 +175,18 @@ export default function TransferScreen() {
   // picking is exactly the confusion this exists to remove. Route always wins over `sort` as
   // the PRIMARY grouping (nobody picking a cart wants ยากิน/ยาฉีด interleaved no matter which
   // sort is active) — `sort` still orders rows WITHIN each route group exactly as before.
-  // Array.prototype.filter preserves relative order, so three filters over the already-sorted
-  // `filtered` is enough to stable-partition it without re-sorting anything. Capped at the same
-  // 60-row total `filtered.slice(0, 60)` used before this — sliced once as one combined list so
-  // a short "ยาฉีด" group never gets silently dropped just because enough "ยากิน" rows filled the
-  // whole cap first. Uses effectiveRouteOf() (not the plain routeOf()) specifically so this
-  // actually groups the FIRST time it's seen, for the entire existing formulary that has no
-  // explicit `route` set yet — see effectiveRouteOf()'s own doc comment in selectors.ts for why
-  // requiring a manual per-med chip or an admin bulk-action click first was real friction users
-  // hit immediately ("ให้มานั่งปรับทีละตัวยาก").
-  const visibleRows = [
-    ...filtered.filter((m) => effectiveRouteOf(m) === 'oral'),
-    ...filtered.filter((m) => effectiveRouteOf(m) === 'injection'),
-    ...filtered.filter((m) => effectiveRouteOf(m) === 'other'),
-  ].slice(0, 60);
-  const routeGroups: { key: 'oral' | 'injection' | 'other'; label: string }[] = [
-    { key: 'oral', label: '💊 ยากิน' },
-    { key: 'injection', label: '💉 ยาฉีด' },
-    { key: 'other', label: '📦 อื่นๆ / ยังไม่ระบุประเภท' },
-  ];
+  // Array.prototype.filter preserves relative order, so one filter per route (see data/routes.ts
+  // for the full list — ยากิน/ยาฉีด/ยาพ่น/ยาทาภายนอก/ยาหยอดตา/ยาหยอดหู/ยาป้าย/อื่นๆ) over the
+  // already-sorted `filtered` is enough to stable-partition it without re-sorting anything.
+  // Capped at the same 60-row total `filtered.slice(0, 60)` used before this — sliced once as
+  // one combined list so a short group never gets silently dropped just because enough rows
+  // from an earlier group filled the whole cap first. Uses effectiveRouteOf() (not the plain
+  // routeOf()) specifically so this actually groups the FIRST time it's seen, for the entire
+  // existing formulary that has no explicit `route` set yet — see effectiveRouteOf()'s own doc
+  // comment in selectors.ts for why requiring a manual per-med chip or an admin bulk-action
+  // click first was real friction users hit immediately ("ให้มานั่งปรับทีละตัวยาก").
+  const routeGroups = ROUTES.map((r) => ({ key: r.id, label: routeGroupLabel(r.id) }));
+  const visibleRows = routeGroups.flatMap((g) => filtered.filter((m) => effectiveRouteOf(m) === g.key)).slice(0, 60);
   // A header for every non-empty group only when there's more than one to tell apart — a
   // filtered view that happens to contain just one route (e.g. ตู้เย็น often being all ยาฉีด)
   // shouldn't show a single redundant "💉 ยาฉีด" header above literally everything on screen.

@@ -13,6 +13,7 @@ import { DRUG_CATEGORIES, categoryLabel, UNCATEGORIZED } from '../data/categorie
 import { FRIDGE_LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
 import { suggestRoute } from '../data/routeSuggest';
+import { ROUTES, routeLabel, type RouteType } from '../data/routes';
 
 type Filter = 'active' | 'inactive' | 'all' | 'parOne' | 'onHold' | 'incomplete';
 
@@ -139,8 +140,9 @@ interface MedFormValues {
   category: string;
   // จำนวนหน่วยต่อกล่อง — เว้นว่างไว้ถ้ายาตัวนี้เบิกเป็นเม็ด/ชิ้นเดี่ยวได้ตามปกติ ดู Med.packSize
   packSize: string;
-  // ยากิน/ยาฉีด/อื่นๆ — ดู Med.route's own doc comment สำหรับเหตุผลที่แยกจาก category.
-  route: '' | 'oral' | 'injection' | 'other';
+  // ยากิน/ยาฉีด/ฯลฯ — ดู data/routes.ts สำหรับรายการเต็ม และ Med.route's own doc comment
+  // สำหรับเหตุผลที่แยกจาก category.
+  route: '' | RouteType;
 }
 
 function blankForm(): MedFormValues {
@@ -210,10 +212,10 @@ function IncompleteQuickFix({ med, missing }: { med: Med; missing: MissingField[
       {frozenMissing.includes('route') && (
         <div>
           <span className="muted" style={{ display: 'block', fontSize: 10.5, marginBottom: 3 }}>ประเภทการให้ยา</span>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button type="button" className="chip" style={routeChip(med.route === 'oral')} onClick={() => setMedRoute(med.id, med.route === 'oral' ? '' : 'oral')}>💊 ยากิน</button>
-            <button type="button" className="chip" style={routeChip(med.route === 'injection')} onClick={() => setMedRoute(med.id, med.route === 'injection' ? '' : 'injection')}>💉 ยาฉีด</button>
-            <button type="button" className="chip" style={routeChip(med.route === 'other')} onClick={() => setMedRoute(med.id, med.route === 'other' ? '' : 'other')}>📦 อื่นๆ</button>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {ROUTES.map((r) => (
+              <button key={r.id} type="button" className="chip" style={routeChip(med.route === r.id)} onClick={() => setMedRoute(med.id, med.route === r.id ? '' : r.id)}>{r.label}</button>
+            ))}
           </div>
         </div>
       )}
@@ -309,7 +311,7 @@ export default function MedsScreen() {
     [state.meds],
   );
 
-  // Same rule as autoCategorizableCount above, for "แยกยากิน/ยาฉีดอัตโนมัติ" — see
+  // Same rule as autoCategorizableCount above, for "แยกประเภทการให้ยาอัตโนมัติ" — see
   // autoRouteAll() in AppContext.tsx for the exact matching logic applied to the real bulk write.
   const autoRoutableCount = useMemo(
     () => state.meds.filter((m) => !m.route && suggestRoute(m)).length,
@@ -494,10 +496,10 @@ export default function MedsScreen() {
         <button
           onClick={autoRouteAll}
           disabled={!!state.busy['autoRouteAll']}
-          title="จับคู่จากหน่วย/รูปแบบยาที่ระบบรู้จัก (Vial/Amp → ยาฉีด, เม็ด/แคปซูล → ยากิน) — ยาที่ระบุไว้แล้วจะไม่ถูกแก้ไข ยาที่ระบบไม่มั่นใจจะยังไม่ถูกแตะต้อง"
+          title="จับคู่จากหน่วย/รูปแบบยาที่ระบบรู้จัก (Vial/Amp → ยาฉีด, เม็ด/แคปซูล → ยากิน, MDI/เนบูไลเซอร์ → ยาพ่น, ครีม/ขี้ผึ้ง → ยาทาภายนอก, หยอดตา/หยอดหู/ป้าย ก็แยกได้) — ยาที่ระบุไว้แล้วจะไม่ถูกแก้ไข ยาที่ระบบไม่มั่นใจจะยังไม่ถูกแตะต้อง"
           style={{ width: '100%', border: '1px solid var(--green)', background: 'var(--green-tint)', color: 'var(--green)', padding: '11px 14px', borderRadius: 11, fontSize: 12.5, fontWeight: 600, minHeight: 44, marginBottom: 10, opacity: state.busy['autoRouteAll'] ? 0.7 : 1 }}
         >
-          {state.busy['autoRouteAll'] ? 'กำลังแยกประเภท…' : `💊💉 แยกยากิน/ยาฉีดทั้งหมดอัตโนมัติ (${autoRoutableCount} รายการ)`}
+          {state.busy['autoRouteAll'] ? 'กำลังแยกประเภท…' : `💊💉 แยกประเภทการให้ยาทั้งหมดอัตโนมัติ (${autoRoutableCount} รายการ)`}
         </button>
       )}
       {/* หมวดกลุ่มยา — เลื่อนดูได้ทางขวา แต่ละชิปโชว์จำนวนยาในหมวดนั้นภายใต้ตัวกรองด้านบน ทำให้
@@ -913,10 +915,10 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
           from รูปแบบยา/หน่วย above. */}
       <div style={{ marginBottom: 9 }}>
         <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>ประเภทการให้ยา</span>
-        <div style={{ display: 'flex', gap: 7 }}>
-          <button type="button" className="chip" style={chip(v.route === 'oral')} onClick={() => set('route', v.route === 'oral' ? '' : 'oral')}>💊 ยากิน</button>
-          <button type="button" className="chip" style={chip(v.route === 'injection')} onClick={() => set('route', v.route === 'injection' ? '' : 'injection')}>💉 ยาฉีด</button>
-          <button type="button" className="chip" style={chip(v.route === 'other')} onClick={() => set('route', v.route === 'other' ? '' : 'other')}>📦 อื่นๆ</button>
+        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+          {ROUTES.map((r) => (
+            <button key={r.id} type="button" className="chip" style={chip(v.route === r.id)} onClick={() => set('route', v.route === r.id ? '' : r.id)}>{r.label}</button>
+          ))}
         </div>
         {/* Suggested from unit/รูปแบบยา/name (see data/routeSuggest.ts) — same "one-tap accept,
             never auto-applied" convention as the category suggestion above; only shown while
@@ -927,7 +929,7 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
             onClick={() => set('route', suggestedRoute)}
             style={{ display: 'block', width: '100%', textAlign: 'left', border: '1px dashed var(--green)', background: 'var(--green-tint)', color: 'var(--green)', borderRadius: 9, padding: '7px 10px', fontSize: 11.5, fontWeight: 600, marginTop: 7 }}
           >
-            ระบบแนะนำ: {suggestedRoute === 'oral' ? '💊 ยากิน' : '💉 ยาฉีด'} — แตะเพื่อใช้
+            ระบบแนะนำ: {routeLabel(suggestedRoute)} — แตะเพื่อใช้
           </button>
         )}
       </div>
