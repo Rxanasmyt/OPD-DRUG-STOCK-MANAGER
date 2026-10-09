@@ -348,58 +348,86 @@ describe('commitAdjust — ledger-accuracy regression', () => {
   });
 });
 
-// Drives the same pick-type/pick-med/qty/reason sequence as AdjustHarness above, but for
-// adjType 'return' plus the new HN field — covers the new DrugReturnRecord write (real-world
-// request: "อยากให้เพิ่มข้อมูลในการคืนยา...HN ผู้ป่วย...คำนวนราคายาให้อัตโนมัติ กลุ่มยาที่คืน
-// ให้ดึงจากตัวยาอัตโนมัติ").
-function ReturnHarness({ hn }: { hn: string }) {
-  const { state, pickAdjType, pickAdjMed, setAdjQty, setAdjReason, setAdjHn, commitAdjust } = useApp();
+// 20. ตะกร้าคืนยา (return cart) — real-world request: "ผู้ป่วย HN 1 คนคืนยาหลายๆตัว...กรอกข้อมูล
+//     ได้รวดเร็ว แต่ยังเก็บข้อมูลได้สมบูรณ์เหมือนเดิม". คืนยา moved off commitAdjust entirely onto
+//     addToReturnCart/commitReturnCart (AppContext.tsx) — HN is entered once per patient and
+//     survives across any number of added drugs, while commitReturnCart still writes one full
+//     DrugReturnRecord per drug in a single atomic transaction (never a merged/less-detailed
+//     record) — see ReturnCartItem's own doc comment (types.ts).
+const MED2 = {
+  id: 'm2', code: 'MED-0002', name: 'Amoxicillin 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  price: 2, had: false, active: true, parSub: 500, parFloor: 100, floor: 20, bin: 'A2',
+  used30: 0, usedPrev30: 0, volatility: 0,
+};
+
+// Drives pick-type/HN/add-to-cart/commit through the real useApp() plumbing, for N drugs under
+// one shared HN — mirrors how AdjustScreen.tsx itself drives these same actions.
+function ReturnCartHarness({ hn, medIds }: { hn: string; medIds: string[] }) {
+  const { state, pickAdjType, pickAdjMed, setAdjQty, setAdjReason, setAdjHn, addToReturnCart, commitReturnCart } = useApp();
   useEffect(() => { if (!state.adjType) pickAdjType('return'); }, [state.adjType, pickAdjType]);
-  useEffect(() => { if (state.adjType && !state.adjMed) pickAdjMed(MED.id); }, [state.adjType, state.adjMed, pickAdjMed]);
+  useEffect(() => { if (state.adjType && !state.adjHn && hn) setAdjHn(hn); }, [state.adjType, state.adjHn, setAdjHn, hn]);
+  const nextMedId = medIds[state.returnCart.length];
+  useEffect(() => { if (nextMedId && !state.adjMed) pickAdjMed(nextMedId); }, [nextMedId, state.adjMed, pickAdjMed]);
   useEffect(() => { if (state.adjMed && !state.adjQty) setAdjQty('7'); }, [state.adjMed, state.adjQty, setAdjQty]);
   useEffect(() => { if (state.adjQty && !state.adjReason) setAdjReason('ผู้ป่วยคืนยา (ไม่เปิดซอง)'); }, [state.adjQty, state.adjReason, setAdjReason]);
-  useEffect(() => { if (state.adjReason && !state.adjHn) setAdjHn(hn); }, [state.adjReason, state.adjHn, setAdjHn, hn]);
-  return <button onClick={commitAdjust}>commit-adjust</button>;
+  return (
+    <>
+      <button onClick={addToReturnCart}>add-to-cart</button>
+      <button onClick={commitReturnCart}>commit-return-cart</button>
+    </>
+  );
 }
 
-describe('commitAdjust — คืนยา (DrugReturnRecord) regression', () => {
+describe('ตะกร้าคืนยา (return cart) — commitReturnCart regression', () => {
   it('blocks the commit and toasts when HN is blank', async () => {
     const user = userEvent.setup();
-    renderWithApp(<><ReturnHarness hn="" /><Toast /></>);
+    renderWithApp(<><ReturnCartHarness hn="" medIds={[MED.id]} /><Toast /></>);
     await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
     fireCollection('meds', [MED]);
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'commit-adjust' })).toBeEnabled());
-    await user.click(screen.getByRole('button', { name: 'commit-adjust' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'add-to-cart' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'add-to-cart' }));
+    await user.click(screen.getByRole('button', { name: 'commit-return-cart' }));
 
     await screen.findByText('ต้องกรอก HN ผู้ป่วยสำหรับการคืนยา');
     expect(getLastTransactionWrites().length).toBe(0);
   });
 
-  it('writes a durable returns record alongside the floor/txs write, with value and category auto-derived', async () => {
+  it('writes one full DrugReturnRecord per drug, all under the same HN, in a single batch commit', async () => {
     const user = userEvent.setup();
-    renderWithApp(<ReturnHarness hn="1234567" />);
+    renderWithApp(<ReturnCartHarness hn="1234567" medIds={[MED.id, MED2.id]} />);
     await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
-    fireCollection('meds', [MED]);
+    fireCollection('meds', [MED, MED2]);
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'commit-adjust' })).toBeEnabled());
-    await user.click(screen.getByRole('button', { name: 'commit-adjust' }));
+    // First drug: add to cart (HN stays — never retyped between drugs, the whole point of the
+    // real-world request this answers).
+    await waitFor(() => expect(screen.getByRole('button', { name: 'add-to-cart' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'add-to-cart' }));
+    // Second drug: the harness's nextMedId effect picks it once the cart has 1 item.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'add-to-cart' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'add-to-cart' }));
+
+    await user.click(screen.getByRole('button', { name: 'commit-return-cart' }));
     await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
 
     const writes = getLastTransactionWrites();
-    const returnWrite = writes.find((w) => w.path.startsWith('returns/'));
-    expect(returnWrite?.data).toMatchObject({
-      medId: 'm1', medName: 'Paracetamol 500mg', hn: '1234567', qty: 7,
-      unitPrice: 1, value: 7, // MED.price is 1 — value = qty * price
+    const returnWrites = writes.filter((w) => w.path.startsWith('returns/'));
+    expect(returnWrites.length).toBe(2); // one full record per drug, not one merged record
+    expect(returnWrites.find((w) => w.data.medId === 'm1')?.data).toMatchObject({
+      medName: 'Paracetamol 500mg', hn: '1234567', qty: 7, unitPrice: 1, value: 7,
       // Real-world request: "ดึงรายงานการคืนยายังไม่มีข้อมูลเหตุผลในการคืนยา" — the reason picked
-      // in the UI (ReturnHarness sets 'ผู้ป่วยคืนยา (ไม่เปิดซอง)') used to only ever land in the
-      // generic txs audit log, never on this dedicated returns-report record.
+      // in the UI lands on this dedicated returns-report record, not just the generic txs log.
       reason: 'ผู้ป่วยคืนยา (ไม่เปิดซอง)',
     });
-    expect(typeof returnWrite?.data.category).toBe('string');
-    expect(typeof returnWrite?.data.date).toBe('string');
+    expect(returnWrites.find((w) => w.data.medId === 'm2')?.data).toMatchObject({
+      medName: 'Amoxicillin 500mg', hn: '1234567', qty: 7, unitPrice: 2, value: 14,
+    });
+    for (const w of returnWrites) {
+      expect(typeof w.data.category).toBe('string');
+      expect(typeof w.data.date).toBe('string');
+    }
   });
 });
 

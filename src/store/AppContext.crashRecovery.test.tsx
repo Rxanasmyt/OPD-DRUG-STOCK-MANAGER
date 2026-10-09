@@ -105,3 +105,81 @@ describe('cart/recvItems — crash recovery regression', () => {
     first.unmount();
   });
 });
+
+// Same crash-protection as cart/recvItems above, extended to the ตะกร้าคืนยา (return cart) added
+// for "ผู้ป่วย HN 1 คนคืนยาหลายๆตัว" — a half-built return batch (several drugs already added
+// for one patient) is exactly the kind of several-minutes-of-real-work state that must survive
+// an accidental refresh the same way a fill-cart does.
+function ReturnCartHarness() {
+  const { state, addToReturnCart, pickAdjType, pickAdjMed, setAdjQty, setAdjReason, setAdjHn } = useApp();
+  return (
+    <div>
+      <button onClick={() => pickAdjType('return')}>pick-return-type</button>
+      <button onClick={() => setAdjHn('1234567')}>set-hn</button>
+      <button onClick={() => pickAdjMed(MED.id)}>pick-med</button>
+      <button onClick={() => setAdjQty('5')}>set-qty-5</button>
+      <button onClick={() => setAdjReason('ไม่ประสงค์รับยา')}>set-reason</button>
+      <button onClick={addToReturnCart}>add-to-cart</button>
+      <div data-testid="cartLen">{state.returnCart.length}</div>
+      <div data-testid="hn">{state.adjHn}</div>
+    </div>
+  );
+}
+
+describe('returnCart — crash recovery regression', () => {
+  it('restores an in-progress return batch (cart + HN) after a simulated crash/reload for the SAME uid', async () => {
+    const user = userEvent.setup();
+    const first = renderWithApp(<ReturnCartHarness />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+
+    await user.click(screen.getByRole('button', { name: 'pick-return-type' }));
+    await user.click(screen.getByRole('button', { name: 'set-hn' }));
+    await user.click(screen.getByRole('button', { name: 'pick-med' }));
+    await user.click(screen.getByRole('button', { name: 'set-qty-5' }));
+    await user.click(screen.getByRole('button', { name: 'set-reason' }));
+    await user.click(screen.getByRole('button', { name: 'add-to-cart' }));
+    await waitFor(() => expect(screen.getByTestId('cartLen').textContent).toBe('1'));
+
+    // Simulate a crash/refresh — tear down the whole tree without going through logout.
+    first.unmount();
+
+    const second = renderWithApp(<><ReturnCartHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+
+    // Without the fix, this would come back empty — the whole batch lost.
+    await waitFor(() => expect(screen.getByTestId('cartLen').textContent).toBe('1'));
+    await screen.findByText(/กู้ตะกร้าคืนยา.*คืนแล้ว/);
+    second.unmount();
+  });
+
+  it('clears the return cart on logout so it never resurfaces for the next person', async () => {
+    const user = userEvent.setup();
+    function LogoutHarness() {
+      const { logout } = useApp();
+      return <button onClick={logout}>logout</button>;
+    }
+    const first = renderWithApp(<><ReturnCartHarness /><LogoutHarness /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+
+    await user.click(screen.getByRole('button', { name: 'pick-return-type' }));
+    await user.click(screen.getByRole('button', { name: 'set-hn' }));
+    await user.click(screen.getByRole('button', { name: 'pick-med' }));
+    await user.click(screen.getByRole('button', { name: 'set-qty-5' }));
+    await user.click(screen.getByRole('button', { name: 'set-reason' }));
+    await user.click(screen.getByRole('button', { name: 'add-to-cart' }));
+    await waitFor(() => expect(screen.getByTestId('cartLen').textContent).toBe('1'));
+
+    await user.click(screen.getByRole('button', { name: 'logout' }));
+    await waitFor(() => {
+      const after = JSON.parse(localStorage.getItem('opd-returncart-u1')!);
+      expect(after.value.length).toBe(0);
+    });
+    first.unmount();
+  });
+});

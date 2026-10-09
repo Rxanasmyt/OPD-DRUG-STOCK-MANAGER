@@ -48,7 +48,7 @@ const QTY_LABEL: Record<AdjType, string> = {
 
 export default function AdjustScreen() {
   const {
-    state, pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, scrapLot, scrapFloorLot, go,
+    state, pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, addToReturnCart, removeReturnCartItem, commitReturnCart, scrapLot, scrapFloorLot, go,
     goSubstockCardFor,
   } = useApp();
   const meds = state.meds.filter((m) => m.active);
@@ -148,6 +148,43 @@ export default function AdjustScreen() {
           <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 9 }}>
             {state.adjType === 'adjust' ? 'ปรับยอดตามที่นับได้' : state.adjType === 'return' ? 'รับคืนยาเข้าหน้างาน' : 'ตัดยาเสีย / ชำรุด'}
           </div>
+
+          {state.adjType === 'return' && (
+            // Real-world request: "ผู้ป่วย HN 1 คนคืนยาหลายๆตัว...กรอกข้อมูลได้รวดเร็ว แต่ยังเก็บ
+            // ข้อมูลได้สมบูรณ์เหมือนเดิม" — HN used to live inside the per-drug section below and
+            // get wiped after every single commit, forcing a retype for the SAME patient's next
+            // drug. Moved up front, entered once per batch: the med-picker section further down
+            // only appears once this has something in it, so the flow is naturally HN-first,
+            // then add as many drugs as this one patient is returning, see them all listed below,
+            // then one final commit for the whole batch (see returnCart/addToReturnCart/
+            // commitReturnCart in AppContext.tsx).
+            <label style={{ display: 'block', marginBottom: 9 }}>
+              <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>HN ผู้ป่วย (บังคับ — กรอกครั้งเดียวต่อผู้ป่วย 1 คน)</span>
+              <input
+                value={state.adjHn}
+                onChange={(e) => setAdjHn(e.target.value)}
+                placeholder="เช่น 1234567"
+                style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 16, minHeight: 44 }}
+              />
+            </label>
+          )}
+
+          {state.adjType === 'return' && state.returnCart.length > 0 && (
+            <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, overflow: 'hidden', marginBottom: 9 }}>
+              {state.returnCart.map((it, i) => (
+                <div key={i} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-soft)', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 600 }}>{it.medName}</div>
+                    <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>{nf(it.qty)} {it.unit} · {it.reason}</div>
+                  </div>
+                  <button onClick={() => removeReturnCartItem(i)} style={{ border: 0, background: 'transparent', color: 'var(--red)', fontSize: 12.5, flex: 'none', minHeight: 44, minWidth: 44 }}>ลบ</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {(state.adjType !== 'return' || !!state.adjHn.trim()) && (
+          <>
           <SearchInput
             value={state.adjSearch}
             onChange={setAdjSearch}
@@ -190,22 +227,6 @@ export default function AdjustScreen() {
                   </button>
                 </div>
               )}
-              {state.adjType === 'return' && (
-                // Real-world request: "อยากให้เพิ่มข้อมูลในการคืนยา...HN ผู้ป่วย...คำนวนราคายา
-                // ให้อัตโนมัติ กลุ่มยาที่คืนให้ดึงจากตัวยาอัตโนมัติ...ดึงรายงานได้ทุกช่วง" — HN is
-                // the one new field actually typed here; value and category are derived
-                // automatically from this med (see commitAdjust's DrugReturnRecord write) and the
-                // return date defaults to today (commit time), so neither needs its own input.
-                <label style={{ display: 'block', marginBottom: 9 }}>
-                  <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>HN ผู้ป่วย (บังคับ)</span>
-                  <input
-                    value={state.adjHn}
-                    onChange={(e) => setAdjHn(e.target.value)}
-                    placeholder="เช่น 1234567"
-                    style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 16, minHeight: 44 }}
-                  />
-                </label>
-              )}
               <label style={{ display: 'block', marginBottom: 9 }}>
                 <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{QTY_LABEL[state.adjType]} ({adjMed.unit})</span>
                 {/* คืนยา/ปรับยอด deliberately keep plain tablet-count entry (no packSize prop) —
@@ -244,18 +265,32 @@ export default function AdjustScreen() {
                 style={{ width: '100%', minHeight: 66, border: '1px solid var(--border)', borderRadius: 10, padding: '11px 12px', fontSize: 13.5, resize: 'vertical' }}
               />
               {(() => {
-                const canSubmit = !!state.adjReason && !!state.adjQty && (state.adjType !== 'return' || !!state.adjHn.trim());
+                const canSubmit = !!state.adjReason && !!state.adjQty;
+                const isReturn = state.adjType === 'return';
                 return (
                   <button
-                    onClick={commitAdjust}
-                    disabled={!canSubmit || !!state.busy['adjust']}
-                    style={{ width: '100%', border: 0, background: canSubmit ? 'var(--green)' : 'var(--border-strong)', color: canSubmit ? 'var(--ink-soft)' : 'var(--ink)', padding: 15, borderRadius: 11, fontSize: 15.5, fontWeight: 600, minHeight: 52, marginTop: 10, opacity: state.busy['adjust'] ? 0.7 : 1 }}
+                    onClick={isReturn ? addToReturnCart : commitAdjust}
+                    disabled={!canSubmit || (!isReturn && !!state.busy['adjust'])}
+                    style={{ width: '100%', border: 0, background: canSubmit ? 'var(--green)' : 'var(--border-strong)', color: canSubmit ? 'var(--ink-soft)' : 'var(--ink)', padding: 15, borderRadius: 11, fontSize: 15.5, fontWeight: 600, minHeight: 52, marginTop: 10, opacity: !isReturn && state.busy['adjust'] ? 0.7 : 1 }}
                   >
-                    {state.busy['adjust'] ? 'กำลังบันทึก…' : (state.adjType === 'return' ? 'บันทึกรับคืน' : 'บันทึกปรับยอด')}
+                    {isReturn ? '+ เพิ่มลงตะกร้า' : (state.busy['adjust'] ? 'กำลังบันทึก…' : 'บันทึกปรับยอด')}
                   </button>
                 );
               })()}
             </>
+          )}
+          </>
+          )}
+
+          {state.adjType === 'return' && state.returnCart.length > 0 && (
+            <button
+              onClick={commitReturnCart}
+              disabled={!state.adjHn.trim() || !!state.busy['returnCart']}
+              className="btn-primary"
+              style={{ width: '100%', padding: 16, borderRadius: 12, fontSize: 16, minHeight: 54, marginTop: 10, opacity: state.busy['returnCart'] ? 0.7 : 1 }}
+            >
+              {state.busy['returnCart'] ? 'กำลังบันทึก…' : 'บันทึกรับคืนทั้งหมด (' + state.returnCart.length + ' รายการ)'}
+            </button>
           )}
         </div>
       )}

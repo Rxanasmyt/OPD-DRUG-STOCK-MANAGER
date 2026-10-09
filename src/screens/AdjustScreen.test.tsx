@@ -57,6 +57,9 @@ describe('AdjustScreen — ปรับยอด delta-vs-absolute warning', () 
   it('hides the delta warning and shows the addition-worded label for "คืนยา"', async () => {
     const user = await setup();
     await user.click(screen.getByRole('button', { name: /^คืนยา/ }));
+    // คืนยา gates the med-search box behind HN ผู้ป่วย (see "ตะกร้าคืนยา" — HN is entered once
+    // per patient before any drug is searched/added, see AdjustScreen.tsx's own comment on this).
+    await user.type(await screen.findByPlaceholderText('เช่น 1234567'), '1234567');
     await pickMed(user);
     expect(screen.queryByText(/ช่องนี้คือ/)).not.toBeInTheDocument();
     expect(screen.getByText(/จำนวนที่คืน \(จะเพิ่มเข้ายอด\)/)).toBeInTheDocument();

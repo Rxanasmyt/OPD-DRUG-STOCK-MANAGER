@@ -335,6 +335,25 @@ export interface RecvItem {
   qty: number;
 }
 
+/** One queued line in the "ตะกร้าคืนยา" (return cart) — real-world request: "ผู้ป่วย HN 1 คน
+ * คืนยาหลายๆตัว...กรอกข้อมูลได้รวดเร็ว แต่ยังเก็บข้อมูลได้สมบูรณ์เหมือนเดิม". The old flow made
+ * HN re-typing the bottleneck for this exact case (คนเดียวกันคืนยาหลายตัว): HN cleared after
+ * every single-item commit, same as qty/reason/note, forcing a full retype for the second drug
+ * even though it's the same patient. The cart flips that — HN is entered once per batch
+ * (state.adjHn, unchanged field) and each add-to-cart tap only resets the per-drug fields
+ * (medId/qty/reason/note), same "local until commit" shape as RecvItem above. commitReturnCart
+ * (AppContext.tsx) still writes one full DrugReturnRecord per item — batching the DATA ENTRY,
+ * never collapsing multiple drugs into a single less-detailed record. */
+export interface ReturnCartItem {
+  medId: string;
+  medName: string;
+  medCode: string;
+  unit: string;
+  qty: number;
+  reason: string;
+  note: string;
+}
+
 /** A receive submitted by a ผู้ช่วยเภสัชกร (tech) — doesn't touch stock until a pharmacist/
  * admin approves it. Lives in its own collection (not just an audit-log line) so there's
  * something structured enough to actually approve: the real medId/lot/exp/qty needed to
@@ -428,9 +447,10 @@ export interface ParAdjustmentRecord {
 }
 
 /**
- * One durable คืนยา (patient drug return) record — written alongside the existing commitAdjust
- * 'return' flow (AdjustScreen.tsx), same "append-only side record next to the existing flat
- * floor adjustment" shape as ParAdjustmentRecord above. Real-world request: "อยากให้เพิ่มข้อมูล
+ * One durable คืนยา (patient drug return) record — written by commitReturnCart's batch commit
+ * (AppContext.tsx, see ReturnCartItem's own doc comment for the "ตะกร้าคืนยา" flow this is part
+ * of), same "append-only side record next to the existing flat floor adjustment" shape as
+ * ParAdjustmentRecord above. Real-world request: "อยากให้เพิ่มข้อมูล
  * ในการคืนยา เช่นวันที่ได้รับคืนยา...HN ผู้ป่วย รายการยา จำนวนยาที่คืน คำนวนราคายาให้อัตโนมัติ
  * กลุ่มยาที่คืนให้ดึงจากตัวยาอัตโนมัติ...สามารถดึงรายงานข้อมูลยาคืนได้ทุกช่วง" — a generic
  * `txs` row (type:'return') already recorded the stock movement itself but never captured HN,
@@ -616,6 +636,7 @@ export interface AppState {
   adjReason: string;
   adjNote: string;
   adjHn: string; // HN ผู้ป่วย — only used/shown when adjType === 'return', see DrugReturnRecord
+  returnCart: ReturnCartItem[]; // see ReturnCartItem's own doc comment
 
   reportTab: ReportTab;
   labelType: LabelType;
