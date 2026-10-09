@@ -946,7 +946,15 @@ export default function ReportScreen() {
                       <span style={{ width: 62, flex: 'none', fontSize: 11.5, fontWeight: 600 }}>{r.hn}</span>
                       <span style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--ink)' }}>{r.medName}</div>
-                        <div className="muted" style={{ fontSize: 10.5 }}>{categoryLabel(r.category)}</div>
+                        <div className="muted" style={{ fontSize: 10.5 }}>
+                          {categoryLabel(r.category)}
+                          {/* Real-world request: "ยังไม่มีข้อมูลเหตุผลในการคืนยา" — a returns doc
+                              written before DrugReturnRecord.reason existed has none at runtime
+                              despite the type now requiring it; skip the line entirely rather
+                              than show a bare "—" that reads as a data-entry mistake on a real,
+                              simply-older record. */}
+                          {r.reason && <> · {r.reason}</>}
+                        </div>
                       </span>
                       <span style={{ width: 70, textAlign: 'right', flex: 'none' }}>{nf(r.qty)} {r.unit}</span>
                       <span style={{ width: 70, textAlign: 'right', flex: 'none', fontWeight: 600 }}>{nf(Math.round(r.value))}</span>

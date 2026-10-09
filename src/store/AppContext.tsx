@@ -2333,7 +2333,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           trx.set(doc(collection(db, 'returns')), {
             medId: m.id, medName: m.name, medCode: m.code, unit: m.unit, category: categoryOf(m),
             hn: state.adjHn.trim(), qty: after - before, unitPrice: m.price, value: (after - before) * m.price,
-            note: state.adjNote || '—', date: isoDate(now), ts: now, by: userName(),
+            reason: state.adjReason, note: state.adjNote || '—', date: isoDate(now), ts: now, by: userName(),
           } satisfies import('../types').DrugReturnRecord);
         }
       });
@@ -4327,9 +4327,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const exportDrugReturnsCsv = useCallback(async (records: import('../types').DrugReturnRecord[]) => {
-    const header = ['วันที่', 'HN', 'ชื่อยา', 'หมวดยา', 'จำนวนที่คืน', 'ราคาต่อหน่วย (บาท)', 'มูลค่า (บาท)', 'หมายเหตุ', 'ผู้บันทึก'];
+    const header = ['วันที่', 'HN', 'ชื่อยา', 'หมวดยา', 'จำนวนที่คืน', 'ราคาต่อหน่วย (บาท)', 'มูลค่า (บาท)', 'เหตุผล', 'หมายเหตุ', 'ผู้บันทึก'];
     const sorted = records.slice().sort((a, b) => a.date.localeCompare(b.date) || a.hn.localeCompare(b.hn));
-    const body = sorted.map((r) => [r.date, r.hn, r.medName, categoryLabel(r.category), r.qty, r.unitPrice, Math.round(r.value), r.note, r.by]);
+    // `reason` is required on the type, but a real returns doc written before this field
+    // existed has none at runtime regardless of what the type claims — fall back to an
+    // explicit "—" rather than an empty CSV cell that reads as a blank export bug instead of
+    // genuinely-missing-on-old-data.
+    const body = sorted.map((r) => [r.date, r.hn, r.medName, categoryLabel(r.category), r.qty, r.unitPrice, Math.round(r.value), r.reason || '—', r.note, r.by]);
     await downloadCsv([header, ...body], 'คืนยา_' + (sorted[0]?.date || '') + '_ถึง_' + (sorted[sorted.length - 1]?.date || '') + '.csv');
   }, []);
 

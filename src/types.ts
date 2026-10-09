@@ -417,6 +417,13 @@ export interface DrugReturnRecord {
   qty: number;
   unitPrice: number; // m.price snapshot at return time
   value: number; // qty * unitPrice
+  // Real-world request: "ดึงรายงานการคืนยายังไม่มีข้อมูลเหตุผลในการคืนยา" — AdjustScreen's own
+  // return-reason picker (ปรับเปลี่ยนการรักษา/แพ้ยา/Non-compliance/ได้ยาเกิน/ไม่ประสงค์รับยา/
+  // ยาตามอาการเหลือ/ยาโรคเรื้อรังเหลือเยอะ/อื่นๆ — see AdjustScreen.tsx's REASONS.return) was
+  // always written to the generic txs audit log (Tx.reason), but this dedicated returns-report
+  // record never carried its own copy — the one durable record the "รายงานคืนยา" tab/export
+  // actually reads from had no way to show WHY each return happened at all.
+  reason: string;
   note: string;
   date: string; // ISO YYYY-MM-DD, defaults to the entry date — for a `where('date', ...)` range query
   ts: number; // ms epoch
