@@ -24,6 +24,7 @@ import { binCompare } from '../utils/binRange';
 import { suggestCategoryId } from '../data/categorySuggest';
 import { suggestRoute } from '../data/routeSuggest';
 import { categoryLabel } from '../data/categories';
+import type { RouteType } from '../data/routes';
 import { withTimeout, TimeoutError } from '../utils/timeout';
 import { readNotifyEnabled, writeNotifyEnabled, readLowStockNotifyEnabled, writeLowStockNotifyEnabled, requestPermission, currentPermission, maybeNotifyExpiring, maybeNotifyLowStock } from '../utils/notify';
 import { hapticSuccess, hapticError } from '../utils/haptic';
@@ -361,7 +362,7 @@ export interface AppCtx {
   setMedCategory: (medId: string, categoryId: string) => void;
   /** Quick-fix counterpart for route (ยากิน/ยาฉีด/อื่นๆ) — see its own doc comment at the
    * implementation. */
-  setMedRoute: (medId: string, route: '' | 'oral' | 'injection' | 'other') => void;
+  setMedRoute: (medId: string, route: '' | RouteType) => void;
   recomputeUsageStats: () => void;
   /** See its own doc comment at the implementation — computes Med.weekdayPeakFactor/
    * weekdayPeakDay AND Med.peakDayQty/peakDayDate from real reconcile_hosxp history, feeding
@@ -380,7 +381,7 @@ export interface AppCtx {
   // med" form used to close (discarding every field just typed) right after firing this,
   // regardless of outcome, since it had no way to tell a failure apart from a success without
   // awaiting a real signal back.
-  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number; route?: 'oral' | 'injection' | 'other' }) => Promise<boolean | undefined>;
+  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number; route?: RouteType }) => Promise<boolean | undefined>;
   // Bug fix (flow friction): same shape as addMed above — MedsScreen's edit-med sheet used to
   // close (discarding every edited field) right after firing this, regardless of outcome.
   // `baseline`: the med record as it looked when the edit form was first opened (frozen by the
@@ -389,7 +390,7 @@ export interface AppCtx {
   // catch). Pass null when there's no meaningful baseline to compare against (there shouldn't
   // be a legitimate caller of updateMedFull without one, but it's optional rather than required
   // so a future caller can't be forced to fabricate one).
-  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number; route?: 'oral' | 'injection' | 'other' }, baseline: Med | null) => Promise<boolean | undefined>;
+  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number; route?: RouteType }, baseline: Med | null) => Promise<boolean | undefined>;
   /** Merges an existing OPD/IPD ward-pair (same name, one 'opd' one 'ipd' record) into a
    * single pooled record — see Med.binIpd. Survives as the OPD-ward record with the IPD
    * record's bin code carried over as `binIpd`; floor/used30/usedPrev30 are summed (not
@@ -3164,10 +3165,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Real-world request: "ข้อมูลที่ยังไม่ครบ อยากให้แจ้งที่ตัวยาเลย...แล้วสามารถเติมตรงนั้นได้เลยอย่าง
   // รวดเร็ว" — same "ข้อมูลยังไม่ครบ" quick-fix need as setMedCategory above, now that route
-  // (ยากิน/ยาฉีด/อื่นๆ) is also tracked as a field every active med should have explicitly set
-  // (see missingFields() in MedsScreen.tsx). Same immediate-write-no-debounce shape as category —
-  // a tap on one of 3 chips, not keystroke-by-keystroke text entry.
-  const setMedRoute = useCallback(async (medId: string, route: '' | 'oral' | 'injection' | 'other') => {
+  // (see data/routes.ts — ยากิน/ยาฉีด/ยาพ่น/ยาทาภายนอก/ยาหยอดตา/ยาหยอดหู/ยาป้าย/อื่นๆ) is also
+  // tracked as a field every active med should have explicitly set (see missingFields() in
+  // MedsScreen.tsx). Same immediate-write-no-debounce shape as category — a tap on one chip, not
+  // keystroke-by-keystroke text entry.
+  const setMedRoute = useCallback(async (medId: string, route: '' | RouteType) => {
     if (!canEditMeds) return;
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
@@ -3493,7 +3495,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [canEditMeds, logAudit, toast, toastErr]);
 
   // ---------- meds (formulary) management ----------
-  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number; route?: 'oral' | 'injection' | 'other' }): Promise<boolean> => {
+  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number; route?: RouteType }): Promise<boolean> => {
     if (!canEditMeds) return false;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
@@ -3617,7 +3619,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     shared: 'ใช้ยอดร่วมกัน', binIpd: 'ชั้นวาง IPD', category: 'หมวดยา', packSize: 'ขนาดแพ็ค',
     route: 'ประเภทการให้ยา',
   };
-  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number; route?: 'oral' | 'injection' | 'other' }, baseline: Med | null): Promise<boolean> => {
+  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean; bin: string; binSub?: string; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean; binIpd?: string; category?: string; packSize?: number; route?: RouteType }, baseline: Med | null): Promise<boolean> => {
     if (!canEditMeds) return false;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
@@ -3928,17 +3930,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // yet, never overwrites a human's existing choice, and anything suggestRoute() isn't
   // confident enough to guess stays unclassified (routeOf() in selectors.ts already treats
   // that the same as 'other' everywhere this is grouped/filtered, so nothing goes invisible).
+  // suggestRoute() covers more than ยากิน/ยาฉีด now (see data/routes.ts/routeSuggest.ts — ยาพ่น/
+  // ยาทาภายนอก/ยาหยอดตา/ยาหยอดหู/ยาป้าย too), so the type predicate here is the real RouteType,
+  // not the old oral/injection-only pair.
   const autoRouteAll = useCallback(guardOnce('autoRouteAll', async () => {
     if (!canEditMeds) return;
     const candidates = state.meds
       .map((m) => ({ m, route: m.route ? null : suggestRoute(m) }))
-      .filter((x): x is { m: Med; route: 'oral' | 'injection' } => !!x.route);
+      .filter((x): x is { m: Med; route: RouteType } => !!x.route);
     if (!candidates.length) { toast('ไม่มียาที่ระบบแนะนำประเภทการให้ยาให้ได้เพิ่มแล้ว — ที่เหลือต้องเลือกเอง'); return; }
     const unclassifiedTotal = state.meds.filter((m) => !m.route).length;
     if (!(await confirmAsync(
-      'ให้ระบบแยกยากิน/ยาฉีดอัตโนมัติจากหน่วย/รูปแบบยา ' + candidates.length + ' รายการ (จากทั้งหมด ' + unclassifiedTotal + ' รายการที่ยังไม่ระบุ)?\n\n'
-      + 'จับคู่จากหน่วย (Vial/Amp → ยาฉีด, เม็ด/แคปซูล → ยากิน) และรูปแบบยา — '
-      + 'ยาที่ระบุไว้แล้วจะไม่ถูกแก้ไข ส่วนยาที่ระบบไม่มั่นใจ (ครีม/ยาหยอดตา/สารน้ำ ฯลฯ) จะยังคงเป็น "อื่นๆ" ให้เลือกเองภายหลัง'
+      'ให้ระบบแยกประเภทการให้ยาอัตโนมัติจากหน่วย/รูปแบบยา/ชื่อยา ' + candidates.length + ' รายการ (จากทั้งหมด ' + unclassifiedTotal + ' รายการที่ยังไม่ระบุ)?\n\n'
+      + 'จับคู่จากหน่วย/รูปแบบยา (Vial/Amp → ยาฉีด, เม็ด/แคปซูล → ยากิน, MDI/เนบูไลเซอร์ → ยาพ่น, ครีม/ขี้ผึ้ง → ยาทาภายนอก, หยอดตา/หยอดหู ฯลฯ) — '
+      + 'ยาที่ระบุไว้แล้วจะไม่ถูกแก้ไข ส่วนยาที่ระบบไม่มั่นใจ (เช่น สารน้ำ/IV fluid ที่ข้อความไม่ชัดพอ) จะยังคงเป็น "อื่นๆ" ให้เลือกเองภายหลัง'
     ))) return;
     try {
       for (let i = 0; i < candidates.length; i += 400) {
@@ -3947,7 +3952,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await withTimeout(batch.commit());
       }
       const leftover = unclassifiedTotal - candidates.length;
-      logAudit({ type: 'med_edited', note: 'แยกยากิน/ยาฉีดอัตโนมัติ ' + candidates.length + ' รายการ' });
+      logAudit({ type: 'med_edited', note: 'แยกประเภทการให้ยาอัตโนมัติ ' + candidates.length + ' รายการ' });
       toast('แยกประเภทให้แล้ว ' + candidates.length + ' รายการ' + (leftover > 0 ? ' — เหลืออีก ' + leftover + ' รายการที่ระบบไม่มั่นใจ ต้องเลือกเอง' : ''));
     } catch (e) { toastErr(e, 'แยกประเภทอัตโนมัติไม่สำเร็จ'); }
   }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce, confirmAsync]);

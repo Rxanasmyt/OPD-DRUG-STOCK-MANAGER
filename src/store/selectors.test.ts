@@ -115,8 +115,16 @@ describe('effectiveRouteOf', () => {
     expect(effectiveRouteOf(med({ unit: 'Vial', name: 'Cefazolin 1g', route: 'other' }))).toBe('other');
   });
 
+  // Real-world request (this round): "ยังไม่มียาพ่น ยาทาภายนอก ยาหยอดตา ยาป้าย ยาหยอดหู" — a
+  // cream/ointment now gets a confident 'topical' guess instead of falling through to 'other'.
+  it('falls back to a live topical guess for a cream/ointment, not "other"', () => {
+    expect(effectiveRouteOf(med({ unit: 'Tube', dosageForm: 'Cream', name: 'Hydrocortisone Cream' }))).toBe('topical');
+  });
+
   it('falls back to "other" when neither an explicit route nor a confident guess exists', () => {
-    expect(effectiveRouteOf(med({ unit: 'Tube', dosageForm: 'Cream', name: 'Hydrocortisone Cream' }))).toBe('other');
+    // "SOLUTIONS" alone is genuinely ambiguous (see routeSuggest.ts's own comment) — this is
+    // the real formulary case that still, correctly, isn't confident enough to guess.
+    expect(effectiveRouteOf(med({ unit: 'Bag', dosageForm: 'Solution', name: 'Normal Saline Solution' }))).toBe('other');
   });
 });
 

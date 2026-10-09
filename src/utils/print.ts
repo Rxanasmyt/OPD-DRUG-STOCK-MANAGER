@@ -3,6 +3,7 @@ import { fitSingleLineFontSizePx, splitTitleForDisplay } from './labelName';
 import { fiscalYear, thDateLong } from './format';
 import { HOSPITAL_CREST_DATA_URI } from './crestImage';
 import { boxBreakdownLabel } from '../store/selectors';
+import { ROUTES, routeGroupLabel, type RouteType } from '../data/routes';
 import type { DailyMetrics } from '../types';
 
 // The real crest (see HospitalCrest.tsx / crestImage.ts) as a plain <img>, sized to fit an
@@ -324,7 +325,7 @@ export interface PickListRow {
   // and the locked injectable cabinet with one unsorted sheet is real, physical confusion).
   // Optional and additive: when NO row sets this (the cart-based ใบจัดยาเติมชั้น, which doesn't),
   // printPickListSheet renders its original single ungrouped table unchanged.
-  route?: 'oral' | 'injection' | 'other';
+  route?: RouteType;
 }
 
 /** One row of the optional "ยาขาดชั่วคราว" informational section — see printPickListSheet's
@@ -402,11 +403,7 @@ export function printPickListSheet(
   const showRouteGroups = sorted.some((r) => r.route);
   let body: string;
   if (showRouteGroups) {
-    const routeGroups: { key: 'oral' | 'injection' | 'other'; label: string }[] = [
-      { key: 'oral', label: '💊 ยากิน' },
-      { key: 'injection', label: '💉 ยาฉีด' },
-      { key: 'other', label: '📦 อื่นๆ / ยังไม่ระบุประเภท' },
-    ];
+    const routeGroups = ROUTES.map((r) => ({ key: r.id, label: routeGroupLabel(r.id) }));
     const byGroup = routeGroups.map((g) => ({ ...g, rows: sorted.filter((r) => (r.route || 'other') === g.key) }));
     // Same "only show a header when there's more than one group to tell apart" rule
     // TransferScreen's own route grouping uses — a sheet that happens to be all ยาฉีด shouldn't

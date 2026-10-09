@@ -20,9 +20,19 @@ const INJECTION = {
   price: 1, had: false, active: true, parSub: 50, parFloor: 20, floor: 2, bin: 'B2',
   used30: 0, usedPrev30: 0, volatility: 0, route: 'injection' as const,
 };
-const UNCLASSIFIED = {
+// Real-world request (this round): "ยังไม่มียาพ่น ยาทาภายนอก ยาหยอดตา ยาป้าย ยาหยอดหู" — a
+// cream now confidently groups under its own "🧴 ยาทาภายนอก" bucket instead of falling into the
+// generic "อื่นๆ / ยังไม่ระบุประเภท" one.
+const UNCLASSIFIED_TOPICAL = {
   id: 'm3', code: 'MED-0003', name: 'Hydrocortisone Cream', unit: 'Tube', dosageForm: 'Cream',
   price: 1, had: false, active: true, parSub: 20, parFloor: 10, floor: 1, bin: 'C3',
+  used30: 0, usedPrev30: 0, volatility: 0,
+};
+// "SOLUTIONS" alone is genuinely ambiguous (see routeSuggest.ts's own comment) — still the real
+// case that correctly falls into the generic "อื่นๆ" bucket.
+const UNCLASSIFIED_OTHER = {
+  id: 'm3b', code: 'MED-0003B', name: 'Normal Saline Solution', unit: 'Bag', dosageForm: 'Solution',
+  price: 1, had: false, active: true, parSub: 20, parFloor: 10, floor: 1, bin: 'C4',
   used30: 0, usedPrev30: 0, volatility: 0,
 };
 // No explicit `route` at all — the real-world state of the ENTIRE formulary the moment this
@@ -39,31 +49,35 @@ const INJECTION_NO_ROUTE_SET = {
 };
 
 describe('TransferScreen — oral/injection route grouping regression', () => {
-  it('groups oral rows and injection rows under separate headers, never interleaved', async () => {
+  it('groups oral, injection, topical and unclassified rows under separate headers, never interleaved', async () => {
     renderWithApp(<TransferScreen />);
     await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
-    fireCollection('meds', [ORAL, INJECTION, UNCLASSIFIED]);
+    fireCollection('meds', [ORAL, INJECTION, UNCLASSIFIED_TOPICAL, UNCLASSIFIED_OTHER]);
     fireCollection('lots', []);
 
     await screen.findByText(ORAL.name);
     expect(screen.getByText(/💊 ยากิน/)).toBeInTheDocument();
     expect(screen.getByText(/💉 ยาฉีด/)).toBeInTheDocument();
+    expect(screen.getByText(/🧴 ยาทาภายนอก/)).toBeInTheDocument();
     // Route group's "unclassified" header text ("...ยังไม่ระบุประเภท") is distinct from the
     // unrelated category filter's own "อื่นๆ / ยังไม่ระบุหมวด" chip, which can also appear on
     // screen for the same unclassified med — match the full, unique route-group label only.
     expect(screen.getByText(/📦 อื่นๆ \/ ยังไม่ระบุประเภท/)).toBeInTheDocument();
 
-    // Oral group's own header must appear before the injection row's name in document order,
-    // and the injection header before the unclassified row's name — i.e. groups stay intact
-    // rather than interleaved by whatever `sort` would otherwise produce.
+    // Each group's own header must appear before its rows' names, in ROUTES order (see
+    // data/routes.ts) — i.e. groups stay intact rather than interleaved by whatever `sort`
+    // would otherwise produce.
     const html = document.body.innerHTML;
+    const topicalHeaderIdx = html.indexOf('ยาทาภายนอก');
     const unclassifiedHeaderIdx = html.indexOf('ยังไม่ระบุประเภท');
     expect(html.indexOf('ยากิน')).toBeLessThan(html.indexOf(ORAL.name));
     expect(html.indexOf(ORAL.name)).toBeLessThan(html.indexOf('ยาฉีด'));
     expect(html.indexOf('ยาฉีด')).toBeLessThan(html.indexOf(INJECTION.name));
-    expect(html.indexOf(INJECTION.name)).toBeLessThan(unclassifiedHeaderIdx);
-    expect(unclassifiedHeaderIdx).toBeLessThan(html.indexOf(UNCLASSIFIED.name));
+    expect(html.indexOf(INJECTION.name)).toBeLessThan(topicalHeaderIdx);
+    expect(topicalHeaderIdx).toBeLessThan(html.indexOf(UNCLASSIFIED_TOPICAL.name));
+    expect(html.indexOf(UNCLASSIFIED_TOPICAL.name)).toBeLessThan(unclassifiedHeaderIdx);
+    expect(unclassifiedHeaderIdx).toBeLessThan(html.indexOf(UNCLASSIFIED_OTHER.name));
   });
 
   it('suppresses every group header when the filtered view contains only one route', async () => {
