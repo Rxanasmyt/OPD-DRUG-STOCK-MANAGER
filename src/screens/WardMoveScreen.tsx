@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useApp } from '../store/AppContext';
 import { wardOf, wardLabel, toneFor } from '../store/selectors';
 import { nf } from '../utils/format';
@@ -24,15 +25,23 @@ export default function WardMoveScreen() {
   const {
     state, setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
   } = useApp();
-  const meds = state.meds.filter((m) => m.active);
+  // Bug fix (perf consistency, mobile UX audit): the active-meds filter and both search-result
+  // filters used to re-run on every render (not just every keystroke), unmemoized — MedsScreen
+  // already got this exact fix for the same ~580-med formulary (see its own "Bug fix" comment),
+  // this screen just hadn't caught up yet.
+  const meds = useMemo(() => state.meds.filter((m) => m.active), [state.meds]);
   const fromMed = state.wmFromMed ? meds.find((m) => m.id === state.wmFromMed) : null;
   const toMed = state.wmToMed ? meds.find((m) => m.id === state.wmToMed) : null;
-  const fromOptions = !state.wmFromMed && state.wmFromSearch.trim()
-    ? meds.filter((m) => { const s = state.wmFromSearch.trim().toLowerCase(); return m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0; }).slice(0, 8)
-    : [];
-  const toOptions = !state.wmToMed && state.wmToSearch.trim()
-    ? meds.filter((m) => { const s = state.wmToSearch.trim().toLowerCase(); return m.id !== fromMed?.id && (m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0); }).slice(0, 8)
-    : [];
+  const fromOptions = useMemo(() => (
+    !state.wmFromMed && state.wmFromSearch.trim()
+      ? meds.filter((m) => { const s = state.wmFromSearch.trim().toLowerCase(); return m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0; }).slice(0, 8)
+      : []
+  ), [meds, state.wmFromMed, state.wmFromSearch]);
+  const toOptions = useMemo(() => (
+    !state.wmToMed && state.wmToSearch.trim()
+      ? meds.filter((m) => { const s = state.wmToSearch.trim().toLowerCase(); return m.id !== fromMed?.id && (m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0); }).slice(0, 8)
+      : []
+  ), [meds, state.wmToMed, state.wmToSearch, fromMed?.id]);
   const qty = parseInt(state.wmQty, 10) || 0;
   const canSubmit = !!fromMed && !!toMed && fromMed.id !== toMed.id && qty > 0 && qty <= fromMed.floor && state.wmReason.trim();
 

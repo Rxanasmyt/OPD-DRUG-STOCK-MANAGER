@@ -105,7 +105,10 @@ export default function QrModal() {
             <div style={{ fontSize: 16.5, fontWeight: 700, color: '#fff' }}>{title}</div>
             <div style={{ fontSize: 12, color: 'rgba(255,255,255,.75)', marginTop: 2 }}>{desc}</div>
           </div>
-          <button onClick={closeQr} aria-label="ปิดกล้องสแกน" style={{ pointerEvents: 'auto', flex: 'none', border: 0, background: 'rgba(255,255,255,.18)', color: '#fff', width: 36, height: 36, borderRadius: 10, fontSize: 16 }}>✕</button>
+          {/* Bug fix (usability, real-device mobile UX audit): 36px was under this app's own
+              ~44px tap-target convention — this is the camera-scanner close button, used
+              one-handed per the bottom-bar comment above. */}
+          <button onClick={closeQr} aria-label="ปิดกล้องสแกน" style={{ pointerEvents: 'auto', flex: 'none', border: 0, background: 'rgba(255,255,255,.18)', color: '#fff', width: 44, height: 44, borderRadius: 12, fontSize: 17 }}>✕</button>
         </div>
       </div>
 
@@ -141,7 +144,9 @@ export default function QrModal() {
             <div style={{ width: 36, height: 4, borderRadius: 2, background: 'rgba(255,255,255,.22)', margin: '0 auto 14px' }} />
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
               <div style={{ fontSize: 15, fontWeight: 600 }}>กรอกรหัสด้วยมือ</div>
-              <button onClick={qrManual} aria-label="ปิดช่องกรอกรหัสด้วยมือ" style={{ border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 30, height: 30, borderRadius: 8, fontSize: 14 }}>✕</button>
+              {/* Bug fix (usability, real-device mobile UX audit): 30px was under this app's
+                  own ~44px tap-target convention. */}
+              <button onClick={qrManual} aria-label="ปิดช่องกรอกรหัสด้วยมือ" style={{ border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 44, height: 44, borderRadius: 12, fontSize: 16 }}>✕</button>
             </div>
             {/* Bug fix (mobile fit): under 16px, iOS Safari zooms the whole page in on focus —
                 both manual-entry fields below sat at 13.5-14px, so falling back to typing a

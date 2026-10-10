@@ -45,18 +45,24 @@ export function SearchInput({
         }}
       />
       {value && (
+        // Bug fix (usability, real-device mobile UX audit): 28px was noticeably under this
+        // app's own ~44px tap-target convention (see ReceiveScreen's CardPeekButton) — a real
+        // mis-tap risk given this is, per the doc comment above, the single most-tapped control
+        // in the whole app. Same fix pattern as CardPeekButton: the button's own hit box grows
+        // to 44x44 (transparent, invisible), while the visible circle stays the original 28px
+        // so the control doesn't look visually oversized next to the rest of the field.
         <button
           type="button"
           onClick={() => onChange('')}
           aria-label="ล้างคำค้นหา"
           className="press-spring"
           style={{
-            position: 'absolute', right: 5, top: '50%', transform: 'translateY(-50%)', border: 0,
-            background: 'var(--bg-subtle)', color: 'var(--muted)', width: 28, height: 28, borderRadius: '50%',
-            fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
+            position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', border: 0,
+            background: 'transparent', width: 44, height: 44,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
           }}
         >
-          ✕
+          <span style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--bg-subtle)', color: 'var(--muted)', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</span>
         </button>
       )}
     </div>

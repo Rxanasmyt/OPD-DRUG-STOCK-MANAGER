@@ -319,12 +319,15 @@ function PasswordField({ value, onChange, placeholder, autoComplete, valid }: { 
         {valid != null && (
           <span aria-hidden="true" style={{ position: 'absolute', right: 44, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: valid ? 'var(--green-bright)' : 'var(--red)', animation: 'checkPop .25s var(--ease-spring)' }}>{valid ? '✓' : '✗'}</span>
         )}
+        {/* Bug fix (usability, real-device mobile UX audit): 32px was under this app's own
+            ~44px tap-target convention — background stays transparent, so the larger hit box
+            doesn't change how the control looks, only how easy it is to tap accurately. */}
         <button
           type="button"
           onClick={() => setShow((s) => !s)}
           aria-label={show ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
           className="press-spring"
-          style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 0, background: 'transparent', color: 'var(--login-ink)', opacity: 0.75, width: 32, height: 32, borderRadius: 8, fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)', border: 0, background: 'transparent', color: 'var(--login-ink)', opacity: 0.75, width: 44, height: 44, borderRadius: 8, fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         >
           {show ? '🙈' : '👁️'}
         </button>
