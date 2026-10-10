@@ -43,7 +43,10 @@ export default function LoginScreen() {
       title={state.online ? 'เชื่อมต่ออินเทอร์เน็ตอยู่' : 'ออฟไลน์ — เข้าสู่ระบบไม่ได้จนกว่าจะกลับมาออนไลน์'}
       style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', left: 20, zIndex: 2, border: 0, background: state.online ? 'rgba(255,255,255,.14)' : 'var(--amber-bg)', color: state.online ? 'var(--login-ink)' : 'var(--amber-ink)', padding: '7px 10px', borderRadius: 9, fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
     >
-      <span style={{ width: 6, height: 6, borderRadius: '50%', background: state.online ? '#5adc8c' : 'var(--amber)', display: 'inline-block', animation: state.online ? 'glowPulse 2.4s infinite' : 'none', flex: 'none' }} />
+      {/* Bug fix (real-world request: "อยากปรับให้หน้า login ดูทางการสำหรับใช้ในรพ."): used to
+          pulse continuously (glowPulse) — a blinking status light reads as a live consumer-app
+          cue, not the steady, document-like status indicator a hospital record system wants. */}
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: state.online ? '#5adc8c' : 'var(--amber)', display: 'inline-block', flex: 'none' }} />
       {state.online ? 'ออนไลน์' : 'ออฟไลน์'}
     </div>
   );
@@ -51,7 +54,7 @@ export default function LoginScreen() {
   if (state.authStatus === 'loading') {
     return (
       <div className="app-shell" style={{ justifyContent: 'center', alignItems: 'center', background: 'var(--login-bg)', overflowY: 'auto' }}>
-        <div className="mesh-bg" aria-hidden="true" />
+        <div className="mesh-bg mesh-bg--static" aria-hidden="true" />
         <div className="login-pattern" aria-hidden="true" />
         <div style={{ position: 'relative', color: 'var(--login-ink)', opacity: 0.8, fontSize: 13 }}>กำลังเชื่อมต่อ…</div>
       </div>
@@ -61,7 +64,7 @@ export default function LoginScreen() {
   if (state.authStatus === 'pendingApproval') {
     return (
       <div className="app-shell" style={{ justifyContent: 'center', padding: 'calc(env(safe-area-inset-top, 0px) + 32px) 26px calc(env(safe-area-inset-bottom, 0px) + 32px)', background: 'var(--login-bg)', color: 'var(--login-ink)', textAlign: 'center', overflowY: 'auto' }}>
-        <div className="mesh-bg" aria-hidden="true" />
+        <div className="mesh-bg mesh-bg--static" aria-hidden="true" />
         <div className="login-pattern" aria-hidden="true" />
         {OnlineBadge}
         {ThemeToggleBtn}
@@ -84,7 +87,7 @@ export default function LoginScreen() {
 
   return (
     <div className="app-shell" style={{ background: 'var(--login-bg)', overflowY: 'auto' }}>
-      <div className="mesh-bg" aria-hidden="true" />
+      <div className="mesh-bg mesh-bg--static" aria-hidden="true" />
       <div className="login-pattern" aria-hidden="true" />
       {OnlineBadge}
       {ThemeToggleBtn}
@@ -94,11 +97,13 @@ export default function LoginScreen() {
           column, since a split layout only makes sense wider than this app is ever opened). */}
       <div style={{ position: 'relative', padding: 'calc(env(safe-area-inset-top, 0px) + 26px) 26px 6px', maxWidth: 440, margin: '0 auto', width: '100%' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 14, animation: 'fade .4s var(--ease-out) both' }}>
-          {/* Entrance: a quick spring "pop" (reusing the same .pop keyframe the rest of the app
-              uses for cards/sheets appearing) plays once on load, then the badge settles into
-              its usual ambient glowPulse loop — so the crest feels like it arrives rather than
-              just being statically present. */}
-          <div style={{ width: 68, height: 68, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, #ffffff, #f4f2ec)', border: '1px solid rgba(255,255,255,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 11, flex: 'none', animation: 'pop .5s var(--ease-spring) both, glowPulse 3.2s infinite .5s', boxShadow: '0 10px 26px -8px rgba(0,0,0,.4), 0 0 0 6px rgba(var(--brand-coral-rgb),.14)' }}><HospitalCrest size={42} /></div>
+          {/* Bug fix (real-world request: "อยากปรับให้หน้า login ดูทางการสำหรับใช้ในรพ."): used to
+              play a bouncy spring "pop" entrance plus an ongoing pulsing glow ring around the
+              crest — a springy overshoot and an ambient pulse both read as playful consumer-app
+              motion. A plain fade-in (same .fade keyframe already used for every other block on
+              this screen) still gives the crest an entrance, just a dignified one — no bounce, no
+              looping glow. */}
+          <div style={{ width: 68, height: 68, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, #ffffff, #f4f2ec)', border: '1px solid rgba(255,255,255,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 11, flex: 'none', animation: 'fade .5s var(--ease-out) both', boxShadow: '0 10px 26px -8px rgba(0,0,0,.4), 0 0 0 6px rgba(var(--brand-coral-rgb),.14)' }}><HospitalCrest size={42} /></div>
           {/* Formal wordmark lockup: hospital abbreviation as the primary mark (large, tight
               tracking, the weight a logotype carries), the module name as a letter-spaced
               uppercase eyebrow underneath, then the full Thai name/ward line last — same info
@@ -114,13 +119,13 @@ export default function LoginScreen() {
 
       <div style={{ position: 'relative', maxWidth: 440, margin: '0 auto', width: '100%', padding: '0 20px calc(env(safe-area-inset-bottom, 0px) + 28px)' }}>
         <div style={{ position: 'relative', overflow: 'hidden', background: 'rgba(255,255,255,.075)', backdropFilter: 'blur(18px)', border: '1px solid rgba(255,255,255,.16)', borderRadius: 24, padding: '26px 24px 24px', marginTop: 22, animation: 'fade .4s var(--ease-out) both', animationDelay: '60ms', boxShadow: '0 24px 60px -18px rgba(0,0,0,.5), var(--shadow-lg)' }}>
-          {/* A thin, slowly-shifting two-tone highlight along the top edge — the same "this
-              surface is genuinely alive, not a static screenshot" cue the rest of the app's
-              premium chrome (mesh-bg, glowPulse) already uses, scaled down to a hairline so it
-              reads as ambient polish, not a distraction from the actual form underneath. Tinted
-              teal→coral→teal so this hairline echoes the crest's own two-tone palette instead
-              of a generic white shimmer. */}
-          <div aria-hidden="true" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg, transparent, var(--green-bright), rgba(var(--brand-coral-rgb),.9), var(--green-bright), transparent)', backgroundSize: '200% 100%', animation: 'aiGradientShift 4.5s ease-in-out infinite' }} />
+          {/* Bug fix (real-world request: "อยากปรับให้หน้า login ดูทางการสำหรับใช้ในรพ."): used to
+              be a slowly-shifting shimmer (the same ai-gradient cue the app uses elsewhere to
+              flag "this is inferring something"), which doesn't fit a login card and reads as
+              trendy/SaaS rather than official. A fixed two-tone bar — still echoing the crest's
+              own teal→coral palette — reads as a letterhead accent instead: present, on-brand,
+              not moving. */}
+          <div aria-hidden="true" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg, var(--green-bright), rgba(var(--brand-coral-rgb),.9), var(--green-bright))' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 5 }}>
             <div style={{ width: 40, height: 40, borderRadius: 12, background: 'linear-gradient(140deg, var(--login-ink), #d8e6dc)', color: 'var(--green-dark)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, flex: 'none', boxShadow: '0 4px 14px -4px rgba(0,0,0,.35)' }}>🔒</div>
             <div style={{ minWidth: 0 }}>
