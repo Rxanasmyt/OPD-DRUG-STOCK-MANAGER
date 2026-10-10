@@ -10,6 +10,19 @@ import { nf } from '../utils/format';
 import { categoryLabel } from '../data/categories';
 import type { MonthUsageAgg, CategoryUsageAgg } from '../store/selectors';
 
+// Bug fix (real-device UX audit, Report tab): recharts' default category-axis tick is a single
+// <text> with no word-wrap and no built-in truncation — a label longer than the axis's given
+// `width` just overflows past it and gets clipped by the chart's own edge. Since a Y-axis tick's
+// text-anchor sits at its RIGHT edge (growing leftward), what gets clipped is the START of the
+// label, not the end — e.g. "ยาเบาหวาน/ต่อมไร้ท่อ/ไขมันในเลือด" rendered as "หวาน/ต่อมไร้ท่อ/
+// ไขมันในเลือด", silently dropping which drug class "เบา-" even was. Several of this app's real
+// category labels (data/categories.ts) are long enough to hit this — not a one-off. Truncating
+// here with an ellipsis guarantees it never overflows regardless of label length; the full,
+// untruncated name is still available on tap/hover via the Tooltip's own labelFormatter below.
+export function truncateLabel(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max - 1) + '…' : s;
+}
+
 export default function UsageCharts({ monthRows, categoryRows }: { monthRows: MonthUsageAgg[]; categoryRows: CategoryUsageAgg[] }) {
   return (
     <>
@@ -45,7 +58,7 @@ export default function UsageCharts({ monthRows, categoryRows }: { monthRows: Mo
             <YAxis
               type="category" dataKey="category" width={150}
               tick={{ fontSize: 10.5, fill: 'var(--ink)' }}
-              tickFormatter={(v: string) => categoryLabel(v)}
+              tickFormatter={(v: string) => truncateLabel(categoryLabel(v), 16)}
             />
             <Tooltip
               formatter={(v) => nf(Math.round(Number(v))) + ' บาท'}
