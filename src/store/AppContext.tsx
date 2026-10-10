@@ -2272,6 +2272,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         trx.update(ref, { status: 'approved', resolvedBy: userName(), resolvedTs: Date.now() });
       });
+      hapticSuccess();
       toast('อนุมัติรับเข้าแล้ว');
     } catch (e) {
       const msg = (e as Error)?.message || '';
@@ -2364,6 +2365,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           reason: state.wmReason.trim(), note: 'ย้ายมาจาก ' + from.name + ' — ' + state.wmReason.trim(), by: userName(), ts: Date.now(), loc: 'floor',
         });
       });
+      hapticSuccess();
       toast('ย้าย ' + nf(q) + ' ' + from.unit + ' จาก ' + from.name + ' ไป ' + to.name + ' แล้ว');
       // Bug fix (flow friction): this used to also clear wmReason — but the real use case this
       // screen's own doc comment describes is a RECURRING move (e.g. the same weekly "เติม stat
@@ -4683,6 +4685,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } satisfies Omit<import('../types').Tx, 'id'>);
       });
       patch((st) => { const ci = { ...st.countInputs }; delete ci[medId]; return { countInputs: ci }; });
+      hapticSuccess();
       toast(m.name + ' — ' + note);
     } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
   }), [state.countInputs, state.meds, userName, toast, toastErr, patch, guardOnce, confirmAsync]);
@@ -4760,6 +4763,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     // A partial failure leaves the rows it couldn't save still filled in on screen (they're
     // only cleared per-med on success above), so retrying is just tapping the button again.
+    if (ok > 0) hapticSuccess();
     toast(failed > 0
       ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
       : 'บันทึกครบ ' + ok + ' รายการ' + (diffs > 0 ? ' · มีส่วนต่าง ' + diffs + ' รายการ (ดูได้ใน Discrepancy log)' : ' · ตรงกับระบบทุกรายการ'));
@@ -4849,6 +4853,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } satisfies Omit<import('../types').Tx, 'id'>);
       });
       patch((st) => { const ci = { ...st.subCountInputs }; delete ci[medId]; return { subCountInputs: ci }; });
+      hapticSuccess();
       toast(m.name + ' — ' + note);
     } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
   }), [state, userName, toast, toastErr, patch, guardOnce, confirmAsync]);
@@ -4932,6 +4937,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (delta !== 0) diffs++;
       } catch (e) { console.error(e); failed++; }
     }
+    if (ok > 0) hapticSuccess();
     toast(failed > 0
       ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
       : 'บันทึกครบ ' + ok + ' รายการ' + (diffs > 0 ? ' · มีส่วนต่าง ' + diffs + ' รายการ (ดูได้ใน Discrepancy log)' : ' · ตรงกับระบบทุกรายการ'));
@@ -5134,6 +5140,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // applied + skipped could undercount rows.length with no explanation, which reads as
       // a miscount when a pharmacist checks the math. Named separately from "จับคู่ไม่ได้"
       // since it's a different reason (nothing to deduct, not a matching failure).
+      if (applied > 0) hapticSuccess();
       toast(
         'ตัดยอดหน้างานตามไฟล์แล้ว ' + applied + ' รายการ'
         + (skipped ? ' · ข้าม ' + skipped + ' รายการที่จับคู่ไม่ได้' : '')

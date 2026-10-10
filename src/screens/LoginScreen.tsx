@@ -41,7 +41,7 @@ export default function LoginScreen() {
   const OnlineBadge = (
     <div
       title={state.online ? 'เชื่อมต่ออินเทอร์เน็ตอยู่' : 'ออฟไลน์ — เข้าสู่ระบบไม่ได้จนกว่าจะกลับมาออนไลน์'}
-      style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', left: 20, zIndex: 2, border: 0, background: state.online ? 'rgba(255,255,255,.14)' : 'var(--amber-bg)', color: state.online ? 'var(--ink-soft)' : 'var(--amber-ink)', padding: '7px 10px', borderRadius: 9, fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
+      style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', left: 20, zIndex: 2, border: 0, background: state.online ? 'rgba(255,255,255,.14)' : 'var(--amber-bg)', color: state.online ? 'var(--login-ink)' : 'var(--amber-ink)', padding: '7px 10px', borderRadius: 9, fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
     >
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: state.online ? '#5adc8c' : 'var(--amber)', display: 'inline-block', animation: state.online ? 'glowPulse 2.4s infinite' : 'none', flex: 'none' }} />
       {state.online ? 'ออนไลน์' : 'ออฟไลน์'}
@@ -53,14 +53,14 @@ export default function LoginScreen() {
       <div className="app-shell" style={{ justifyContent: 'center', alignItems: 'center', background: 'var(--login-bg)', overflowY: 'auto' }}>
         <div className="mesh-bg" aria-hidden="true" />
         <div className="login-pattern" aria-hidden="true" />
-        <div style={{ position: 'relative', color: 'var(--ink-soft)', opacity: 0.8, fontSize: 13 }}>กำลังเชื่อมต่อ…</div>
+        <div style={{ position: 'relative', color: 'var(--login-ink)', opacity: 0.8, fontSize: 13 }}>กำลังเชื่อมต่อ…</div>
       </div>
     );
   }
 
   if (state.authStatus === 'pendingApproval') {
     return (
-      <div className="app-shell" style={{ justifyContent: 'center', padding: 'calc(env(safe-area-inset-top, 0px) + 32px) 26px calc(env(safe-area-inset-bottom, 0px) + 32px)', background: 'var(--login-bg)', color: 'var(--ink-soft)', textAlign: 'center', overflowY: 'auto' }}>
+      <div className="app-shell" style={{ justifyContent: 'center', padding: 'calc(env(safe-area-inset-top, 0px) + 32px) 26px calc(env(safe-area-inset-bottom, 0px) + 32px)', background: 'var(--login-bg)', color: 'var(--login-ink)', textAlign: 'center', overflowY: 'auto' }}>
         <div className="mesh-bg" aria-hidden="true" />
         <div className="login-pattern" aria-hidden="true" />
         {OnlineBadge}
@@ -75,7 +75,7 @@ export default function LoginScreen() {
         <div style={{ position: 'relative', fontSize: 13, opacity: 0.65, lineHeight: 1.6, marginBottom: 26 }}>
           รอเภสัชกรหรือ Admin กดอนุมัติและกำหนดบทบาทให้ก่อน จึงจะเข้าใช้งานได้ — ลองเข้าสู่ระบบใหม่อีกครั้งภายหลัง
         </div>
-        <button onClick={logout} className="login-btn" style={{ position: 'relative', width: '100%', border: '1px solid rgba(255,255,255,.3)', background: 'transparent', color: 'var(--ink-soft)', padding: 14, borderRadius: 12, fontSize: 14 }}>ออกจากระบบ</button>
+        <button onClick={logout} className="login-btn" style={{ position: 'relative', width: '100%', border: '1px solid rgba(255,255,255,.3)', background: 'transparent', color: 'var(--login-ink)', padding: 14, borderRadius: 12, fontSize: 14 }}>ออกจากระบบ</button>
       </div>
     );
   }
@@ -105,7 +105,7 @@ export default function LoginScreen() {
               as before ("KPNHOS-DRUG SUBSTOCK-OPD-IPD-MANAGEMENT" run together on one line) but
               now laid out in a clear, deliberate hierarchy instead of one dense string. */}
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 25, fontWeight: 800, letterSpacing: '.02em', color: 'var(--ink-soft)', lineHeight: 1.15 }}>KPNHOS</div>
+            <div style={{ fontSize: 25, fontWeight: 800, letterSpacing: '.02em', color: 'var(--login-ink)', lineHeight: 1.15 }}>KPNHOS</div>
             <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.16em', textTransform: 'uppercase', color: 'rgba(var(--brand-coral-rgb),.95)', marginTop: 5 }}>Drug Substock · OPD–IPD Management</div>
             <div style={{ fontSize: 12, color: 'rgba(242,245,239,.62)', marginTop: 7, letterSpacing: '.01em' }}>โรงพยาบาลกรงปินัง · งานเภสัชกรรม จ.ยะลา</div>
           </div>
@@ -122,9 +122,9 @@ export default function LoginScreen() {
               of a generic white shimmer. */}
           <div aria-hidden="true" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg, transparent, var(--green-bright), rgba(var(--brand-coral-rgb),.9), var(--green-bright), transparent)', backgroundSize: '200% 100%', animation: 'aiGradientShift 4.5s ease-in-out infinite' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 5 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 12, background: 'linear-gradient(140deg, var(--ink-soft), #d8e6dc)', color: 'var(--green-dark)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, flex: 'none', boxShadow: '0 4px 14px -4px rgba(0,0,0,.35)' }}>🔒</div>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: 'linear-gradient(140deg, var(--login-ink), #d8e6dc)', color: 'var(--green-dark)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, flex: 'none', boxShadow: '0 4px 14px -4px rgba(0,0,0,.35)' }}>🔒</div>
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 19.5, fontWeight: 700, color: 'var(--ink-soft)', lineHeight: 1.25 }}>{isRegister ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}</div>
+              <div style={{ fontSize: 19.5, fontWeight: 700, color: 'var(--login-ink)', lineHeight: 1.25 }}>{isRegister ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}</div>
               <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'rgba(242,245,239,.5)', marginTop: 1 }}>บัญชีเจ้าหน้าที่ห้องยา</div>
             </div>
           </div>
@@ -138,9 +138,9 @@ export default function LoginScreen() {
                 own width (`calc(50% - 3px)`) lands it exactly at the same spot `left: 50%` used
                 to, since container-width/2 - 3px is both this element's width and the delta
                 between the two left values. */}
-            <span style={{ position: 'absolute', top: 3, bottom: 3, left: 3, width: 'calc(50% - 3px)', transform: isRegister ? 'translateX(100%)' : 'translateX(0)', background: 'var(--ink-soft)', borderRadius: 9, boxShadow: '0 3px 10px -3px rgba(0,0,0,.4)', transition: 'transform var(--dur-slow) var(--ease-spring)' }} />
-            <button onClick={() => setAuthMode('login')} className="press-spring" style={{ position: 'relative', flex: 1, border: 0, background: 'transparent', color: !isRegister ? 'var(--ink)' : 'rgba(242,245,239,.75)', padding: '10px 0', borderRadius: 9, fontSize: 13.5, fontWeight: 600 }}>เข้าสู่ระบบ</button>
-            <button onClick={() => setAuthMode('register')} className="press-spring" style={{ position: 'relative', flex: 1, border: 0, background: 'transparent', color: isRegister ? 'var(--ink)' : 'rgba(242,245,239,.75)', padding: '10px 0', borderRadius: 9, fontSize: 13.5, fontWeight: 600 }}>สมัครสมาชิก</button>
+            <span style={{ position: 'absolute', top: 3, bottom: 3, left: 3, width: 'calc(50% - 3px)', transform: isRegister ? 'translateX(100%)' : 'translateX(0)', background: 'var(--login-ink)', borderRadius: 9, boxShadow: '0 3px 10px -3px rgba(0,0,0,.4)', transition: 'transform var(--dur-slow) var(--ease-spring)' }} />
+            <button onClick={() => setAuthMode('login')} className="press-spring" style={{ position: 'relative', flex: 1, border: 0, background: 'transparent', color: !isRegister ? 'var(--login-ink-contrast)' : 'rgba(242,245,239,.75)', padding: '10px 0', borderRadius: 9, fontSize: 13.5, fontWeight: 600 }}>เข้าสู่ระบบ</button>
+            <button onClick={() => setAuthMode('register')} className="press-spring" style={{ position: 'relative', flex: 1, border: 0, background: 'transparent', color: isRegister ? 'var(--login-ink-contrast)' : 'rgba(242,245,239,.75)', padding: '10px 0', borderRadius: 9, fontSize: 13.5, fontWeight: 600 }}>สมัครสมาชิก</button>
           </div>
 
           <form
@@ -167,13 +167,13 @@ export default function LoginScreen() {
 
             {!isRegister && (
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'rgba(242,245,239,.8)', cursor: 'pointer', userSelect: 'none', margin: '-2px 0 2px' }}>
-                <input type="checkbox" checked={state.authRemember} onChange={(e) => setAuthRemember(e.target.checked)} style={{ width: 16, height: 16, accentColor: 'var(--ink-soft)' }} />
+                <input type="checkbox" checked={state.authRemember} onChange={(e) => setAuthRemember(e.target.checked)} style={{ width: 16, height: 16, accentColor: 'var(--login-ink)' }} />
                 จดจำการเข้าใช้ในเครื่องนี้
               </label>
             )}
 
             {state.authError && (
-              <div style={{ background: 'rgba(163,43,34,.25)', border: '1px solid rgba(255,255,255,.2)', color: 'var(--ink-soft)', borderRadius: 10, padding: '9px 12px', fontSize: 12.5, animation: 'fade .2s var(--ease-out)' }}>
+              <div style={{ background: 'rgba(163,43,34,.25)', border: '1px solid rgba(255,255,255,.2)', color: 'var(--login-ink)', borderRadius: 10, padding: '9px 12px', fontSize: 12.5, animation: 'fade .2s var(--ease-out)' }}>
                 {state.authError}
               </div>
             )}
@@ -182,11 +182,11 @@ export default function LoginScreen() {
               type="submit"
               disabled={state.authBusy}
               className="login-btn press-spring"
-              style={{ border: 0, background: 'linear-gradient(135deg, var(--ink-soft), #dfe9e1)', color: 'var(--ink)', padding: '15px 18px', borderRadius: 14, fontSize: 15, fontWeight: 700, letterSpacing: '.01em', marginTop: 4, minHeight: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 14px 30px -12px rgba(0,0,0,.5)' }}
+              style={{ border: 0, background: 'linear-gradient(135deg, var(--login-ink), #dfe9e1)', color: 'var(--login-ink-contrast)', padding: '15px 18px', borderRadius: 14, fontSize: 15, fontWeight: 700, letterSpacing: '.01em', marginTop: 4, minHeight: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 14px 30px -12px rgba(0,0,0,.5)' }}
             >
               {state.authBusy ? (
                 <>
-                  <span className="spin" aria-hidden="true" style={{ width: 15, height: 15, border: '2px solid rgba(18,33,26,.25)', borderTopColor: 'var(--ink)', borderRadius: '50%' }} />
+                  <span className="spin" aria-hidden="true" style={{ width: 15, height: 15, border: '2px solid rgba(18,33,26,.25)', borderTopColor: 'var(--login-ink-contrast)', borderRadius: '50%' }} />
                   กำลังดำเนินการ…
                 </>
               ) : (
@@ -217,9 +217,9 @@ export default function LoginScreen() {
                 animation: 'fade .4s var(--ease-out) both', animationDelay: `${120 + i * 70}ms`,
               }}
             >
-              <div style={{ width: 30, height: 30, borderRadius: 9, background: 'rgba(255,255,255,.1)', color: 'var(--ink-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flex: 'none' }}>{icon}</div>
+              <div style={{ width: 30, height: 30, borderRadius: 9, background: 'rgba(255,255,255,.1)', color: 'var(--login-ink)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flex: 'none' }}>{icon}</div>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink-soft)' }}>{title}</div>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--login-ink)' }}>{title}</div>
                 <div style={{ fontSize: 11, color: 'rgba(242,245,239,.6)', lineHeight: 1.5, marginTop: 1 }}>{sub}</div>
               </div>
             </div>
@@ -251,7 +251,7 @@ function ForgotPasswordHint() {
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="press-spring"
-        style={{ border: 0, background: 'transparent', color: 'var(--ink-soft)', opacity: 0.75, fontSize: 11.5, textDecoration: 'underline', textUnderlineOffset: 3, cursor: 'pointer', padding: 4 }}
+        style={{ border: 0, background: 'transparent', color: 'var(--login-ink)', opacity: 0.75, fontSize: 11.5, textDecoration: 'underline', textUnderlineOffset: 3, cursor: 'pointer', padding: 4 }}
       >
         ลืมรหัสผ่าน?
       </button>
@@ -282,7 +282,7 @@ function Field({ icon, label, value, onChange, type = 'text', placeholder, autoC
           // Bug fix (mobile fit): a text input under 16px makes iOS Safari auto-zoom the
           // whole page in on focus — the very first thing anyone does on this app on their
           // phone is tap this field, so the zoom hit every single login on an iPhone/iPad.
-          style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: `13px ${valid == null ? 14 : 34}px 13px 36px`, fontSize: 16, minHeight: 46 }}
+          style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--login-ink)', borderRadius: 10, padding: `13px ${valid == null ? 14 : 34}px 13px 36px`, fontSize: 16, minHeight: 46 }}
         />
         {valid != null && (
           <span aria-hidden="true" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: valid ? 'var(--green-bright)' : 'var(--red)', animation: 'checkPop .25s var(--ease-spring)' }}>{valid ? '✓' : '✗'}</span>
@@ -307,7 +307,7 @@ function PasswordField({ value, onChange, placeholder, autoComplete, valid }: { 
           autoComplete={autoComplete}
           required
           className="login-field"
-          style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--ink-soft)', borderRadius: 10, padding: `13px ${valid == null ? 40 : 64}px 13px 36px`, fontSize: 16, minHeight: 46 }}
+          style={{ width: '100%', border: '1px solid rgba(255,255,255,.22)', background: 'rgba(255,255,255,.08)', color: 'var(--login-ink)', borderRadius: 10, padding: `13px ${valid == null ? 40 : 64}px 13px 36px`, fontSize: 16, minHeight: 46 }}
         />
         {/* Sits clear of the show/hide button (right: 6, 32px wide) with a visible gap between
             the two — cramped together they used to read as one smudged icon on a phone screen. */}
@@ -319,7 +319,7 @@ function PasswordField({ value, onChange, placeholder, autoComplete, valid }: { 
           onClick={() => setShow((s) => !s)}
           aria-label={show ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
           className="press-spring"
-          style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 0, background: 'transparent', color: 'var(--ink-soft)', opacity: 0.75, width: 32, height: 32, borderRadius: 8, fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 0, background: 'transparent', color: 'var(--login-ink)', opacity: 0.75, width: 32, height: 32, borderRadius: 8, fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         >
           {show ? '🙈' : '👁️'}
         </button>
