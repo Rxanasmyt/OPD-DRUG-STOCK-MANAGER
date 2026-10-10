@@ -546,6 +546,12 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
   filter: blur(40px); opacity: .55; animation: meshDrift 14s ease-in-out infinite;
   will-change: transform;
 }
+/* Real-world request: "อยากปรับให้หน้า login ดูทางการสำหรับใช้ในรพ." — a slowly drifting glow
+   reads as ambient consumer-app chrome; a hospital record system wants to feel steady and
+   official instead. Login-only modifier (the shared .mesh-bg class above is also App.tsx's header
+   on every screen, which keeps its drift) that freezes the same blobs in place — still gives the
+   backdrop depth, just without the "lava lamp" motion. */
+.mesh-bg--static::before, .mesh-bg--static::after { animation: none; }
 /* Same two-tone language the real hospital crest uses — teal dominant, one coral accent, not
    two competing greens. */
 .mesh-bg::before { top: -60%; left: -30%; background: radial-gradient(circle, rgba(2,176,174,.5), transparent 60%); }
