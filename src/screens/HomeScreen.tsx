@@ -215,7 +215,7 @@ export default function HomeScreen() {
           className="press-spring"
           style={{ display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', border: 0, borderRadius: 16, background: 'linear-gradient(135deg, var(--green) 0%, var(--green-dark) 100%)', color: 'var(--ink-soft)', padding: '15px 16px', minHeight: 74, boxShadow: 'var(--shadow-md)' }}
         >
-          <span aria-hidden="true" style={{ width: 38, height: 38, borderRadius: 12, background: 'rgba(255,255,255,.16)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flex: 'none' }}>⇄</span>
+          <span aria-hidden="true" style={{ width: 38, height: 38, borderRadius: 12, background: 'rgba(255,255,255,.16)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flex: 'none' }}>🔄</span>
           <span style={{ minWidth: 0 }}>
             <div style={{ fontSize: 15, fontWeight: 700 }}>เติมหน้างาน</div>
             <div style={{ fontSize: 11.5, opacity: .78, marginTop: 2, lineHeight: 1.4 }}>substock → ชั้นจ่ายยา · FEFO อัตโนมัติ</div>
@@ -226,7 +226,7 @@ export default function HomeScreen() {
           className="press-spring"
           style={{ display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', border: '1px solid var(--border)', borderRadius: 16, background: 'var(--bg-card)', color: 'var(--ink)', padding: '15px 16px', minHeight: 74, boxShadow: 'var(--shadow-xs)' }}
         >
-          <span aria-hidden="true" style={{ width: 38, height: 38, borderRadius: 12, background: 'var(--green-tint)', color: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flex: 'none' }}>⬓</span>
+          <span aria-hidden="true" style={{ width: 38, height: 38, borderRadius: 12, background: 'var(--green-tint)', color: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flex: 'none' }}>📦</span>
           <span style={{ minWidth: 0 }}>
             <div style={{ fontSize: 15, fontWeight: 700 }}>รับยาเข้า substock</div>
             <div className="muted" style={{ fontSize: 11.5, marginTop: 2, lineHeight: 1.4 }}>ตามใบเบิกจากคลังยาใหญ่</div>

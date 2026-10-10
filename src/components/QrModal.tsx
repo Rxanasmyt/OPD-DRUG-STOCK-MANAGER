@@ -12,12 +12,12 @@ import { QrScanner } from './QrScanner';
 // identical scan screens — same black background, same green frame, same green sweep — with
 // only the title/desc text (easy to miss mid-scan) telling them apart. Reported confusion:
 // "จพ.เภสัชสแกนแล้วไม่มึนว่าอยู่หน้าไหน" wants color AND shape both different, not just text.
-// Amber for รับเข้า (matches the ⬓ receive nav icon), green for เติมหน้างาน (matches the ⇄
+// Amber for รับเข้า (matches the 📦 receive nav icon), green for เติมหน้างาน (matches the 🔄
 // transfer nav icon) — same colors those two already wear everywhere else in the app, so this
 // isn't a new color vocabulary to learn, just the existing one carried into the scanner too.
 const MODE_THEME: Record<'receive' | 'transfer' | 'other', { accent: string; accentRgb: string; icon: string; flow: string; corner: 'square' | 'arrow' }> = {
-  receive: { accent: '#e0a94a', accentRgb: '224,169,74', icon: '⬓', flow: 'คลังใหญ่ → substock', corner: 'square' },
-  transfer: { accent: '#5adc8c', accentRgb: '90,220,140', icon: '⇄', flow: 'substock → ชั้นจ่ายยา', corner: 'arrow' },
+  receive: { accent: '#e0a94a', accentRgb: '224,169,74', icon: '📦', flow: 'คลังใหญ่ → substock', corner: 'square' },
+  transfer: { accent: '#5adc8c', accentRgb: '90,220,140', icon: '🔄', flow: 'substock → ชั้นจ่ายยา', corner: 'arrow' },
   other: { accent: '#5adc8c', accentRgb: '90,220,140', icon: '◈', flow: '', corner: 'square' },
 };
 
