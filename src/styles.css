@@ -86,8 +86,22 @@
      var(--login-bg) in dark mode was ~1.1:1 (vs a healthy ~5.2:1 in light mode, WCAG AA needs
      4.5:1) — the typed text in the username/password fields themselves was included, genuinely
      unreadable, not just dim. These two tokens are deliberately NOT redefined in the
-     [data-theme='dark'] block below (unlike every other --ink*/--green* token) — LoginScreen's
-     own backdrop never gets brighter in dark mode, so its foreground tokens must stay fixed too.
+     [data-theme='dark'] block below (unlike every other --ink- or --green-prefixed token) —
+     LoginScreen's own backdrop never gets brighter in dark mode, so its foreground tokens must
+     stay fixed too.
+
+     Bug fix: this comment used to write that "--ink"/"--green" pairing as a single wildcard
+     shorthand, asterisk immediately followed by a forward slash, which is the two-character
+     sequence CSS uses to end a comment — so it closed this comment early, right there. Everything
+     from that point up to the comment's real closing marker below got parsed as actual CSS
+     instead of comment text, which silently corrupted the very next declaration:
+     --login-ink: #f2f5ef; was dropped by the parser's error recovery (while --login-ink-contrast
+     on the following line survived, being a clean statement the parser could resync on). Every
+     var(--login-ink) use in LoginScreen.tsx — the KPNHOS title, the submit button's background,
+     the lock-icon badge, the checkbox accent color, the feature-list icon badges — was silently
+     falling back to an inherited/initial value instead of the intended off-white, in production,
+     since this comment first shipped. Moral: never spell out that two-character close-comment
+     sequence inside a CSS comment's own prose, however incidental.
   */
   --login-ink: #f2f5ef;
   --login-ink-contrast: #12211a;
