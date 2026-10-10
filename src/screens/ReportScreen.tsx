@@ -1,6 +1,6 @@
 import { useApp } from '../store/AppContext';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes } from '../store/selectors';
+import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes, discrepancyByCategory } from '../store/selectors';
 import { nf, thDate, isoDate, fiscalYearStartIso, DAY } from '../utils/format';
 import type { ReportTab, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, DrugReturnRecord } from '../types';
 import { categoryLabel } from '../data/categories';
@@ -145,12 +145,18 @@ export default function ReportScreen() {
   // exactly what a reader would get by adding up the rows they can actually see.
   const catTotalValue = catRows.reduce((s2, r) => s2 + Math.round(r.value), 0);
 
+  const discAllTyped = state.txs.filter((x) => DISC_TYPES.indexOf(x.type) >= 0);
   const discQ = discSearch.trim().toLowerCase();
-  const discRows = state.txs
-    .filter((x) => DISC_TYPES.indexOf(x.type) >= 0)
+  const discRows = discAllTyped
     .filter((x) => discFilter === 'all' || x.type === discFilter)
     .filter((x) => !discQ || x.name.toLowerCase().indexOf(discQ) >= 0)
     .slice(0, 60);
+  // Real-world request: "หมวดไหนเสียบ่อยผิดปกติ" — off `discAllTyped` (the whole recent
+  // discrepancy-type dataset), deliberately NOT `discRows` (the user's own current type/search
+  // filter on the Discrepancy-log tab) — a pattern insight should reflect the real picture
+  // regardless of whatever filter someone happens to have picked on a different tab.
+  const discByCategory = discrepancyByCategory(discAllTyped, meds);
+  const discByCategoryTotal = discByCategory.reduce((s2, c) => s2 + c.count, 0);
 
   // "🧠 วิเคราะห์อัตโนมัติ" — real numbers computed on-device from usage data already synced
   // (used30/usedPrev30 from recomputeUsageStats/commitUsageImport), not a call to any AI
@@ -638,6 +644,44 @@ export default function ReportScreen() {
                     นิ่งดีแล้ว {nf(parOutcomesStable.length)} รายการ — เฉพาะรายการที่ปรับมาแล้วอย่างน้อย 14 วัน เทียบ used30/usedPrev30 ปัจจุบันเท่านั้น (ย้อนหลัง 60 วัน)
                   </div>
                 )}
+              </>
+            )}
+
+            {/* Real-world request: "หมวดไหนเสียบ่อยผิดปกติ (อาจบ่งชี้ปัญหา process ไม่ใช่แค่
+                สุ่ม)" — the Discrepancy log already lists every adjust/return/damaged/expired/
+                count/reconcile_hosxp row one at a time, but nothing summed them up by drug
+                category to surface a pattern a reader skimming one row at a time would never
+                notice. Gated at 3+ total so a near-empty system doesn't show a hollow "top
+                category" off one or two incidents. */}
+            {discByCategoryTotal >= 3 && (
+              <>
+                <div style={{ fontSize: 13, margin: '16px 2px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="ai-text" style={{ fontWeight: 800 }}>📦 หมวดยาที่มีรายการผิดปกติบ่อย</span>
+                </div>
+                <div className="card stagger" style={{ overflow: 'hidden' }}>
+                  {discByCategory.slice(0, 5).map((c) => {
+                    const typeLabel = Object.entries(c.byType)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([t, n]) => DISC_TYPE_LABEL[t] + ' ' + n)
+                      .join(', ');
+                    const share = Math.round((c.count / discByCategoryTotal) * 100);
+                    return (
+                      <div key={c.category} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', minWidth: 0 }}>{categoryLabel(c.category)}</span>
+                          {/* Same 40% threshold usageAnomalies already uses elsewhere on this
+                              tab for "sharply enough to flag" — one category eating that much of
+                              all recent discrepancies is a real signal, not noise. */}
+                          <span style={{ fontSize: 13, fontWeight: 700, color: share >= 40 ? 'var(--red)' : 'var(--ink)', flex: 'none' }}>{nf(c.count)} ครั้ง ({share}%)</span>
+                        </div>
+                        <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>{typeLabel}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="muted" style={{ fontSize: 11, lineHeight: 1.6, padding: '6px 2px 0' }}>
+                  นับจากรายการปรับยอด/คืนยา/ยาเสีย/หมดอายุ/นับสต็อก/นำเข้า HOSxP ล่าสุดในระบบ {nf(discByCategoryTotal)} รายการ
+                </div>
               </>
             )}
           </>

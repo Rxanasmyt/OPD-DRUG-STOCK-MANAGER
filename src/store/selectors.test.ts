@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import type { AppState, Med, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord } from '../types';
+import type { AppState, Med, Tx, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord } from '../types';
 import {
   wardOf, matchesWard, binFor, binDisplayAll, floorMinOf, isUrgentLow, needsWarehouseRequest,
   lastReconcileDateIso, subQty, usageAnomalies, dailyUsageRate,
   daysOfStockLeft, fefoLot, toneFor, subTone, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
   categoryOf, categoryStats, parAnomaliesFor, packStep, isOnStockHold, routeOf, effectiveRouteOf,
   topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes,
+  discrepancyByCategory,
   monthlyDaySplits, boxBreakdownLabel, halfOfMaxRounded, isNewerVersionAvailable,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
@@ -339,6 +340,51 @@ describe('usageByCategory', () => {
       { category: 'antimicrobial', qty: 100, value: 900 },
       { category: 'pain', qty: 200, value: 150 },
     ]);
+  });
+});
+
+describe('discrepancyByCategory', () => {
+  function tx(overrides: Partial<Tx> = {}): Tx {
+    return { id: 't1', type: 'adjust', name: 'Test Drug', qty: -1, unit: 'เม็ด', by: 'ทดสอบ', ts: Date.now(), ...overrides };
+  }
+
+  it('groups rows by the matched med\'s category, counting per type, sorted by total count descending', () => {
+    const meds = [
+      med({ id: 'a', name: 'Paracetamol', category: 'pain' }),
+      med({ id: 'b', name: 'Amoxicillin', category: 'antimicrobial' }),
+    ];
+    const rows = [
+      tx({ id: 't1', medId: 'a', type: 'adjust' }),
+      tx({ id: 't2', medId: 'a', type: 'expired' }),
+      tx({ id: 't3', medId: 'b', type: 'damaged' }),
+    ];
+    const out = discrepancyByCategory(rows, meds);
+    expect(out).toEqual([
+      { category: 'pain', count: 2, byType: { adjust: 1, expired: 1 } },
+      { category: 'antimicrobial', count: 1, byType: { damaged: 1 } },
+    ]);
+  });
+
+  it('falls back to matching by name when medId is absent, only if the name is unambiguous', () => {
+    const meds = [med({ id: 'a', name: 'Paracetamol', category: 'pain' })];
+    const rows = [tx({ name: 'Paracetamol', type: 'count' })];
+    const out = discrepancyByCategory(rows, meds);
+    expect(out).toEqual([{ category: 'pain', count: 1, byType: { count: 1 } }]);
+  });
+
+  it('skips a row with no medId whose name matches two different active meds — same disambiguation fetchStockAsOf already uses', () => {
+    const meds = [
+      med({ id: 'a', name: 'Same Name', category: 'pain' }),
+      med({ id: 'b', name: 'Same Name', category: 'antimicrobial' }),
+    ];
+    const rows = [tx({ name: 'Same Name', type: 'adjust' })];
+    expect(discrepancyByCategory(rows, meds)).toEqual([]);
+  });
+
+  it('skips a row that cannot be matched to any live med at all', () => {
+    const meds = [med({ id: 'a', name: 'Paracetamol', category: 'pain' })];
+    const rows = [tx({ name: 'Nonexistent Drug', type: 'adjust' })];
+    expect(discrepancyByCategory(rows, meds)).toEqual([]);
   });
 });
 
