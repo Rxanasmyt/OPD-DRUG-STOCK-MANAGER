@@ -75,6 +75,22 @@
   --login-bg: radial-gradient(120% 100% at 14% -10%, #1aa8a6 0%, var(--green) 46%, var(--green-dark) 100%);
   --glass-bg: rgba(255, 255, 255, .88);
   --sticky-glass: rgba(247, 246, 242, .82);
+
+  /* Bug fix (real-world request: "หน้า Login...ยังไม่สวยเลย"): LoginScreen.tsx used
+     var(--ink-soft)/var(--ink) for every foreground element sitting directly on var(--login-bg)
+     — fine in light mode (ink-soft is near-white there), but var(--ink-soft)/var(--ink) INVERT
+     meaning in dark mode by design (they pair with surfaces like var(--green)/var(--bg-card)
+     that also flip brightness between themes). var(--login-bg)'s own dark variant stays dark
+     rather than brightening the way var(--green) does, so pairing it with the inverting token
+     broke contrast specifically here: measured contrast ratio of var(--ink-soft) text against
+     var(--login-bg) in dark mode was ~1.1:1 (vs a healthy ~5.2:1 in light mode, WCAG AA needs
+     4.5:1) — the typed text in the username/password fields themselves was included, genuinely
+     unreadable, not just dim. These two tokens are deliberately NOT redefined in the
+     [data-theme='dark'] block below (unlike every other --ink*/--green* token) — LoginScreen's
+     own backdrop never gets brighter in dark mode, so its foreground tokens must stay fixed too.
+  */
+  --login-ink: #f2f5ef;
+  --login-ink-contrast: #12211a;
 }
 
 /* Dark mode — a real, toggleable theme (see ThemeToggle / useApp().theme), not just a
@@ -463,6 +479,20 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
   backdrop-filter: blur(10px) saturate(1.4);
   -webkit-backdrop-filter: blur(10px) saturate(1.4);
   border-bottom: 1px solid var(--border-soft);
+}
+
+/* Bug fix (real-world request: "หน้ารายงาน...ยังไม่สวยเลย" — screenshotted and found): a
+   horizontally-scrolling chip row (ReportScreen's own report-tab strip is the one actually
+   screenshotted — 10 tabs, only ~3 fit) ended in a hard, unsignaled cut edge with zero visual
+   cue that more content sits off-screen — a real user has no reason to expect "ยอดคงคลังย้อนหลัง"/
+   "รายงานคืนยา" (tabs 9-10) even exist. A fade mask on the scroll container's own edges reads
+   as "this continues" the same way it does in most native app tab strips, without needing to
+   track scroll position in JS: fading BOTH edges (not just the trailing one) is a deliberate,
+   small over-fade at the very start/end where nothing is actually cut off, in exchange for not
+   needing scroll-position tracking just to flip it off exactly there. */
+.scroll-fade-x {
+  mask-image: linear-gradient(to right, transparent 0, black 20px, black calc(100% - 28px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, black 20px, black calc(100% - 28px), transparent 100%);
 }
 
 .skeleton {

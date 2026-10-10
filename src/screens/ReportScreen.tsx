@@ -339,7 +339,7 @@ export default function ReportScreen() {
   return (
     <div style={{ animation: 'fade .18s' }}>
       <div style={{ padding: '12px 14px 10px', position: 'sticky', top: 0, zIndex: 2 }} className="sticky-bar">
-        <div style={{ display: 'flex', gap: 7, overflowX: 'auto', marginBottom: 9 }}>
+        <div className="scroll-fade-x" style={{ display: 'flex', gap: 7, overflowX: 'auto', marginBottom: 9 }}>
           {TABS.map(([t, label]) => {
             const isAi = t === 'insights';
             const active = state.reportTab === t;
@@ -646,7 +646,7 @@ export default function ReportScreen() {
         {state.reportTab === 'disc' && (
           <>
             <SearchInput value={discSearch} onChange={setDiscSearch} placeholder="ค้นหาชื่อยาในประวัตินี้" style={{ marginBottom: 9 }} />
-            <div style={{ display: 'flex', gap: 7, marginBottom: 11, overflowX: 'auto', paddingBottom: 2 }}>
+            <div className="scroll-fade-x" style={{ display: 'flex', gap: 7, marginBottom: 11, overflowX: 'auto', paddingBottom: 2 }}>
               <button className="chip" style={chip(discFilter === 'all')} onClick={() => setDiscFilter('all')}>ทั้งหมด</button>
               {DISC_TYPES.map((t) => (
                 <button key={t} className="chip" style={chip(discFilter === t)} onClick={() => setDiscFilter(t)}>{DISC_TYPE_LABEL[t]}</button>
