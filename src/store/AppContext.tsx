@@ -56,6 +56,20 @@ const PERSIST_MAX_AGE_MS = 8 * 60 * 60 * 1000; // one work shift — older than 
 function cartStorageKey(uid: string): string { return 'opd-cart-' + uid; }
 function recvStorageKey(uid: string): string { return 'opd-recv-' + uid; }
 function returnCartStorageKey(uid: string): string { return 'opd-returncart-' + uid; }
+// Bug fix (stability audit finding): cart/recvItems/returnCart got crash recovery above, but
+// four other in-progress forms that also cost real staff time to rebuild — adjust/คืนยา,
+// ย้ายยาระหว่างชั้นวาง, the pasted/parsed HOSxP reconciliation text, and a parsed usage-import
+// file — stayed purely in-memory, same gap the comment above this block already describes for
+// cart/recvItems ("a crashed tab, an accidental swipe-back/refresh, or the tablet's own hourly
+// SW-update check landing badly"). Same key-per-uid pattern, same 8-hour staleness window.
+function adjStorageKey(uid: string): string { return 'opd-adj-' + uid; }
+function wmStorageKey(uid: string): string { return 'opd-wm-' + uid; }
+function hosxpStorageKey(uid: string): string { return 'opd-hosxp-' + uid; }
+function usageImportStorageKey(uid: string): string { return 'opd-usageimport-' + uid; }
+type AdjPersisted = { adjType: AppState['adjType']; adjSearch: string; adjMed: string | null; adjQty: string; adjReason: string; adjNote: string; adjHn: string };
+type WmPersisted = { wmFromSearch: string; wmFromMed: string | null; wmToSearch: string; wmToMed: string | null; wmQty: string; wmReason: string };
+type HosxpPersisted = { hosxpText: string; hosxpRows: AppState['hosxpRows']; hosxpConfirmFuzzy: boolean; hosxpConfirmSingleDay: boolean };
+type UsageImportPersisted = { usageDateFrom: string; usageDateTo: string; usageFileName: string | null; usageRows: AppState['usageRows']; usageConfirmFuzzy: boolean };
 function writePersisted<T>(key: string, value: T): void {
   try {
     localStorage.setItem(key, JSON.stringify({ ts: Date.now(), value }));
@@ -825,12 +839,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const cart = readPersisted<Record<string, number>>(cartStorageKey(state.myUid));
     const recvItems = readPersisted<RecvItem[]>(recvStorageKey(state.myUid));
     const returnCart = readPersisted<ReturnCartItem[]>(returnCartStorageKey(state.myUid));
+    const adj = readPersisted<AdjPersisted>(adjStorageKey(state.myUid));
+    const wm = readPersisted<WmPersisted>(wmStorageKey(state.myUid));
+    const hosxp = readPersisted<HosxpPersisted>(hosxpStorageKey(state.myUid));
+    const usageImport = readPersisted<UsageImportPersisted>(usageImportStorageKey(state.myUid));
     const hasCart = cart && Object.keys(cart).length > 0;
     const hasRecv = recvItems && recvItems.length > 0;
     const hasReturnCart = returnCart && returnCart.length > 0;
-    if (!hasCart && !hasRecv && !hasReturnCart) return;
-    patch({ ...(hasCart ? { cart: cart! } : {}), ...(hasRecv ? { recvItems: recvItems! } : {}), ...(hasReturnCart ? { returnCart: returnCart! } : {}) });
-    const parts = [hasCart && 'ตะกร้าเติมหน้างาน', hasRecv && 'รายการรับเข้า', hasReturnCart && 'ตะกร้าคืนยา'].filter((x): x is string => !!x);
+    const hasAdj = !!adj?.adjMed;
+    const hasWm = !!(wm?.wmFromMed || wm?.wmToMed);
+    const hasHosxp = !!(hosxp && ((hosxp.hosxpRows && hosxp.hosxpRows.length > 0) || hosxp.hosxpText.trim()));
+    const hasUsageImport = !!(usageImport && ((usageImport.usageRows && usageImport.usageRows.length > 0) || usageImport.usageFileName));
+    if (!hasCart && !hasRecv && !hasReturnCart && !hasAdj && !hasWm && !hasHosxp && !hasUsageImport) return;
+    patch({
+      ...(hasCart ? { cart: cart! } : {}), ...(hasRecv ? { recvItems: recvItems! } : {}), ...(hasReturnCart ? { returnCart: returnCart! } : {}),
+      ...(hasAdj ? adj! : {}), ...(hasWm ? wm! : {}), ...(hasHosxp ? hosxp! : {}), ...(hasUsageImport ? usageImport! : {}),
+    });
+    const parts = [
+      hasCart && 'ตะกร้าเติมหน้างาน', hasRecv && 'รายการรับเข้า', hasReturnCart && 'ตะกร้าคืนยา',
+      hasAdj && 'แบบฟอร์มปรับยอด/คืนยา', hasWm && 'แบบฟอร์มย้ายยาระหว่างชั้นวาง',
+      hasHosxp && 'ข้อมูลนำเข้า HOSxP', hasUsageImport && 'ข้อมูลนำเข้าสถิติการใช้ยา',
+    ].filter((x): x is string => !!x);
     const joined = parts.length <= 1 ? (parts[0] || '') : parts.slice(0, -1).join(', ') + 'และ' + parts[parts.length - 1];
     toast('กู้' + joined + 'ที่ยังไม่บันทึกจากก่อนหน้านี้คืนแล้ว');
   }, [state.myUid, patch, toast]);
@@ -850,6 +879,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!state.myUid) return;
     writePersisted(returnCartStorageKey(state.myUid), state.returnCart);
   }, [state.myUid, state.returnCart]);
+  useEffect(() => {
+    if (!state.myUid) return;
+    const v: AdjPersisted = { adjType: state.adjType, adjSearch: state.adjSearch, adjMed: state.adjMed, adjQty: state.adjQty, adjReason: state.adjReason, adjNote: state.adjNote, adjHn: state.adjHn };
+    writePersisted(adjStorageKey(state.myUid), v);
+  }, [state.myUid, state.adjType, state.adjSearch, state.adjMed, state.adjQty, state.adjReason, state.adjNote, state.adjHn]);
+  useEffect(() => {
+    if (!state.myUid) return;
+    const v: WmPersisted = { wmFromSearch: state.wmFromSearch, wmFromMed: state.wmFromMed, wmToSearch: state.wmToSearch, wmToMed: state.wmToMed, wmQty: state.wmQty, wmReason: state.wmReason };
+    writePersisted(wmStorageKey(state.myUid), v);
+  }, [state.myUid, state.wmFromSearch, state.wmFromMed, state.wmToSearch, state.wmToMed, state.wmQty, state.wmReason]);
+  useEffect(() => {
+    if (!state.myUid) return;
+    const v: HosxpPersisted = { hosxpText: state.hosxpText, hosxpRows: state.hosxpRows, hosxpConfirmFuzzy: state.hosxpConfirmFuzzy, hosxpConfirmSingleDay: state.hosxpConfirmSingleDay };
+    writePersisted(hosxpStorageKey(state.myUid), v);
+  }, [state.myUid, state.hosxpText, state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpConfirmSingleDay]);
+  useEffect(() => {
+    if (!state.myUid) return;
+    const v: UsageImportPersisted = { usageDateFrom: state.usageDateFrom, usageDateTo: state.usageDateTo, usageFileName: state.usageFileName, usageRows: state.usageRows, usageConfirmFuzzy: state.usageConfirmFuzzy };
+    writePersisted(usageImportStorageKey(state.myUid), v);
+  }, [state.myUid, state.usageDateFrom, state.usageDateTo, state.usageFileName, state.usageRows, state.usageConfirmFuzzy]);
 
   const enableExpiryNotify = useCallback(async () => {
     const perm = await requestPermission();
