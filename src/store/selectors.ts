@@ -307,6 +307,54 @@ export function discrepancyByCategory(rows: Tx[], meds: Med[]): CategoryDiscAgg[
   return Array.from(byCat.values()).sort((a, b) => b.count - a.count);
 }
 
+// Must stay byte-for-byte identical to the 'แพ้ยา/ผลข้างเคียงการรักษา' entry in AdjustScreen.tsx's
+// local REASONS.return array — that constant isn't exported (no cross-screen import precedent
+// elsewhere in this codebase), so this is a deliberate hand-kept duplicate, same "kept in sync by
+// hand" convention scripts/collect-daily-metrics.mjs already uses for selector logic it can't import.
+const ADR_RETURN_REASON = 'แพ้ยา/ผลข้างเคียงการรักษา';
+
+export interface AdrReturnAgg { medId: string; medName: string; count: number; totalQty: number; lastTs: number }
+
+/** Real-world request: "ควรมีข้อมูลอะไรอีกครับที่ควรเก็บข้อมูลแล้วสามารถดึงรายงานมาวิเคราห์ผลได้" —
+ * tracing the data lifecycle found the return-reason picker (AdjustScreen) already writes a
+ * structured ADR/side-effect reason onto every return-type Tx and DrugReturnRecord, but nothing
+ * anywhere ever reads it back out. A single ADR return can be one patient's one-off reaction: not
+ * useful signal. The SAME drug showing up 2+ times is a different story — possibly a batch/lot
+ * problem, a formulation a lot of patients can't tolerate, or a prescribing pattern worth a
+ * pharmacist's attention — and today nothing on any report screen would ever surface that, since
+ * the "returns" tab only prints `reason` as small per-row inline text with no aggregation.
+ * `rows` takes the same "caller already decided the input range/type, this never re-filters by
+ * date" shape as discrepancyByCategory above (ReportScreen passes the same `discAllTyped`), and
+ * reuses its exact medId-primary/name-fallback-if-unambiguous disambiguation — skip a row rather
+ * than risk crediting the wrong med when two active meds share a name. */
+export function repeatAdrReturns(rows: Tx[], meds: Med[]): AdrReturnAgg[] {
+  const medById = new Map(meds.map((m) => [m.id, m]));
+  const medsByName = new Map<string, Med[]>();
+  for (const m of meds) {
+    const arr = medsByName.get(m.name) || [];
+    arr.push(m);
+    medsByName.set(m.name, arr);
+  }
+  const byMed = new Map<string, AdrReturnAgg>();
+  for (const x of rows) {
+    if (x.type !== 'return' || x.reason !== ADR_RETURN_REASON) continue;
+    let med = x.medId ? medById.get(x.medId) : undefined;
+    if (!med) {
+      const candidates = medsByName.get(x.name);
+      if (candidates && candidates.length === 1) med = candidates[0];
+    }
+    if (!med) continue;
+    const cur = byMed.get(med.id) || { medId: med.id, medName: med.name, count: 0, totalQty: 0, lastTs: 0 };
+    cur.count += 1;
+    cur.totalQty += Math.abs(x.qty);
+    cur.lastTs = Math.max(cur.lastTs, x.ts);
+    byMed.set(med.id, cur);
+  }
+  return Array.from(byMed.values())
+    .filter((a) => a.count >= 2)
+    .sort((a, b) => b.count - a.count || b.lastTs - a.lastTs);
+}
+
 export interface MonthUsageAgg { monthKey: string; qty: number; value: number }
 
 /** Groups by monthKey — commitUsageImport() (AppContext.tsx) now writes one UsageHistoryRecord

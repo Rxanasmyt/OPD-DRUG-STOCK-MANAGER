@@ -6,7 +6,7 @@ import {
   daysOfStockLeft, fefoLot, toneFor, subTone, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
   categoryOf, categoryStats, parAnomaliesFor, packStep, isOnStockHold, routeOf, effectiveRouteOf,
   topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes,
-  discrepancyByCategory,
+  discrepancyByCategory, repeatAdrReturns,
   monthlyDaySplits, boxBreakdownLabel, halfOfMaxRounded, isNewerVersionAvailable,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
@@ -385,6 +385,79 @@ describe('discrepancyByCategory', () => {
     const meds = [med({ id: 'a', name: 'Paracetamol', category: 'pain' })];
     const rows = [tx({ name: 'Nonexistent Drug', type: 'adjust' })];
     expect(discrepancyByCategory(rows, meds)).toEqual([]);
+  });
+});
+
+describe('repeatAdrReturns', () => {
+  const ADR = 'แพ้ยา/ผลข้างเคียงการรักษา';
+  function tx(overrides: Partial<Tx> = {}): Tx {
+    return { id: 't1', type: 'return', name: 'Test Drug', qty: -1, unit: 'เม็ด', by: 'ทดสอบ', ts: 1000, ...overrides };
+  }
+
+  it('flags a med with 2+ ADR-reason returns, sorted by count descending', () => {
+    const meds = [
+      med({ id: 'a', name: 'Paracetamol' }),
+      med({ id: 'b', name: 'Amoxicillin' }),
+    ];
+    const rows = [
+      tx({ id: 't1', medId: 'a', reason: ADR, qty: -2, ts: 1000 }),
+      tx({ id: 't2', medId: 'a', reason: ADR, qty: -1, ts: 2000 }),
+      tx({ id: 't3', medId: 'a', reason: ADR, qty: -1, ts: 3000 }),
+      tx({ id: 't4', medId: 'b', reason: ADR, qty: -1, ts: 1500 }),
+      tx({ id: 't5', medId: 'b', reason: ADR, qty: -1, ts: 2500 }),
+    ];
+    const out = repeatAdrReturns(rows, meds);
+    expect(out).toEqual([
+      { medId: 'a', medName: 'Paracetamol', count: 3, totalQty: 4, lastTs: 3000 },
+      { medId: 'b', medName: 'Amoxicillin', count: 2, totalQty: 2, lastTs: 2500 },
+    ]);
+  });
+
+  it('does not flag a med with only a single ADR return — one-off reaction is not a pattern', () => {
+    const meds = [med({ id: 'a', name: 'Paracetamol' })];
+    const rows = [tx({ medId: 'a', reason: ADR })];
+    expect(repeatAdrReturns(rows, meds)).toEqual([]);
+  });
+
+  it('ignores a non-return type even if it happens to carry the same reason string', () => {
+    const meds = [med({ id: 'a', name: 'Paracetamol' })];
+    const rows = [
+      tx({ id: 't1', type: 'adjust', medId: 'a', reason: ADR }),
+      tx({ id: 't2', type: 'adjust', medId: 'a', reason: ADR }),
+    ];
+    expect(repeatAdrReturns(rows, meds)).toEqual([]);
+  });
+
+  it('ignores a return with a different reason', () => {
+    const meds = [med({ id: 'a', name: 'Paracetamol' })];
+    const rows = [
+      tx({ id: 't1', medId: 'a', reason: 'Non-compliance' }),
+      tx({ id: 't2', medId: 'a', reason: 'Non-compliance' }),
+    ];
+    expect(repeatAdrReturns(rows, meds)).toEqual([]);
+  });
+
+  it('falls back to matching by name when medId is absent, only if the name is unambiguous', () => {
+    const meds = [med({ id: 'a', name: 'Paracetamol' })];
+    const rows = [
+      tx({ id: 't1', name: 'Paracetamol', reason: ADR }),
+      tx({ id: 't2', name: 'Paracetamol', reason: ADR }),
+    ];
+    expect(repeatAdrReturns(rows, meds)).toEqual([
+      { medId: 'a', medName: 'Paracetamol', count: 2, totalQty: 2, lastTs: 1000 },
+    ]);
+  });
+
+  it('skips a row with no medId whose name matches two different active meds', () => {
+    const meds = [
+      med({ id: 'a', name: 'Same Name' }),
+      med({ id: 'b', name: 'Same Name' }),
+    ];
+    const rows = [
+      tx({ id: 't1', name: 'Same Name', reason: ADR }),
+      tx({ id: 't2', name: 'Same Name', reason: ADR }),
+    ];
+    expect(repeatAdrReturns(rows, meds)).toEqual([]);
   });
 });
 

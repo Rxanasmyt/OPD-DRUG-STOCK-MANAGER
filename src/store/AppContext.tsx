@@ -4619,7 +4619,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const header = [
       'วันที่', 'ยาที่ใช้งาน', 'คงเหลือหน้างาน', 'คงเหลือ substock', 'มูลค่าคงคลัง (บาท)',
       'ต่ำกว่า Min', 'เร่งด่วน', 'มูลค่าใกล้หมดอายุ', 'มูลค่าหมดอายุ',
-      'รับเข้า (จำนวน)', 'รับเข้า (ครั้ง)', 'เติมหน้างาน', 'จ่ายจริง (HOSxP)', 'ปรับยอด/คืน/หมดอายุ', 'ธุรกรรมรวม',
+      'รับเข้า (จำนวน)', 'รับเข้า (ครั้ง)', 'เติมหน้างาน', 'จ่ายจริง (HOSxP)', 'ปรับยอด/คืน/หมดอายุ',
+      'มูลค่าของเสียที่ตัดจริง', 'มูลค่าหมดอายุที่ตัดจริง', 'ธุรกรรมรวม',
       'เวลารอเบิกยาเฉลี่ย (ชม.)', 'เบิกที่อนุมัติวันนี้', 'เบิกค้างอนุมัติ (ปัจจุบัน)',
       'par ผิดพลาด', 'par ควรทบทวน', 'นับสต็อกพบส่วนต่าง', 'จับคู่ HOSxP ไม่ได้', 'ตัดยอด HOSxP วันนี้หรือไม่',
       'ผู้ใช้งานที่ทำรายการ', 'ยาขาดสต็อกจริง', 'ยาที่มีการใช้จริง',
@@ -4627,7 +4628,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const body = rows.map((r) => [
       r.date, r.activeMedCount, r.totalFloorQty, r.totalSubQty, r.totalStockValue,
       r.lowStockCount, r.urgentLowCount, r.nearExpiryValue, r.expiredValue,
-      r.receivedQty, r.receivedCount, r.transferredQty, r.dispensedQty, r.adjustQty, r.txCount,
+      r.receivedQty, r.receivedCount, r.transferredQty, r.dispensedQty, r.adjustQty,
+      Math.round(r.damagedLossValue || 0), Math.round(r.expiredLossValue || 0), r.txCount,
       r.receiveLeadTimeAvgHours != null ? Math.round(r.receiveLeadTimeAvgHours * 10) / 10 : '', r.receiveApprovedCount, r.receivePendingBacklog,
       r.parErrorCount, r.parReviewCount, r.countDiscrepancyCount, r.hosxpUnmatchedCount, r.reconciledToday ? 'ใช่' : 'ไม่ใช่',
       r.activeUserCount, r.stockoutCount, r.usedMedCount,

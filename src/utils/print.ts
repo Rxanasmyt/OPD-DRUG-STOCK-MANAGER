@@ -1021,6 +1021,19 @@ export function printKpiReportSheet(rows: DailyMetrics[], meta: { fromDate: stri
         return (totalHours / totalApproved).toFixed(1) + ' ชม.';
       })(),
     },
+    // `?? 0`: damagedLossValue/expiredLossValue are optional (see types.ts) — a dailyMetrics
+    // doc written before this field existed has neither, same reasoning as ReportScreen's
+    // on-screen kpiDamagedLossSum/kpiExpiredLossSum.
+    (() => {
+      const damaged = sum((r) => r.damagedLossValue ?? 0);
+      const expired = sum((r) => r.expiredLossValue ?? 0);
+      return {
+        label: 'มูลค่าเสีย/หมดอายุที่ตัดจริงช่วงนี้',
+        value: Math.round(damaged + expired).toLocaleString('en-US') + ' บาท',
+        note: 'ของเสีย ' + Math.round(damaged).toLocaleString('en-US') + ' · หมดอายุ ' + Math.round(expired).toLocaleString('en-US'),
+        tone: damaged + expired > 0 ? '#a15c00' : '#175554',
+      };
+    })(),
   ];
   const statCards = stats
     .map((s) => `<div class="stat"><div class="v" style="color:${s.tone || '#14211a'}">${escapeHtml(s.value)}</div><div class="l">${escapeHtml(s.label)}</div>${s.note ? `<div class="n">${escapeHtml(s.note)}</div>` : ''}</div>`)

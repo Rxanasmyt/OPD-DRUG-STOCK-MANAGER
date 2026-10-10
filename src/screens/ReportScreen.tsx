@@ -1,6 +1,6 @@
 import { useApp } from '../store/AppContext';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes, discrepancyByCategory } from '../store/selectors';
+import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes, discrepancyByCategory, repeatAdrReturns } from '../store/selectors';
 import { nf, thDate, isoDate, fiscalYearStartIso, DAY } from '../utils/format';
 import type { ReportTab, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, DrugReturnRecord } from '../types';
 import { categoryLabel } from '../data/categories';
@@ -157,6 +157,9 @@ export default function ReportScreen() {
   // regardless of whatever filter someone happens to have picked on a different tab.
   const discByCategory = discrepancyByCategory(discAllTyped, meds);
   const discByCategoryTotal = discByCategory.reduce((s2, c) => s2 + c.count, 0);
+  // Same `discAllTyped` input as discByCategory above — the whole recent discrepancy-type
+  // dataset, not whatever filter the Discrepancy-log tab's own type/search picker happens to have.
+  const repeatAdr = repeatAdrReturns(discAllTyped, meds);
 
   // "🧠 วิเคราะห์อัตโนมัติ" — real numbers computed on-device from usage data already synced
   // (used30/usedPrev30 from recomputeUsageStats/commitUsageImport), not a call to any AI
@@ -225,6 +228,12 @@ export default function ReportScreen() {
   }, [state.reportTab]);
   const kpiSum = (f: (r: DailyMetrics) => number) => kpiRows.reduce((s, r) => s + f(r), 0);
   const kpiLast = kpiRows[kpiRows.length - 1];
+  // `?? 0` here (unlike kpiSum's other callers): damagedLossValue/expiredLossValue are optional
+  // fields (see their own doc comment in types.ts) — a dailyMetrics doc written before this
+  // field existed has neither, and `undefined` through a plain `+` would turn the WHOLE range's
+  // sum into NaN the moment one old day's doc is included.
+  const kpiDamagedLossSum = kpiSum((r) => r.damagedLossValue ?? 0);
+  const kpiExpiredLossSum = kpiSum((r) => r.expiredLossValue ?? 0);
   const kpiReconcileMissedDays = kpiRows.filter((r) => !r.reconciledToday).length;
   // Rate (not a stored/averaged percentage) recomputed from the latest day's raw counts — a
   // rate averaged across days would be wrong the moment usedMedCount itself changes day to day.
@@ -684,6 +693,37 @@ export default function ReportScreen() {
                 </div>
               </>
             )}
+
+            {/* Real-world request: ADR/side-effect reason was already captured on every
+                return-type transaction (AdjustScreen's reason picker) but never surfaced
+                anywhere — one return tagged this way can be a single patient's one-off
+                reaction, nothing to act on; the SAME drug tagged 2+ times is a real signal a
+                pharmacist should see, which the flat "returns" tab's per-row reason text would
+                never make visible on its own. */}
+            {repeatAdr.length > 0 && (
+              <>
+                <div style={{ fontSize: 13, margin: '16px 2px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="ai-text" style={{ fontWeight: 800 }}>🩺 ยาที่มีรายงานแพ้ยา/ผลข้างเคียงซ้ำ</span>
+                </div>
+                <div className="card stagger" style={{ overflow: 'hidden' }}>
+                  {repeatAdr.slice(0, 5).map((a) => (
+                    <button
+                      key={a.medId}
+                      onClick={() => goSubstockCardFor(a.medId)}
+                      className="row-interactive"
+                      title="ดูบัตรสต็อกยานี้"
+                      style={{ display: 'flex', width: '100%', border: 0, background: 'transparent', textAlign: 'left', justifyContent: 'space-between', gap: 10, padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', alignItems: 'center' }}
+                    >
+                      <span style={{ fontSize: 13, minWidth: 0, color: 'var(--ink)' }}>{a.medName}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--red)', flex: 'none' }}>คืน {nf(a.count)} ครั้ง</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="muted" style={{ fontSize: 11, lineHeight: 1.6, padding: '6px 2px 0' }}>
+                  นับจากรายการคืนยาล่าสุดในระบบที่ระบุเหตุผล "แพ้ยา/ผลข้างเคียงการรักษา" ตั้งแต่ 2 ครั้งขึ้นไปของยาตัวเดียวกัน — ควรทบทวนว่าเป็นปัญหาของรุ่นผลิต/ล็อต หรือตัวยาเอง
+                </div>
+              </>
+            )}
           </>
         )}
 
@@ -809,6 +849,17 @@ export default function ReportScreen() {
                     label="เวลารอเบิกยาเฉลี่ย"
                     value={kpiLeadTimeWeightedHours != null ? kpiLeadTimeWeightedHours.toFixed(1) + ' ชม.' : '—'}
                     note={kpiLeadTimeWeightedHours != null ? nf(kpiSum((r) => r.receiveApprovedCount)) + ' รายการที่อนุมัติในช่วงนี้' : 'ไม่มีรายการเบิกที่อนุมัติในช่วงนี้'}
+                  />
+                  {/* Real-world request: "เก็บมูลค่าความเสียหาย/หมดอายุที่ตัดจริง" — unlike
+                      "มูลค่าคงคลังล่าสุด" above (a current-snapshot figure, only ever meaningful
+                      as of one date), this sums a real historical FLOW across the whole selected
+                      date range — "เสียไปจริงกี่บาทช่วงนี้" — so it's safe to add across many days
+                      the same way รับเข้า/จ่ายจริง above already are. */}
+                  <ExecStat
+                    label="มูลค่าเสีย/หมดอายุที่ตัดจริงช่วงนี้"
+                    value={nf(Math.round(kpiDamagedLossSum + kpiExpiredLossSum)) + ' บาท'}
+                    note={'ของเสีย ' + nf(Math.round(kpiDamagedLossSum)) + ' · หมดอายุ ' + nf(Math.round(kpiExpiredLossSum))}
+                    tone={kpiDamagedLossSum + kpiExpiredLossSum > 0 ? 'var(--amber)' : undefined}
                   />
                 </div>
 
