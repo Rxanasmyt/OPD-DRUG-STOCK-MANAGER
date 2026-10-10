@@ -57,12 +57,21 @@ const TITLES: Record<Screen, [string, string]> = {
 };
 
 const CAN_BACK: Screen[] = ['tconfirm', 'adjust', 'report', 'labels', 'settings', 'count', 'reconcile', 'admin', 'meds', 'wardmove', 'substockcard'];
+// Bug fix (real-world request, screenshotted from a real device: "อยากให้ดูดีกว่านี้มากๆๆ") —
+// these five used to be plain Unicode geometric/arrow symbols (▤ ⇄ ⇩ ⬓ ≡), each from a
+// different Unicode symbol block with its own stroke weight/style — on an actual phone this
+// rendered as a visibly mismatched set (one bold/filled glyph next to several thin ones), not a
+// coherent icon system, the one place in the whole app still doing that (everywhere else already
+// uses the same emoji "icon language" — see MoreScreen.tsx's own menu for the established
+// pattern). Swapped for emoji consistent with that pattern; 🔄/📦 also replace the exact same
+// ⇄/⬓ glyphs in HomeScreen.tsx's two quick-action buttons and QrModal.tsx's scan-purpose theme
+// (same meaning, same icon, everywhere it appears — not just here).
 const NAV_DEF: [Screen, string, string][] = [
-  ['home', 'หน้าหลัก', '▤'],
-  ['transfer', 'เติมหน้างาน', '⇄'],
-  ['reconcile', 'นำเข้า HOSxP', '⇩'],
-  ['receive', 'รับเข้า', '⬓'],
-  ['more', 'เพิ่มเติม', '≡'],
+  ['home', 'หน้าหลัก', '🏠'],
+  ['transfer', 'เติมหน้างาน', '🔄'],
+  ['reconcile', 'นำเข้า HOSxP', '🔃'],
+  ['receive', 'รับเข้า', '📦'],
+  ['more', 'เพิ่มเติม', '⚙️'],
 ];
 
 export default function App() {
