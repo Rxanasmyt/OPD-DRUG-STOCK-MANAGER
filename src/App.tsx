@@ -158,14 +158,20 @@ export default function App() {
           // Goes through the real browser history (see AppContext.tsx's popstate handler) rather
           // than calling back() directly, so this button and the physical/hardware back button
           // stay on the exact same stack instead of two that can drift out of sync.
-          <button onClick={() => history.back()} style={{ position: 'relative', border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 32, height: 32, borderRadius: 9, fontSize: 16, flex: 'none' }}>←</button>
+          // Bug fix (usability, real-device mobile UX audit): 32px was under this app's own
+          // ~44px tap-target convention (see ReceiveScreen's CardPeekButton) — this is the back
+          // button, present on every sub-screen, so an undersized hit area here is a mis-tap
+          // risk on every single "go back" tap in the app.
+          <button onClick={() => history.back()} style={{ position: 'relative', border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 44, height: 44, borderRadius: 12, fontSize: 18, flex: 'none' }}>←</button>
         ) : (
           // Real hospital crest, not just a screen title — every screen carries one now
           // (Login/SubstockCard/print sheets already did), but only shown here on the 5
           // bottom-nav root screens: a sub-screen already saw it on the way in, and this slot
-          // is the back button's the moment there's somewhere to go back to.
-          <div aria-hidden="true" style={{ position: 'relative', width: 32, height: 32, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, #ffffff, #f4f2ec)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 5, flex: 'none', boxShadow: '0 2px 8px -3px rgba(0,0,0,.35)' }}>
-            <HospitalCrest size={20} />
+          // is the back button's the moment there's somewhere to go back to. Sized to match the
+          // back button above (44px) so the header doesn't jump in height depending on which of
+          // the two this slot is showing.
+          <div aria-hidden="true" style={{ position: 'relative', width: 44, height: 44, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, #ffffff, #f4f2ec)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 7, flex: 'none', boxShadow: '0 2px 8px -3px rgba(0,0,0,.35)' }}>
+            <HospitalCrest size={26} />
           </div>
         )}
         <div key={state.screen + '|' + title} style={{ position: 'relative', minWidth: 0, flex: 1, animation: 'fade .22s var(--ease-out)' }}>
@@ -178,9 +184,11 @@ export default function App() {
             'viewMed' branch) was already fully general: scan any med/lot QR anywhere, jump
             straight to that drug's record. Promoted into the header itself (QrModal is already
             mounted globally, see below) so it's one tap from every single screen, not just one. */}
+        {/* Bug fix (usability, real-device mobile UX audit): 32px was under this app's own
+            ~44px tap-target convention — this button sits in the header of every screen. */}
         <button
           onClick={() => openScanSearch('viewMed')}
-          style={{ position: 'relative', border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 32, height: 32, borderRadius: 9, fontSize: 15, flex: 'none' }}
+          style={{ position: 'relative', border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 44, height: 44, borderRadius: 12, fontSize: 17, flex: 'none' }}
           title="สแกน QR ค้นหายา"
           aria-label="สแกน QR ค้นหายา"
         >

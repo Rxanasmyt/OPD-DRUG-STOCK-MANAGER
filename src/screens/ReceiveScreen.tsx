@@ -57,9 +57,15 @@ export default function ReceiveScreen() {
   const stopRowNav = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
 
   // OPD/IPD ward tabs removed — one combined picker across the whole formulary.
-  const options = !state.recvMed && state.recvSearch.trim()
-    ? state.meds.filter((m) => { const s = state.recvSearch.trim().toLowerCase(); return m.active && (m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0); }).slice(0, 12)
-    : [];
+  // Bug fix (perf consistency, mobile UX audit): used to re-filter the whole formulary on every
+  // render (not just every keystroke — React re-renders this screen for other state changes
+  // too), unmemoized — MedsScreen already got this exact fix for the same ~580-med formulary
+  // (see its own "Bug fix" comment), this screen just hadn't caught up yet.
+  const options = useMemo(() => (
+    !state.recvMed && state.recvSearch.trim()
+      ? state.meds.filter((m) => { const s = state.recvSearch.trim().toLowerCase(); return m.active && (m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0); }).slice(0, 12)
+      : []
+  ), [state.recvMed, state.recvSearch, state.meds]);
   // Bug fix: this screen used to show NOTHING until someone typed a search — a person opening
   // "รับเข้า" to see what actually needs requisitioning from the central warehouse had no way
   // to find out except typing each drug's name from memory one at a time. Same "ควรเบิกจากคลัง
