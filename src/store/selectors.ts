@@ -1,4 +1,4 @@
-import type { AppState, HosxpMatch, Lot, Med, Role, Ward, Tx, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord } from '../types';
+import type { AppState, HosxpMatch, Lot, Med, Role, Ward, Tx, TxType, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord } from '../types';
 import { DAY, daysUntil, isoDate, nf } from '../utils/format';
 import { UNCATEGORIZED, DRUG_CATEGORIES, categoryLabel } from '../data/categories';
 import { suggestRoute } from '../data/routeSuggest';
@@ -267,6 +267,44 @@ export function usageByCategory(records: UsageHistoryRecord[]): CategoryUsageAgg
     else byCat.set(r.category, { category: r.category, qty: r.qty, value: r.value });
   }
   return Array.from(byCat.values()).sort((a, b) => b.value - a.value);
+}
+
+export interface CategoryDiscAgg { category: string; count: number; byType: Partial<Record<TxType, number>> }
+
+/** Real-world request: "หมวดไหนเสียบ่อยผิดปกติ (อาจบ่งชี้ปัญหา process ไม่ใช่แค่สุ่ม)" — the
+ * Discrepancy log (ReportScreen's "disc" tab) already lists every adjust/return/damaged/expired/
+ * count/reconcile_hosxp row, but only as a flat, user-filtered list — nothing summed it up by
+ * drug category to surface a pattern a reader skimming one row at a time would never notice.
+ * `rows` should be the discrepancy-type rows BEFORE the user's own type/search filter (this is a
+ * pattern-insight over the whole recent dataset, not whatever slice they currently have picked),
+ * same "pure aggregation, caller decides the input range" shape as topUsageByMed/usageByCategory
+ * above. A row's medId is trusted when present; an untagged older row only gets attributed by
+ * name when that name is unambiguous (no live twin) — same "incomplete-but-correct beats
+ * complete-but-wrong" disambiguation fetchStockAsOf (AppContext.tsx) already uses, rather than
+ * risk crediting the wrong category when two active meds share a name (see Ward/wardOf). */
+export function discrepancyByCategory(rows: Tx[], meds: Med[]): CategoryDiscAgg[] {
+  const medById = new Map(meds.map((m) => [m.id, m]));
+  const medsByName = new Map<string, Med[]>();
+  for (const m of meds) {
+    const arr = medsByName.get(m.name) || [];
+    arr.push(m);
+    medsByName.set(m.name, arr);
+  }
+  const byCat = new Map<string, CategoryDiscAgg>();
+  for (const x of rows) {
+    let med = x.medId ? medById.get(x.medId) : undefined;
+    if (!med) {
+      const candidates = medsByName.get(x.name);
+      if (candidates && candidates.length === 1) med = candidates[0];
+    }
+    if (!med) continue;
+    const category = categoryOf(med);
+    const cur = byCat.get(category) || { category, count: 0, byType: {} };
+    cur.count += 1;
+    cur.byType[x.type] = (cur.byType[x.type] || 0) + 1;
+    byCat.set(category, cur);
+  }
+  return Array.from(byCat.values()).sort((a, b) => b.count - a.count);
 }
 
 export interface MonthUsageAgg { monthKey: string; qty: number; value: number }
