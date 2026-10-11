@@ -1,6 +1,6 @@
 import { useApp } from '../store/AppContext';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes, discrepancyByCategory, repeatAdrReturns } from '../store/selectors';
+import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes, discrepancyByCategory, repeatAdrReturns, frequentFloorRefills } from '../store/selectors';
 import { nf, thDate, isoDate, fiscalYearStartIso, DAY } from '../utils/format';
 import type { ReportTab, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, DrugReturnRecord } from '../types';
 import { categoryLabel } from '../data/categories';
@@ -191,6 +191,7 @@ export default function ReportScreen() {
   }, [state.reportTab, stabilityLoaded]);
   const leadTime = leadTimeTrend(stabilityRows);
   const stockoutStreaks = recurringStockouts(stabilityRows, meds);
+  const frequentRefills = frequentFloorRefills(stabilityRows, meds);
   const parOutcomes = parAdjustmentOutcomes(parOutcomeRecords, meds);
   const parOutcomesVolatile = parOutcomes.filter((o) => o.status === 'still_volatile');
   const parOutcomesStable = parOutcomes.filter((o) => o.status === 'stable');
@@ -619,6 +620,37 @@ export default function ReportScreen() {
                 </div>
                 <div className="muted" style={{ fontSize: 11, lineHeight: 1.6, padding: '6px 2px 0' }}>
                   ขาดจริง (floor = 0 ขณะมีการใช้จริง) ตั้งแต่ 3+ วันขึ้นไปในช่วง 30 วันที่ผ่านมา — par หรือรอบเติมของตัวนี้อาจตามไม่ทันการใช้จริง ไม่ใช่เรื่องบังเอิญครั้งเดียว
+                </div>
+              </>
+            )}
+
+            {/* Real-world request: "ความถี่การเติมหน้างานต่อยา" — transferredQty on the kpi tab
+                is one mixed-unit total across every drug, so a drug refilled constantly in small
+                amounts looks the same as one refilled once in bulk. Flags a drug refilled on
+                average more than once every two days — a real signal its floor par is set too
+                low for how fast it's actually drawn down. */}
+            {frequentRefills.length > 0 && (
+              <>
+                <div style={{ fontSize: 13, margin: '16px 2px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="ai-text" style={{ fontWeight: 800 }}>🔄 เติมหน้างานบ่อยผิดปกติ</span>
+                  <span className="muted" style={{ fontWeight: 500, fontSize: 12 }}>({frequentRefills.length} รายการ)</span>
+                </div>
+                <div className="card stagger" style={{ overflow: 'hidden' }}>
+                  {frequentRefills.slice(0, 20).map((f) => (
+                    <button
+                      key={f.med.id}
+                      onClick={() => goSubstockCardFor(f.med.id)}
+                      className="row-interactive"
+                      title="ดูบัตรสต็อกยานี้"
+                      style={{ display: 'flex', width: '100%', border: 0, background: 'transparent', textAlign: 'left', justifyContent: 'space-between', gap: 10, padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', alignItems: 'center' }}
+                    >
+                      <span style={{ fontSize: 13, minWidth: 0, color: 'var(--ink)' }}>{f.med.name}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--amber)', flex: 'none' }}>เติม {nf(f.eventCount)} ครั้ง/{f.totalDays} วัน</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="muted" style={{ fontSize: 11, lineHeight: 1.6, padding: '6px 2px 0' }}>
+                  เฉลี่ยเติมหน้างานมากกว่า 1 ครั้งทุกๆ 2 วันในช่วง 30 วันที่ผ่านมา — ลองพิจารณาปรับ par หน้างานของยาเหล่านี้ให้สูงขึ้น เพื่อลดรอบการเติมที่บ่อยเกินจำเป็น
                 </div>
               </>
             )}
