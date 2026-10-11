@@ -104,7 +104,7 @@ export default function AdminScreen() {
 
   return (
     <div style={{ animation: 'fade .18s' }}>
-      <div style={{ display: 'flex', gap: 7, padding: '12px 14px 10px', overflowX: 'auto', position: 'sticky', top: 0, zIndex: 2 }} className="sticky-bar">
+      <div style={{ display: 'flex', gap: 7, padding: '12px 14px 10px', overflowX: 'auto', position: 'sticky', top: 0, zIndex: 2 }} className="sticky-bar scroll-fade-x">
         {ADMIN_TABS.map(([t, label]) => (
           <button key={t} className="chip" style={{ ...chip(state.adminTab === t), minHeight: 38 }} onClick={() => setAdminTab(t)}>
             {label}{t === 'users' && pending.length > 0 ? ` (${pending.length})` : ''}
@@ -300,7 +300,7 @@ export default function AdminScreen() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 7, marginBottom: 11, overflowX: 'auto', paddingBottom: 2 }}>
+            <div className="scroll-fade-x" style={{ display: 'flex', gap: 7, marginBottom: 11, overflowX: 'auto', paddingBottom: 2 }}>
               {AUDIT_FILTERS.map(([f, label]) => (
                 <button key={f} className="chip" style={chip(state.auditFilter === f)} onClick={() => setAuditFilter(f)}>{label}</button>
               ))}

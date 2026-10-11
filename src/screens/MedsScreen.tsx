@@ -504,7 +504,7 @@ export default function MedsScreen() {
       )}
       {/* หมวดกลุ่มยา — เลื่อนดูได้ทางขวา แต่ละชิปโชว์จำนวนยาในหมวดนั้นภายใต้ตัวกรองด้านบน ทำให้
           เห็นได้ทันทีว่ากลุ่มไหนมีของเยอะ (จ่ายออกบ่อย) กลุ่มไหนมีน้อย (ใช้นาน ๆ ครั้ง) */}
-      <div style={{ display: 'flex', gap: 7, marginBottom: 10, overflowX: 'auto', paddingBottom: 2 }}>
+      <div className="scroll-fade-x" style={{ display: 'flex', gap: 7, marginBottom: 10, overflowX: 'auto', paddingBottom: 2 }}>
         <button className="chip" style={{ ...chip(catTab === 'all'), flex: 'none' }} onClick={() => setCatTab('all')}>ทุกหมวด ({medsBeforeCat.length})</button>
         {DRUG_CATEGORIES.map((c) => catCounts[c.id] ? (
           <button key={c.id} className="chip" style={{ ...chip(catTab === c.id), flex: 'none' }} onClick={() => setCatTab(c.id)}>{c.label} ({catCounts[c.id]})</button>

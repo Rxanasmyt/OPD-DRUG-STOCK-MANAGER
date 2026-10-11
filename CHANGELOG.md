@@ -7,6 +7,62 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.151.0] - 2026-10-11
+
+### Fixed
+- **[การตรวจสอบระบบรอบใหญ่ 4 ด้านคู่ขนาน (Firestore/data layer, React hooks/race condition,
+  UI/rendering/performance, security/memory) — ผู้ใช้ขอ "comprehensive, deep-dive audit"]**
+  ไม่พบบั๊กระดับ Critical เลย พบและแก้ตามนี้ (เรียงตาม severity):
+
+  - **[สูง] Context value ของ AppContext ทำให้ component ที่ค้างอยู่ตลอด (Toast,
+    IdleLogoutWarning, UpdateBanner) re-render ทุกครั้งที่ state ไหนก็ตามในแอปเปลี่ยน:** `value`
+    หลักเป็นก้อนเดียวครอบคลุมทั้งแอป memoize ด้วย `state` ทั้งก้อนเป็น dependency — พิมพ์ช่องค้นหา
+    หรือกดปรับจำนวนในตะกร้าที่ไหนก็ตาม ก็ทำให้ 3 component ที่ mount ค้างทั้ง session (ไม่เกี่ยวกับ
+    สิ่งที่เปลี่ยนเลย) re-render ไปด้วย — แก้ด้วยการเพิ่ม context ที่สองแยกเล็กๆ (`ChromeCtx`/
+    `useChrome()`) เฉพาะ 4 ฟิลด์ที่ 3 component นี้อ่านจริง (`toast`, `idleWarnVisible`, `qrOpen`,
+    `updateAvailable`) memoize เฉพาะฟิลด์เหล่านั้น ไม่กระทบ `useApp()`/context หลักเดิมเลย
+    (ตัดสินใจไม่แยก context ทั้งระบบ — ความเสี่ยงสูงกว่าประโยชน์ที่ได้มาก เทียบกับ 42 ไฟล์ที่เรียก
+    `useApp()` อยู่)
+  - **[กลาง] firestore.rules ของ `lots` ไม่เช็ค type ของ `lotNo` ตอน create:** เช็คแค่
+    medId/qty/exp เหมือน `floorLots` แต่ลืม `lotNo is string` ทั้งที่ `Lot` interface บังคับเป็น
+    required และ rule `update` เองก็ล็อก `lotNo` ให้เปลี่ยนไม่ได้โดยสมมติว่ามันถูกต้องมาตั้งแต่
+    create แล้ว — เพิ่มเช็คให้ตรงกับ `floorLots`
+  - **[กลาง] แท็บ "🧠 วิเคราะห์อัตโนมัติ" ค้างว่างถาวรถ้าโหลดครั้งแรกล้มเหลว:** fetch ข้อมูล
+    เสถียรภาพ/par outcome ไม่มี `.catch` และตั้ง loaded-flag เป็น true ก่อนโหลดเสร็จ — ถ้าเน็ตช้า/
+    หลุดจน timeout (15 วิ) จะเงียบไปเลยไม่มี toast และสลับแท็บไปมาก็ไม่ retry ต้อง reload หน้าทั้งหมด
+    เท่านั้น ตอนนี้ reset flag กลับเป็น false พร้อม toast เมื่อ fail ให้เปิดแท็บใหม่ retry ได้เหมือน
+    แท็บ kpi ข้างๆ
+  - **[กลาง] ปุ่ม chip กรอง/จัดหมวดหลายหน้า เตี้ยกว่า tap-target 40-44px ที่แอปใช้เป็นมาตรฐาน:**
+    `.chip` base class ไม่มี min-height เลย (สูงจริง ~28-29px) หน้าที่ลืม override (MedsScreen,
+    TransferScreen, ReportScreen, CountScreen, AdminScreen) จึงเตี้ยกว่าที่ควร — เพิ่ม
+    `min-height: 40px` เข้าไปใน class กลางเลย ปิดช่องว่างทุกจุดในครั้งเดียว (จุดที่ override ไว้สูง
+    กว่าแล้วไม่กระทบ เพราะ inline style ชนะ class เสมอ)
+
+### Changed
+- **[ต่ำ] เลิกเก็บ HN ผู้ป่วยในแบบฟอร์มคืนยาไว้ใน localStorage:** crash-recovery ของแบบฟอร์มปรับ
+  ยอด/คืนยาเดิมเก็บทุกฟิลด์รวม HN ไว้แบบไม่เข้ารหัสได้นานสุด 8 ชม. — HN เป็นข้อมูลระบุตัวผู้ป่วยจริง
+  ไม่เหมือนฟิลด์อื่น (ยา/จำนวน/เหตุผล/โน้ต) ตอนนี้ตัด `adjHn` ออกจากสิ่งที่บันทึกไว้โดยเฉพาะ — กู้คืน
+  ยา/จำนวน/เหตุผลได้ครบเหมือนเดิม แค่ต้องพิมพ์ HN ใหม่ 1 ช่องหลังเครื่องแครช/รีเฟรช
+- **[ต่ำ] เพิ่ม scroll-fade ให้แถบ chip แนวนอนที่ยังไม่มี:** MedsScreen, ReceiveScreen,
+  TransferScreen (×2), CountScreen (×3), AdminScreen (×2) — ขอบล่าง/ขวาที่เลื่อนได้จะไม่ตัดห้วนๆ
+  โดยไม่มีสัญญาณว่ายังเลื่อนต่อได้อีก เหมือนที่ ReportScreen มีอยู่แล้ว
+- **[ต่ำ] เพิ่ม `.env`/`.env.*` ใน `.gitignore` เผื่อไว้ล่วงหน้า** — ตรวจแล้วไม่พบไฟล์ `.env` จริงหลุด
+  เข้า git เลย (`*.local` เดิมจับได้แค่ `.env.local`) เพิ่มกันไว้ก่อนเผื่อมีคนสร้างจริงในอนาคต
+
+### ตรวจแล้ว ไม่ต้องแก้
+- **dependency `xlsx` เวอร์ชัน 0.18.5** — ตรวจสอบแล้วเป็นเวอร์ชันล่าสุดที่ SheetJS เคย publish ขึ้น
+  npm จริง (หลังจากนี้ย้ายไปแจกจ่ายผ่าน CDN ของตัวเองแทน) ไม่มีเวอร์ชันใหม่กว่าให้ bump ผ่าน npm ได้
+  การย้ายไปใช้ CDN ของ SheetJS เป็นการเปลี่ยน supply chain (ไว้ใจ CDN บุคคลที่สามแทน npm registry)
+  ที่ควรเป็นการตัดสินใจแยกต่างหาก ไม่ใช่การ bump dependency ธรรมดา จึงไม่แก้ในรอบนี้
+
+เพิ่ม regression test ใหม่ 3 ตัว ยืนยันด้วย revert-and-rerun ทุกตัว (รวม 1 ตัวที่ต้องเขียนรอบสอง —
+การ test ครั้งแรกไม่ได้ exercise code path ที่ตั้งใจจะตรวจจริง เจอจาก revert-and-rerun แล้วแก้ scenario
+ใหม่) — รวมเทสต์ทั้งระบบ 527/527 ผ่าน, `tsc -b` และ `npm run build` ผ่านสะอาด
+
+> ⚠️ **ต้อง publish `firestore.rules` ใหม่เองที่ Firebase Console** (รอบนี้แก้ `lots`'s create rule)
+> — copy เนื้อหาไฟล์ `firestore.rules` ทั้งไฟล์ไปวางใน Firebase Console → Firestore Database →
+> Rules → Publish ด้วยตัวเอง เพราะไม่มี CI auto-deploy สำหรับ rules (ดู README)
+
 ## [3.150.0] - 2026-10-11
 
 ### Added

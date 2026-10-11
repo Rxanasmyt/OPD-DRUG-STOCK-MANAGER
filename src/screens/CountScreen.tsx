@@ -196,17 +196,17 @@ export default function CountScreen() {
 
       <SearchInput value={q} onChange={setQ} placeholder="ค้นหาชื่อยา" style={{ marginBottom: 9 }} />
 
-      <div style={{ display: 'flex', gap: 7, marginBottom: 8, overflowX: 'auto', paddingBottom: 2 }}>
+      <div className="scroll-fade-x" style={{ display: 'flex', gap: 7, marginBottom: 8, overflowX: 'auto', paddingBottom: 2 }}>
         <button className="chip" style={{ ...chip(sort === 'stale'), flex: 'none' }} onClick={() => setSort('stale')}>เรียงตามที่ค้างนานสุด</button>
         <button className="chip" style={{ ...chip(sort === 'bin'), flex: 'none' }} onClick={() => setSort('bin')}>เรียงตามชั้นวาง</button>
         <button className="chip" style={{ ...chip(sort === 'name'), flex: 'none' }} onClick={() => setSort('name')}>เรียงตามชื่อยา</button>
       </div>
-      <div style={{ display: 'flex', gap: 7, marginBottom: 8, overflowX: 'auto', paddingBottom: 2 }}>
+      <div className="scroll-fade-x" style={{ display: 'flex', gap: 7, marginBottom: 8, overflowX: 'auto', paddingBottom: 2 }}>
         <button className="chip" style={{ ...chip(scope === 'all'), flex: 'none' }} onClick={() => setScope('all')}>ทั้งหมด</button>
         <button className="chip" style={{ ...chip(scope === 'never'), flex: 'none' }} onClick={() => setScope('never')}>ยังไม่เคยนับ ({nf(active.length - countedEver)})</button>
         <button className="chip" style={{ ...chip(scope === 'typed'), flex: 'none' }} onClick={() => setScope('typed')}>ที่กรอกไว้ ({nf(typedIds.length)})</button>
       </div>
-      <div style={{ display: 'flex', gap: 7, marginBottom: 10, overflowX: 'auto', paddingBottom: 2 }}>
+      <div className="scroll-fade-x" style={{ display: 'flex', gap: 7, marginBottom: 10, overflowX: 'auto', paddingBottom: 2 }}>
         <button className="chip" style={{ ...chip(catTab === 'all'), flex: 'none' }} onClick={() => setCatTab('all')}>ทุกหมวด</button>
         {DRUG_CATEGORIES.map((c) => catCounts[c.id] ? (
           <button key={c.id} className="chip" style={{ ...chip(catTab === c.id), flex: 'none' }} onClick={() => setCatTab(c.id)}>{c.label} ({catCounts[c.id]})</button>

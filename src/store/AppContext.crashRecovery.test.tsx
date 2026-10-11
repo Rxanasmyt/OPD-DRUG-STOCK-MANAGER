@@ -127,7 +127,7 @@ function ReturnCartHarness() {
 }
 
 describe('returnCart — crash recovery regression', () => {
-  it('restores an in-progress return batch (cart + HN) after a simulated crash/reload for the SAME uid', async () => {
+  it('restores an in-progress return batch (cart) after a simulated crash/reload for the SAME uid, but never persists HN (patient-identifying PII)', async () => {
     const user = userEvent.setup();
     const first = renderWithApp(<ReturnCartHarness />);
     await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
@@ -153,6 +153,48 @@ describe('returnCart — crash recovery regression', () => {
     // Without the fix, this would come back empty — the whole batch lost.
     await waitFor(() => expect(screen.getByTestId('cartLen').textContent).toBe('1'));
     await screen.findByText(/กู้ตะกร้าคืนยา.*คืนแล้ว/);
+    second.unmount();
+  });
+
+  // Bug fix (audit finding): adjHn (the patient's HN — real identifying info, not a UI-only
+  // field) used to be written into THIS SAME persisted snapshot (AdjPersisted) as adjMed/adjQty/
+  // adjReason/adjNote, sitting in plaintext localStorage for up to 8h. The test right above
+  // never actually exercised that restore path: addToReturnCart clears adjMed back to null, so
+  // AppContext's `hasAdj = !!adj?.adjMed` restore gate is false by the time the crash happens —
+  // nothing in AdjPersisted gets restored either way once a drug has been added to the cart.
+  // The real exposure is the CURRENT, not-yet-added drug (adjMed still set) — med/qty/reason
+  // must still come back (that's the whole point of this crash-recovery feature), but adjHn must
+  // NOT, closing the PII exposure without losing the rest of the feature's value.
+  it('restores the in-progress (not yet added) drug fields after crash/reload, but never restores HN', async () => {
+    const user = userEvent.setup();
+    const first = renderWithApp(<ReturnCartHarness />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+
+    await user.click(screen.getByRole('button', { name: 'pick-return-type' }));
+    await user.click(screen.getByRole('button', { name: 'set-hn' }));
+    await user.click(screen.getByRole('button', { name: 'pick-med' }));
+    await user.click(screen.getByRole('button', { name: 'set-qty-5' }));
+    await user.click(screen.getByRole('button', { name: 'set-reason' }));
+    // Deliberately NOT clicking add-to-cart — this is the still-in-progress state (adjMed set)
+    // that AdjPersisted actually protects.
+    await waitFor(() => expect(screen.getByTestId('hn').textContent).toBe('1234567'));
+
+    first.unmount();
+
+    const second = renderWithApp(<ReturnCartHarness />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+
+    // The drug/qty/reason survive the crash (the feature's real purpose) — proven by actually
+    // being able to add straight to cart with no re-picking (addToReturnCart's own guard clause
+    // blocks the add entirely if med/qty/reason aren't all set).
+    await user.click(screen.getByRole('button', { name: 'add-to-cart' }));
+    await waitFor(() => expect(screen.getByTestId('cartLen').textContent).toBe('1'));
+    // ...but the HN does not — it comes back empty even though it was '1234567' before the crash.
+    expect(screen.getByTestId('hn').textContent).toBe('');
     second.unmount();
   });
 

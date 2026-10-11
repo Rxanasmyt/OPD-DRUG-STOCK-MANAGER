@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useApp } from '../store/AppContext';
+import { useChrome } from '../store/AppContext';
 
 /**
  * Bug fix (polish): a toast used to just vanish — state.toast flips to null and React removes
@@ -9,21 +9,26 @@ import { useApp } from '../store/AppContext';
  * treatment every other transient surface in the app (dialogs, sheets) already gets.
  */
 export default function Toast() {
-  const { state } = useApp();
+  // Bug fix (audit finding — performance): reads the narrower chrome-only context instead of
+  // useApp() — this always-mounted component only ever needs `toast`, so subscribing to the
+  // whole app context used to re-render it on every unrelated state change anywhere in the app
+  // (a keystroke in a search box, a cart qty bump) even though nothing it renders changed. See
+  // ChromeCtx's own doc comment in AppContext.tsx.
+  const { toast } = useChrome();
   const [shown, setShown] = useState<{ text: string; exiting: boolean } | null>(null);
   const exitTimer = useRef<number>();
 
   useEffect(() => {
     window.clearTimeout(exitTimer.current);
-    if (state.toast) {
-      setShown({ text: state.toast, exiting: false });
+    if (toast) {
+      setShown({ text: toast, exiting: false });
     } else {
       setShown((s) => (s ? { ...s, exiting: true } : s));
       exitTimer.current = window.setTimeout(() => setShown(null), 220);
     }
     return () => window.clearTimeout(exitTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.toast]);
+  }, [toast]);
 
   if (!shown) return null;
   return (
