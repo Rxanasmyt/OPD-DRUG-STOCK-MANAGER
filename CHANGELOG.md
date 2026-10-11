@@ -7,6 +7,18 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.156.0] - 2026-10-11
+
+### Fixed
+- **[ทำงานค้างต่อตามคำสั่ง "จัดการต่อจนทำครบทั้งหมดครับ" — เริ่มจากจุดที่เว้นไว้ใน 3.155.0: เพิ่ม schema check ให้ `meds` create/update ฝั่ง admin ใน firestore.rules]**
+  - เดิม `allow create` ของ `meds` เป็น `isAdmin()` เปล่าๆ ไม่มีการตรวจ field/type เลย และฝั่ง `allow update` ก็เป็น `isAdmin() || (...)` แบบเดียวกัน — admin คนใดก็เขียน field อะไรก็ได้ ชนิดอะไรก็ได้ ลงเอกสาร `meds` รวมถึงแก้ `code` (รหัส QR/ฉลากที่ `updateMedFull()` เขียนเองไว้ในคอมเมนต์ว่า "deliberately never touched" หลังสร้างแล้ว) ก็ยังทำได้ผ่าน SDK ตรงๆ (devtools, สคริปต์ผิดพลาด, session ที่ถูกแฮ็ก) โดยไม่มีการป้องกันระดับฐานข้อมูลเลย
+  - ไล่ตรวจทุกจุดที่เขียน collection `meds` จริงใน `AppContext.tsx` ทีละจุด (addMed, updateMedFull, applyOnePar/applyAllSuggested/setAllMinHalfOfMax/setAllMinSuggested/debouncedParWrite, setMedBin/setMedBinSub/setMedCategory/setMedRoute, recomputeUsageStats, analyzeWeekdayUsage/clearMedWeekdayPattern/clearMedPeakDay, mergeWardMeds/mergeAllWardPairs, shareAllMeds/autoCategorizeAll/autoRouteAll, toggleMedActive, startStockHold/endStockHold, commitUsageImport — รวม 20+ จุด) เพื่อสร้างรายชื่อ field ที่ถูกต้องแบบยืนยันจริง ไม่ใช่เดา
+  - `allow create`: เพิ่ม `hasOnly()` ตามรูปแบบที่ `addMed()` เขียนจริงเท่านั้น (25 field) พร้อม type/enum check ทุกตัว (`ward` ต้องเป็น `'opd'`/`'ipd'`, ตัวเลขห้ามติดลบ ฯลฯ)
+  - `allow update` ฝั่ง admin: เปลี่ยนจาก `isAdmin()` เปล่าๆ เป็น `isAdmin() && diff().affectedKeys().hasOnly([...32 field...])` พร้อม type check รายฟิลด์ (เช็คเฉพาะตอนฟิลด์นั้นอยู่ใน diff จริง เพราะไม่มี action เดียวที่แก้ทุกฟิลด์พร้อมกัน) — **`code` ไม่อยู่ในรายชื่อนี้โดยเจตนา** จึงปิดช่องแก้ `code` ได้เด็ดขาดในระดับ rules ไม่ใช่แค่ convention ในโค้ด ไม่กระทบ branch เดิมของ non-admin (`floor`/`lastCountTs`/`lastSubCountTs`) เลย
+  - ยืนยันด้วย Firestore emulator จริง (ไม่ใช่แค่ตรวจโค้ด) — จำลอง 16 สถานการณ์ (เขียนตามรูปแบบจริงของทุกจุดข้างต้น ต้องผ่าน, พยายามแก้ `code`/ยัด field แปลกปลอม/ใส่ type ผิด/ติดลบ ต้องถูกบล็อก 403, role ต่ำกว่า admin ต้องถูกบล็อกเหมือนเดิม) ผ่านครบ 16/16
+
+  ผ่าน tsc + vitest (541 เทสต์) + build ครบ
+
 ## [3.155.0] - 2026-10-11
 
 ### Fixed

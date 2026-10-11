@@ -88,7 +88,48 @@ service cloud.firestore {
     // branch below same as tech, just not the master record itself. ----
     match /meds/{medId} {
       allow read: if isActive();
-      allow create, delete: if isAdmin();
+      // Bug fix (audit finding): create had NO schema check at all — any admin-level write
+      // (including a buggy script or a compromised admin session, not just addMed()'s own form)
+      // could create a med doc with any field set/types whatsoever, since the admin OR-branch
+      // of `allow update` below already has no field restriction either and `allow create` had
+      // none of its own. hasOnly() here is the exact field union verified against addMed()'s one
+      // real create write (AppContext.tsx) — `code, name, unit, dosageForm, price, had, active,
+      // fridge?, parSub, parFloor, floor, floorMin, bin, used30, usedPrev30, volatility,
+      // lastCountTs, ward, noSubstock, shared?, binIpd?, binSub?, category?, packSize?, route?`
+      // (the `?` fields are the ones that write conditionally omits rather than always sending).
+      allow create: if isAdmin()
+                    && request.resource.data.keys().hasOnly([
+                         'code', 'name', 'unit', 'dosageForm', 'price', 'had', 'active',
+                         'fridge', 'parSub', 'parFloor', 'floor', 'floorMin', 'bin',
+                         'used30', 'usedPrev30', 'volatility', 'lastCountTs', 'ward',
+                         'noSubstock', 'shared', 'binIpd', 'binSub', 'category', 'packSize', 'route'
+                       ])
+                    && request.resource.data.code is string
+                    && request.resource.data.name is string
+                    && request.resource.data.unit is string
+                    && request.resource.data.dosageForm is string
+                    && isNonNegNum(request.resource.data.price)
+                    && request.resource.data.had is bool
+                    && request.resource.data.active is bool
+                    && isNonNegNum(request.resource.data.parSub)
+                    && isNonNegNum(request.resource.data.parFloor)
+                    && isNonNegNum(request.resource.data.floor)
+                    && isNonNegNum(request.resource.data.floorMin)
+                    && request.resource.data.bin is string
+                    && isNonNegNum(request.resource.data.used30)
+                    && isNonNegNum(request.resource.data.usedPrev30)
+                    && request.resource.data.volatility is number
+                    && request.resource.data.lastCountTs is number
+                    && request.resource.data.ward in ['opd', 'ipd']
+                    && request.resource.data.noSubstock is bool
+                    && (!('fridge' in request.resource.data) || request.resource.data.fridge is bool)
+                    && (!('shared' in request.resource.data) || request.resource.data.shared is bool)
+                    && (!('binIpd' in request.resource.data) || request.resource.data.binIpd is string)
+                    && (!('binSub' in request.resource.data) || request.resource.data.binSub is string)
+                    && (!('category' in request.resource.data) || request.resource.data.category is string)
+                    && (!('packSize' in request.resource.data) || isNonNegNum(request.resource.data.packSize))
+                    && (!('route' in request.resource.data) || request.resource.data.route is string);
+      allow delete: if isAdmin();
       // Bug fix: this branch type-checked `floor` but not `lastCountTs`/`lastSubCountTs`,
       // inconsistent with the `lots` rule right below which type-checks every field it allows.
       // A malformed value here (string/null from a client bug or stale cache) would corrupt the
@@ -108,7 +149,65 @@ service cloud.firestore {
       // hospital-wide with zero audit trail. Requiring that a field which already existed on
       // the med can never be REMOVED by this branch closes that exact payload shape — a
       // resetAllQuantities-style bulk wipe (or any single-doc equivalent) now needs isAdmin().
-      allow update: if isAdmin()
+      //
+      // Bug fix (audit finding): the isAdmin() OR-branch below used to be a bare `isAdmin()` —
+      // any admin-level write (also a buggy script/compromised admin session, not just the
+      // app's own actions) could touch ANY field, including `code` (which updateMedFull's own
+      // doc comment says is "deliberately never touched" post-creation — the QR/label
+      // identifier every printed label and scan lookup keys off of). hasOnly() here is the
+      // verified union of every real admin write site in AppContext.tsx (updateMedFull,
+      // applyOnePar/applyAllSuggested/setAllMinHalfOfMax/setAllMinSuggested/debouncedParWrite,
+      // setMedBin/setMedBinSub/setMedCategory/setMedRoute, recomputeUsageStats,
+      // analyzeWeekdayUsage/clearMedWeekdayPattern/clearMedPeakDay, mergeWardMeds/
+      // mergeAllWardPairs, shareAllMeds/autoCategorizeAll/autoRouteAll, toggleMedActive,
+      // startStockHold/endStockHold, commitUsageImport) — `code` is deliberately NOT in this
+      // list, so any write attempting to change it is rejected outright, closing that gap
+      // without an extra equality check. Every field here is individually type-checked only
+      // when it's actually part of this write's diff (same pattern users' own role/active
+      // guard above uses), since no single admin action touches all of them at once.
+      allow update: if (isAdmin()
+                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                              'name', 'unit', 'dosageForm', 'price', 'had', 'fridge', 'bin',
+                              'parSub', 'parFloor', 'floor', 'floorMin', 'used30', 'usedPrev30',
+                              'volatility', 'ward', 'noSubstock', 'shared', 'binIpd', 'binSub',
+                              'category', 'packSize', 'route', 'active', 'mergedInto',
+                              'outOfStockSince', 'outOfStockReason', 'outOfStockExpectedReturn',
+                              'weekdayPeakFactor', 'weekdayPeakDay', 'weekdayPeakOccurrences',
+                              'weekdayPattern', 'peakDayQty', 'peakDayDate'
+                            ])
+                         && (!('name' in request.resource.data) || request.resource.data.name is string)
+                         && (!('unit' in request.resource.data) || request.resource.data.unit is string)
+                         && (!('dosageForm' in request.resource.data) || request.resource.data.dosageForm is string)
+                         && (!('price' in request.resource.data) || isNonNegNum(request.resource.data.price))
+                         && (!('had' in request.resource.data) || request.resource.data.had is bool)
+                         && (!('fridge' in request.resource.data) || request.resource.data.fridge is bool)
+                         && (!('bin' in request.resource.data) || request.resource.data.bin is string)
+                         && (!('parSub' in request.resource.data) || isNonNegNum(request.resource.data.parSub))
+                         && (!('parFloor' in request.resource.data) || isNonNegNum(request.resource.data.parFloor))
+                         && (!('floor' in request.resource.data) || isNonNegNum(request.resource.data.floor))
+                         && (!('floorMin' in request.resource.data) || isNonNegNum(request.resource.data.floorMin))
+                         && (!('used30' in request.resource.data) || isNonNegNum(request.resource.data.used30))
+                         && (!('usedPrev30' in request.resource.data) || isNonNegNum(request.resource.data.usedPrev30))
+                         && (!('volatility' in request.resource.data) || request.resource.data.volatility is number)
+                         && (!('ward' in request.resource.data) || request.resource.data.ward in ['opd', 'ipd'])
+                         && (!('noSubstock' in request.resource.data) || request.resource.data.noSubstock is bool)
+                         && (!('shared' in request.resource.data) || request.resource.data.shared is bool)
+                         && (!('binIpd' in request.resource.data) || request.resource.data.binIpd is string)
+                         && (!('binSub' in request.resource.data) || request.resource.data.binSub is string)
+                         && (!('category' in request.resource.data) || request.resource.data.category is string)
+                         && (!('packSize' in request.resource.data) || isNonNegNum(request.resource.data.packSize))
+                         && (!('route' in request.resource.data) || request.resource.data.route is string)
+                         && (!('active' in request.resource.data) || request.resource.data.active is bool)
+                         && (!('mergedInto' in request.resource.data) || request.resource.data.mergedInto is string)
+                         && (!('outOfStockSince' in request.resource.data) || request.resource.data.outOfStockSince is number)
+                         && (!('outOfStockReason' in request.resource.data) || request.resource.data.outOfStockReason is string)
+                         && (!('outOfStockExpectedReturn' in request.resource.data) || request.resource.data.outOfStockExpectedReturn is number)
+                         && (!('weekdayPeakFactor' in request.resource.data) || request.resource.data.weekdayPeakFactor is number)
+                         && (!('weekdayPeakDay' in request.resource.data) || request.resource.data.weekdayPeakDay is number)
+                         && (!('weekdayPeakOccurrences' in request.resource.data) || request.resource.data.weekdayPeakOccurrences is number)
+                         && (!('weekdayPattern' in request.resource.data) || request.resource.data.weekdayPattern is list)
+                         && (!('peakDayQty' in request.resource.data) || request.resource.data.peakDayQty is number)
+                         && (!('peakDayDate' in request.resource.data) || request.resource.data.peakDayDate is string))
                     || (isActive() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['floor', 'lastCountTs', 'lastSubCountTs'])
                         && isNonNegNum(request.resource.data.floor)
                         && (!('lastCountTs' in resource.data) || 'lastCountTs' in request.resource.data)
