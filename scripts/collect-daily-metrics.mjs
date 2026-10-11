@@ -188,10 +188,20 @@ async function main() {
   let damagedLossValue = 0, expiredLossValue = 0;
   let countDiscrepancyCount = 0, reconciledToday = false;
   const txByUser = {};
+  // Real-world request: "ความถี่การเติมหน้างานต่อยา (ไม่ใช่แค่ยอดรวม)" — transferredQty above is
+  // one mixed-unit total across every drug refilled that day, so a drug that needs refilling 5
+  // times a day in small amounts (a real par-too-low signal) looks identical to one refilled once
+  // in bulk. Counting EVENTS per medId (not qty) lets a client-side report sum this map across
+  // however many days it fetched (see recurringStockouts' identical stockoutMedIds pattern in
+  // selectors.ts) and flag a drug refilled unusually often.
+  const floorRefillCounts = {};
   for (const t of txs) {
     if (t.by) txByUser[t.by] = (txByUser[t.by] || 0) + 1;
     if (t.type === 'receive_from_central') { receivedQty += t.qty || 0; receivedCount++; }
-    else if (t.type === 'transfer_to_floor') { transferredQty += t.qty || 0; }
+    else if (t.type === 'transfer_to_floor') {
+      transferredQty += t.qty || 0;
+      if (t.medId) floorRefillCounts[t.medId] = (floorRefillCounts[t.medId] || 0) + 1;
+    }
     else if (t.type === 'reconcile_hosxp') { dispensedQty += Math.abs(t.qty || 0); reconciledToday = true; }
     else if (['adjust', 'damaged', 'return', 'expired', 'ward_move_out', 'ward_move_in'].includes(t.type)) {
       adjustQty += Math.abs(t.qty || 0);
@@ -257,6 +267,7 @@ async function main() {
     activeUserCount: Object.keys(txByUser).length,
     txByUser,
     stockoutCount, usedMedCount, stockoutMedIds,
+    floorRefillCounts,
   };
 
   await db.collection('dailyMetrics').doc(targetDate).set(metrics);

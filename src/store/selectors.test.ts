@@ -6,7 +6,7 @@ import {
   daysOfStockLeft, fefoLot, toneFor, subTone, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
   categoryOf, categoryStats, parAnomaliesFor, packStep, isOnStockHold, routeOf, effectiveRouteOf,
   topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes,
-  discrepancyByCategory, repeatAdrReturns,
+  discrepancyByCategory, repeatAdrReturns, frequentFloorRefills,
   monthlyDaySplits, boxBreakdownLabel, halfOfMaxRounded, isNewerVersionAvailable,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
@@ -568,6 +568,38 @@ describe('recurringStockouts', () => {
     const meds = [med({ id: 'm1', active: true })];
     const rows = [dm({ date: '2026-01-01' }), dm({ date: '2026-01-02' })]; // no stockoutMedIds at all
     expect(recurringStockouts(rows, meds)).toEqual([]);
+  });
+});
+
+describe('frequentFloorRefills', () => {
+  it('flags a med refilled on average more than once every 2 days, sorted by rate descending, excluding an inactive med', () => {
+    const meds = [
+      med({ id: 'frequent', active: true }),
+      med({ id: 'occasional', active: true }),
+      med({ id: 'inactive-but-frequent', active: false }),
+    ];
+    // 3 days fetched: "frequent" totals 5 events (1.67/day, well past the 0.5 default),
+    // "occasional" totals 1 event (0.33/day, below threshold).
+    const rows = [
+      dm({ date: '2026-01-01', floorRefillCounts: { frequent: 2, 'inactive-but-frequent': 3 } }),
+      dm({ date: '2026-01-02', floorRefillCounts: { frequent: 2, occasional: 1 } }),
+      dm({ date: '2026-01-03', floorRefillCounts: { frequent: 1 } }),
+    ];
+    const out = frequentFloorRefills(rows, meds);
+    expect(out).toEqual([{ med: meds[0], eventCount: 5, totalDays: 3, perDay: 5 / 3 }]);
+  });
+
+  it('treats a day with no floorRefillCounts field (pre-rollout snapshot) as an empty day, not an error', () => {
+    const meds = [med({ id: 'm1', active: true })];
+    const rows = [dm({ date: '2026-01-01' }), dm({ date: '2026-01-02' })]; // no floorRefillCounts at all
+    expect(frequentFloorRefills(rows, meds)).toEqual([]);
+  });
+
+  it('respects a custom minPerDay threshold', () => {
+    const meds = [med({ id: 'm1', active: true })];
+    const rows = [dm({ date: '2026-01-01', floorRefillCounts: { m1: 1 } }), dm({ date: '2026-01-02' })]; // 0.5/day
+    expect(frequentFloorRefills(rows, meds, 0.5)).toEqual([{ med: meds[0], eventCount: 1, totalDays: 2, perDay: 0.5 }]);
+    expect(frequentFloorRefills(rows, meds, 0.6)).toEqual([]);
   });
 });
 

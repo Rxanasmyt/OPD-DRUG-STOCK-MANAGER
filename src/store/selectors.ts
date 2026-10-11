@@ -464,6 +464,36 @@ export function recurringStockouts(rows: DailyMetrics[], meds: Med[], minDays = 
   return out.sort((a, b) => b.dayCount - a.dayCount);
 }
 
+export interface FrequentFloorRefill { med: Med; eventCount: number; totalDays: number; perDay: number }
+
+/** Real-world request: "ความถี่การเติมหน้างานต่อยา (ไม่ใช่แค่ยอดรวม)" — dailyMetrics.transferredQty
+ * is one mixed-unit total across every drug refilled that day, so it can never show WHICH drug
+ * needed refilling, or how often. `floorRefillCounts` (collect-daily-metrics.mjs) counts
+ * transfer_to_floor EVENTS per medId each day; this sums that map across however many days were
+ * fetched — same shape as recurringStockouts above, just counting every refill event instead of
+ * "did it happen at all that day". `perDay` (a rate, not a raw count) is what the caller should
+ * actually threshold/sort on — it stays meaningful whether 7 or 90 days were fetched, the same
+ * reasoning kpiStockoutRatePct already uses for not storing/averaging a raw percentage. A drug
+ * needing refilling on average more than once every two days is being topped up constantly, which
+ * usually means its floor par is set too low for how fast it's actually drawn down — cross-
+ * referenced against the live `meds` list so a med deleted/deactivated since never shows up. */
+export function frequentFloorRefills(rows: DailyMetrics[], meds: Med[], minPerDay = 0.5): FrequentFloorRefill[] {
+  const byId = new Map(meds.filter((m) => m.active).map((m) => [m.id, m]));
+  const counts = new Map<string, number>();
+  for (const r of rows) {
+    for (const [medId, n] of Object.entries(r.floorRefillCounts || {})) counts.set(medId, (counts.get(medId) || 0) + n);
+  }
+  const totalDays = rows.length;
+  const out: FrequentFloorRefill[] = [];
+  if (totalDays === 0) return out;
+  for (const [medId, eventCount] of counts) {
+    const med = byId.get(medId);
+    const perDay = eventCount / totalDays;
+    if (med && perDay >= minPerDay) out.push({ med, eventCount, totalDays, perDay });
+  }
+  return out.sort((a, b) => b.perDay - a.perDay);
+}
+
 export type ParAdjustmentStatus = 'too_recent' | 'stable' | 'still_volatile' | 'med_gone';
 export interface ParAdjustmentOutcome { record: ParAdjustmentRecord; med: Med | undefined; daysSinceAdjust: number; status: ParAdjustmentStatus }
 

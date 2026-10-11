@@ -565,6 +565,14 @@ export interface DailyMetrics {
   // backfilled — same "forward-only" rollout as every other field added to this interface after
   // go-live).
   stockoutMedIds?: string[];
+  // Real-world request: "ความถี่การเติมหน้างานต่อยา (ไม่ใช่แค่ยอดรวม)" — transferredQty above is
+  // one mixed-unit total across every drug refilled that day, so a drug refilled 5 times in small
+  // amounts (a real signal that its floor par is set too low relative to how fast it's actually
+  // used) looks identical to one refilled once in bulk. Counts transfer_to_floor EVENTS per
+  // medId, not qty — same "client-side report sums this map across however many days it fetched"
+  // shape as stockoutMedIds above (see frequentFloorRefills in selectors.ts). Optional: same
+  // forward-only rollout as stockoutMedIds.
+  floorRefillCounts?: Record<string, number>;
 }
 export type LabelType = 'med' | 'lot' | 'loc';
 
