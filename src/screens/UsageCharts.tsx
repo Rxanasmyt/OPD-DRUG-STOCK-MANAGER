@@ -26,7 +26,7 @@ export function truncateLabel(s: string, max: number): string {
 export default function UsageCharts({ monthRows, categoryRows }: { monthRows: MonthUsageAgg[]; categoryRows: CategoryUsageAgg[] }) {
   return (
     <>
-      <div className="muted" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', margin: '0 2px 8px', textTransform: 'uppercase' }}>แนวโน้มมูลค่าการใช้ยารายเดือน</div>
+      <div className="section-eyebrow" style={{ margin: '0 2px 8px' }}>แนวโน้มมูลค่าการใช้ยารายเดือน</div>
       <div className="card" style={{ padding: '13px 6px 6px', marginBottom: 16 }}>
         <ResponsiveContainer width="100%" height={200}>
           <LineChart data={monthRows} margin={{ top: 4, right: 14, left: 4, bottom: 4 }}>
@@ -49,7 +49,7 @@ export default function UsageCharts({ monthRows, categoryRows }: { monthRows: Mo
         </ResponsiveContainer>
       </div>
 
-      <div className="muted" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', margin: '0 2px 8px', textTransform: 'uppercase' }}>มูลค่าการใช้ยาแยกตามหมวด — ใช้ยากลุ่มไหนเยอะ</div>
+      <div className="section-eyebrow" style={{ margin: '0 2px 8px' }}>มูลค่าการใช้ยาแยกตามหมวด — ใช้ยากลุ่มไหนเยอะ</div>
       <div className="card" style={{ padding: '13px 6px 6px', marginBottom: 16 }}>
         <ResponsiveContainer width="100%" height={Math.max(160, categoryRows.length * 28)}>
           <BarChart data={categoryRows} layout="vertical" margin={{ top: 4, right: 14, left: 4, bottom: 4 }}>

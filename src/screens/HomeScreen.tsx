@@ -157,7 +157,7 @@ export default function HomeScreen() {
         />
         <HealthRing healthy={healthyCount} warn={warnCount} critical={criticalCount} size={84} stroke={11} />
         <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
-          <div className="muted" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', marginBottom: 10, textTransform: 'uppercase' }}>
+          <div className="section-eyebrow" style={{ marginBottom: 10 }}>
             ภาพรวมหน้างาน · {nf(meds.length)} รายการ
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -172,7 +172,7 @@ export default function HomeScreen() {
           หน้างาน, ตัดยอด HOSxP แล้วหรือยัง, คำขอรับเข้าที่รออนุมัติ, ควรเบิกจากคลังใหญ่) ไว้ที่
           เดียว ให้คนเดียวที่คุมทั้งระบบเห็นภาพงานวันนี้ได้ในแวบเดียวไม่ต้องไล่แตะทีละแท็บ */}
       <div style={{ ...surface, padding: '14px 15px', marginBottom: 16 }}>
-        <div className="muted" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', marginBottom: 10, textTransform: 'uppercase' }}>สรุปงานวันนี้</div>
+        <div className="section-eyebrow" style={{ marginBottom: 10 }}>สรุปงานวันนี้</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <ChecklistRow
             icon="🔴" label="ยาเร่งด่วนวันนี้" value={urgent.length ? urgent.length + ' รายการ' : 'ไม่มี'}
