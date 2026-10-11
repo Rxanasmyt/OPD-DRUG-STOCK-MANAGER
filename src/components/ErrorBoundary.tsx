@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react';
+import { reportError } from '../monitoring';
 
 // This app's screens are code-split (see the lazy() imports in App.tsx) and gets redeployed
 // often — every hashed chunk filename changes on each deploy, and the service worker prunes
@@ -28,6 +29,10 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
 
   componentDidCatch(error: Error, info: { componentStack: string }) {
     console.error('Uncaught render error:', error, info.componentStack);
+    // Report to Sentry (safe no-op until configured — see monitoring.ts) — except a stale-chunk
+    // error, which isn't a real bug (it's an expected artifact of this app's own frequent
+    // redeploys, see the comment below) and would just be noise every time a new build ships.
+    if (!CHUNK_ERROR_RE.test(error.message)) reportError(error, { componentStack: info.componentStack });
     // Bug fix (offline reload loop): a stale chunk 404s the exact same way whether the device
     // just lost signal or a new build is actually up — the old code couldn't tell those apart
     // and reloaded unconditionally. Reloading with zero signal fails to fetch and can land on

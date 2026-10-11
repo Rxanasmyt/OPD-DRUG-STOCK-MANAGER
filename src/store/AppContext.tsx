@@ -31,6 +31,7 @@ import { hapticSuccess, hapticError } from '../utils/haptic';
 // Same "?raw" VERSION import LoginScreen.tsx/MoreScreen.tsx already use — see the
 // meta/settings onSnapshot handler below for why this file needs it too.
 import versionRaw from '../../VERSION?raw';
+import { setMonitoringUser } from '../monitoring';
 const APP_VERSION = versionRaw.trim();
 
 // Caps navStack length so a session left open for days (this is a PWA people keep pinned,
@@ -159,6 +160,25 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
 // same ใบเบิก number.
 function genDefaultRecvNo(): string {
   return 'REQ-6908-' + (140 + (Date.now() % 9));
+}
+
+// Bug fix (type-safety audit): every onSnapshot listener below used to cast a raw Firestore
+// doc straight to its TS type (`{ id: d.id, ...d.data() } as Med[]` etc.) with zero runtime
+// check — a doc missing/mistyping one of these specific numeric fields (a manual Firestore
+// console edit, a partial write, pre-migration data, or simply bad data written before the
+// matching firestore.rules tightening) would silently produce an object that LIES about its
+// own type, and the resulting NaN/undefined would propagate through every sum/comparison that
+// reads it (par suggestions, low-stock flags, printed requisitions, reports) with no error
+// anywhere. Guards ONLY the numeric fields that feed arithmetic and have no other fallback —
+// deliberately does NOT touch `exp` on Lot/FloorLot/PendingReceive: selectors.ts and this file
+// already have an established `?? Infinity` convention for a missing exp (see e.g.
+// selectors.ts's FEFO sort), and defaulting it here would conflict with that existing,
+// correct handling rather than fix anything. Number.isFinite also rejects Infinity/NaN, so
+// this doubles as a client-side backstop for data written before firestore.rules' own
+// isNonNegNum() upper-bound fix (see firestore.rules) took effect.
+function numOr(raw: Record<string, unknown>, key: string, fallback: number): number {
+  const v = raw[key];
+  return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 }
 
 function freshState(): AppState {
@@ -757,6 +777,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           meds: [], lots: [], floorLots: [], txs: [], users: [], authLog: [], pendingReceives: [], pending: 0, dbReady: false,
         });
         setMyProfile(null);
+        setMonitoringUser(null, null);
       } else {
         patch({ myUid: fbUser.uid });
       }
@@ -814,6 +835,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (profile.active) {
           clearDowngrade();
           setMyProfile(profile);
+          setMonitoringUser(state.myUid, profile.role);
           // Bug fixed previously: authStatus flipping to 'signedIn' never moved `screen` off
           // its initial/post-logout value of 'login', landing on a blank home screen until
           // the person tapped "หน้าหลัก" themselves. Land on 'home' only from that specific
@@ -840,9 +862,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => { clearDowngrade(); unsub(); };
   }, [state.myUid, patch]);
 
-  const sub = useCallback((medId: string) => subQty(state, medId), [state]);
-  const fefo = useCallback((medId: string) => fefoLot(state, medId), [state]);
-  const fefoFloor = useCallback((medId: string) => fefoFloorLot(state, medId), [state]);
+  // Bug fix (performance audit): these three used to depend on the ENTIRE `state` object even
+  // though subQty()/fefoLot()/fefoFloorLot() only ever read state.lots (sub/fefo) or
+  // state.floorLots (fefoFloor) — see each function's own body in selectors.ts. Since `patch()`
+  // always allocates a brand-new top-level state object on every single call anywhere in the
+  // app (even one unrelated to stock at all, e.g. a keystroke in a search box), depending on
+  // `state` gave these a new identity on every render regardless — defeating any useMemo in a
+  // consumer that depends on them (HomeScreen/TransferScreen's heavy per-med list filters,
+  // notably). Narrowing to exactly what each function reads is a pure dependency-array
+  // correction — the computation itself is unchanged — and is what actually lets those
+  // consumers' memoization do its job.
+  const sub = useCallback((medId: string) => subQty(state, medId), [state.lots]);
+  const fefo = useCallback((medId: string) => fefoLot(state, medId), [state.lots]);
+  const fefoFloor = useCallback((medId: string) => fefoFloorLot(state, medId), [state.floorLots]);
   const userName = useCallback(() => myProfile?.name || '', [myProfile]);
   // Real-world request: editing the master drug record (name/price/par/bin/active) and system
   // settings (par cover days, expiry warning threshold) is Admin-only now — pharm keeps every
@@ -1223,25 +1255,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const unsubs = [
       onSnapshot(collection(db, 'meds'), (snap) => {
         window.clearTimeout(stallTimer);
-        patch({ meds: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Med[], dbReady: true });
+        const meds = snap.docs.map((d) => {
+          const raw = d.data() as Record<string, unknown>;
+          return {
+            id: d.id, ...raw,
+            floor: numOr(raw, 'floor', 0), parFloor: numOr(raw, 'parFloor', 0), parSub: numOr(raw, 'parSub', 0),
+            price: numOr(raw, 'price', 0), used30: numOr(raw, 'used30', 0), usedPrev30: numOr(raw, 'usedPrev30', 0),
+            volatility: numOr(raw, 'volatility', 0),
+          } as Med;
+        });
+        patch({ meds, dbReady: true });
       }, (e) => { window.clearTimeout(stallTimer); onErr('meds')(e); }),
       onSnapshot(collection(db, 'lots'), (snap) => {
-        patch({ lots: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as AppState['lots'] });
+        const lots = snap.docs.map((d) => {
+          const raw = d.data() as Record<string, unknown>;
+          return { id: d.id, ...raw, qty: numOr(raw, 'qty', 0) };
+        }) as AppState['lots'];
+        patch({ lots });
       }, onErr('lots')),
       onSnapshot(collection(db, 'floorLots'), (snap) => {
-        patch({ floorLots: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as AppState['floorLots'] });
+        const floorLots = snap.docs.map((d) => {
+          const raw = d.data() as Record<string, unknown>;
+          return { id: d.id, ...raw, qty: numOr(raw, 'qty', 0) };
+        }) as AppState['floorLots'];
+        patch({ floorLots });
       }, onErr('floorLots')),
       onSnapshot(query(collection(db, 'txs'), orderBy('ts', 'desc'), limit(300)), (snap) => {
-        patch({ txs: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as AppState['txs'] });
+        const txs = snap.docs.map((d) => {
+          const raw = d.data() as Record<string, unknown>;
+          return { id: d.id, ...raw, qty: numOr(raw, 'qty', 0), ts: numOr(raw, 'ts', 0) };
+        }) as AppState['txs'];
+        patch({ txs });
       }, onErr('txs')),
       onSnapshot(query(collection(db, 'auditLog'), orderBy('ts', 'desc'), limit(300)), (snap) => {
-        patch({ authLog: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as AppState['authLog'] });
+        const authLog = snap.docs.map((d) => {
+          const raw = d.data() as Record<string, unknown>;
+          return { id: d.id, ...raw, ts: numOr(raw, 'ts', 0) };
+        }) as AppState['authLog'];
+        patch({ authLog });
       }, onErr('auditLog')),
       // Receives submitted by a ผู้ช่วยเภสัชกร (tech) sit here until a pharmacist/admin
       // approves them — everyone who can see the receive screen needs the live list (tech
       // to see their own request's status, pharm/admin to actually act on it).
       onSnapshot(query(collection(db, 'pendingReceives'), orderBy('ts', 'desc'), limit(200)), (snap) => {
-        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as PendingReceive[];
+        const rows = snap.docs.map((d) => {
+          const raw = d.data() as Record<string, unknown>;
+          return { id: d.id, ...raw, qty: numOr(raw, 'qty', 0), ts: numOr(raw, 'ts', 0) };
+        }) as PendingReceive[];
         patch({ pendingReceives: rows, pending: rows.filter((r) => r.status === 'pending').length });
       }, onErr('pendingReceives')),
       // Bug fix: expiryWarnDays/parFloorCoverDays/parSubCoverDays used to be pure client-side
@@ -1285,7 +1345,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ];
     if (myProfile?.role === 'admin') {
       unsubs.push(onSnapshot(collection(db, 'users'), (snap) => {
-        patch({ users: snap.docs.map((d) => ({ id: d.id, ...d.data() })) as User[] });
+        // Bug fix (type-safety audit): `active` gates whether a user can do anything at all
+        // app-wide — defaulting a missing/malformed value to `false` (never truthy) is the
+        // only safe direction for a boolean this central to fail toward.
+        const users = snap.docs.map((d) => {
+          const raw = d.data() as Record<string, unknown>;
+          return { id: d.id, ...raw, active: typeof raw.active === 'boolean' ? raw.active : false };
+        }) as User[];
+        patch({ users });
       }, onErr('users')));
     }
     return () => { window.clearTimeout(stallTimer); unsubs.forEach((u) => u()); };
@@ -2504,8 +2571,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const commitAdjust = useCallback(guardOnce('adjust', async () => {
     const m = state.meds.find((x) => x.id === state.adjMed);
     const q = parseIntSafe(state.adjQty);
-    if (!m || !q || !state.adjReason) { toast('ต้องเลือกยา จำนวน และเหตุผลให้ครบ'); return; }
-    const t = state.adjType!;
+    // Bug fix (type-safety audit): this used to trust `state.adjType!` (a non-null assertion)
+    // with no local guard — the only thing standing between it and a real `null` reaching
+    // trx.set's `type: t` write (corrupting a txs row with `type: null` against its required,
+    // closed-union TxType) was AdjustScreen.tsx's render condition gating which button calls
+    // this at all, a cross-file invariant non-null assertions don't actually check at runtime.
+    if (!m || !q || !state.adjReason || !state.adjType) { toast('ต้องเลือกยา จำนวน และเหตุผลให้ครบ'); return; }
+    const t = state.adjType;
     // Bug fix (ledger accuracy): a 'damaged'/'adjust' deduction used to log qty as a flat `-q`
     // regardless of what actually happened to floor — but the write below clamps at 0
     // (Math.max(0, ...)), same guard commitReconcile already needed for the exact same reason.
@@ -2969,11 +3041,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // transferred-out lot sets qty to 0 rather than deleting the doc (see scrapLot's own
       // comment), so a qty>0 filter here would silently drop real historical records (when a
       // lot arrived, what it was scrapped for) from a sheet whose whole point is "everything".
+      // Bug fix (type-safety audit): the ONE lot sort/format site in this file that lacked the
+      // `?? Infinity` guard every other `.sort((a, b) => a.exp - b.exp)` call site uses (see
+      // selectors.ts's FEFO sort, AppContext.tsx:2026/2051/4921/5001/5195/etc.) — a lot doc
+      // missing `exp` (a real past bug per this codebase's own comments) made `a.exp - b.exp`
+      // a NaN comparison (undefined sort order for the WHOLE sheet, not just that row) and
+      // `isoDate(l.exp)` render the literal string "NaN-NaN-NaN" in this admin/compliance export.
       addSheet('lots', [['medication', 'lot_no', 'expiry', 'qty_remaining', 'status'],
         ...st.lots
           .slice()
-          .sort((a, b) => a.exp - b.exp)
-          .map((l) => [st.meds.find((m) => m.id === l.medId)?.name || l.medId, l.lotNo, isoDate(l.exp), l.qty, l.qty > 0 ? 'คงเหลือ' : 'หมด/ตัดออกแล้ว'])]);
+          .sort((a, b) => (a.exp ?? Infinity) - (b.exp ?? Infinity))
+          .map((l) => [st.meds.find((m) => m.id === l.medId)?.name || l.medId, l.lotNo, l.exp != null ? isoDate(l.exp) : '-', l.qty, l.qty > 0 ? 'คงเหลือ' : 'หมด/ตัดออกแล้ว'])]);
 
       // 10) Global settings (หน้าตั้งค่า → เกณฑ์แจ้งเตือน/par อัตโนมัติ) — real, saved app
       // configuration (see the meta/settings Firestore doc this app writes via

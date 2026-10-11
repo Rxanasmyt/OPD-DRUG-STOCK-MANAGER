@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { useApp } from '../store/AppContext';
 import { toneFor, subTone, daysUntil, usesSubstock, floorMinOf, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, suggestTransferQty, isOnStockHold } from '../store/selectors';
 import { nf, thDate, isoDate } from '../utils/format';
@@ -62,6 +62,66 @@ export default function HomeScreen() {
   const now = new Date();
   const greeting = greetingFor(now.getHours());
 
+  // Bug fix (performance audit): these used to be plain `const`s recomputed in full on every
+  // render — up to 10 separate filter/sort passes over the whole active formulary (585 meds in
+  // this hospital's real seed data) and the lot/tx history, re-run on every keystroke anywhere
+  // in the app while Home is mounted, not just on a Home-relevant change, since this screen
+  // reads the whole AppContext. useMemo + the now correctly-narrowed sub()/warn() dependencies
+  // (see their own "Bug fix" comments in AppContext.tsx) means this only actually recomputes
+  // when state.meds/state.lots/state.txs themselves change. Moved above the empty-state early
+  // return below since React hooks must run unconditionally on every render.
+  //
+  // OPD/IPD ward tabs removed — every med now shows in one combined list (see
+  // shareAllMeds()/matchesWard() in AppContext.tsx/selectors.ts; wardFilter stays 'all').
+  const meds = useMemo(() => state.meds.filter((m) => m.active), [state.meds]);
+  // "Min" (reorder point) is a separate number from "Max" (parFloor, the shelf's fill
+  // target) — below Min is when it actually needs refilling this morning, not just "any bit
+  // under capacity".
+  // Bug fix (user-reported): a med flagged isOnStockHold() ("ยาขาดชั่วคราว") still showed up
+  // in these tiles/lists (ต้องเติมหน้างาน, เร่งด่วนวันนี้, ต่ำกว่า par substock) even though
+  // nothing here can actually fix it — same gap TransferScreen's own list had. StockHoldBanner
+  // already surfaces it elsewhere with the reason and a resolve action.
+  const low = useMemo(() => meds.filter((m) => m.floor < floorMinOf(m) && !isOnStockHold(m)), [meds]);
+  // Meaningless for noSubstock meds (liquids/sprays) — they have no substock stage to be
+  // low in; excluded here rather than always showing a permanent, unactionable "0/par" row.
+  const lowSub = useMemo(() => meds.filter((m) => usesSubstock(m) && sub(m.id) < m.parSub && !isOnStockHold(m)), [meds, sub]);
+  // "สรุปงานวันนี้" checklist — combines the handful of things someone covering this app alone
+  // has to currently piece together from several separate screens every morning (เร่งด่วนวันนี้
+  // on TransferScreen, pending approvals on ReceiveScreen, ตัดยอด HOSxP status on
+  // ReconcileScreen, the warehouse-request count) into one glance here instead.
+  const urgent = useMemo(() => meds.filter((m) => usesSubstock(m) && isUrgentLow(m) && !isOnStockHold(m)), [meds]);
+  const needsWarehouse = useMemo(() => meds.filter((m) => needsWarehouseRequest(m, sub(m.id))), [meds, sub]);
+  const W = warn();
+  const medIds = useMemo(() => new Set(meds.map((m) => m.id)), [meds]);
+  const wardLots = useMemo(() => state.lots.filter((l) => medIds.has(l.medId)), [state.lots, medIds]);
+  const expLots = useMemo(() => wardLots
+    .filter((l) => l.qty > 0 && daysUntil(l.exp) < W)
+    .sort((a, b) => a.exp - b.exp), [wardLots, W]);
+  // Bug fix (consistency): a lot expiring TODAY (daysUntil===0) is already unsafe to dispense —
+  // the aging/turnover report's "หมดอายุแล้ว" bucket already counts it as expired (its `<= hi`
+  // bound with hi=0) — but this tile used `< 0`, so the SAME lot read as "already expired" on
+  // the Report screen and merely "near expiry, not yet due" here, and the quick-scrap shortcut
+  // below funneled it into the wrong flow (ordinary transfer instead of expired write-off).
+  const expiredCount = useMemo(() => wardLots.filter((l) => l.qty > 0 && daysUntil(l.exp) <= 0).length, [wardLots]);
+  // Bug fix: daysUntil() computes days remaining until a *future* timestamp (right for
+  // expiry dates) — for a tx.ts, which is always in the past, it was always negative, so
+  // this tile silently showed 0 for every transaction ever logged. Compare calendar dates.
+  const todayIso = isoDate(Date.now());
+  const txToday = useMemo(() => state.txs.filter((x) => isoDate(x.ts) === todayIso).length, [state.txs, todayIso]);
+  // Whether today's HOSxP reconcile (the main way this app's floor numbers stay honest — see
+  // the tip banner below) has actually run yet. A real, recurring risk for a short-staffed
+  // team: skip a day and the app quietly drifts from what's actually on the shelf, with
+  // nothing else here to catch it. lastReconcileDateIso() reads state.txs (already loaded,
+  // newest-first), so this needs no extra query.
+  const reconciledToday = useMemo(() => lastReconcileDateIso(state.txs) === todayIso, [state.txs, todayIso]);
+
+  // Overview ring — same red/amber/green severity toneFor() already uses for a single med's
+  // floor-vs-par row (TransferScreen etc.), rolled up across the whole active formulary into
+  // one glanceable picture instead of making someone infer it from four separate numbers.
+  const healthyCount = useMemo(() => meds.filter((m) => toneFor(m) === 'var(--green)').length, [meds]);
+  const warnCount = useMemo(() => meds.filter((m) => toneFor(m) === 'var(--amber)').length, [meds]);
+  const criticalCount = meds.length - healthyCount - warnCount;
+
   if (state.meds.length === 0) {
     return (
       <div style={{ padding: '16px 14px 24px', animation: 'fade .18s' }}>
@@ -81,57 +141,7 @@ export default function HomeScreen() {
     );
   }
 
-  // OPD/IPD ward tabs removed — every med now shows in one combined list (see
-  // shareAllMeds()/matchesWard() in AppContext.tsx/selectors.ts; wardFilter stays 'all').
-  const meds = state.meds.filter((m) => m.active);
-  // "Min" (reorder point) is a separate number from "Max" (parFloor, the shelf's fill
-  // target) — below Min is when it actually needs refilling this morning, not just "any bit
-  // under capacity".
-  // Bug fix (user-reported): a med flagged isOnStockHold() ("ยาขาดชั่วคราว") still showed up
-  // in these tiles/lists (ต้องเติมหน้างาน, เร่งด่วนวันนี้, ต่ำกว่า par substock) even though
-  // nothing here can actually fix it — same gap TransferScreen's own list had. StockHoldBanner
-  // already surfaces it elsewhere with the reason and a resolve action.
-  const low = meds.filter((m) => m.floor < floorMinOf(m) && !isOnStockHold(m));
-  // Meaningless for noSubstock meds (liquids/sprays) — they have no substock stage to be
-  // low in; excluded here rather than always showing a permanent, unactionable "0/par" row.
-  const lowSub = meds.filter((m) => usesSubstock(m) && sub(m.id) < m.parSub && !isOnStockHold(m));
-  // "สรุปงานวันนี้" checklist — combines the handful of things someone covering this app alone
-  // has to currently piece together from several separate screens every morning (เร่งด่วนวันนี้
-  // on TransferScreen, pending approvals on ReceiveScreen, ตัดยอด HOSxP status on
-  // ReconcileScreen, the warehouse-request count) into one glance here instead.
-  const urgent = meds.filter((m) => usesSubstock(m) && isUrgentLow(m) && !isOnStockHold(m));
-  const needsWarehouse = meds.filter((m) => needsWarehouseRequest(m, sub(m.id)));
   const pendingApprovals = myProfile?.role !== 'tech' ? state.pending : 0;
-  const W = warn();
-  const medIds = new Set(meds.map((m) => m.id));
-  const wardLots = state.lots.filter((l) => medIds.has(l.medId));
-  const expLots = wardLots
-    .filter((l) => l.qty > 0 && daysUntil(l.exp) < W)
-    .sort((a, b) => a.exp - b.exp);
-  // Bug fix (consistency): a lot expiring TODAY (daysUntil===0) is already unsafe to dispense —
-  // the aging/turnover report's "หมดอายุแล้ว" bucket already counts it as expired (its `<= hi`
-  // bound with hi=0) — but this tile used `< 0`, so the SAME lot read as "already expired" on
-  // the Report screen and merely "near expiry, not yet due" here, and the quick-scrap shortcut
-  // below funneled it into the wrong flow (ordinary transfer instead of expired write-off).
-  const expiredCount = wardLots.filter((l) => l.qty > 0 && daysUntil(l.exp) <= 0).length;
-  // Bug fix: daysUntil() computes days remaining until a *future* timestamp (right for
-  // expiry dates) — for a tx.ts, which is always in the past, it was always negative, so
-  // this tile silently showed 0 for every transaction ever logged. Compare calendar dates.
-  const todayIso = isoDate(Date.now());
-  const txToday = state.txs.filter((x) => isoDate(x.ts) === todayIso).length;
-  // Whether today's HOSxP reconcile (the main way this app's floor numbers stay honest — see
-  // the tip banner below) has actually run yet. A real, recurring risk for a short-staffed
-  // team: skip a day and the app quietly drifts from what's actually on the shelf, with
-  // nothing else here to catch it. lastReconcileDateIso() reads state.txs (already loaded,
-  // newest-first), so this needs no extra query.
-  const reconciledToday = lastReconcileDateIso(state.txs) === todayIso;
-
-  // Overview ring — same red/amber/green severity toneFor() already uses for a single med's
-  // floor-vs-par row (TransferScreen etc.), rolled up across the whole active formulary into
-  // one glanceable picture instead of making someone infer it from four separate numbers.
-  const healthyCount = meds.filter((m) => toneFor(m) === 'var(--green)').length;
-  const warnCount = meds.filter((m) => toneFor(m) === 'var(--amber)').length;
-  const criticalCount = meds.length - healthyCount - warnCount;
 
   return (
     <div style={{ padding: '16px 14px 24px', animation: 'fade .18s' }}>

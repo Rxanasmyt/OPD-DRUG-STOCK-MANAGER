@@ -88,11 +88,19 @@ export default function ReportScreen() {
   // ---------- ภาพรวมผู้บริหาร (exec tab) ----------
   // Same underlying numbers aging/turn/category already compute above — this just rolls them
   // into one headline-first view a pharmacy head/PTC reader can scan without visiting every tab.
-  const execHealthy = meds.filter((m) => toneFor(m) === 'var(--green)').length;
-  const execWarn = meds.filter((m) => toneFor(m) === 'var(--amber)').length;
+  // Bug fix (performance audit): exec/insights-tab computations below used to be plain
+  // `const`s recomputed in full on every render — unlike the aging-tab ones just above (already
+  // fixed, see this file's own "Bug fix (performance)" comment), these ran on every render
+  // regardless of tab, including every keystroke in the unrelated discSearch box. subQty()/
+  // categoryStats()/daysOfStockLeft() only ever read state.lots (verified in selectors.ts), so
+  // depending on [meds, state.lots, ...] — never the whole `state` object, which is a new
+  // reference on every patch() anywhere in the app — is what lets this actually skip
+  // recomputation on an unrelated render.
+  const execHealthy = useMemo(() => meds.filter((m) => toneFor(m) === 'var(--green)').length, [meds]);
+  const execWarn = useMemo(() => meds.filter((m) => toneFor(m) === 'var(--amber)').length, [meds]);
   const execCritical = meds.length - execHealthy - execWarn;
   const execHealthyPct = meds.length ? Math.round((execHealthy / meds.length) * 100) : 100;
-  const execTotalValue = meds.reduce((s, m) => s + (m.floor + subQty(state, m.id)) * m.price, 0);
+  const execTotalValue = useMemo(() => meds.reduce((s, m) => s + (m.floor + subQty(state, m.id)) * m.price, 0), [meds, state.lots]);
   // state.txs is the realtime cache capped to the 300 most-recent rows across ALL types, so it
   // under-counts once a busy month exceeds that cap — use it only as an instant placeholder
   // while the true server-side count (uncapped) loads in.
@@ -103,18 +111,18 @@ export default function ReportScreen() {
     return () => { live = false; };
   }, [fetchExecTxsThisMonth]);
   const execTxsThisMonth = execTxsFresh ?? state.txs.filter((x) => x.ts >= Date.now() - 30 * 86400000).length;
-  const execByValue = meds
+  const execByValue = useMemo(() => meds
     .map((m) => ({ m, oh: m.floor + subQty(state, m.id), value: (m.floor + subQty(state, m.id)) * m.price }))
     .sort((a, b) => b.value - a.value)
-    .slice(0, 10);
-  const execByUsage = meds
+    .slice(0, 10), [meds, state.lots]);
+  const execByUsage = useMemo(() => meds
     .filter((m) => m.used30 > 0)
     .slice()
     .sort((a, b) => b.used30 - a.used30)
-    .slice(0, 10);
+    .slice(0, 10), [meds]);
 
   const turnRate = (m: (typeof meds)[number]) => m.used30 / Math.max(1, m.parFloor);
-  const turnRows = meds
+  const turnRows = useMemo(() => meds
     .slice()
     .sort((a, b) => turnRate(b) - turnRate(a))
     .slice(0, 30)
@@ -127,13 +135,14 @@ export default function ReportScreen() {
       // stock" for a metric that's actually undefined for this drug.
       const tone = !isFinite(doh) ? 'var(--muted)' : doh < 14 ? 'var(--red)' : doh > 120 ? 'var(--amber)' : 'var(--green)';
       return { id: m.id, name: m.name, used: nf(m.used30), doh: isFinite(doh) ? nf(doh) : '—', tone };
-    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }), [meds, state.lots]);
 
   // Per-therapeutic-group rollup — the report the drug categories added in v3.2.0 were
   // ultimately for: which groups tie up the most money, which are running low across the
   // board, and which have expiry risk concentrated in them. Same pure selector the CSV export
   // uses, so the exported spreadsheet can never disagree with what's on screen.
-  const catRows = categoryStats(state, meds, state.expiryWarnDays);
+  const catRows = useMemo(() => categoryStats(state, meds, state.expiryWarnDays), [meds, state.lots, state.expiryWarnDays]);
   const catMaxValue = Math.max(1, ...catRows.map((r) => r.value));
   // Bug fix (report accuracy): each row displays nf(r.value) — Math.round to the nearest whole
   // baht — but the footer used to sum the RAW, unrounded values and round only that final sum.
@@ -145,21 +154,24 @@ export default function ReportScreen() {
   // exactly what a reader would get by adding up the rows they can actually see.
   const catTotalValue = catRows.reduce((s2, r) => s2 + Math.round(r.value), 0);
 
-  const discAllTyped = state.txs.filter((x) => DISC_TYPES.indexOf(x.type) >= 0);
+  // Bug fix (performance audit): discByCategory/repeatAdr depend only on discAllTyped/meds —
+  // never on discFilter/discSearch below — but used to recompute on every keystroke in the
+  // Discrepancy-log search box regardless, since nothing here was memoized.
+  const discAllTyped = useMemo(() => state.txs.filter((x) => DISC_TYPES.indexOf(x.type) >= 0), [state.txs]);
   const discQ = discSearch.trim().toLowerCase();
-  const discRows = discAllTyped
+  const discRows = useMemo(() => discAllTyped
     .filter((x) => discFilter === 'all' || x.type === discFilter)
     .filter((x) => !discQ || x.name.toLowerCase().indexOf(discQ) >= 0)
-    .slice(0, 60);
+    .slice(0, 60), [discAllTyped, discFilter, discQ]);
   // Real-world request: "หมวดไหนเสียบ่อยผิดปกติ" — off `discAllTyped` (the whole recent
   // discrepancy-type dataset), deliberately NOT `discRows` (the user's own current type/search
   // filter on the Discrepancy-log tab) — a pattern insight should reflect the real picture
   // regardless of whatever filter someone happens to have picked on a different tab.
-  const discByCategory = discrepancyByCategory(discAllTyped, meds);
+  const discByCategory = useMemo(() => discrepancyByCategory(discAllTyped, meds), [discAllTyped, meds]);
   const discByCategoryTotal = discByCategory.reduce((s2, c) => s2 + c.count, 0);
   // Same `discAllTyped` input as discByCategory above — the whole recent discrepancy-type
   // dataset, not whatever filter the Discrepancy-log tab's own type/search picker happens to have.
-  const repeatAdr = repeatAdrReturns(discAllTyped, meds);
+  const repeatAdr = useMemo(() => repeatAdrReturns(discAllTyped, meds), [discAllTyped, meds]);
 
   // "🧠 วิเคราะห์อัตโนมัติ" — real numbers computed on-device from usage data already synced
   // (used30/usedPrev30 from recomputeUsageStats/commitUsageImport), not a call to any AI
@@ -167,12 +179,12 @@ export default function ReportScreen() {
   // actual LLM call from here would mean shipping that key in public client code. Two useful
   // things fall straight out of data already on hand: which drugs' usage swung sharply enough
   // to need attention, and which are projected to run out soonest at their current pace.
-  const anomalies = usageAnomalies(meds);
-  const stockoutRows = meds
+  const anomalies = useMemo(() => usageAnomalies(meds), [meds]);
+  const stockoutRows = useMemo(() => meds
     .map((m) => ({ m, days: daysOfStockLeft(state, m) }))
     .filter((x): x is { m: (typeof meds)[number]; days: number } => x.days !== null && x.days <= 21)
     .sort((a, b) => a.days - b.days)
-    .slice(0, 20);
+    .slice(0, 20), [meds, state.lots]);
 
   // ---------- เสถียรภาพการเบิก/เติมยา (also "🧠 วิเคราะห์อัตโนมัติ" tab) ----------
   // Real-world request: "ทำยังไงให้การเบิกเติมยาเสถียรที่สุด" — two one-shot fetches, local to
@@ -237,6 +249,14 @@ export default function ReportScreen() {
     fetchDailyMetrics(kpiFrom, kpiTo).then((rows) => {
       if (reqId !== kpiReqId.current) return;
       setKpiRows(rows); setKpiLoaded(true);
+    }).catch((e) => {
+      // Bug fix (resilience audit): same unhandled-rejection + silent-failure shape the
+      // insights-tab fetch above was already fixed for (see its own "Bug fix" comment) — this
+      // one never had the matching .catch, so a timeout/offline error here left the table
+      // silently empty forever with no toast and no retry short of a full page reload.
+      if (reqId !== kpiReqId.current) return;
+      toast((e as Error)?.message || 'โหลดข้อมูลตัวชี้วัดย้อนหลังไม่สำเร็จ ลองเปิดแท็บนี้ใหม่อีกครั้ง');
+      setKpiLoaded(false);
     }).finally(() => { if (reqId === kpiReqId.current) setKpiLoading(false); });
   };
   useEffect(() => {
@@ -284,6 +304,12 @@ export default function ReportScreen() {
     fetchUsageHistory(usageFrom, usageTo).then((records) => {
       if (reqId !== usageReqId.current) return;
       setUsageRecords(records); setUsageLoaded(true);
+    }).catch((e) => {
+      // Bug fix (resilience audit): same gap as loadKpi above — no .catch meant a fetch
+      // failure here silently left this tab empty forever with no toast.
+      if (reqId !== usageReqId.current) return;
+      toast((e as Error)?.message || 'โหลดสถิติการใช้ยาไม่สำเร็จ ลองเปิดแท็บนี้ใหม่อีกครั้ง');
+      setUsageLoaded(false);
     }).finally(() => { if (reqId === usageReqId.current) setUsageLoading(false); });
   };
   useEffect(() => {
@@ -319,6 +345,12 @@ export default function ReportScreen() {
     fetchDrugReturns(rtnFrom, rtnTo).then((records) => {
       if (reqId !== rtnReqId.current) return;
       setRtnRecords(records); setRtnLoaded(true);
+    }).catch((e) => {
+      // Bug fix (resilience audit): same gap as loadKpi above — no .catch meant a fetch
+      // failure here silently left this tab empty forever with no toast.
+      if (reqId !== rtnReqId.current) return;
+      toast((e as Error)?.message || 'โหลดรายงานคืนยาไม่สำเร็จ ลองเปิดแท็บนี้ใหม่อีกครั้ง');
+      setRtnLoaded(false);
     }).finally(() => { if (reqId === rtnReqId.current) setRtnLoading(false); });
   };
   useEffect(() => {
@@ -349,6 +381,12 @@ export default function ReportScreen() {
     fetchStockAsOf(dateMs).then((rows) => {
       if (reqId !== stockAsOfReqId.current) return;
       setStockAsOfRows(rows); setStockAsOfLoaded(true);
+    }).catch((e) => {
+      // Bug fix (resilience audit): same gap as loadKpi above — no .catch meant a fetch
+      // failure here silently left this tab empty forever with no toast.
+      if (reqId !== stockAsOfReqId.current) return;
+      toast((e as Error)?.message || 'โหลดยอดคงคลังย้อนหลังไม่สำเร็จ ลองเปิดแท็บนี้ใหม่อีกครั้ง');
+      setStockAsOfLoaded(false);
     }).finally(() => { if (reqId === stockAsOfReqId.current) setStockAsOfLoading(false); });
   };
   useEffect(() => {
