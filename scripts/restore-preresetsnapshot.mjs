@@ -25,6 +25,10 @@ import { getFirestore } from 'firebase-admin/firestore';
 
 const BATCH_LIMIT = 450;
 const COLLECTION = '_preResetSnapshots';
+// Bug fix (audit finding — operational safety): same gap as restore-firestore.mjs's own fix —
+// no check that the service account key actually belongs to this project before writing.
+// Matches src/firebase.ts's own firebaseConfig.projectId.
+const EXPECTED_PROJECT_ID = 'opd-drug-stock';
 
 // label prefixes written by snapshotBeforeDelete() -> which real collection docs restore to,
 // and how (txs/lots docs were about to be DELETED, so restoring them is a plain set(); the
@@ -54,6 +58,11 @@ async function main() {
     process.exit(1);
   }
   const serviceAccount = JSON.parse(keyJson);
+  if (serviceAccount.project_id !== EXPECTED_PROJECT_ID && !args.includes('--allow-other-project')) {
+    console.error(`Refusing to run: this service account key belongs to Firebase project "${serviceAccount.project_id}", not the expected "${EXPECTED_PROJECT_ID}".\n`
+      + `If you really mean to restore into a different project on purpose, re-run with --allow-other-project.`);
+    process.exit(1);
+  }
   initializeApp({ credential: cert(serviceAccount) });
   const db = getFirestore();
 

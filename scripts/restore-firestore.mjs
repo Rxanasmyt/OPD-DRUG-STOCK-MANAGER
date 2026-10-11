@@ -28,6 +28,13 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { readFile } from 'node:fs/promises';
 
 const BATCH_LIMIT = 450; // Firestore's hard cap is 500 writes per batch commit.
+// Bug fix (audit finding — operational safety): this script never checked which Firebase
+// project the service account key it was handed actually belongs to — an operator who exports
+// the wrong environment's key (e.g. a staging/test project reused from another app) during a
+// real incident would restore real data into the wrong project with zero automated warning.
+// Matches src/firebase.ts's own firebaseConfig.projectId — update both together if this
+// project is ever renamed/migrated.
+const EXPECTED_PROJECT_ID = 'opd-drug-stock';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -82,6 +89,11 @@ async function main() {
   console.log('');
 
   const serviceAccount = JSON.parse(keyJson);
+  if (serviceAccount.project_id !== EXPECTED_PROJECT_ID && !args.includes('--allow-other-project')) {
+    console.error(`Refusing to run: this service account key belongs to Firebase project "${serviceAccount.project_id}", not the expected "${EXPECTED_PROJECT_ID}".\n`
+      + `If you really mean to restore into a different project on purpose, re-run with --allow-other-project.`);
+    process.exit(1);
+  }
   initializeApp({ credential: cert(serviceAccount) });
   const db = getFirestore();
 

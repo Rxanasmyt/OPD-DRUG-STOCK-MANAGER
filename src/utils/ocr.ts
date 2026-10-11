@@ -6,6 +6,8 @@
 // the raw recognized text so a person can correct it before saving — never silently commit an
 // OCR guess to a receive record.
 
+import { toIsoDateString } from './format';
+
 export interface OcrLabelResult {
   lotNo: string | null;
   expIso: string | null; // 'YYYY-MM-DD', suitable straight into a <input type="date">
@@ -28,7 +30,7 @@ function toIso(y: number, mo: number, d: number): string | null {
   // expired, never a real ambiguity worth handling.
   const year = y < 100 ? 2000 + y : y;
   if (year < 2020 || year > 2099) return null;
-  return year + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  return toIsoDateString(year, mo, d);
 }
 
 /** Tries the date shapes actually seen on drug packaging, most specific first: DD/MM/YYYY or

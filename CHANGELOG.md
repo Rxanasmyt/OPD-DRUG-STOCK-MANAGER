@@ -7,6 +7,19 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.155.0] - 2026-10-11
+
+### Fixed
+- **[ทำจุดที่เหลือจาก Enterprise Architecture & Performance Audit ต่อ — เฉพาะจุดเล็กที่ปลอดภัย]**
+  - บีบอัด `hospital-crest.png` จาก 73.7KB เหลือ 17.8KB (resize ลงมาที่ 168×111px — ยังคมชัดเกินพอสำหรับขนาดที่แสดงจริง 26-42px แม้บนจอ retina รักษา alpha channel ไว้ครบ, ตรวจสอบภาพผลลัพธ์แล้วก่อนเปลี่ยน)
+  - รวม helper ประกอบวันที่ ISO ที่ซ้ำกันระหว่าง `utils/format.ts`'s `isoDate()` กับ `utils/ocr.ts`'s `toIso()` เป็นฟังก์ชันเดียว (`toIsoDateString()`) — ไม่แตะ logic การ validate ที่ต่างกันของแต่ละจุด
+  - `scripts/restore-firestore.mjs`/`restore-preresetsnapshot.mjs` เพิ่มการเช็ค `project_id` ของ service account key ก่อนเขียนข้อมูลจริง — ถ้า key เป็นของ Firebase project อื่น (เช่น หยิบ key ผิดไฟล์ระหว่างเหตุฉุกเฉิน) สคริปต์จะปฏิเสธการทำงานทันทีแทนที่จะเงียบแล้วเขียนทับ project ผิด (มี `--allow-other-project` ไว้สำหรับกรณีตั้งใจจริงๆ เช่นทดสอบกับ staging project) — ทดสอบแล้วว่า guard ทำงานถูกทั้งสองทาง (project ผิด → ปฏิเสธ, project ถูก → ทำงานต่อปกติ)
+  - PWA precache (`vite.config.ts`) ไม่โหลด chunk `xlsx`/`UsageCharts` (recharts) ตั้งแต่เปิดแอพครั้งแรกอีกต่อไป — สองไฟล์นี้รวมกัน ~816KB ที่ก่อนหน้านี้ทุกคนต้องโหลดตั้งแต่ติดตั้งแอพแม้ไม่เคยใช้ฟีเจอร์ import ไฟล์ Excel หรือแท็บสถิติการใช้ยาเลยก็ตาม (ยืนยันแล้วว่า chunk ยังอยู่ใน build ปกติ แค่ไม่ถูก precache ล่วงหน้า — โหลดได้ตามปกติเมื่อใช้ฟีเจอร์จริง)
+
+  **ยังเว้นไว้เหมือนเดิม** (ความเสี่ยงสูงกว่าประโยชน์ถ้ารีบทำ): เพิ่ม schema check ให้ `meds` create/update ฝั่ง admin ใน firestore.rules (Med มี 30+ ฟิลด์ เขียนจากกว่า 15 จุดในโค้ด ต้องตรวจสอบอย่างละเอียดทีละจุดก่อนล็อก ไม่ใช่งานที่ควรรีบ), การจำกัดขอบเขต `exportReportCsv`/`exportAllReports`/`exportAudit` (ต้องมีการตัดสินใจเชิงผลิตภัณฑ์ก่อนว่า "export ทั้งหมด" ควรเปลี่ยนพฤติกรรมอย่างไรเมื่อข้อมูลโตมาก ไม่ใช่สิ่งที่ควรตัดสินใจแทนฝ่ายเดียว), และงานสถาปัตยกรรมใหญ่ทั้งหมด (แยก AppContext.tsx/ReportScreen.tsx, repository layer, branded ID types)
+
+  ผ่าน tsc + vitest (541 เทสต์) + build ครบ
+
 ## [3.154.0] - 2026-10-11
 
 ### Fixed
