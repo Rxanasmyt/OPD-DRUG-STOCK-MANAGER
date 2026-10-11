@@ -60,7 +60,7 @@ export default function MoreScreen() {
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
       {groups.map((g) => (
         <div key={g.title} style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.03em', margin: '0 3px 7px' }}>{g.title.toUpperCase()}</div>
+          <div className="section-eyebrow" style={{ fontSize: 11.5, margin: '0 3px 7px' }}>{g.title.toUpperCase()}</div>
           <div className="card stagger" style={{ overflow: 'hidden' }}>
             {g.items.map((m) => (
               <button key={m.label} onClick={() => go(m.screen)} className="row-interactive" style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '13px 13px', minHeight: 58, display: 'flex', alignItems: 'center', gap: 12 }}>

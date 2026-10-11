@@ -265,7 +265,7 @@ export default function SettingsScreen() {
             <div style={{ marginBottom: unstableSuggestions.length > 0 ? 6 : 0 }}>
               ค่าแนะนำของรายการเหล่านี้อิงจากแค่ 30 วันล่าสุด — ถ้าช่วงนั้นมีเหตุการณ์ผิดปกติ (จ่ายยาครั้งใหญ่ครั้งเดียว, นำเข้าข้อมูลผิดช่วง) ค่าที่แนะนำอาจสูง/ต่ำเกินจริง ควรตรวจสอบรายตัวก่อนกด "ใช้ค่าแนะนำทั้งหมด" ด้านล่าง
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {unstableSuggestions.slice(0, 8).map((a) => (
                 <div key={a.med.id} style={{ fontSize: 11, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.med.name}</span>
@@ -346,7 +346,7 @@ export default function SettingsScreen() {
           <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginBottom: 10 }}>
             จากการวิเคราะห์ประวัติ HOSxP ล่าสุด — par หน้างานที่แนะนำของรายการเหล่านี้คิดรวมวันที่ใช้มากที่สุดของแต่ละตัวไว้แล้ว (ไม่ใช่แค่ค่าเฉลี่ยทั้งสัปดาห์)
           </div>
-          <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 7 }}>
+          <div className="stagger" style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 7 }}>
             {weekdayPatternMeds.slice(0, 30).map((m) => {
               // Follow-up request: a drug genuinely busy on a SECOND weekday (not just its single
               // busiest one) used to be invisible here — weekdayPattern (all 5 ratios) lets this

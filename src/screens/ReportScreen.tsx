@@ -436,7 +436,7 @@ export default function ReportScreen() {
               <ExecStat label="ธุรกรรมใน 30 วันล่าสุด" value={nf(execTxsThisMonth) + ' รายการ'} note={nf(meds.length) + ' รายการยา active'} />
             </div>
 
-            <div className="muted" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', margin: '0 2px 8px', textTransform: 'uppercase' }}>10 อันดับมูลค่าคงคลังสูงสุด</div>
+            <div className="section-eyebrow" style={{ margin: '0 2px 8px' }}>10 อันดับมูลค่าคงคลังสูงสุด</div>
             <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 18 }}>
               {execByValue.map((r) => (
                 <button key={r.m.id} onClick={() => goSubstockCardFor(r.m.id)} className="row-interactive" style={{ display: 'flex', justifyContent: 'space-between', gap: 10, width: '100%', border: 0, background: 'transparent', textAlign: 'left', padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', fontSize: 13 }}>
@@ -447,7 +447,7 @@ export default function ReportScreen() {
               {execByValue.length === 0 && <div style={{ padding: 18, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>ยังไม่มีข้อมูล</div>}
             </div>
 
-            <div className="muted" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', margin: '0 2px 8px', textTransform: 'uppercase' }}>10 อันดับใช้เร็วที่สุด (จ่าย 30 วัน)</div>
+            <div className="section-eyebrow" style={{ margin: '0 2px 8px' }}>10 อันดับใช้เร็วที่สุด (จ่าย 30 วัน)</div>
             <div className="card stagger" style={{ overflow: 'hidden' }}>
               {execByUsage.map((m) => (
                 <button key={m.id} onClick={() => goSubstockCardFor(m.id)} className="row-interactive" style={{ display: 'flex', justifyContent: 'space-between', gap: 10, width: '100%', border: 0, background: 'transparent', textAlign: 'left', padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', fontSize: 13 }}>
@@ -911,7 +911,7 @@ export default function ReportScreen() {
                   />
                 </div>
 
-                <div className="muted" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', margin: '0 2px 8px', textTransform: 'uppercase' }}>แนวโน้มรายวัน</div>
+                <div className="section-eyebrow" style={{ margin: '0 2px 8px' }}>แนวโน้มรายวัน</div>
                 <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 8 }}>
                   <div style={{ display: 'flex', padding: '9px 13px', background: 'var(--bg-subtle)', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
                     <span style={{ width: 76, flex: 'none' }}>วันที่</span>
@@ -997,7 +997,7 @@ export default function ReportScreen() {
                 </Suspense>
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '0 2px 8px' }}>
-                  <div className="muted" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase' }}>Top 100 ยาที่ใช้มากที่สุด</div>
+                  <div className="section-eyebrow">Top 100 ยาที่ใช้มากที่สุด</div>
                   <div style={{ display: 'flex', gap: 5 }}>
                     <button className="chip" style={{ ...chip(usageRankBy === 'value'), padding: '5px 10px', fontSize: 11, minHeight: 28 }} onClick={() => setUsageRankBy('value')}>เรียงตามมูลค่า</button>
                     <button className="chip" style={{ ...chip(usageRankBy === 'qty'), padding: '5px 10px', fontSize: 11, minHeight: 28 }} onClick={() => setUsageRankBy('qty')}>เรียงตามปริมาณ</button>

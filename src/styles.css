@@ -403,6 +403,20 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 .btn-outline { background: var(--bg-card); border: 1px solid var(--green); color: var(--green); box-shadow: var(--shadow-xs); }
 .muted { color: var(--muted); }
 
+/* UI polish (audit finding): the small-caps-style "section label above a card/list" look
+   (ReportScreen's "แนวโน้มรายวัน"/"Top 100 ยาที่ใช้มากที่สุด", UsageCharts' chart titles,
+   HomeScreen's "สรุปงานวันนี้", MoreScreen's menu-group titles) was the exact same 4 properties
+   copy-pasted inline at every one of its 8 call sites — consolidated here so it's defined once.
+   `margin` stays out of this class on purpose: every call site's spacing is a layout decision
+   for its own container, not part of what makes this look like "a section label." */
+.section-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; }
 @media (min-width: 560px) {
   .grid-2.tablet-4 { grid-template-columns: repeat(4, 1fr); }
@@ -421,10 +435,25 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 
 /* Rows that act as list items / nav targets get a gentle press + hover lift */
 .row-interactive {
-  transition: background-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease);
 }
 @media (hover: hover) {
-  .row-interactive:hover { background-color: var(--green-tint); }
+  /* UI polish (audit finding): .card/.stat-tile hover already lift with translateY + shadow,
+     but most .row-interactive usage is a divider-separated row packed tightly inside a shared
+     overflow:hidden list card (ReportScreen/HomeScreen/AdminScreen's own list pattern) — a
+     translateY lift there would get clipped by that overflow and overlap the adjoining row's
+     own border. An inset left accent bar instead needs no extra space and can't clip: same
+     visual language this app already uses elsewhere for color-coding (medColor's borderLeft on
+     TransferScreen's rows), just as a hover signal instead of a permanent category tag. */
+  .row-interactive:hover { background-color: var(--green-tint); box-shadow: inset 3px 0 0 0 var(--green); }
+  /* TransferScreen's main list is the one place `.row-interactive` is ALSO `.card` — box-shadow
+     doesn't merge across two separate rules targeting the same element, only within one, so
+     without this, the plain rule above would silently replace `.card:hover`'s own
+     var(--shadow-sm) elevation outright (same specificity, later in source order wins) instead
+     of adding to it. Those rows also already carry their own permanent `borderLeft` accent
+     (medColor), which paints over/hides the inset 3px — so this keeps exactly what that screen
+     already had (the shadow lift) while costing nothing extra. */
+  .card.row-interactive:hover { box-shadow: var(--shadow-sm), inset 3px 0 0 0 var(--green); }
 }
 .row-interactive:active { transform: scale(.99); }
 .row-arrow { display: inline-block; transition: transform var(--dur) var(--ease-out); }
