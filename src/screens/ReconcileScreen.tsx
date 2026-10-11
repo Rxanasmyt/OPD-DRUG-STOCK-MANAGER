@@ -123,8 +123,12 @@ export default function ReconcileScreen() {
       {reconcileRows.length > 0 && (
         <>
           <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 13 }}>
+            {/* Bug fix (audit finding): width: 70 (below, both here and on the value row) clips a
+                large quantity (e.g. a 4-5 digit จ่ายจริง or ก่อน→หลัง pair) on a narrow phone
+                instead of letting the column grow — minWidth + nowrap keeps the right-alignment
+                for the common case while still letting a wide number push the column out. */}
             <div style={{ display: 'flex', padding: '9px 13px', background: 'var(--bg-subtle)', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
-              <span style={{ flex: 1 }}>รายการยา</span><span style={{ width: 70, textAlign: 'right', flex: 'none' }}>จ่ายจริง</span><span style={{ width: 70, textAlign: 'right', flex: 'none' }}>ก่อน → หลัง</span>
+              <span style={{ flex: 1 }}>รายการยา</span><span style={{ minWidth: 70, textAlign: 'right', flex: 'none', whiteSpace: 'nowrap' }}>จ่ายจริง</span><span style={{ minWidth: 70, textAlign: 'right', flex: 'none', whiteSpace: 'nowrap' }}>ก่อน → หลัง</span>
             </div>
             {reconcileRows.map((r, i) => (
               <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)' }}>
@@ -132,8 +136,8 @@ export default function ReconcileScreen() {
                   <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.3, fontWeight: r.match.kind === 'exact' ? 400 : 600 }}>
                     {r.med ? r.med.name : r.fileText}
                   </span>
-                  <span style={{ width: 70, textAlign: 'right', flex: 'none', fontSize: 13, fontWeight: 600, color: 'var(--red)' }}>{r.med ? '−' + nf(r.qty) : '—'}</span>
-                  <span className="muted" style={{ width: 70, textAlign: 'right', flex: 'none', fontSize: 12.5 }}>{r.med ? nf(r.before) + '→' + nf(r.after) : '—'}</span>
+                  <span style={{ minWidth: 70, textAlign: 'right', flex: 'none', fontSize: 13, fontWeight: 600, color: 'var(--red)', whiteSpace: 'nowrap' }}>{r.med ? '−' + nf(r.qty) : '—'}</span>
+                  <span className="muted" style={{ minWidth: 70, textAlign: 'right', flex: 'none', fontSize: 12.5, whiteSpace: 'nowrap' }}>{r.med ? nf(r.before) + '→' + nf(r.after) : '—'}</span>
                 </div>
                 <MatchBadge match={r.match} fileText={r.fileText} medById={medById} />
               </div>

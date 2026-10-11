@@ -12,6 +12,10 @@ export default function PromptDialog() {
   const [value, setValue] = useState('');
   const [shown, setShown] = useState<{ message: string; exiting: boolean } | null>(null);
   const exitTimer = useRef<number>();
+  const cardRef = useRef<HTMLDivElement>(null);
+  // Bug fix (audit finding — accessibility): same focus-restore BottomSheet.tsx already has —
+  // see ConfirmDialog.tsx's identical fix for the full reasoning.
+  const triggerRef = useRef<Element | null>(null);
 
   // Reset the draft text each time a new prompt is opened, not just on mount — this component
   // stays mounted for the app's whole lifetime (App.tsx renders it unconditionally), so a
@@ -23,10 +27,13 @@ export default function PromptDialog() {
   useEffect(() => {
     window.clearTimeout(exitTimer.current);
     if (state.promptDialog) {
+      triggerRef.current = document.activeElement;
       setShown({ message: state.promptDialog.message, exiting: false });
     } else {
       setShown((s) => (s ? { ...s, exiting: true } : s));
       exitTimer.current = window.setTimeout(() => setShown(null), 180);
+      if (triggerRef.current instanceof HTMLElement) triggerRef.current.focus();
+      triggerRef.current = null;
     }
     return () => window.clearTimeout(exitTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -35,9 +42,25 @@ export default function PromptDialog() {
   // Every other dismiss path (backdrop tap, ✕/ยกเลิก) already cancels the prompt — a physical
   // Escape key (common on tablets paired with a keyboard, or accessibility switch devices that
   // map a switch to Escape) had no way to do the same thing.
+  //
+  // Bug fix (audit finding — accessibility, focus trap): same gap BottomSheet.tsx already
+  // closed — Tab/Shift+Tab used to walk straight out of this dialog into the (supposedly inert)
+  // screen behind it, since nothing here constrained focus to the dialog's own input/buttons.
   useEffect(() => {
     if (!state.promptDialog) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') respondPrompt(null); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { respondPrompt(null); return; }
+      if (e.key !== 'Tab' || !cardRef.current) return;
+      const focusable = cardRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [state.promptDialog, respondPrompt]);
@@ -53,6 +76,7 @@ export default function PromptDialog() {
       onClick={(e) => { if (e.target === e.currentTarget) respondPrompt(null); }}
     >
       <div
+        ref={cardRef}
         className="card"
         role="dialog"
         aria-modal="true"

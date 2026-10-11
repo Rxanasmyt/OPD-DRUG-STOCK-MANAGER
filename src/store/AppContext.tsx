@@ -150,6 +150,17 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
   stock_drift_detected: 'ตรวจพบความเพี้ยนของยอดคงคลัง (ตรวจสอบอัตโนมัติ)',
 };
 
+// Bug fix (audit finding): a placeholder เลขที่ใบเบิก, not a real auto-incrementing document
+// number — this field is free-text (setRecvNo), meant for staff to retype with the actual
+// requisition number off the paper slip. Pulled out so commitReceive's two success paths (below)
+// can regenerate a fresh one too, not just freshState() on first load — without this, starting a
+// SECOND, unrelated delivery right after committing one silently kept the just-committed recvNo
+// unless someone remembered to retype it, risking two different deliveries recorded under the
+// same ใบเบิก number.
+function genDefaultRecvNo(): string {
+  return 'REQ-6908-' + (140 + (Date.now() % 9));
+}
+
 function freshState(): AppState {
   return {
     meds: [], lots: [], floorLots: [], txs: [], users: [], authLog: [], dbReady: false,
@@ -163,7 +174,7 @@ function freshState(): AppState {
 
     wmFromSearch: '', wmFromMed: null, wmToSearch: '', wmToMed: null, wmQty: '', wmReason: '',
 
-    recvNo: 'REQ-6908-' + (140 + (Date.now() % 9)), recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
+    recvNo: genDefaultRecvNo(), recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
     pendingReceives: [],
 
     adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [],
@@ -2193,7 +2204,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setState((st) => ({
           ...st, screen: 'done', navStack: pushNav(st.navStack, st.screen), doneKind: 'recvPending',
           doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + it.lotNo + ' · exp ' + thDate(it.exp), qty: nf(it.qty) + ' ' + it.unit, medId: it.medId })),
-          recvItems: [],
+          recvItems: [], recvNo: genDefaultRecvNo(),
         }));
         return;
       }
@@ -2285,7 +2296,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setState((st) => ({
         ...st, screen: 'done', navStack: pushNav(st.navStack, st.screen), doneKind: 'receive',
         doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + it.lotNo + ' · exp ' + thDate(it.exp), qty: nf(it.qty) + ' ' + it.unit, medId: it.medId })),
-        recvItems: [],
+        recvItems: [], recvNo: genDefaultRecvNo(),
       }));
     } catch (e) {
       toastErr(e, 'บันทึกใบรับไม่สำเร็จ ลองใหม่อีกครั้ง');

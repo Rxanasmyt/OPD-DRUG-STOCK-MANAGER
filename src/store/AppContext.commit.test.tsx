@@ -612,7 +612,12 @@ function ReceiveHarness() {
   useEffect(() => { if (state.recvLot && !state.recvExp) setRecvExp('2027-01-01'); }, [state.recvLot, state.recvExp, setRecvExp]);
   useEffect(() => { if (state.recvExp && !state.recvQty) setRecvQty('10'); }, [state.recvExp, state.recvQty, setRecvQty]);
   useEffect(() => { if (state.recvQty && !state.recvItems.length) addRecv(); }, [state.recvQty, state.recvItems.length, addRecv]);
-  return <button disabled={!state.recvItems.length} onClick={commitReceive}>commit-receive</button>;
+  return (
+    <>
+      <button disabled={!state.recvItems.length} onClick={commitReceive}>commit-receive</button>
+      <div data-testid="recvNo">{state.recvNo}</div>
+    </>
+  );
 }
 
 describe('commitReceive — phantom-stock regression', () => {
@@ -635,6 +640,41 @@ describe('commitReceive — phantom-stock regression', () => {
     await user.click(screen.getByRole('button', { name: 'commit-receive' }));
     await screen.findByText('มีรายการที่ถูกลบออกจากระบบไปแล้ว — กลับไปลบรายการนั้นออกจากรายการรับเข้าก่อน');
     expect(getLastBatchWrites().length).toBe(0);
+  });
+});
+
+// Bug fix (audit finding): recvNo used to never reset on a successful commit — starting a
+// second, unrelated delivery right after committing one silently kept the just-committed
+// ใบเบิก number unless someone remembered to retype it, risking two different deliveries
+// recorded under the same requisition number.
+describe('commitReceive — recvNo reset regression', () => {
+  it('regenerates recvNo to a fresh value after a successful commit', async () => {
+    // genDefaultRecvNo() derives its suffix from Date.now() % 9 (only 9 possible
+    // buckets). Two real-clock reads taken milliseconds apart in a fast test can
+    // coincidentally land in the same bucket, so Date.now is pinned to two values
+    // whose % 9 differ to make the before/after comparison deterministic.
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1000); // 1000 % 9 === 1
+    const user = userEvent.setup();
+    renderWithApp(<ReceiveHarness />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    seedDoc('meds/m1', {});
+    seedCollection('lots', []);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'commit-receive' })).not.toBeDisabled());
+
+    const recvNoBefore = screen.getByTestId('recvNo').textContent;
+
+    nowSpy.mockReturnValue(2000); // 2000 % 9 === 2, guaranteed different bucket
+    try {
+      await user.click(screen.getByRole('button', { name: 'commit-receive' }));
+      await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+      // Without the fix, this would still read the exact same value as recvNoBefore.
+      await waitFor(() => expect(screen.getByTestId('recvNo').textContent).not.toBe(recvNoBefore));
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 });
 

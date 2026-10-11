@@ -40,7 +40,7 @@ function toneTint(tone?: string): string {
 const surface: React.CSSProperties = { background: 'var(--bg-card)', borderRadius: 18, boxShadow: 'var(--shadow-xs)' };
 
 export default function HomeScreen() {
-  const { state, myProfile, sub, fefo, bump, goReceiveFor, go, warn, pickAdjType, seedDatabase, roleLabel, goSubstockCardFor } = useApp();
+  const { state, myProfile, sub, bump, goReceiveFor, go, warn, pickAdjType, seedDatabase, roleLabel, goSubstockCardFor } = useApp();
   // Bug fix (flow clarity): every med row in the three lists below (ต้องเติมหน้างาน/ควรเบิกจาก
   // คลังยาใหญ่/ใกล้หมดอายุ) already carries the "row-interactive" class — the same hover-
   // highlight + press-scale styling ReportScreen's own goSubstockCardFor() rows use to signal

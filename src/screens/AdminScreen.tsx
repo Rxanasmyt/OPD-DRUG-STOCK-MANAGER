@@ -104,9 +104,14 @@ export default function AdminScreen() {
 
   return (
     <div style={{ animation: 'fade .18s' }}>
+      {/* Bug fix (audit finding — tap-target sweep): 38px undershoots the ≥44px touch-target
+          convention every other tab/chip row in this app follows (e.g. AUDIT_FILTERS' own
+          chips below use the unmodified 40px .chip default, closer but still short — this
+          bumps both the primary nav tabs here to the full 44px since they're the most-tapped
+          control on this screen). */}
       <div style={{ display: 'flex', gap: 7, padding: '12px 14px 10px', overflowX: 'auto', position: 'sticky', top: 0, zIndex: 2 }} className="sticky-bar scroll-fade-x">
         {ADMIN_TABS.map(([t, label]) => (
-          <button key={t} className="chip" style={{ ...chip(state.adminTab === t), minHeight: 38 }} onClick={() => setAdminTab(t)}>
+          <button key={t} className="chip" style={{ ...chip(state.adminTab === t), minHeight: 44 }} onClick={() => setAdminTab(t)}>
             {label}{t === 'users' && pending.length > 0 ? ` (${pending.length})` : ''}
           </button>
         ))}
@@ -166,7 +171,9 @@ export default function AdminScreen() {
                           4.5:1). .btn-primary already themes its text via --ink-soft, which flips to a
                           near-black in dark mode for exactly this reason — every ad-hoc button below in
                           this pass gets the same fix. */}
-                      <button onClick={copyInviteLink} className="btn-primary" style={{ flex: 'none', padding: '8px 13px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 34 }}>คัดลอกลิงก์</button>
+                      {/* Bug fix (audit finding — tap-target sweep): 34px → 44px, below the
+                          ≥44px touch-target convention used elsewhere on this screen. */}
+                      <button onClick={copyInviteLink} className="btn-primary" style={{ flex: 'none', padding: '8px 13px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44 }}>คัดลอกลิงก์</button>
                     </div>
                   </div>
                 </div>
@@ -214,7 +221,9 @@ export default function AdminScreen() {
                     <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
                       {ROLES.map((r) => {
                         const active = u.role === r;
-                        return <button key={r} onClick={() => setUserRole(u.id, r)} style={{ flex: '1 1 76px', border: active ? '1px solid ' + ROLE_COLOR[r] : '1px solid var(--border)', background: active ? ROLE_BG[r] : 'var(--bg-card)', color: active ? ROLE_COLOR[r] : 'var(--ink)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 38 }}>{roleLabelOf(r)}</button>;
+                        // Bug fix (audit finding — tap-target sweep): 38px → 44px, same gap as
+                        // the admin tabs and invite-link button above on this screen.
+                        return <button key={r} onClick={() => setUserRole(u.id, r)} style={{ flex: '1 1 76px', border: active ? '1px solid ' + ROLE_COLOR[r] : '1px solid var(--border)', background: active ? ROLE_BG[r] : 'var(--bg-card)', color: active ? ROLE_COLOR[r] : 'var(--ink)', padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44 }}>{roleLabelOf(r)}</button>;
                       })}
                       {/* Bug fix (real-world confusion): a bare "⏻" icon has no visible label on
                           mobile — title/tooltip only shows on hover, which a touchscreen never

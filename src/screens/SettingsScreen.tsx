@@ -117,7 +117,7 @@ export default function SettingsScreen() {
               <button
                 onClick={() => updateGlobalSettings({ expiryWarnDays: parseIntSafe(warnDraft, state.expiryWarnDays) })}
                 className="btn-primary"
-                style={{ marginLeft: 'auto', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}
+                style={{ marginLeft: 'auto', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 44 }}
               >
                 บันทึก
               </button>
@@ -153,7 +153,7 @@ export default function SettingsScreen() {
               <button
                 onClick={() => updateGlobalSettings({ idleLogoutMinutes: parseIntSafe(idleDraft, state.idleLogoutMinutes) })}
                 className="btn-primary"
-                style={{ marginLeft: 'auto', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}
+                style={{ marginLeft: 'auto', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 44 }}
               >
                 บันทึก
               </button>
@@ -178,7 +178,7 @@ export default function SettingsScreen() {
         ) : notifyEnabled ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <StatusDot color="var(--green)">เปิดอยู่</StatusDot>
-            <button onClick={disableExpiryNotify} style={{ marginLeft: 'auto', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}>ปิด</button>
+            <button onClick={disableExpiryNotify} style={{ marginLeft: 'auto', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 44 }}>ปิด</button>
           </div>
         ) : notifyPermission === 'denied' ? (
           <div style={{ fontSize: 12, color: 'var(--red)' }}>เบราว์เซอร์บล็อกการแจ้งเตือนไว้ — ไปเปิดสิทธิ์แจ้งเตือนให้เว็บนี้ในตั้งค่าเบราว์เซอร์/ระบบก่อน แล้วลองใหม่</div>
@@ -202,7 +202,7 @@ export default function SettingsScreen() {
         ) : lowStockNotifyEnabled ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <StatusDot color="var(--green)">เปิดอยู่</StatusDot>
-            <button onClick={disableLowStockNotify} style={{ marginLeft: 'auto', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}>ปิด</button>
+            <button onClick={disableLowStockNotify} style={{ marginLeft: 'auto', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 44 }}>ปิด</button>
           </div>
         ) : notifyPermission === 'denied' ? (
           <div style={{ fontSize: 12, color: 'var(--red)' }}>เบราว์เซอร์บล็อกการแจ้งเตือนไว้ — ไปเปิดสิทธิ์แจ้งเตือนให้เว็บนี้ในตั้งค่าเบราว์เซอร์/ระบบก่อน แล้วลองใหม่</div>
@@ -247,7 +247,7 @@ export default function SettingsScreen() {
               <button
                 onClick={() => updateGlobalSettings({ parFloorCoverDays: parseIntSafe(floorDraft, state.parFloorCoverDays), parSubCoverDays: parseIntSafe(subDraft, state.parSubCoverDays) })}
                 className="btn-primary"
-                style={{ padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 38 }}
+                style={{ padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 44 }}
               >
                 บันทึก
               </button>
@@ -378,9 +378,11 @@ export default function SettingsScreen() {
                   {/* Follow-up request: "แก้ไข/ยกเลิกรูปแบบที่ตรวจพบเองไม่ได้" — previously the only
                       way to clear a wrongly-detected pattern was to wait for new data to flatten
                       it out on a later analyzeWeekdayUsage() run. */}
+                  {/* Bug fix (audit finding — tap-target sweep): no minHeight at all (just
+                      '2px 0' padding around 10.5px text) — well under the ≥44px convention. */}
                   <button
                     onClick={() => clearMedWeekdayPattern(m.id)}
-                    style={{ marginTop: 5, border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 10.5, fontWeight: 600, padding: '2px 0' }}
+                    style={{ marginTop: 5, border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 10.5, fontWeight: 600, padding: '2px 0', minHeight: 44, minWidth: 44 }}
                   >
                     ✕ ล้างรูปแบบนี้
                   </button>
@@ -423,9 +425,10 @@ export default function SettingsScreen() {
                       รูปแบบนี้" — a genuinely one-time event (data-entry error, a med being
                       discontinued) shouldn't have to wait PEAK_LOOKBACK_DAYS for new history to
                       age the old peak out on its own. */}
+                  {/* Bug fix (audit finding — tap-target sweep): same gap as "✕ ล้างรูปแบบนี้" above. */}
                   <button
                     onClick={() => clearMedPeakDay(m.id)}
-                    style={{ marginTop: 5, border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 10.5, fontWeight: 600, padding: '2px 0' }}
+                    style={{ marginTop: 5, border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 10.5, fontWeight: 600, padding: '2px 0', minHeight: 44, minWidth: 44 }}
                   >
                     ✕ ล้างค่านี้
                   </button>
@@ -517,7 +520,8 @@ export default function SettingsScreen() {
                     ตรงเป๊ะ {nf(usageMatched)} · ไม่ตรงเป๊ะ {nf(usageFuzzy)} · ข้าม {nf(usageSkipped)} รายการ
                   </span>
                 </span>
-                <button onClick={clearUsageImport} style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--red)', fontSize: 12, fontWeight: 600 }}>ยกเลิก</button>
+                {/* Bug fix (audit finding — tap-target sweep): no minHeight set at all. */}
+                <button onClick={clearUsageImport} style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--red)', fontSize: 12, fontWeight: 600, minHeight: 44, minWidth: 44 }}>ยกเลิก</button>
               </div>
 
               {usageFuzzy > 0 && (
