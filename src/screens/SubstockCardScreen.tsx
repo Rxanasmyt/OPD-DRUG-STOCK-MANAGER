@@ -609,9 +609,25 @@ export default function SubstockCardScreen() {
                     const expanded = expandedRows.has(i);
                     return (
                       <Fragment key={i}>
+                        {/* Bug fix (audit finding — keyboard accessibility): this row's expand/
+                            collapse was mouse/touch-only — no keyboard user (or screen reader,
+                            since a plain <tr onClick> has no accessible role) could reach the
+                            note a tap here reveals. role="button" + tabIndex + Enter/Space
+                            mirror what a real <button> gives for free, gated by the same r.note
+                            check the click handler already uses (a note-less row stays inert). */}
+                        {/* Bug fix (audit finding — keyboard accessibility): this row's expand/
+                            collapse was mouse/touch-only — no keyboard user (or screen reader,
+                            since a plain <tr onClick> has no accessible role) could reach the
+                            note a tap here reveals. role="button" + tabIndex + Enter/Space
+                            mirror what a real <button> gives for free, gated by the same r.note
+                            check the click handler already uses (a note-less row stays inert). */}
                         <tr
                           title={title}
                           onClick={r.note ? () => toggleRowNote(i) : undefined}
+                          onKeyDown={r.note ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleRowNote(i); } } : undefined}
+                          role={r.note ? 'button' : undefined}
+                          tabIndex={r.note ? 0 : undefined}
+                          aria-expanded={r.note ? expanded : undefined}
                           style={r.note ? { cursor: 'pointer' } : undefined}
                         >
                           <Td num style={{ color: 'var(--muted)', fontSize: 10.5 }}>{i + 1}</Td>

@@ -39,11 +39,13 @@ const REASONS: Record<AdjType, string[]> = {
 // computes 8-5=3, a silent 2-unit stock error nobody would notice at the time. Label + a
 // visible warning (adjust only, since that's the only type this specific mix-up applies to)
 // close that gap without touching commitAdjust's actual math.
-const QTY_LABEL: Record<AdjType, string> = {
+// Bug fix (audit finding): 'expired' left out — the whole card that reads QTY_LABEL[state.adjType]
+// (below) is only ever rendered when state.adjType !== 'expired' (see the guard further down),
+// so this entry was dead and risked masking a real future typo the same way an unused import would.
+const QTY_LABEL: Record<Exclude<AdjType, 'expired'>, string> = {
   adjust: 'ส่วนต่างที่จะลบออกจากยอดระบบ',
   return: 'จำนวนที่คืน (จะเพิ่มเข้ายอด)',
   damaged: 'จำนวนที่เสีย/ชำรุด (จะลบออกจากยอด)',
-  expired: '',
 };
 
 export default function AdjustScreen() {
@@ -248,7 +250,9 @@ export default function AdjustScreen() {
                   ต้องกรอก <b>3</b> (ส่วนต่าง) ไม่ใช่ 5 ถ้าต้องการกรอก<b>ยอดที่นับได้จริง</b>โดยตรงและให้ระบบคำนวณส่วนต่างให้เอง
                   แนะนำใช้{' '}
                   <button type="button" onClick={() => go('count')} style={{ border: 0, background: 'transparent', color: 'var(--amber-ink)', textDecoration: 'underline', fontWeight: 700, padding: 0, fontSize: 12 }}>
-                    หน้า "นับสต๊อก" แทน →
+                    {/* Bug fix (audit finding — spelling): "นับสต๊อก" (wrong tone mark) → "นับสต็อก",
+                        matching the spelling every other screen in the app uses for this feature. */}
+                    หน้า "นับสต็อก" แทน →
                   </button>
                 </div>
               )}

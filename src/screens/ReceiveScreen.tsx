@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useApp } from '../store/AppContext';
 import { usesSubstock, needsWarehouseRequest, subTone, daysOfStockLeft, packStep, boxBreakdownLabel } from '../store/selectors';
-import { nf, thDate, thTime } from '../utils/format';
+import { nf, thDate, thTime, isoDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty, DaysLeftBadge, PackSizeBadge, UsageRateBadge, PAR_LABEL_COLOR } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
@@ -193,7 +193,13 @@ export default function ReceiveScreen() {
         </label>
         <label>
           <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>วันที่รับ</span>
-          <input value={new Date().toISOString().slice(0, 10)} type="date" readOnly style={inputStyle} />
+          {/* Bug fix (audit finding — device-timezone trust): used to read UTC
+              (new Date().toISOString()), not Bangkok local — during 00:00-06:59 Thai time this
+              showed yesterday's date. isoDate() already applies this app's own fixed-UTC+7
+              anchor (see its doc comment in utils/format.ts) the same way every other
+              "what calendar day is it" read in the app does. Display-only (not wired to any
+              committed value), but still what staff actually see/rely on when glancing at it. */}
+          <input value={isoDate(Date.now())} type="date" readOnly style={inputStyle} />
         </label>
       </div>
 
@@ -330,7 +336,11 @@ export default function ReceiveScreen() {
                     <div style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>{it.name} {itMed && <WardBadge med={itMed} />}</div>
                     <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>lot {it.lotNo} · exp {thDate(it.exp)} · {nf(it.qty)} {it.unit}</div>
                   </div>
-                  <button onClick={stopRowNav(() => removeRecvItem(i))} style={{ border: 0, background: 'transparent', color: 'var(--red)', fontSize: 12.5, flex: 'none' }}>ลบ</button>
+                  {/* Bug fix (tap target, same gap as TConfirmScreen's identical "ลบ" button —
+                      audit finding): no minHeight/minWidth, under the app's own 40-44px
+                      convention (AdjustScreen.tsx's own removeReturnCartItem "ลบ" button already
+                      gets this right). */}
+                  <button onClick={stopRowNav(() => removeRecvItem(i))} style={{ border: 0, background: 'transparent', color: 'var(--red)', fontSize: 12.5, flex: 'none', minHeight: 44, minWidth: 44 }}>ลบ</button>
                 </div>
               );
             })}

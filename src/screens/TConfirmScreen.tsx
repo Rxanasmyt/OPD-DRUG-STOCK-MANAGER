@@ -1,5 +1,5 @@
 import { useApp } from '../store/AppContext';
-import { nf, thTime } from '../utils/format';
+import { nf, thTime, thDate } from '../utils/format';
 import { wardOf, isSharedMed } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
 import { HadTag } from '../components/Badge';
@@ -34,7 +34,7 @@ export default function TConfirmScreen() {
         .map((l) => {
           const take = Math.min(need, l.qty);
           need -= take;
-          return take > 0 ? `lot ${l.lotNo} exp ${new Date(l.exp).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit' })} × ${nf(take)}` : null;
+          return take > 0 ? `lot ${l.lotNo} exp ${thDate(l.exp)} × ${nf(take)}` : null;
         })
         .filter(Boolean);
       // Bug fix (data-integrity UX): carts are local-only, never reflected in Firestore until
@@ -107,7 +107,13 @@ export default function TConfirmScreen() {
             </div>
             <div style={{ flex: 'none', textAlign: 'right' }}>
               <div style={{ fontSize: 15, fontWeight: 700 }}>{nf(qty)} {m.unit}</div>
-              <button onClick={() => removeFromCart(id)} style={{ border: 0, background: 'transparent', color: 'var(--red)', fontSize: 12, padding: '2px 0' }}>ลบ</button>
+              {/* Bug fix (audit finding — tap target): this used to be `padding: '2px 0'` with
+                  no minHeight, rendering well under the app's own 40-44px convention (see
+                  AdjustScreen.tsx's own "ลบ" button on removeReturnCartItem, which already does
+                  this correctly) — a real mis-tap risk since this is the one destructive control
+                  on a screen whose whole purpose is reviewing a multi-item cart right before
+                  committing a real stock movement. */}
+              <button onClick={() => removeFromCart(id)} style={{ border: 0, background: 'transparent', color: 'var(--red)', fontSize: 12.5, minHeight: 44, minWidth: 44 }}>ลบ</button>
             </div>
           </div>
         ))}

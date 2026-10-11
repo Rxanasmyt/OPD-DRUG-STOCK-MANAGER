@@ -67,6 +67,6 @@ describe('AdjustScreen — ปรับยอด delta-vs-absolute warning', () 
 
   it('the warning box links to the นับสต็อก screen for entering an absolute count', async () => {
     await setup();
-    expect(screen.getByRole('button', { name: /หน้า "นับสต๊อก" แทน/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /หน้า "นับสต็อก" แทน/ })).toBeInTheDocument();
   });
 });

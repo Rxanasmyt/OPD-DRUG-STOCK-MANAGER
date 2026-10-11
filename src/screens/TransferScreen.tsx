@@ -238,11 +238,17 @@ export default function TransferScreen() {
           {urgent.length > 0 && (
             <button className="chip" style={{ border: '1px dashed var(--red)', background: 'transparent', color: 'var(--red)' }} onClick={fillUrgent} title="เติมเฉพาะรายการที่ต่ำกว่าครึ่งหนึ่งของ Min — ที่เหลือรอได้ ไม่ต้องเติมทีละเยอะๆ">เติมเฉพาะเร่งด่วนวันนี้</button>
           )}
-          <button className="chip" style={{ border: '1px dashed var(--green)', background: 'transparent', color: 'var(--green)' }} onClick={fillAll}>เติมตาม par ทั้งหมด</button>
+          {/* Bug fix (audit finding — feedback): neither button below had a disabled state when
+              there's genuinely nothing to fill/print (low.length === 0, shelf already fully
+              stocked) — tapping either silently did nothing useful (filled nothing / printed an
+              empty list) with no feedback at all, unlike "เติมเฉพาะเร่งด่วนวันนี้" right above,
+              which is simply not rendered in that case. */}
+          <button className="chip" style={{ border: '1px dashed var(--green)', background: 'transparent', color: 'var(--green)' }} onClick={fillAll} disabled={low.length === 0}>เติมตาม par ทั้งหมด</button>
           <button
             className="chip"
             style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 5 }}
             onClick={printTodayReplenishList}
+            disabled={low.length === 0}
             title="พิมพ์รายการที่ต้องเติมวันนี้ให้ถึง par — ไม่กระทบตะกร้า"
           >
             🖨 พิมพ์ใบเติมหน้างานวันนี้{low.length > 0 ? ' (' + low.length + ')' : ''}

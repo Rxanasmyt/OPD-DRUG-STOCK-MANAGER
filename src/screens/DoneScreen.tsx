@@ -72,10 +72,12 @@ export default function DoneScreen() {
                       <b style={{ color: 'var(--ink)', fontSize: 13 }}>{nf(hasSub ? sub(d.medId!) : m!.floor)}</b>
                     </span>
                     {!isSingleItem && (
+                      // Bug fix (audit finding — tap-target sweep): padding: 0 with no minHeight
+                      // left this link well under the ≥44px convention used elsewhere in the app.
                       <button
                         onClick={() => goSubstockCardFor(d.medId!)}
                         className="press-spring"
-                        style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--green)', fontSize: 12, fontWeight: 700, padding: 0 }}
+                        style={{ flex: 'none', border: 0, background: 'transparent', color: 'var(--green)', fontSize: 12, fontWeight: 700, padding: 0, minHeight: 44, minWidth: 44 }}
                       >
                         ดูบัตร →
                       </button>
