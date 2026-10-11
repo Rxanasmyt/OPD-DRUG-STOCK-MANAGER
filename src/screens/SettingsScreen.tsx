@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { suggestPar, halfOfMaxRounded, floorMinOf, parAnomalies, usageAnomalies } from '../store/selectors';
 import { nf, digitsOnly, parseIntSafe, isoDate, fiscalYearStartIso, thDate, DAY } from '../utils/format';
@@ -17,7 +17,12 @@ export default function SettingsScreen() {
   // pharm+admin) — everyone else still sees this screen read-only (see the !canEdit branches
   // below), same treatment as before, just a narrower editor set.
   const canEdit = state.role === 'admin';
-  const meds = state.meds.filter((m) => m.active);
+  // Bug fix (performance audit): the 9 computations below used to be plain `const`s recomputed
+  // in full on every render — up to 9 separate filter/sort passes over the whole active
+  // formulary (585 meds in this hospital's real seed data), re-run on every keystroke anywhere
+  // in the app while this screen is mounted (e.g. a par-level input's own pre-debounce
+  // optimistic patch), not just a change relevant to this screen.
+  const meds = useMemo(() => state.meds.filter((m) => m.active), [state.meds]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Bug fix: these three numbers used to be pure hardcoded constants with no UI anywhere to
@@ -39,10 +44,10 @@ export default function SettingsScreen() {
     || (subDraft !== '' && parseIntSafe(subDraft) !== state.parSubCoverDays);
   const idleDirty = idleDraft !== '' && parseIntSafe(idleDraft) !== state.idleLogoutMinutes;
 
-  const suggestDiff = meds.filter((m) => {
+  const suggestDiff = useMemo(() => meds.filter((m) => {
     const s = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
     return !!s && (s.sub !== m.parSub || s.floor !== m.parFloor);
-  });
+  }), [meds, state.parFloorCoverDays, state.parSubCoverDays]);
   const suggestDiffCount = suggestDiff.length;
   // Real-world request: "ทำข้อ...3 แบบดีที่สุด" (ตรวจสอบความแม่นยำของตัวเลขแนะนำ par) — suggestPar()
   // bases its whole calculation purely on the most recent 30-day window (used30), with no check
@@ -51,33 +56,35 @@ export default function SettingsScreen() {
   // but "ใช้ค่าแนะนำทั้งหมด" below never cross-referenced it at all, so one click could silently
   // bake a par number sized off a data blip (a one-time bulk dispensing event, an import glitch)
   // into the live Min/Max for the whole formulary, with nobody ever having seen a warning.
-  const suggestDiffIds = new Set(suggestDiff.map((m) => m.id));
-  const unstableSuggestions = usageAnomalies(meds).filter((a) => suggestDiffIds.has(a.med.id));
-  const minHalfDiffCount = meds.filter((m) => halfOfMaxRounded(m.parFloor) !== floorMinOf(m)).length;
+  const unstableSuggestions = useMemo(() => {
+    const suggestDiffIds = new Set(suggestDiff.map((m) => m.id));
+    return usageAnomalies(meds).filter((a) => suggestDiffIds.has(a.med.id));
+  }, [meds, suggestDiff]);
+  const minHalfDiffCount = useMemo(() => meds.filter((m) => halfOfMaxRounded(m.parFloor) !== floorMinOf(m)).length, [meds]);
   // Real-world request: "วิเคราะห์ Min Max...ให้เหมาะกับการใช้งานหน้างานจริง" — same diff-count
   // pattern as minHalfDiffCount above, but against suggestPar()'s own data-driven Min (real usage
   // rate × half the cover-days Max represents) instead of a flat 50%-of-Max ratio.
-  const minSuggestedDiffCount = meds.filter((m) => {
+  const minSuggestedDiffCount = useMemo(() => meds.filter((m) => {
     const s = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
     return !!s && s.min !== floorMinOf(m);
-  }).length;
+  }).length, [meds, state.parFloorCoverDays, state.parSubCoverDays]);
 
   // Real-world request: Min/Max/par substock are hand-typed numbers — an extra/missing zero,
   // or Min and Max swapped, is a genuinely easy typo to make and easy to miss just glancing at
   // a long meds list. This flags the internal-contradiction cases (always wrong, no judgment
   // call — see parAnomaliesFor()'s own doc comment) as errors, and a par that's wildly out of
   // line with the drug's own real usage rate as a softer "worth a look" review.
-  const anomalies = parAnomalies(meds, state.parFloorCoverDays, state.parSubCoverDays);
-  const anomalyErrors = anomalies.filter((a) => a.severity === 'error');
-  const anomalyReviews = anomalies.filter((a) => a.severity === 'review');
+  const anomalies = useMemo(() => parAnomalies(meds, state.parFloorCoverDays, state.parSubCoverDays), [meds, state.parFloorCoverDays, state.parSubCoverDays]);
+  const anomalyErrors = useMemo(() => anomalies.filter((a) => a.severity === 'error'), [anomalies]);
+  const anomalyReviews = useMemo(() => anomalies.filter((a) => a.severity === 'review'), [anomalies]);
 
   // Real-world request: "นำข้อมูลการจ่ายยาหน้างานจริงในแต่ละวันจันทร์-ศุกร์ นำมาวิเคราะห์การใช้ยา
   // จริง...ยาที่ใช้ในแต่ละวันก็จะต่างกัน" — a durable insight view of every med analyzeWeekdayUsage()
   // (AppContext.tsx) found a real weekday pattern for, not just a one-time toast after running
   // it — so an admin can come back and review the list at any time, not only right after a click.
-  const weekdayPatternMeds = meds
+  const weekdayPatternMeds = useMemo(() => meds
     .filter((m) => m.weekdayPeakFactor && m.weekdayPeakDay)
-    .sort((a, b) => (b.weekdayPeakFactor || 0) - (a.weekdayPeakFactor || 0));
+    .sort((a, b) => (b.weekdayPeakFactor || 0) - (a.weekdayPeakFactor || 0)), [meds]);
 
   // Real-world request: "ยาบางตัว min max par ไม่เหมาะสม...จำนวนยาในการใช้ 1 ครั้ง เยอะกว่าค่า min
   // max ปัจจุบันอย่างมาก" (เช่น phenytoin สั่ง 3 เดือน 270 เม็ดใน 1 เคส) — same durable-insight
@@ -85,10 +92,10 @@ export default function SettingsScreen() {
   // comment) analyzeWeekdayUsage() also now writes. Flags the ones where the real peak day
   // genuinely exceeds the med's CURRENT Max as the ones most worth a look first — those are
   // exactly the "เบิกฉุกเฉิน" risk this exists to catch, even before anyone clicks "ใช้ค่าแนะนำ".
-  const peakDayMeds = meds
+  const peakDayMeds = useMemo(() => meds
     .filter((m) => m.peakDayQty)
-    .sort((a, b) => (b.peakDayQty || 0) - (a.peakDayQty || 0));
-  const peakDayExceedsMaxCount = peakDayMeds.filter((m) => (m.peakDayQty || 0) > m.parFloor).length;
+    .sort((a, b) => (b.peakDayQty || 0) - (a.peakDayQty || 0)), [meds]);
+  const peakDayExceedsMaxCount = useMemo(() => peakDayMeds.filter((m) => (m.peakDayQty || 0) > m.parFloor).length, [peakDayMeds]);
 
   const usageRows = state.usageRows || [];
   const usageMatched = usageRows.filter((r) => r.match.kind === 'exact').length;

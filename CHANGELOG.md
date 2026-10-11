@@ -7,6 +7,40 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.154.0] - 2026-10-11
+
+### Fixed
+- **[Enterprise Architecture & Performance Audit + Production-Ready Fortification Plan — ทำตามที่อนุมัติ "จัดการทั้งหมดเลยครับ"]**
+
+  ตรวจสอบเชิงลึกครอบคลุม 4 โดเมน (สถาปัตยกรรม/clean code, ประสิทธิภาพ, ความทนทานต่อข้อผิดพลาด, ความปลอดภัย/type safety) ด้วย agent ตรวจสอบคู่ขนาน 5 ตัว แล้วแก้ไขจุดที่ตรวจสอบได้จริงและปลอดภัยที่จะแก้ในรอบนี้ — **จุดที่มีความเสี่ยงสูง/ต้องใช้ความพยายามมาก (การแยก AppContext.tsx เป็น context ย่อยหลายโดเมน, การแยก ReportScreen.tsx เป็น sub-component, การเพิ่ม repository layer คั่น Firestore, `exactOptionalPropertyTypes`) เว้นไว้เป็นโครงการแยกในอนาคต เพราะความเสี่ยงที่จะพังงานเดิมสูงกว่าประโยชน์ที่ได้ในกรอบเวลานี้**
+
+  **ความปลอดภัย (firestore.rules) — ปิดช่องโหว่ที่ exploit ได้จริงตอนนี้:**
+  - `isNonNegNum()` ไม่กันค่า `Infinity` (CEL: `Infinity >= 0` เป็นจริง) — tech คนใดก็เขียน `floor`/`qty: Infinity` ผ่าน SDK ตรงๆได้ ทำให้ทุกสูตรคำนวณในระบบพังเป็น NaN/Infinity ไปด้วย — เพิ่มเพดานบน
+  - `pendingReceives` update rule ไม่จำกัดฟิลด์ที่แก้ได้เลย — pharm ที่สร้างคำขอรับยาของตัวเองสามารถแก้ `qty`/`medId` ก่อนอนุมัติเอง ปลอมสต็อกจริงเข้าระบบได้ — ล็อก field ที่แก้ได้เหลือแค่ status/resolvedBy/resolvedTs/rejectReason, freeze medId/qty/lotNo/exp ไว้ที่ค่าตอนสร้าง, และห้ามผู้ขอเองเป็นผู้อนุมัติ
+  - `txs`/`auditLog`/`pendingReceives`/`parAdjustments`/`returns` create — เพิ่ม `hasOnly()` ปิดช่องยัดฟิลด์แปลกปลอม และผูกฟิลด์ `by`/`requestedBy`/`adjustedBy` กับชื่อโปรไฟล์จริงของผู้เขียน (`myProfile().name`) ปิดช่องปลอมแถว audit trail อ้างชื่อคนอื่น
+  - `lots`/`floorLots` create — เพิ่ม type check ให้ `code`/`loc` (เดิมไม่เช็คเลย) และ `hasOnly()`
+  - `users.update`/`meds.update` ฝั่ง admin — เพิ่ม enum/type check ให้ `role`/`active` แม้เขียนโดย admin (defense in depth)
+  - ยืนยันทุกจุดด้วย Firestore emulator จริง (ไม่ใช่แค่ตรวจโค้ด) — จำลอง exploit ทั้ง 2 เคสยืนยันว่าบล็อกได้จริง และการเขียนที่ถูกต้องตามปกติยังผ่านอยู่ (10/10 สถานการณ์ทดสอบ)
+
+  **Type Safety:**
+  - 7 `onSnapshot` listener (meds/lots/floorLots/txs/auditLog/pendingReceives/users) เดิม cast เอกสารดิบเป็น type ตรงๆไม่มี runtime check — เอกสารที่ขาด/ผิด type ฟิลด์ตัวเลข (แก้ผ่าน Firestore console, partial write) จะไหลเป็น NaN เข้าสูตรคำนวณเงียบๆ — เพิ่ม `numOr()` guard เฉพาะฟิลด์ตัวเลขที่ไม่มี fallback อื่นรองรับอยู่แล้ว (ไม่แตะ `exp` เพราะมี convention `?? Infinity` ที่ถูกต้องอยู่แล้ว)
+  - จุด sort/format ลอตที่ไม่มี guard `exp` ที่เหลืออยู่ 2 จุด (export-all .xlsx sheet, FEFO preview บน TransferScreen) ทำให้เคยแสดง "NaN-NaN-NaN"/"Invalid Date" — เพิ่ม guard ให้ตรงกับ 8 จุดอื่นที่แก้ไว้แล้ว
+  - `commitAdjust` ใช้ `state.adjType!` (non-null assertion) พึ่งพาเงื่อนไข render ฝั่ง UI คนละไฟล์เป็นตัวค้ำประกันเดียว — เปลี่ยนเป็นเช็ค runtime จริง
+
+  **ความทนทานต่อข้อผิดพลาด:**
+  - ReportScreen 4 แท็บ (ตัวชี้วัดย้อนหลัง/สถิติการใช้ยา/รายงานคืนยา/ยอดคงคลังย้อนหลัง) มี unhandled promise rejection จริง — fetch ล้มเหลวแล้วแท็บเงียบว่างเปล่าตลอดไปไม่มี toast — เพิ่ม `.catch` ตาม pattern ที่แท็บ "วิเคราะห์อัตโนมัติ" ข้างๆเคยแก้ไว้แล้ว
+  - เพิ่ม global `unhandledrejection`/`error` listener ที่ main.tsx เป็น safety net สำรอง (โค้ดเดิมมี try/catch ละเอียดอยู่แล้วทุกจุด แต่ไม่มี net รองรับจุดที่อาจพลาดในอนาคต)
+
+  **ประสิทธิภาพ — แก้ root cause จริง ไม่ใช่แค่ครอบ useMemo เฉยๆ:**
+  - พบว่า `sub()`/`fefo()`/`fefoFloor()` ใน AppContext.tsx (ใช้ทั่วทั้งแอพ) ผูก dependency กับ `state` ทั้งก้อน ทั้งที่ภายในอ่านแค่ `state.lots`/`state.floorLots` — ทำให้ identity เปลี่ยนทุกครั้งที่มีการ patch() อะไรก็ได้ในแอพ (ไม่ใช่แค่ที่เกี่ยวกับสต็อก) จน useMemo ปลายทางไม่มีทางทำงานได้จริง — แก้ dependency ให้แคบลงตรงตามที่อ่านจริง (ไม่เปลี่ยนพฤติกรรม แค่แก้ identity)
+  - HomeScreen/TransferScreen/SettingsScreen/ReportScreen: ครอบ `useMemo` ให้การคำนวณ filter/sort ที่หนักทั้งหมด (สูงสุด 10 รอบต่อการ render บนฟอร์มูลารี่ 585 รายการ) ตอนนี้คำนวณซ้ำเฉพาะตอนข้อมูลที่เกี่ยวข้องเปลี่ยนจริง ไม่ใช่ทุกคีย์สโตรกที่ไหนก็ได้ในแอพ
+
+  **Monitoring (Fortification Plan):**
+  - เพิ่ม `@sentry/react` (เปิดใช้เฉพาะ production build ที่ตั้งค่า `VITE_SENTRY_DSN` ไว้ — ไม่ตั้งค่าก็ไม่มีผลอะไรเลย ปลอดภัยเป็น no-op) เชื่อมกับ `ErrorBoundary` ที่มีอยู่แล้วและ global error handler ใหม่
+  - ออกแบบเข้มงวดเรื่อง PII/PHI เป็นพิเศษเพราะระบบมีชื่อพนักงานจริงและเลขประจำตัวผู้ป่วยจริง — ปิด integration อัตโนมัติทั้งหมดของ Sentry (`integrations: []`) ไม่ auto-capture console/network เลย ส่งแค่สิ่งที่แอพเรียกเองเท่านั้น, `setUser` ใช้ uid อย่างเดียวไม่ใช่ชื่อ/username
+
+  ทุกจุดมีเทสต์ regression คุมไว้ (ยืนยันแล้วว่า fail จริงก่อนแก้ รวมถึงจุด firestore.rules ที่ยืนยันด้วย Firestore emulator จริง) ผ่าน tsc + vitest (541 เทสต์) + build ครบ
+
 ## [3.153.0] - 2026-10-11
 
 ### Fixed

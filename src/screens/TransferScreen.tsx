@@ -61,6 +61,11 @@ function CartQtyInput({ med, value, onChange }: { med: { packSize?: number; unit
   );
 }
 
+// Bug fix (performance audit): ROUTES.map() here never depended on anything component-specific
+// (ROUTES/routeGroupLabel are both module-level) — it was recomputed inline on every render for
+// no reason. Hoisted to module scope so it's computed exactly once, ever.
+const routeGroups = ROUTES.map((r) => ({ key: r.id, label: routeGroupLabel(r.id) }));
+
 export default function TransferScreen() {
   const { state, sub, fefo, fefoFloor, setSearch, setFilter, bump, setCartQty, fillAll, fillUrgent, clearCart, printPickList, printTodayReplenishList, go, openScanSearch, goSubstockCardFor } = useApp();
   // Real-world request: "ให้ทุกหน้าที่แสดงชื่อยาจำนวนยา...ให้สามารถดูบัตรสต็อคได้" — this screen
@@ -124,21 +129,28 @@ export default function TransferScreen() {
   // already surfaces it elsewhere (with the reason, and a resolve action for Admin) — it has no
   // business cluttering the day-to-day เติมหน้างาน working list while still on hold.
   // OPD/IPD ward tabs removed — one combined list (wardFilter stays 'all').
-  const meds = state.meds.filter((m) => m.active && usesSubstock(m) && !isOnStockHold(m));
-  const low = meds.filter((m) => m.floor < floorMinOf(m));
+  // Bug fix (performance audit): this whole pipeline (filter → filter-by-status → sort →
+  // group-by-route) used to be plain `const`s recomputed from scratch on every render — every
+  // keystroke in the search box (no debounce) re-ran a full filter+sort+8-route-scan over the
+  // whole substock-using formulary, on the busiest, most walked-around screen in the app.
+  // useMemo + the now correctly-narrowed sub()/fefo()/fefoFloor() dependencies (see their own
+  // "Bug fix" comments in AppContext.tsx) means this now only recomputes when the inputs that
+  // actually matter change.
+  const meds = useMemo(() => state.meds.filter((m) => m.active && usesSubstock(m) && !isOnStockHold(m)), [state.meds]);
+  const low = useMemo(() => meds.filter((m) => m.floor < floorMinOf(m)), [meds]);
   // Subset of `low` already at/below half of Min — see isUrgentLow()'s doc comment
   // (selectors.ts) for why this exists: a short-staffed day needs a way to do just the
   // can't-wait items without either doing everything below Min or guessing which ones matter.
-  const urgent = meds.filter(isUrgentLow);
+  const urgent = useMemo(() => meds.filter(isUrgentLow), [meds]);
   const q = state.search.trim().toLowerCase();
-  const filteredByStatus = meds.filter((m) => {
+  const filteredByStatus = useMemo(() => meds.filter((m) => {
     if (q && m.name.toLowerCase().indexOf(q) < 0 && m.code.toLowerCase().indexOf(q) < 0) return false;
     if (state.filter === 'low') return m.floor < floorMinOf(m);
     if (state.filter === 'urgent') return isUrgentLow(m);
     if (state.filter === 'had') return m.had;
     if (state.filter === 'fridge') return m.fridge;
     return true;
-  });
+  }), [meds, q, state.filter]);
   // Counts per category under the low/all/had + search filter above but BEFORE the category
   // tab itself narrows anything — same reasoning as MedsScreen's catCounts: seeing "ยาแก้ปวด…
   // (18)" next to "ยาฉุกเฉิน… (2)" is what makes a high-volume vs. low-volume group visible at
@@ -149,7 +161,7 @@ export default function TransferScreen() {
     return counts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meds, state.filter, q]);
-  const filtered = filteredByStatus
+  const filtered = useMemo(() => filteredByStatus
     .filter((m) => catTab === 'all' || categoryOf(m) === catTab)
     // Bug fix: a brand-new med with parFloor still 0 (Max not set yet) made this divide by
     // zero — 0/0 is NaN, and a sort comparator that ever returns NaN breaks the sort's
@@ -168,7 +180,7 @@ export default function TransferScreen() {
         return ab.localeCompare(bb, 'en') || a.name.localeCompare(b.name, 'th');
       }
       return a.floor / Math.max(1, a.parFloor) - b.floor / Math.max(1, b.parFloor);
-    });
+    }), [filteredByStatus, catTab, sort]);
 
   // Real-world request: "แยกยากินกับยาฉีด...เพื่อง่ายต่อการเบิกยาจริงหน้างาน เพื่อไม่ให้ความสับสน" —
   // walking between the oral shelf and the locked injectable cabinet back and forth while
@@ -185,12 +197,11 @@ export default function TransferScreen() {
   // existing formulary that has no explicit `route` set yet — see effectiveRouteOf()'s own doc
   // comment in selectors.ts for why requiring a manual per-med chip or an admin bulk-action
   // click first was real friction users hit immediately ("ให้มานั่งปรับทีละตัวยาก").
-  const routeGroups = ROUTES.map((r) => ({ key: r.id, label: routeGroupLabel(r.id) }));
-  const visibleRows = routeGroups.flatMap((g) => filtered.filter((m) => effectiveRouteOf(m) === g.key)).slice(0, 60);
+  const visibleRows = useMemo(() => routeGroups.flatMap((g) => filtered.filter((m) => effectiveRouteOf(m) === g.key)).slice(0, 60), [filtered]);
   // A header for every non-empty group only when there's more than one to tell apart — a
   // filtered view that happens to contain just one route (e.g. ตู้เย็น often being all ยาฉีด)
   // shouldn't show a single redundant "💉 ยาฉีด" header above literally everything on screen.
-  const nonEmptyRouteGroupCount = routeGroups.filter((g) => visibleRows.some((m) => effectiveRouteOf(m) === g.key)).length;
+  const nonEmptyRouteGroupCount = useMemo(() => routeGroups.filter((g) => visibleRows.some((m) => effectiveRouteOf(m) === g.key)).length, [visibleRows]);
 
   const cartIds = Object.keys(state.cart);
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
@@ -352,11 +363,17 @@ export default function TransferScreen() {
                             existed in selectors.ts for exactly this color scale but had no call site
                             anywhere in the app until now. */}
                         {(() => {
-                          const fefoDays = f ? daysUntil(f.exp) : null;
+                          // Bug fix (type-safety audit): a lot doc missing `exp` (a real past
+                          // bug per this codebase's own comments elsewhere) used to make
+                          // daysUntil()/thDate() render "Invalid Date"/NaN-driven styling here —
+                          // treat a missing exp the same as "no lot data" for the days-based
+                          // warning, same as the floor-lot block below already does by hiding
+                          // entirely when there's nothing reliable to show.
+                          const fefoDays = f && f.exp != null ? daysUntil(f.exp) : null;
                           const tone = fefoDays !== null ? expTone(fefoDays, state.expiryWarnDays) : 'var(--green)';
                           return (
                             <div style={{ fontSize: 11.5, color: tone, marginTop: 5, fontWeight: fefoDays !== null && fefoDays < 30 ? 700 : undefined }}>
-                              FEFO: lot {f ? f.lotNo : '—'} · exp {f ? thDate(f.exp) : 'ไม่มีของใน substock'}
+                              FEFO: lot {f ? f.lotNo : '—'} · exp {f ? (f.exp != null ? thDate(f.exp) : 'ไม่ทราบวันหมดอายุ') : 'ไม่มีของใน substock'}
                               {f && <span className="muted" style={{ color: 'inherit', opacity: fefoDays !== null && fefoDays < 30 ? 1 : undefined }}> (เหลือ {nf(f.qty)})</span>}
                               {fefoDays !== null && fefoDays < 0 && <span> — ⚠ หมดอายุแล้ว ควรตัดออกก่อนเติม</span>}
                               {fefoDays !== null && fefoDays >= 0 && fefoDays < 30 && <span> — ⚠ ใกล้หมดอายุมาก</span>}
@@ -373,7 +390,7 @@ export default function TransferScreen() {
                             never a replacement for it — hidden entirely when there's no floor-lot
                             data yet for this med (nothing transferred under this feature, or it's
                             all been dispensed/scrapped). */}
-                        {ff && (() => {
+                        {ff && ff.exp != null && (() => {
                           const ffDays = daysUntil(ff.exp);
                           const tone = expTone(ffDays, state.expiryWarnDays);
                           return (

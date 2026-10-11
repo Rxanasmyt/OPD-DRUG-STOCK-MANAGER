@@ -18,7 +18,15 @@ service cloud.firestore {
     function isActive() { return signedIn() && myProfile().active == true; }
     function isAdmin() { return isActive() && myProfile().role == 'admin'; }
     function isPharmOrAdmin() { return isActive() && (myProfile().role == 'pharm' || myProfile().role == 'admin'); }
-    function isNonNegNum(v) { return v is number && v >= 0; }
+    // Bug fix (security audit, CRITICAL): a double's wire format supports Infinity, and CEL's
+    // comparison follows IEEE-754 — `Infinity >= 0` is true, so this used to let ANY active
+    // user (including the lowest-trust `tech` role) write `floor`/`qty: Infinity` straight via
+    // the SDK (e.g. devtools `updateDoc`), bypassing every client-side guard and poisoning every
+    // downstream sum/comparison (par suggestions, low-stock flags, printed requisitions, reports)
+    // with Infinity/NaN. The upper bound is far above any real stock count (client caps numeric
+    // input at 9 digits — see utils/format.ts's digitsOnly) but still finite, closing the hole
+    // without touching any legitimate write.
+    function isNonNegNum(v) { return v is number && v >= 0 && v < 1000000000000000; }
 
     // ---- user profiles ----
     match /users/{uid} {
@@ -36,7 +44,14 @@ service cloud.firestore {
 
       // A signed-in user may update only their own `lastLogin` field.
       // Only an admin may change role/active (approve, promote, disable).
-      allow update: if isAdmin()
+      // Bug fix (security audit, ENHANCEMENT — defense in depth): the isAdmin() branch used to
+      // allow writing ANY value to role/active with no type/enum check at all — a client bug (or
+      // a compromised admin session) could write a junk `role` string that breaks every
+      // `role === 'x'` check app-wide. Only constrains role/active WHEN they're actually part of
+      // this write's diff, so every other admin field edit is unaffected.
+      allow update: if (isAdmin()
+                         && (!('role' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.role in ['admin', 'pharm', 'tech'])
+                         && (!('active' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.active is bool))
                     || (signedIn() && request.auth.uid == uid
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastLogin']));
 
@@ -114,11 +129,21 @@ service cloud.firestore {
       // (`request.resource.data.lotNo == resource.data.lotNo`) — the one gap in this collection's
       // own stated "schema-checked, not just role-checked" goal. Matches floorLots' identical
       // create rule just below, which already checks this.
+      // Bug fix (audit finding): `code`/`loc` are real, always-written fields (see every
+      // lot-creation call site in AppContext.tsx — commitTransfer/commitReceive/
+      // approvePendingReceive/commitSubCount all send exactly {code, medId, lotNo, exp, qty,
+      // loc}) that were never type-checked, and nothing capped the field set at all — any
+      // active user could stuff arbitrary extra fields into a new lot doc. hasOnly() here is
+      // the exact 6-field shape verified against every real write path, so no legitimate write
+      // is affected.
       allow create: if isActive()
+                    && request.resource.data.keys().hasOnly(['code', 'medId', 'lotNo', 'qty', 'exp', 'loc'])
+                    && request.resource.data.code is string
                     && request.resource.data.medId is string
                     && request.resource.data.lotNo is string
                     && isNonNegNum(request.resource.data.qty)
-                    && request.resource.data.exp is number;
+                    && request.resource.data.exp is number
+                    && request.resource.data.loc is string;
       // Bug fix (audit finding — real production hardening, not just type-checking): this used
       // to only type-check medId/qty/exp on every update, with no restriction on WHICH fields
       // could actually change or by how much — any active (tech-level) account calling the
@@ -163,7 +188,11 @@ service cloud.firestore {
     // it. ----
     match /floorLots/{lotId} {
       allow read: if isActive();
+      // Bug fix (audit finding): hasOnly() added — the one real write path (AppContext.tsx's
+      // commitTransfer, via a deterministic-id trx.set()) always sends exactly these 4 fields,
+      // verified against every call site; closes the same "arbitrary extra fields" gap as `lots`.
       allow create: if isActive()
+                    && request.resource.data.keys().hasOnly(['medId', 'lotNo', 'qty', 'exp'])
                     && request.resource.data.medId is string
                     && request.resource.data.lotNo is string
                     && isNonNegNum(request.resource.data.qty)
@@ -186,10 +215,19 @@ service cloud.firestore {
     // acceptable just because the writer is a signed-in active user. ----
     match /txs/{txId} {
       allow read: if isActive();
+      // Bug fix (audit finding): hasOnly() caps the field set to the exact 12-field union used
+      // across every real txs write in AppContext.tsx (verified against all 15 call sites) —
+      // closes "stuff arbitrary extra fields into an audit-trail entry". `by == myProfile().name`
+      // closes a separate forgery gap: any active user could previously addDoc a tx attributed
+      // to someone else's name (by itself was only type-checked, never tied to the real caller) —
+      // the entry can't be edited/deleted after (see allow update/delete below), but it could be
+      // planted. myProfile().name is exactly what every real write already sends (see
+      // AppContext.tsx's userName() == myProfile?.name), so no legitimate write is affected.
       allow create: if isActive()
+                    && request.resource.data.keys().hasOnly(['type', 'name', 'medId', 'qty', 'unit', 'by', 'ts', 'reason', 'note', 'loc', 'from', 'to'])
                     && request.resource.data.type is string
                     && request.resource.data.qty is number
-                    && request.resource.data.by is string
+                    && request.resource.data.by == myProfile().name
                     && request.resource.data.ts is number;
       allow update: if false;
       // Admin-only exception for resetAllStockLedgers() (AppContext.tsx) — the go-live
@@ -202,10 +240,14 @@ service cloud.firestore {
     }
     match /auditLog/{entryId} {
       allow read: if isActive();
+      // Bug fix (audit finding): same two fixes as txs' create rule just above — hasOnly() on
+      // the exact 4-field shape logAudit() always sends, and `by` tied to the real caller's
+      // profile name instead of being a bare type-checked (forgeable) string.
       allow create: if isActive()
+                    && request.resource.data.keys().hasOnly(['type', 'by', 'ts', 'note'])
                     && request.resource.data.type is string
                     && request.resource.data.note is string
-                    && request.resource.data.by is string
+                    && request.resource.data.by == myProfile().name
                     && request.resource.data.ts is number;
       allow update, delete: if false;
     }
@@ -227,9 +269,18 @@ service cloud.firestore {
       // copies these same fields straight into a new txs row. A malformed qty/medId here used
       // to surface only as a confusing failed-transaction error at approval time instead of
       // being rejected up front, at the point it was actually written.
+      // Bug fix (audit finding): added type checks for `recvNo`/`requestedBy` (previously
+      // completely unconstrained, despite being required fields on the PendingReceive type and
+      // always sent by the one real write path — see AppContext.tsx's `commitReceive`), tied
+      // `requestedBy` to the real caller's profile name (same forgery fix as txs/auditLog
+      // above), and capped the field set with hasOnly() to the exact 11-field shape verified
+      // against that write site.
       allow create: if isActive()
+                    && request.resource.data.keys().hasOnly(['recvNo', 'medId', 'name', 'unit', 'lotNo', 'exp', 'qty', 'requestedBy', 'requestedByUid', 'status', 'ts'])
                     && request.resource.data.requestedByUid == request.auth.uid
+                    && request.resource.data.requestedBy == myProfile().name
                     && request.resource.data.status == 'pending'
+                    && request.resource.data.recvNo is string
                     && request.resource.data.medId is string
                     && request.resource.data.name is string
                     && request.resource.data.unit is string
@@ -237,7 +288,26 @@ service cloud.firestore {
                     && request.resource.data.exp is number
                     && isNonNegNum(request.resource.data.qty)
                     && request.resource.data.ts is number;
-      allow update: if isPharmOrAdmin();
+      // Bug fix (security audit, CRITICAL): this used to allow a pharm/admin to change ANY
+      // field, including medId/qty/lotNo/exp, before "approving" — and nothing stopped the
+      // original requester from approving their own (by then tampered) request. Concretely: an
+      // authenticated pharm could create a small legitimate-looking pending receive for
+      // themselves, then `updateDoc` the qty/medId to anything via devtools before clicking
+      // approve — fabricating real stock with no further compromise needed.
+      // approvePendingReceive()/rejectPendingReceive() (AppContext.tsx) only ever change
+      // status/resolvedBy/resolvedTs/rejectReason — verified against both call sites — so
+      // locking the diff to exactly those fields, freezing medId/qty/lotNo/exp at their
+      // created values, requiring the doc to still be 'pending', and blocking the requester from
+      // resolving their own request closes the hole without affecting the real approve/reject
+      // flow at all.
+      allow update: if isPharmOrAdmin()
+                    && resource.data.status == 'pending'
+                    && request.auth.uid != resource.data.requestedByUid
+                    && request.resource.data.medId == resource.data.medId
+                    && request.resource.data.qty == resource.data.qty
+                    && request.resource.data.lotNo == resource.data.lotNo
+                    && request.resource.data.exp == resource.data.exp
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolvedBy', 'resolvedTs', 'rejectReason']);
       allow delete: if false;
     }
 
@@ -269,7 +339,10 @@ service cloud.firestore {
     // break the moment this allowed update/delete). ----
     match /usageHistory/{id} {
       allow read: if isActive();
+      // Bug fix (audit finding): hasOnly() added — matches UsageHistoryRecord's exact field set
+      // (types.ts), verified against the one real write path (AppContext.tsx commitUsageImport).
       allow create: if isAdmin()
+                    && request.resource.data.keys().hasOnly(['medId', 'medName', 'unit', 'category', 'qty', 'value', 'periodFrom', 'periodTo', 'periodDays', 'importedAt', 'monthKey'])
                     && request.resource.data.medId is string
                     && request.resource.data.medName is string
                     && request.resource.data.unit is string
@@ -291,7 +364,11 @@ service cloud.firestore {
     // evidence edited or deleted out from under it. ----
     match /parAdjustments/{id} {
       allow read: if isActive();
+      // Bug fix (audit finding): hasOnly() added (exact field set verified against
+      // applyOnePar/applyAllSuggested's write sites), and `adjustedBy` tied to the real caller's
+      // profile name — same forgery fix applied to txs/auditLog/pendingReceives above.
       allow create: if isAdmin()
+                    && request.resource.data.keys().hasOnly(['medId', 'medName', 'category', 'beforeFloor', 'beforeSub', 'afterFloor', 'afterSub', 'used30AtAdjust', 'usedPrev30AtAdjust', 'adjustedAt', 'adjustedBy'])
                     && request.resource.data.medId is string
                     && request.resource.data.medName is string
                     && request.resource.data.category is string
@@ -302,7 +379,7 @@ service cloud.firestore {
                     && isNonNegNum(request.resource.data.used30AtAdjust)
                     && isNonNegNum(request.resource.data.usedPrev30AtAdjust)
                     && request.resource.data.adjustedAt is number
-                    && request.resource.data.adjustedBy is string;
+                    && request.resource.data.adjustedBy == myProfile().name;
       allow update, delete: if false;
     }
 
@@ -313,7 +390,11 @@ service cloud.firestore {
     // the counter, so this needs the same isActive()-only trust level as txs itself. ----
     match /returns/{id} {
       allow read: if isActive();
+      // Bug fix (audit finding): hasOnly() added (exact field set verified against
+      // commitAdjust's 'return' write path), and `by` tied to the real caller's profile name —
+      // same forgery fix applied to txs/auditLog/pendingReceives/parAdjustments above.
       allow create: if isActive()
+                    && request.resource.data.keys().hasOnly(['medId', 'medName', 'medCode', 'unit', 'category', 'hn', 'qty', 'unitPrice', 'value', 'reason', 'note', 'date', 'ts', 'by'])
                     && request.resource.data.medId is string
                     && request.resource.data.medName is string
                     && request.resource.data.medCode is string
@@ -327,7 +408,7 @@ service cloud.firestore {
                     && request.resource.data.note is string
                     && request.resource.data.date is string
                     && request.resource.data.ts is number
-                    && request.resource.data.by is string;
+                    && request.resource.data.by == myProfile().name;
       allow update, delete: if false;
     }
 
