@@ -65,6 +65,17 @@ export default defineConfig({
         // Single-page app with no server API to worry about — cache-first for the
         // build output, always revalidate in the background on each load.
         globPatterns: ['**/*.{js,css,html,png,svg}'],
+        // Bug fix (audit finding — performance): without this, every first-time install
+        // downloaded all 40 build chunks in the background, including the xlsx (~143 kB gzip —
+        // only needed by Settings' usage-file import / Reconcile / exportAllReports) and
+        // UsageCharts/recharts (~113 kB gzip — only needed by ReportScreen's "📈 สถิติการใช้ยา"
+        // tab) chunks, regardless of whether that person's role or workflow ever touches either
+        // feature. Both are already lazy-loaded via dynamic import() at the JS level (see
+        // AppContext.tsx's `await import('xlsx')` and ReportScreen.tsx's `lazy(() =>
+        // import('./UsageCharts'))`) — excluding them from the SW's eager precache just means a
+        // genuinely first-time use of either feature fetches over the network instead of being
+        // pre-warmed, which is the right tradeoff for two large, not-everyone-uses-them chunks.
+        globIgnores: ['**/xlsx-*.js', '**/UsageCharts-*.js'],
         cleanupOutdatedCaches: true,
         // Adds a notificationclick handler (public/sw-custom.js) to the generated service
         // worker — generateSW mode doesn't expose a way to write custom SW logic directly, but

@@ -64,9 +64,18 @@ export function bangkokWeekday(ms: number): number {
   return new Date(ms + BANGKOK_OFFSET_MS).getUTCDay();
 }
 
+// Bug fix (audit finding — minor duplication): the final "pad y/m/d, join with '-'" assembly
+// below used to be hand-rolled independently here AND in utils/ocr.ts's own toIso() — same
+// tail logic, just fed from two different input domains (a parsed ms timestamp here, already-
+// parsed OCR text digits there). Pulled out so both share one implementation; y/m/d are taken
+// as already-validated 1-indexed parts, not re-validated here (callers own that).
+export function toIsoDateString(y: number, m: number, d: number): string {
+  return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+}
+
 export function isoDate(ms: number): string {
   const { y, m, d } = bangkokParts(ms);
-  return y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  return toIsoDateString(y, m + 1, d);
 }
 
 // Calendar-day difference, not a raw 24h-window count — matters because it drives both the
