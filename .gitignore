@@ -4,5 +4,13 @@ dist
 *.local
 tsconfig.tsbuildinfo
 
+# Bug fix (audit finding): no real .env file has ever been committed (nothing currently in the
+# tree or git history beyond .env.example), but *.local above only catches .env.local, not a
+# plain .env/.env.production holding a real credential (e.g. scripts/*.mjs's
+# FIREBASE_SERVICE_ACCOUNT_KEY if someone ever ran one from a local .env instead of a real env
+# var) — add it defensively before it's ever needed, not after.
+.env
+.env.*
+
 # Local output of scripts/backup-firestore.mjs — never committed (see .github/workflows/firestore-backup.yml, which uploads it as an Actions artifact instead)
 backups/

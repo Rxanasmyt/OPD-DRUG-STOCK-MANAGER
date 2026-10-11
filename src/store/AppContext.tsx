@@ -66,7 +66,16 @@ function adjStorageKey(uid: string): string { return 'opd-adj-' + uid; }
 function wmStorageKey(uid: string): string { return 'opd-wm-' + uid; }
 function hosxpStorageKey(uid: string): string { return 'opd-hosxp-' + uid; }
 function usageImportStorageKey(uid: string): string { return 'opd-usageimport-' + uid; }
-type AdjPersisted = { adjType: AppState['adjType']; adjSearch: string; adjMed: string | null; adjQty: string; adjReason: string; adjNote: string; adjHn: string };
+// Bug fix (audit finding): adjHn (the patient's HN — real identifying info, not just a UI
+// field) used to be included here, written to plaintext localStorage for up to
+// PERSIST_MAX_AGE_MS (8h) same as everything else in this crash-recovery snapshot. Everything
+// else here is just drug/qty/reason/note — nothing patient-identifying — so dropping adjHn is
+// enough to close that exposure without losing the rest of this feature's value; see
+// writePersisted's own call site below, which no longer includes it. A restored form simply
+// asks for the HN again (one field) instead of the whole thing — commitAdjust/commitReturnCart
+// both already hard-stop with a toast if it's still empty, so this can't silently commit
+// without one.
+type AdjPersisted = { adjType: AppState['adjType']; adjSearch: string; adjMed: string | null; adjQty: string; adjReason: string; adjNote: string };
 type WmPersisted = { wmFromSearch: string; wmFromMed: string | null; wmToSearch: string; wmToMed: string | null; wmQty: string; wmReason: string };
 type HosxpPersisted = { hosxpText: string; hosxpRows: AppState['hosxpRows']; hosxpConfirmFuzzy: boolean; hosxpConfirmSingleDay: boolean };
 type UsageImportPersisted = { usageDateFrom: string; usageDateTo: string; usageFileName: string | null; usageRows: AppState['usageRows']; usageConfirmFuzzy: boolean };
@@ -540,6 +549,29 @@ export interface AppCtx {
 
 const Ctx = createContext<AppCtx | null>(null);
 
+// Bug fix (audit finding — performance): `value` below is one monolithic object covering the
+// ENTIRE app's state, memoized with `state` itself as a dependency — so EVERY patch() anywhere
+// (a keystroke in a search box, a cart qty bump, anything) produces a brand-new `value` object,
+// and every one of this app's ~40 useApp() consumers re-renders because of it, even components
+// with nothing to do with whatever actually changed. Splitting the whole context is a much
+// bigger, riskier change (every one of those consumers would need re-checking); this narrower
+// SECOND context covers only the handful of always-mounted "chrome" components that sit at the
+// root for the entire session regardless of which screen is open (Toast, IdleLogoutWarning,
+// UpdateBanner) — exactly the ones paying that re-render cost on literally every interaction
+// anywhere in the app, not just while their own small slice of state is relevant. Memoized on
+// only the 4 fields/callbacks they actually read, so its value object — and therefore these
+// three components — stays referentially stable across any OTHER state change.
+interface ChromeCtxValue {
+  toast: string | null;
+  idleWarnVisible: boolean;
+  qrOpen: boolean;
+  updateAvailable: boolean;
+  dismissIdleWarning: () => void;
+  applyUpdate: () => void;
+  dismissUpdate: () => void;
+}
+const ChromeCtx = createContext<ChromeCtxValue | null>(null);
+
 // Bug fix (security): 'auth/user-not-found' used to get its own distinct message
 // ("ไม่พบบัญชีนี้") separate from the wrong-password/invalid-credential message — telling an
 // unauthenticated attacker (no account needed) exactly whether a guessed username exists at
@@ -881,9 +913,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.myUid, state.returnCart]);
   useEffect(() => {
     if (!state.myUid) return;
-    const v: AdjPersisted = { adjType: state.adjType, adjSearch: state.adjSearch, adjMed: state.adjMed, adjQty: state.adjQty, adjReason: state.adjReason, adjNote: state.adjNote, adjHn: state.adjHn };
+    const v: AdjPersisted = { adjType: state.adjType, adjSearch: state.adjSearch, adjMed: state.adjMed, adjQty: state.adjQty, adjReason: state.adjReason, adjNote: state.adjNote };
     writePersisted(adjStorageKey(state.myUid), v);
-  }, [state.myUid, state.adjType, state.adjSearch, state.adjMed, state.adjQty, state.adjReason, state.adjNote, state.adjHn]);
+  }, [state.myUid, state.adjType, state.adjSearch, state.adjMed, state.adjQty, state.adjReason, state.adjNote]);
   useEffect(() => {
     if (!state.myUid) return;
     const v: WmPersisted = { wmFromSearch: state.wmFromSearch, wmFromMed: state.wmFromMed, wmToSearch: state.wmToSearch, wmToMed: state.wmToMed, wmQty: state.wmQty, wmReason: state.wmReason };
@@ -5678,11 +5710,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [state, myProfile, theme, toggleTheme]);
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  // See ChromeCtx's own comment above — dismissIdleWarning/applyUpdate/dismissUpdate are each
+  // already a stable useCallback (deps only on `patch`, itself deps-free), so this object's
+  // identity only changes when one of the 4 state fields below actually does, not on every
+  // unrelated patch() elsewhere in the app.
+  const chromeValue = useMemo<ChromeCtxValue>(() => ({
+    toast: state.toast, idleWarnVisible: state.idleWarnVisible, qrOpen: state.qrOpen, updateAvailable: state.updateAvailable,
+    dismissIdleWarning, applyUpdate, dismissUpdate,
+  }), [state.toast, state.idleWarnVisible, state.qrOpen, state.updateAvailable, dismissIdleWarning, applyUpdate, dismissUpdate]);
+
+  return (
+    <Ctx.Provider value={value}>
+      <ChromeCtx.Provider value={chromeValue}>{children}</ChromeCtx.Provider>
+    </Ctx.Provider>
+  );
 }
 
 export function useApp(): AppCtx {
   const ctx = useContext(Ctx);
   if (!ctx) throw new Error('useApp must be used within AppProvider');
+  return ctx;
+}
+
+/** Narrower companion to useApp() — see ChromeCtx's own doc comment above for which
+ * components should use this instead and why. */
+export function useChrome(): ChromeCtxValue {
+  const ctx = useContext(ChromeCtx);
+  if (!ctx) throw new Error('useChrome must be used within AppProvider');
   return ctx;
 }

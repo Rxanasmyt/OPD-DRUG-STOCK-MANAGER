@@ -382,6 +382,16 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
   white-space: nowrap;
   padding: 7px 12px;
   cursor: pointer;
+  /* Bug fix (audit finding): at 7px vertical padding + 12.5px text, a chip rendered ~28-29px
+     tall — well under the app's own 40-44px tap-target convention that most screens already
+     apply via an inline `minHeight` override (AdjustScreen, LabelsScreen, CountScreen) — but
+     several filter/sort/category chip rows (MedsScreen, TransferScreen, ReportScreen,
+     AdminScreen) never got that override, even though they're the rows pharmacy staff tap
+     repeatedly on a phone/tablet. Setting it here once on the shared class closes the gap for
+     every chip in the app, including future ones, without touching every call site — a call
+     site that already sets a bigger `minHeight` inline still wins (inline style beats a class),
+     so nothing already-correct changes.  */
+  min-height: 40px;
 }
 .btn { border: 0; border-radius: 14px; font-weight: 600; cursor: pointer; }
 .btn-primary { background: var(--green); color: var(--ink-soft); box-shadow: var(--shadow-sm); }
