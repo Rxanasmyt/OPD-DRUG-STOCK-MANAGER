@@ -512,6 +512,20 @@ export interface DailyMetrics {
   transferredQty: number;
   dispensedQty: number;
   adjustQty: number;
+  // Real-world request: "เก็บมูลค่าความเสียหาย/หมดอายุที่ตัดจริง" — NOT the same thing as
+  // nearExpiryValue/expiredValue above, which are a CURRENT-INVENTORY-SNAPSHOT "value still
+  // sitting at risk in the live lots collection right now" (read fresh off `meds`/`lots` at
+  // script-run time, so re-running for an old backfill date is wrong — see the header comment
+  // in collect-daily-metrics.mjs). These two are the opposite: a historical FLOW figure, valued
+  // from THAT SPECIFIC DAY's damaged/expired-type txs (already folded into the combined
+  // `adjustQty` headcount above with no บาท value and no split by type), so summing them across
+  // a date range gives a real, backfill-safe "เสียไปจริงกี่บาทช่วงนี้" trend a report can chart —
+  // something adjustQty's single mixed headcount could never answer on its own. Optional: any
+  // dailyMetrics doc written before this field existed simply has none (treated as 0, never
+  // backfilled — same "forward-only" rollout as stockoutMedIds below / every other field added
+  // to this interface after go-live).
+  damagedLossValue?: number;
+  expiredLossValue?: number;
   txCount: number;
   // Real-world request: how long a เบิก (tech-submitted, needs pharm/admin approval — see
   // commitReceive's `!approve` branch) actually sat waiting before the stock it asked for was

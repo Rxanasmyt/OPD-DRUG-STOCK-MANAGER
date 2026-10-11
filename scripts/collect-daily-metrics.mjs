@@ -185,6 +185,7 @@ async function main() {
     .get();
   const txs = txSnap.docs.map((d) => d.data());
   let receivedQty = 0, receivedCount = 0, transferredQty = 0, dispensedQty = 0, adjustQty = 0;
+  let damagedLossValue = 0, expiredLossValue = 0;
   let countDiscrepancyCount = 0, reconciledToday = false;
   const txByUser = {};
   for (const t of txs) {
@@ -194,6 +195,16 @@ async function main() {
     else if (t.type === 'reconcile_hosxp') { dispensedQty += Math.abs(t.qty || 0); reconciledToday = true; }
     else if (['adjust', 'damaged', 'return', 'expired', 'ward_move_out', 'ward_move_in'].includes(t.type)) {
       adjustQty += Math.abs(t.qty || 0);
+      // Real-world request: realized waste/loss บาท — same `meds.find()` lookup style as the
+      // nearExpiryValue/expiredValue loop above, but valued off THIS DAY's actual damaged/
+      // expired txs instead of the live lots snapshot, so it stays correct on a `--date=`
+      // backfill the same way the rest of this ---- อัตราการจ่าย/เบิก section already does.
+      if (t.type === 'damaged' || t.type === 'expired') {
+        const m = meds.find((x) => x.id === t.medId);
+        const value = Math.abs(t.qty || 0) * (m ? (m.price || 0) : 0);
+        if (t.type === 'damaged') damagedLossValue += value;
+        else expiredLossValue += value;
+      }
     } else if (t.type === 'count' && (t.qty || 0) !== 0) {
       countDiscrepancyCount++;
     }
@@ -239,7 +250,8 @@ async function main() {
     activeMedCount: activeMeds.length,
     totalFloorQty, totalSubQty, totalStockValue, lowStockCount, urgentLowCount,
     nearExpiryValue, expiredValue,
-    receivedQty, receivedCount, transferredQty, dispensedQty, adjustQty, txCount: txs.length,
+    receivedQty, receivedCount, transferredQty, dispensedQty, adjustQty,
+    damagedLossValue, expiredLossValue, txCount: txs.length,
     receiveLeadTimeAvgHours, receiveApprovedCount, receivePendingBacklog,
     parErrorCount, parReviewCount, countDiscrepancyCount, hosxpUnmatchedCount, reconciledToday,
     activeUserCount: Object.keys(txByUser).length,
