@@ -227,7 +227,7 @@ export default function TransferScreen() {
           />
           <button onClick={() => openScanSearch('transfer')} title="สแกน QR เติมหน้างาน" aria-label="สแกน QR เติมหน้างาน" style={{ border: '1px solid var(--green)', background: 'var(--green-tint)', color: 'var(--green)', borderRadius: 10, width: 46, minHeight: 44, fontSize: 17, flex: 'none' }}>▣</button>
         </div>
-        <div style={{ display: 'flex', gap: 7, marginTop: 9, overflowX: 'auto', paddingBottom: 2 }}>
+        <div className="scroll-fade-x" style={{ display: 'flex', gap: 7, marginTop: 9, overflowX: 'auto', paddingBottom: 2 }}>
           {/* "เร่งด่วนวันนี้" — ต่ำกว่าครึ่งหนึ่งของ Min เท่านั้น (isUrgentLow) — วันที่กำลังคนน้อย
               กดดูแค่กลุ่มนี้ก่อนได้ ไม่ต้องเติมทุกอย่างที่ต่ำกว่า Min ในครั้งเดียว */}
           <button className="chip" style={{ ...chip(state.filter === 'urgent'), ...(state.filter === 'urgent' ? { background: 'var(--red)', borderColor: 'var(--red)' } : { color: urgent.length ? 'var(--red)' : undefined, borderColor: urgent.length ? 'var(--red)' : undefined }) }} onClick={() => setFilter('urgent')}>🔴 เร่งด่วนวันนี้ ({urgent.length})</button>
@@ -250,14 +250,14 @@ export default function TransferScreen() {
         </div>
         {/* หมวดกลุ่มยา — คนละมิติกับตัวกรอง low/all/had ด้านบน ใช้ร่วมกันได้ ให้เลือกดูเฉพาะกลุ่มที่
             จ่ายออกเยอะทุกวันแยกจากกลุ่มที่ใช้นาน ๆ ครั้งได้ ไม่ต้องไล่สายตาผ่านทั้งฟอร์มมิวลารี */}
-        <div style={{ display: 'flex', gap: 7, marginTop: 8, overflowX: 'auto', paddingBottom: 2 }}>
+        <div className="scroll-fade-x" style={{ display: 'flex', gap: 7, marginTop: 8, overflowX: 'auto', paddingBottom: 2 }}>
           <button className="chip" style={chip(catTab === 'all')} onClick={() => setCatTab('all')}>ทุกหมวด</button>
           {DRUG_CATEGORIES.map((c) => catCounts[c.id] ? (
             <button key={c.id} className="chip" style={chip(catTab === c.id)} onClick={() => setCatTab(c.id)}>{c.label} ({catCounts[c.id]})</button>
           ) : null)}
         </div>
         {/* ลำดับการแสดง — "ตามชั้นวาง" คือลำดับสำหรับเดินหยิบของจริงรอบเดียวจบ ไม่ต้องเดินย้อนไปมา */}
-        <div style={{ display: 'flex', gap: 7, marginTop: 8, overflowX: 'auto', paddingBottom: 2 }}>
+        <div className="scroll-fade-x" style={{ display: 'flex', gap: 7, marginTop: 8, overflowX: 'auto', paddingBottom: 2 }}>
           <span className="muted" style={{ fontSize: 11, flex: 'none', alignSelf: 'center', paddingRight: 2 }}>เรียง:</span>
           <button className="chip" style={chip(sort === 'need')} onClick={() => setSort('need')}>ขาดมากสุดก่อน</button>
           <button className="chip" style={chip(sort === 'bin')} onClick={() => setSort('bin')}>ตามชั้นวาง</button>

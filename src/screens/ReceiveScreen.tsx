@@ -212,7 +212,7 @@ export default function ReceiveScreen() {
         </div>
 
         {recentMeds.length > 0 && (
-          <div style={{ display: 'flex', gap: 7, marginBottom: 9, overflowX: 'auto', paddingBottom: 2 }}>
+          <div className="scroll-fade-x" style={{ display: 'flex', gap: 7, marginBottom: 9, overflowX: 'auto', paddingBottom: 2 }}>
             <span className="muted" style={{ fontSize: 11, flex: 'none', alignSelf: 'center', paddingRight: 2 }}>ล่าสุด:</span>
             {recentMeds.map((m) => (
               <button

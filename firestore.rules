@@ -108,8 +108,15 @@ service cloud.firestore {
     // non-numeric qty, wrong-typed medId) at the database layer too, not just in client JS. ----
     match /lots/{lotId} {
       allow read: if isActive();
+      // Bug fix (audit finding): this used to type-check medId/qty/exp on create but never
+      // lotNo, even though the `Lot` interface (types.ts) declares it required and the update
+      // rule right below ASSUMES it was already a real string by locking it immutable
+      // (`request.resource.data.lotNo == resource.data.lotNo`) — the one gap in this collection's
+      // own stated "schema-checked, not just role-checked" goal. Matches floorLots' identical
+      // create rule just below, which already checks this.
       allow create: if isActive()
                     && request.resource.data.medId is string
+                    && request.resource.data.lotNo is string
                     && isNonNegNum(request.resource.data.qty)
                     && request.resource.data.exp is number;
       // Bug fix (audit finding — real production hardening, not just type-checking): this used

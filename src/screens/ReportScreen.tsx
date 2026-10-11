@@ -185,8 +185,24 @@ export default function ReportScreen() {
   useEffect(() => {
     if (state.reportTab !== 'insights' || stabilityLoaded) return;
     setStabilityLoaded(true);
-    fetchDailyMetrics(isoDate(Date.now() - 29 * DAY), isoDate(Date.now())).then(setStabilityRows);
-    fetchParAdjustments(Date.now() - 60 * DAY).then(setParOutcomeRecords);
+    // Bug fix (audit finding): neither fetch had a .catch — on a slow/flaky connection
+    // (withTimeout's 15s ceiling, or any other getDocs failure), this used to be an unhandled
+    // promise rejection with no toast, AND stabilityLoaded stayed stuck true forever, so the
+    // lead-time/stockout-streak/frequent-refill/par-outcome cards silently stayed empty for the
+    // rest of the session — switching tabs away and back never retried, only a full page reload
+    // did. Resetting stabilityLoaded to false on failure gives this the same "reopen the tab to
+    // retry" path the kpi tab's loadKpi already has (its kpiLoaded also only ever becomes true
+    // on success).
+    Promise.all([
+      fetchDailyMetrics(isoDate(Date.now() - 29 * DAY), isoDate(Date.now())),
+      fetchParAdjustments(Date.now() - 60 * DAY),
+    ]).then(([dmRows, parRows]) => {
+      setStabilityRows(dmRows);
+      setParOutcomeRecords(parRows);
+    }).catch((e) => {
+      toast((e as Error)?.message || 'โหลดข้อมูลวิเคราะห์อัตโนมัติไม่สำเร็จ ลองเปิดแท็บนี้ใหม่อีกครั้ง');
+      setStabilityLoaded(false);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.reportTab, stabilityLoaded]);
   const leadTime = leadTimeTrend(stabilityRows);

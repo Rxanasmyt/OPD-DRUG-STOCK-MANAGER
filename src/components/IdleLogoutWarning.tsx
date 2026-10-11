@@ -1,4 +1,4 @@
-import { useApp } from '../store/AppContext';
+import { useChrome } from '../store/AppContext';
 
 /**
  * Real-world request: "ตอนนี้ถ้า login นานทิ้งไว้ จะไม่ logout ออกให้อัตโนมัติเลย ซึ่งอันตราย
@@ -11,9 +11,11 @@ import { useApp } from '../store/AppContext';
  * tap matches ConfirmDialog.tsx's own convention of not being stricter than it needs to be.
  */
 export default function IdleLogoutWarning() {
-  const { state, dismissIdleWarning } = useApp();
+  // Bug fix (audit finding — performance): reads the narrower chrome-only context instead of
+  // useApp() — see ChromeCtx's own doc comment in AppContext.tsx for why.
+  const { idleWarnVisible, qrOpen, dismissIdleWarning } = useChrome();
   // Same guard as UpdateBanner — never cover the full-screen QR scanner.
-  if (!state.idleWarnVisible || state.qrOpen) return null;
+  if (!idleWarnVisible || qrOpen) return null;
 
   return (
     <div

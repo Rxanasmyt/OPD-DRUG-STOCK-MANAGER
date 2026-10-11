@@ -1,4 +1,4 @@
-import { useApp } from '../store/AppContext';
+import { useChrome } from '../store/AppContext';
 
 /**
  * Replaces the old silent-auto-reload behavior (vite-plugin-pwa's 'autoUpdate' — see
@@ -9,11 +9,13 @@ import { useApp } from '../store/AppContext';
  * update someone doesn't act on right away shouldn't just vanish and be forgotten).
  */
 export default function UpdateBanner() {
-  const { state, applyUpdate, dismissUpdate } = useApp();
+  // Bug fix (audit finding — performance): reads the narrower chrome-only context instead of
+  // useApp() — see ChromeCtx's own doc comment in AppContext.tsx for why.
+  const { updateAvailable, qrOpen, applyUpdate, dismissUpdate } = useChrome();
   // Never pop this up over the full-screen QR scanner (zIndex 20, covers everything) — that
   // would be exactly the kind of "interrupts an active task" moment this whole feature exists
   // to avoid. It just waits; nothing about the pending update expires by staying hidden here.
-  if (!state.updateAvailable || state.qrOpen) return null;
+  if (!updateAvailable || qrOpen) return null;
 
   return (
     <div
