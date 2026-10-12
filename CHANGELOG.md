@@ -7,6 +7,16 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.170.0] - 2026-10-12
+
+### Changed
+- **[ทำงานค้างต่อตามคำสั่ง "จัดการต่อจนทำครบทั้งหมดครับ" — repository/service layer สำหรับ Firestore (รอบที่ 8 — collection `txs`)]**
+  - ทำต่อแบบค่อยเป็นค่อยไปตามรอบที่ 1-7 — รอบนี้ครอบคลุม `txs` ซึ่งเป็น collection ที่ถูกอ้างอิงมากที่สุดในไฟล์ (29 call site: ledger ของทุกรายการที่กระทบสต๊อก — ทุก commit action (commitTransfer, commitReceive, approvePendingReceive, commitAdjust, commitSingleReturn/commitReturnCart, scrapLot, commitWardMove, commitCount/commitSubCount, commitReconcile) ต่าง trx.set() เอกสารใหม่ลง collection นี้เป็นส่วนหนึ่งของ transaction ตัวเอง, live "recent activity" feed, full-history export query, ledger ย้อนหลังตามชื่อยา (fetchSubstockLedger/fetchFloorLedger), point-in-time reconstruction (fetchStockAsOf), ค้นหาตามช่วงวันที่ (searchHistory), และ resetAllStockLedgers()'s bulk delete)
+  - เพิ่ม `src/store/repositories/txsRepo.ts` (`txRef()`, `newTxRef()`, `subscribeRecentTxs()`, `queryAllTxs()`, `queryTxsSince()`, `fetchReconcileHosxpTxs()`, `fetchAllTxs()`, `fetchTxsByName()`, `fetchTxsAfter()`, `queryTxsByDateRange()`) แทนที่ทั้ง 29 จุดเดิมที่เรียก `collection(db, 'txs')`/`doc(db, 'txs', ...)` ตรงๆ — **ไม่แตะ transaction logic ใดๆ**: ทุกฟังก์ชัน repo คืนค่าแค่ ref/query object กลับไปให้ `trx.get()`/`trx.set()`/`trx.update()` ที่จุดเรียกใช้เหมือนเดิมทุกตัวอักษร
+  - pure "extract function" เหมือนทุกรอบที่แล้ว ไม่มี logic เปลี่ยนแม้แต่จุดเดียว
+
+  ผ่าน tsc (0 errors) + vitest (548 เทสต์ — เท่าเดิม ไม่มี regression) + build ครบ
+
 ## [3.169.0] - 2026-10-12
 
 ### Changed
