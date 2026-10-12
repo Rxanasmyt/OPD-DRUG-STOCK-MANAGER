@@ -7,6 +7,16 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.167.0] - 2026-10-12
+
+### Changed
+- **[ทำงานค้างต่อตามคำสั่ง "จัดการต่อจนทำครบทั้งหมดครับ" — repository/service layer สำหรับ Firestore (รอบที่ 5 — collection `floorLots`)]**
+  - ทำต่อแบบค่อยเป็นค่อยไปตามรอบที่ 1-4 — รอบนี้ครอบคลุม `floorLots` (9 call site: live listener, ref สำหรับอ่าน/เขียนในหลาย transaction — commitTransfer/scrapFloorLot/commitReconcile/mergeWardMeds, query ตาม medId แบบไม่ผ่าน transaction, และ fetch ทั้ง collection สำหรับ resetAllQuantities's pre-reset snapshot)
+  - เพิ่ม `src/store/repositories/floorLotsRepo.ts` (`floorLotRef()`, `subscribeFloorLots()`, `fetchAllFloorLots()`, `fetchFloorLotsByMedId()`) แทนที่ทั้ง 9 จุดเดิมที่เรียก `collection(db, 'floorLots')`/`doc(db, 'floorLots', ...)` ตรงๆ — **ไม่แตะ transaction logic ใดๆ**: ฟังก์ชัน repo คืนค่าแค่ ref/query object กลับไปให้ `trx.get()`/`trx.set()`/`trx.update()` ที่จุดเรียกใช้เหมือนเดิมทุกตัวอักษร
+  - pure "extract function" เหมือนทุกรอบที่แล้ว ไม่มี logic เปลี่ยนแม้แต่จุดเดียว
+
+  ผ่าน tsc (0 errors) + vitest (548 เทสต์ — เท่าเดิม ไม่มี regression) + build ครบ
+
 ## [3.166.0] - 2026-10-12
 
 ### Changed

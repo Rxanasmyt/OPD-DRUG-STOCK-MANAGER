@@ -21,6 +21,7 @@ import { fetchParAdjustmentsSince, addParAdjustmentRecord, newParAdjustmentRef }
 import { fetchDrugReturnsByDateRange, newDrugReturnRef } from './repositories/returnsRepo';
 import { subscribeRecentPendingReceives, newPendingReceiveRef, pendingReceiveRef } from './repositories/pendingReceivesRepo';
 import { settingsRef, subscribeSettings, medSeqRef } from './repositories/metaRepo';
+import { floorLotRef, subscribeFloorLots, fetchAllFloorLots, fetchFloorLotsByMedId } from './repositories/floorLotsRepo';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
@@ -237,7 +238,7 @@ async function mergeWardPairTx(
 ): Promise<number> {
   return runTx(async (trx) => {
     const lotSnap = await getDocs(query(collection(db, 'lots'), where('medId', '==', ipdMed.id)));
-    const floorLotSnap = await getDocs(query(collection(db, 'floorLots'), where('medId', '==', ipdMed.id)));
+    const floorLotSnap = await fetchFloorLotsByMedId(ipdMed.id);
     // These reads don't depend on each other — firing them concurrently instead of one lot at a
     // time saves real time when a med has several open lots, with no correctness change (each is
     // still read via trx.get(), so Firestore still retries this transaction if any changes before
@@ -1370,7 +1371,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }) as AppState['lots'];
         patch({ lots });
       }, onErr('lots')),
-      onSnapshot(collection(db, 'floorLots'), (snap) => {
+      subscribeFloorLots((snap) => {
         const floorLots = snap.docs.map((d) => {
           const raw = d.data() as Record<string, unknown>;
           return { id: d.id, ...raw, qty: numOr(raw, 'qty', 0) };
@@ -2153,7 +2154,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const flId = floorLotDocId(medId, lotNo, exp);
           if (floorLotIdsSeen.has(flId)) return Promise.resolve();
           floorLotIdsSeen.add(flId);
-          return trx.get(doc(db, 'floorLots', flId)).then((snap) => {
+          return trx.get(floorLotRef(flId)).then((snap) => {
             floorLotReads[flId] = (snap.data() as { qty?: number } | undefined)?.qty ?? 0;
           });
         })));
@@ -2217,7 +2218,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
           for (const [flId, t] of Object.entries(floorTake)) {
             const prevQty = floorLotReads[flId] ?? 0;
-            trx.set(doc(db, 'floorLots', flId), { medId, lotNo: t.lotNo, exp: t.exp, qty: prevQty + t.add });
+            trx.set(floorLotRef(flId), { medId, lotNo: t.lotNo, exp: t.exp, qty: prevQty + t.add });
           }
           // Safe: the missing-med check above already threw before this loop could run for
           // any medId that doesn't resolve, so every lookup here is guaranteed to hit.
@@ -2872,7 +2873,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       let realQty = l.qty;
       await runTx(async (trx) => {
-        const ref = doc(db, 'floorLots', lotId);
+        const ref = floorLotRef(lotId);
         const snap = await trx.get(ref);
         realQty = (snap.data() as { qty?: number } | undefined)?.qty ?? l.qty;
         trx.update(ref, { qty: 0 });
@@ -4539,7 +4540,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const [medSnap, lotSnap, floorLotSnap] = await Promise.all([
         withTimeout(getDocs(collection(db, 'meds'))),
         withTimeout(getDocs(collection(db, 'lots'))),
-        withTimeout(getDocs(collection(db, 'floorLots'))),
+        withTimeout(fetchAllFloorLots()),
       ]);
       const medCount = medSnap.docs.length;
       const lotCount = lotSnap.docs.length;
@@ -5287,14 +5288,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             // any writes — all reads before any writes, same ordering commitTransfer uses.
             const flTakes: { id: string; qty: number; take: number }[] = [];
             try {
-              const liveFloorLotDocs = (await getDocs(query(collection(db, 'floorLots'), where('medId', '==', m.id)))).docs;
+              const liveFloorLotDocs = (await fetchFloorLotsByMedId(m.id)).docs;
               const ordered = liveFloorLotDocs
                 .map((d) => ({ id: d.id, exp: (d.data() as { exp?: number }).exp ?? Infinity }))
                 .sort((a, b) => a.exp - b.exp);
               let need = r.qty;
               for (const fl of ordered) {
                 if (need <= 0) break;
-                const flSnap = await trx.get(doc(db, 'floorLots', fl.id));
+                const flSnap = await trx.get(floorLotRef(fl.id));
                 const curQty = (flSnap.data() as { qty?: number } | undefined)?.qty ?? 0;
                 if (curQty <= 0) continue;
                 const take = Math.min(need, curQty);
@@ -5303,7 +5304,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               }
             } catch { /* best-effort — floor-lot tracking is a secondary signal, never blocks the real deduction below */ }
             trx.update(ref, { floor: after });
-            for (const t of flTakes) trx.update(doc(db, 'floorLots', t.id), { qty: t.qty - t.take });
+            for (const t of flTakes) trx.update(floorLotRef(t.id), { qty: t.qty - t.take });
             trx.set(doc(collection(db, 'txs')), {
               type: 'reconcile_hosxp', name: m.name, medId: m.id, qty: -(before - after), unit: m.unit,
               reason: 'นำเข้าจากไฟล์ HOSxP',
