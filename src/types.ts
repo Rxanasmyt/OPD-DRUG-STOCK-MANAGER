@@ -2,8 +2,25 @@ export type Role = 'pharm' | 'tech' | 'admin';
 
 export type Ward = 'opd' | 'ipd';
 
+// Branded (nominal) id types — audit finding: every id in this app (med/lot/floorLot) was a
+// plain `string`, so nothing stopped e.g. a function expecting (medId, lotId) from being called
+// with the two arguments swapped — TypeScript happily accepts any string for any string
+// parameter, and a med id and a lot id read identically to the compiler. These brands cost
+// nothing at runtime (still plain strings underneath — the real Firestore doc id, completely
+// unchanged) but make the compiler reject a LotId passed where a MedId is expected and vice
+// versa. A value becomes branded just by reading it off a Med/Lot/FloorLot object's own `.id`/
+// `.medId` field — no cast needed anywhere that already holds a real one of these records.
+// The `asXxxId()` helpers below are only for the few genuine boundary points where a raw string
+// first becomes one of these ids: a QR-code payload decode, a route/URL param, or similar.
+export type MedId = string & { readonly __brand: 'MedId' };
+export type LotId = string & { readonly __brand: 'LotId' };
+export type FloorLotId = string & { readonly __brand: 'FloorLotId' };
+export function asMedId(id: string): MedId { return id as MedId; }
+export function asLotId(id: string): LotId { return id as LotId; }
+export function asFloorLotId(id: string): FloorLotId { return id as FloorLotId; }
+
 export interface Med {
-  id: string;
+  id: MedId;
   code: string;
   name: string;
   unit: string;
@@ -197,9 +214,9 @@ export interface Med {
 }
 
 export interface Lot {
-  id: string;
+  id: LotId;
   code: string;
-  medId: string;
+  medId: MedId;
   lotNo: string;
   exp: number;
   qty: number;
@@ -227,8 +244,8 @@ export interface Lot {
 // guess can be wrong when real-world picking wasn't actually FEFO) — never treated as exact, only
 // as an expiry-risk signal strictly better than no floor-side lot data at all.
 export interface FloorLot {
-  id: string;
-  medId: string;
+  id: FloorLotId;
+  medId: MedId;
   lotNo: string;
   exp: number;
   qty: number;
@@ -699,7 +716,7 @@ export interface AppState {
   doneKind: 'transfer' | 'receive' | 'recvPending' | null;
   // medId is optional — a done row always has one going forward, but keeping it optional
   // avoids a false sense that every historical code path is guaranteed to set it.
-  doneRows: { name: string; sub: string; qty: string; medId?: string }[];
+  doneRows: { name: string; sub: string; qty: string; medId?: MedId }[];
   toast: string | null;
 
   countInputs: Record<string, string>;
@@ -732,8 +749,8 @@ export interface AppState {
   usageRows: { name: string; qty: number; match: HosxpMatch }[] | null;
   usageConfirmFuzzy: boolean;
 
-  medsFocusId: string | null;
-  substockFocusId: string | null;
+  medsFocusId: MedId | null;
+  substockFocusId: MedId | null;
 
   adminTab: AdminTab;
   auditFilter: AuditFilter;

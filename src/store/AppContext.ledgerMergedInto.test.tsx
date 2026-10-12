@@ -13,6 +13,7 @@ import { screen, waitFor } from '@testing-library/react';
 import { useApp } from './AppContext';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import { signInAs, fireCollection, hasListener, seedCollection } from '../test-utils/firebaseTestDouble';
+import { asMedId, type MedId } from '../types';
 
 const SURVIVOR = {
   id: 'opd1', code: 'MED-0001', name: 'Same Name Drug', unit: 'เม็ด', dosageForm: 'เม็ด',
@@ -25,7 +26,7 @@ const MERGED_LOSER = { ...SURVIVOR, id: 'ipd1', active: false, mergedInto: 'opd1
 // reason entirely (e.g. a data-entry mistake later cleaned up) — never merged into SURVIVOR.
 const UNRELATED_DUP = { ...SURVIVOR, id: 'dup1', active: false, bin: 'C1' };
 
-function LedgerHarness({ medId }: { medId: string }) {
+function LedgerHarness({ medId }: { medId: MedId }) {
   const { fetchSubstockLedger } = useApp();
   const [rows, setRows] = useState<{ qty: number; medId?: string }[] | null>(null);
   useEffect(() => { fetchSubstockLedger(medId).then((r) => setRows(r as typeof rows)); }, [medId, fetchSubstockLedger]);
@@ -34,7 +35,7 @@ function LedgerHarness({ medId }: { medId: string }) {
 
 describe('fetchSubstockLedger — mergedInto disambiguation regression', () => {
   it('includes the merged loser\'s own untagged history (intentional continuity)', async () => {
-    renderWithApp(<LedgerHarness medId="opd1" />);
+    renderWithApp(<LedgerHarness medId={asMedId('opd1')} />);
     await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
     fireCollection('meds', [SURVIVOR, MERGED_LOSER]);
@@ -50,7 +51,7 @@ describe('fetchSubstockLedger — mergedInto disambiguation regression', () => {
   });
 
   it('excludes an unrelated duplicate\'s history, even though it is also inactive', async () => {
-    renderWithApp(<LedgerHarness medId="opd1" />);
+    renderWithApp(<LedgerHarness medId={asMedId('opd1')} />);
     await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
     fireCollection('meds', [SURVIVOR, UNRELATED_DUP]);
@@ -66,7 +67,7 @@ describe('fetchSubstockLedger — mergedInto disambiguation regression', () => {
   });
 
   it('includes the merged loser AND excludes an unrelated duplicate when both exist at once', async () => {
-    renderWithApp(<LedgerHarness medId="opd1" />);
+    renderWithApp(<LedgerHarness medId={asMedId('opd1')} />);
     await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
     fireCollection('meds', [SURVIVOR, MERGED_LOSER, UNRELATED_DUP]);

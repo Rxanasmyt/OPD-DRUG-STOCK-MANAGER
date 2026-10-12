@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, thDate } from '../utils/format';
+import type { MedId } from '../types';
 
 function MiniCardSkeleton() {
   return (
@@ -42,7 +43,7 @@ const TYPE_META: Record<string, { icon: string; label: string }> = {
  * receive/transfer action it's sitting inside. This is read-only decoration, not a dependency
  * of the surrounding workflow.
  */
-export function MedMiniCard({ medId, unit, tailCount = 4, hasSub = true }: { medId: string; unit: string; tailCount?: number; hasSub?: boolean }) {
+export function MedMiniCard({ medId, unit, tailCount = 4, hasSub = true }: { medId: MedId; unit: string; tailCount?: number; hasSub?: boolean }) {
   const { fetchSubstockLedger, fetchFloorLedger, goSubstockCardFor } = useApp();
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);

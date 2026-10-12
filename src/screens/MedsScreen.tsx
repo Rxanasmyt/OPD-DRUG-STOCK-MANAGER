@@ -6,7 +6,7 @@ import { MedDot } from '../components/MedDot';
 import { Badge, HadTag } from '../components/Badge';
 import { BottomSheet } from '../components/BottomSheet';
 import { Qty, DaysLeftBadge, UsageRateBadge, PAR_LABEL_COLOR } from '../components/Qty';
-import type { Med, Ward } from '../types';
+import type { Med, MedId, Ward } from '../types';
 import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
 import { DRUG_CATEGORIES, categoryLabel, UNCATEGORIZED } from '../data/categories';
@@ -832,10 +832,10 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
   /** The same drug's other-ward record (same name, opposite ward), if one exists — lets its
    * shelf code be edited right here instead of having to search it up as a separate row. */
   sibling?: Med | undefined;
-  onSiblingBinChange?: (siblingId: string, val: string) => void;
+  onSiblingBinChange?: (siblingId: MedId, val: string) => void;
   /** Folds `sibling`'s real stock into this med as one pooled OPD/IPD record — see
    * mergeWardMeds() in AppContext.tsx. Only offered when a sibling exists. */
-  onMerge?: (siblingId: string) => void;
+  onMerge?: (siblingId: MedId) => void;
   /** True while this exact pair's mergeWardMeds() Firestore batch is in flight — a real write,
    * not instant, so the button shows "กำลังรวม…"/disables itself same as every other commit
    * button in the app instead of looking inert on a slow connection. */

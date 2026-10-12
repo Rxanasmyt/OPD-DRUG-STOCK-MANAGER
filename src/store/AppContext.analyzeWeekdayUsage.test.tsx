@@ -12,6 +12,7 @@ import { useApp } from './AppContext';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import Toast from '../components/Toast';
 import { signInAs, fireCollection, hasListener, seedCollection, getLastBatchWrites } from '../test-utils/firebaseTestDouble';
+import { asMedId, type MedId } from '../types';
 
 function bangkokNoon(y: number, m: number, d: number): number {
   return Date.UTC(y, m, d, 12, 0) - 7 * 60 * 60 * 1000;
@@ -212,7 +213,7 @@ describe('analyzeWeekdayUsage — peak single-day usage regression', () => {
 // Follow-up request: "แก้ไข/ยกเลิกรูปแบบที่ตรวจพบเองไม่ได้" — before this, a wrongly-detected
 // pattern could only ever clear itself automatically once new data flattened it out on a LATER
 // analyzeWeekdayUsage() run; there was no way for an admin to clear one by hand immediately.
-function ClearHarness({ medId }: { medId: string }) {
+function ClearHarness({ medId }: { medId: MedId }) {
   const { clearMedWeekdayPattern } = useApp();
   return <button onClick={() => clearMedWeekdayPattern(medId)}>clear-pattern</button>;
 }
@@ -220,7 +221,7 @@ function ClearHarness({ medId }: { medId: string }) {
 describe('clearMedWeekdayPattern — manual override regression', () => {
   it('clears all 4 weekday-pattern fields immediately via a real Firestore write, without waiting for a re-analysis run', async () => {
     const user = userEvent.setup();
-    renderWithApp(<ClearHarness medId={STALE_MED.id} />);
+    renderWithApp(<ClearHarness medId={asMedId(STALE_MED.id)} />);
     await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
     fireCollection('meds', [{ ...STALE_MED, weekdayPattern: [1, 2.5, 1, 1, 1] }]);
@@ -241,7 +242,7 @@ describe('clearMedWeekdayPattern — manual override regression', () => {
 
 // Same immediate-clear escape hatch as clearMedWeekdayPattern above, for the separate
 // peakDayQty/peakDayDate signal.
-function ClearPeakHarness({ medId }: { medId: string }) {
+function ClearPeakHarness({ medId }: { medId: MedId }) {
   const { clearMedPeakDay } = useApp();
   return <button onClick={() => clearMedPeakDay(medId)}>clear-peak</button>;
 }
@@ -249,7 +250,7 @@ function ClearPeakHarness({ medId }: { medId: string }) {
 describe('clearMedPeakDay — manual override regression', () => {
   it('clears both peak-day fields immediately via a real Firestore write, without waiting for new history to age it out', async () => {
     const user = userEvent.setup();
-    renderWithApp(<ClearPeakHarness medId={BURST_MED.id} />);
+    renderWithApp(<ClearPeakHarness medId={asMedId(BURST_MED.id)} />);
     await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
     fireCollection('meds', [{ ...BURST_MED, peakDayQty: 270, peakDayDate: '2025-09-29' }]);

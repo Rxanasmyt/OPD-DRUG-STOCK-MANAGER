@@ -6,7 +6,7 @@ import { categoryOf, subQty, usesSubstock, binDisplayAll, daysOfStockLeft } from
 import { DRUG_CATEGORIES } from '../data/categories';
 import { EmptyState } from '../components/EmptyState';
 import { DaysLeftBadge, UsageRateBadge } from '../components/Qty';
-import type { Med } from '../types';
+import type { Med, MedId } from '../types';
 
 const DAY = 86400000;
 
@@ -45,7 +45,7 @@ export default function CountScreen() {
   // the stock card", so this one should too. No pre-existing primary action on the row itself
   // (only the nested inputs/commit button have one), so the whole row is wired directly, same
   // rowToCard/stopRowNav pattern as HomeScreen/ReceiveScreen's own no-primary-action rows.
-  const rowToCard = (medId: string) => ({
+  const rowToCard = (medId: MedId) => ({
     role: 'button' as const,
     tabIndex: 0,
     className: 'row-interactive',

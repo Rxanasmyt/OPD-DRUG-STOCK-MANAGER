@@ -8,7 +8,7 @@ import { WardBadge } from '../components/WardBadge';
 import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
 import { NumberStepper } from '../components/NumberStepper';
-import type { AdjType } from '../types';
+import type { AdjType, MedId } from '../types';
 
 const TYPES: [AdjType, string, string][] = [
   ['adjust', 'ปรับยอด', 'นับได้ต่างจากระบบ'],
@@ -338,7 +338,7 @@ export default function AdjustScreen() {
 
 // Same shape as ReceiveScreen's own CardPeekButton — a small, separate, stopPropagation'd icon
 // button for a row whose own tap already does something else (picking the drug for adjustment).
-function CardPeekButton({ medId, name, onOpen }: { medId: string; name: string; onOpen: (medId: string) => void }) {
+function CardPeekButton({ medId, name, onOpen }: { medId: MedId; name: string; onOpen: (medId: MedId) => void }) {
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onOpen(medId); }}

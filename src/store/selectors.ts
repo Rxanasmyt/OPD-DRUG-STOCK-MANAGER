@@ -1,4 +1,5 @@
-import type { AppState, HosxpMatch, Lot, Med, Role, Ward, Tx, TxType, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord } from '../types';
+import type { AppState, HosxpMatch, Lot, Med, MedId, Role, Ward, Tx, TxType, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord } from '../types';
+import { asMedId } from '../types';
 import { DAY, daysUntil, isoDate, nf } from '../utils/format';
 import { UNCATEGORIZED, DRUG_CATEGORIES, categoryLabel } from '../data/categories';
 import { suggestRoute } from '../data/routeSuggest';
@@ -207,7 +208,7 @@ function subQtyIndex(lots: Lot[]): Map<string, number> {
   }
   return idx;
 }
-export function subQty(state: AppState, medId: string): number {
+export function subQty(state: AppState, medId: MedId): number {
   return subQtyIndex(state.lots).get(medId) ?? 0;
 }
 
@@ -292,7 +293,7 @@ export function discrepancyByCategory(rows: Tx[], meds: Med[]): CategoryDiscAgg[
   }
   const byCat = new Map<string, CategoryDiscAgg>();
   for (const x of rows) {
-    let med = x.medId ? medById.get(x.medId) : undefined;
+    let med = x.medId ? medById.get(asMedId(x.medId)) : undefined;
     if (!med) {
       const candidates = medsByName.get(x.name);
       if (candidates && candidates.length === 1) med = candidates[0];
@@ -338,7 +339,7 @@ export function repeatAdrReturns(rows: Tx[], meds: Med[]): AdrReturnAgg[] {
   const byMed = new Map<string, AdrReturnAgg>();
   for (const x of rows) {
     if (x.type !== 'return' || x.reason !== ADR_RETURN_REASON) continue;
-    let med = x.medId ? medById.get(x.medId) : undefined;
+    let med = x.medId ? medById.get(asMedId(x.medId)) : undefined;
     if (!med) {
       const candidates = medsByName.get(x.name);
       if (candidates && candidates.length === 1) med = candidates[0];
@@ -458,7 +459,7 @@ export function recurringStockouts(rows: DailyMetrics[], meds: Med[], minDays = 
   }
   const out: RecurringStockout[] = [];
   for (const [medId, dayCount] of counts) {
-    const med = byId.get(medId);
+    const med = byId.get(asMedId(medId));
     if (med && dayCount >= minDays) out.push({ med, dayCount, totalDays: rows.length });
   }
   return out.sort((a, b) => b.dayCount - a.dayCount);
@@ -487,7 +488,7 @@ export function frequentFloorRefills(rows: DailyMetrics[], meds: Med[], minPerDa
   const out: FrequentFloorRefill[] = [];
   if (totalDays === 0) return out;
   for (const [medId, eventCount] of counts) {
-    const med = byId.get(medId);
+    const med = byId.get(asMedId(medId));
     const perDay = eventCount / totalDays;
     if (med && perDay >= minPerDay) out.push({ med, eventCount, totalDays, perDay });
   }
@@ -519,7 +520,7 @@ export function parAdjustmentOutcomes(records: ParAdjustmentRecord[], meds: Med[
   const byId = new Map(meds.map((m) => [m.id, m]));
   const now = Date.now();
   return Array.from(latestByMed.values()).map((record): ParAdjustmentOutcome => {
-    const med = byId.get(record.medId);
+    const med = byId.get(asMedId(record.medId));
     const daysSinceAdjust = Math.floor((now - record.adjustedAt) / DAY);
     let status: ParAdjustmentStatus;
     if (!med || !med.active) status = 'med_gone';
@@ -740,7 +741,7 @@ export function daysOfStockLeft(state: AppState, m: Med, onHandOverride?: number
   return Math.round(onHand / dailyUsageRate(m));
 }
 
-export function fefoLot(state: AppState, medId: string) {
+export function fefoLot(state: AppState, medId: MedId) {
   // Bug fix (FEFO correctness): a lot doc missing `exp` at runtime (legacy import, manual
   // Firestore edit — the TS type says `number` but real data can still violate that) used to
   // produce NaN from `a.exp - b.exp`, and Array.sort's behavior with a NaN comparator is
@@ -780,11 +781,11 @@ export function fefoLot(state: AppState, medId: string) {
 // lots always do; a real warehouse restock from the same manufacturer batch number occasionally
 // might) land in separate floorLots docs instead of colliding — correct either way, since they
 // really are different physical stock with different real expiries.
-export function floorLotDocId(medId: string, lotNo: string, exp: number): string {
+export function floorLotDocId(medId: MedId, lotNo: string, exp: number): string {
   return medId + '__' + (lotNo ? lotNo.replace(/[/]/g, '_') : 'nolot') + '__' + exp;
 }
 
-export function floorLotsFor(state: AppState, medId: string) {
+export function floorLotsFor(state: AppState, medId: MedId) {
   return state.floorLots.filter((l) => l.medId === medId && l.qty > 0);
 }
 
@@ -792,7 +793,7 @@ export function floorLotsFor(state: AppState, medId: string) {
  * floor-lot data at all (either nothing transferred yet under this feature, or every floor lot
  * for this med has been fully dispensed/scrapped). Mirrors fefoLot()'s own missing-exp fallback
  * (Infinity, sorts last — never treated as most-urgent) for the same reason. */
-export function fefoFloorLot(state: AppState, medId: string) {
+export function fefoFloorLot(state: AppState, medId: MedId) {
   return floorLotsFor(state, medId).sort((a, b) => (a.exp ?? Infinity) - (b.exp ?? Infinity))[0];
 }
 

@@ -1,5 +1,6 @@
 import { useMemo, useRef } from 'react';
 import { useApp } from '../store/AppContext';
+import type { MedId } from '../types';
 import { toneFor, subTone, daysUntil, usesSubstock, floorMinOf, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, suggestTransferQty, isOnStockHold } from '../store/selectors';
 import { nf, thDate, isoDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
@@ -50,7 +51,7 @@ export default function HomeScreen() {
   // already does) and get nothing. `rowToCard(medId)` wires that tap through to
   // goSubstockCardFor() everywhere below; `stopRowNav` on each nested action button keeps a tap
   // on THAT button from also firing the row's own click (button clicks bubble to the row div).
-  const rowToCard = (medId: string) => ({
+  const rowToCard = (medId: MedId) => ({
     role: 'button' as const,
     tabIndex: 0,
     onClick: () => goSubstockCardFor(medId),

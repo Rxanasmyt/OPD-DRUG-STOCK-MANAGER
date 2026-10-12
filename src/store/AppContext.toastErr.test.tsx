@@ -19,9 +19,10 @@ import Toast from '../components/Toast';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { TimeoutError } from '../utils/timeout';
 import { signInAs, fireCollection, hasListener } from '../test-utils/firebaseTestDouble';
+import { asMedId, asLotId } from '../types';
 
 const MED = {
-  id: 'm1', code: 'MED-0001', name: 'Paracetamol 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  id: asMedId('m1'), code: 'MED-0001', name: 'Paracetamol 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
   price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 40, bin: 'A1',
   used30: 0, usedPrev30: 0, volatility: 0,
 };
@@ -33,7 +34,7 @@ function ToggleMedActiveHarness() {
 
 function ScrapLotHarness() {
   const { scrapLot } = useApp();
-  return <button onClick={() => scrapLot('lot1')}>scrap-lot</button>;
+  return <button onClick={() => scrapLot(asLotId('lot1'))}>scrap-lot</button>;
 }
 
 describe('toggleMedActive — toastErr regression (plain updateDoc write)', () => {

@@ -1,7 +1,7 @@
 import rawCsv from './med_list.csv?raw';
 import { parseCsv } from '../utils/csv';
 import { mulberry32 } from '../utils/format';
-import type { Med, Lot } from '../types';
+import { asMedId, type Med, type Lot } from '../types';
 
 const NOT_CARRIED_RE = /ไม่มี|refer back|เตรียมเฉพาะราย|เฉพาะราย/i;
 const HAD_RE = /^\(HAD\)\s*/i;
@@ -65,7 +65,7 @@ export function loadMasterMeds(): Med[] {
     const bin = String.fromCharCode(65 + Math.floor(rng() * 6)) + (1 + Math.floor(rng() * 4));
 
     meds.push({
-      id, code, name, unit, dosageForm, price, had, active,
+      id: asMedId(id), code, name, unit, dosageForm, price, had, active,
       parSub, parFloor, floor, bin, used30, usedPrev30, volatility,
       // No lastCountTs — a fabricated "counted 0-9 days ago" timestamp claimed a physical count
       // had already happened when it never did. Leaving it unset correctly shows "ยังไม่เคยนับ"

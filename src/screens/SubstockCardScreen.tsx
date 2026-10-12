@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, Fragment, type ReactNode, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
+import type { MedId } from '../types';
 import { subQty, wardOf, subTone, usesSubstock, toneFor, boxBreakdownLabel } from '../store/selectors';
 import { nf, thDate, fiscalYear } from '../utils/format';
 import { printSubstockCardSheet } from '../utils/print';
@@ -66,7 +67,7 @@ const FLOOR_LEDGER_TYPES = new Set(['receive_from_central', 'transfer_to_floor',
 export default function SubstockCardScreen() {
   const { state, fetchSubstockLedger, fetchFloorLedger, toast, setSubstockFocusId, go, setAdminTab, setAuditFilter, userName } = useApp();
   const [search, setSearch] = useState('');
-  const [medId, setMedId] = useState<string | null>(null);
+  const [medId, setMedId] = useState<MedId | null>(null);
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<LedgerRow[] | null>(null);
   // ปีงบประมาณที่กำลังดู — 'all' ดูทุกปีที่มีข้อมูล (บัตรกระดาษเดิมต้องเปลี่ยนแผ่นทุกปีงบประมาณ,
@@ -128,7 +129,7 @@ export default function SubstockCardScreen() {
   // Shared by openCard (first open) and switchSide (flipping substock ⇄ หน้างาน on an
   // already-open card) — identical fetch/stale-response-guard/fiscal-year-default logic either
   // way, just parameterized on which side to pull.
-  const loadLedger = async (id: string, side: 'sub' | 'floor') => {
+  const loadLedger = async (id: MedId, side: 'sub' | 'floor') => {
     const reqId = ++loadReqId.current;
     setLoading(true);
     setRows(null);
@@ -157,7 +158,7 @@ export default function SubstockCardScreen() {
       if (loadReqId.current === reqId) setLoading(false);
     }
   };
-  const openCard = async (id: string) => {
+  const openCard = async (id: MedId) => {
     const m = state.meds.find((x) => x.id === id);
     if (!m) return;
     const side = usesSubstock(m) ? 'sub' : 'floor';

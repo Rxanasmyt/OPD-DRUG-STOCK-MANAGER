@@ -7,6 +7,18 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.160.0] - 2026-10-12
+
+### Changed
+- **[ทำงานค้างต่อตามคำสั่ง "จัดการต่อจนทำครบทั้งหมดครับ" — branded/nominal ID types: `MedId`, `LotId`, `FloorLotId`]**
+  - เดิม `Med.id`, `Lot.id`/`Lot.medId`, `FloorLot.id`/`FloorLot.medId` ทุกตัวเป็น `string` เปล่าๆเหมือนกันหมด — compiler ไม่มีทางรู้เลยว่าตัวแปร string ตัวหนึ่งคือ id ของยา (`MedId`) หรือ id ของ lot สต็อก (`LotId`) หรือ id ของ lot หน้างาน (`FloorLotId`) ส่งสลับที่ผิดที่ไปเรียกฟังก์ชันไหนก็ไม่มี error ขึ้นเลยแม้แต่จุดเดียว ต้องรอให้พังจริงตอน runtime เท่านั้น
+  - เพิ่ม branded type ทั้ง 3 ตัวใน `types.ts` (ยังเป็น string ธรรมดาตอน runtime ไม่มีผลต่อประสิทธิภาพเลย แค่ compiler เห็นว่าเป็นคนละชนิดกัน) พร้อม helper `asMedId()`/`asLotId()`/`asFloorLotId()` สำหรับจุดที่ต้อง cast จริงๆ (ตอน decode QR, ตอนอ่านจาก `Object.keys()`/`Object.entries()` ที่ TypeScript มองเป็น `string[]` เสมอไม่ว่า key ต้นทางจะเป็นชนิดไหน, และฟิลด์ medId แบบหลวมๆบน record อื่นที่ตั้งใจเก็บเป็น plain string ไว้)
+  - ไล่แก้ทั้ง `selectors.ts`, `AppContext.tsx` (ทุก action ที่รับ/คืนค่า id พวกนี้), ทุกหน้า screen ที่เกี่ยวข้อง, และทุก test file ให้ประกาศ type ให้ตรงกับของจริง
+  - **บั๊กจริงที่เจอระหว่างทำ (ไม่ใช่แค่ type-only):** ตอนไล่แก้แบบ bulk พบว่า `scrapFloorLot()` (เคลียร์ของหน้างานที่ชำรุด/หมดอายุ) ถูกตั้ง parameter เป็น `LotId` ผิด ทั้งที่ฟังก์ชันนี้อ่าน/เขียน collection `floorLots` จริงๆ ไม่ใช่ `lots` — compiler จับได้ทันทีตอนแก้ `AdjustScreen.tsx` เพราะส่ง `FloorLotId` จริงเข้าไปแล้วไม่ยอมผ่าน type check เป็นตัวอย่างที่ตรงเป๊ะของสิ่งที่ branded type มีไว้ป้องกัน แก้ให้ signature ถูกต้องเป็น `FloorLotId` ทั้ง interface และ implementation
+  - ไม่กระทบ runtime behavior แม้แต่จุดเดียว (branded type เป็น compile-time เท่านั้น) ยกเว้นจุดเดียวที่แก้ signature ของ `scrapFloorLot()` ให้ตรงกับพฤติกรรมจริงที่มันทำอยู่แล้ว
+
+  ผ่าน tsc (0 errors) + vitest (546 เทสต์ — เท่าเดิม ไม่มี regression) + build ครบ
+
 ## [3.159.0] - 2026-10-12
 
 ### Fixed

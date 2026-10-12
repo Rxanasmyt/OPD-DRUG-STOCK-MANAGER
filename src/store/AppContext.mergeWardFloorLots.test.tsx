@@ -17,14 +17,15 @@ import { renderWithApp } from '../test-utils/renderWithApp';
 import {
   signInAs, fireCollection, hasListener, seedCollection, getLastTransactionWrites,
 } from '../test-utils/firebaseTestDouble';
+import { asMedId } from '../types';
 
 const OPD_MED = {
-  id: 'mOpd', code: 'MED-0001', name: 'Paracetamol 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  id: asMedId('mOpd'), code: 'MED-0001', name: 'Paracetamol 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
   price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 10, bin: 'A1',
   used30: 4, usedPrev30: 2, volatility: 0, ward: 'opd' as const,
 };
 const IPD_MED = {
-  ...OPD_MED, id: 'mIpd', floor: 5, used30: 1, usedPrev30: 1, bin: 'B2', ward: 'ipd' as const,
+  ...OPD_MED, id: asMedId('mIpd'), floor: 5, used30: 1, usedPrev30: 1, bin: 'B2', ward: 'ipd' as const,
 };
 const IPD_FLOOR_LOT = { id: 'fl1', medId: 'mIpd', lotNo: 'L1', qty: 5, exp: Date.now() + 86400000 };
 

@@ -7,7 +7,7 @@ import { Qty } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
 import { SearchInput } from '../components/SearchInput';
 import { NumberStepper } from '../components/NumberStepper';
-import type { Med } from '../types';
+import type { Med, MedId } from '../types';
 
 // Bug fix (mobile fit): under 16px, iOS Safari auto-zooms the whole page on focus — every
 // field on this screen shares this const, so bumping it here is what actually keeps the
@@ -104,7 +104,7 @@ function PickerCard({ label, med, search, onSearch, options, onPick }: {
   search: string;
   onSearch: (v: string) => void;
   options: Med[];
-  onPick: (id: string) => void;
+  onPick: (id: MedId) => void;
 }) {
   return (
     <div className="card" style={{ padding: 12, marginBottom: 4 }}>
