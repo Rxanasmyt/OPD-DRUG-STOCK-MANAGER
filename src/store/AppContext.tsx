@@ -15,6 +15,10 @@ import { asMedId, asLotId, asFloorLotId } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
 import { subscribeRecentAuditLog, appendAuditLogEntry, queryAllAuditLog, queryAuditLogByDateRange } from './repositories/auditLogRepo';
 import { usernameRef } from './repositories/usernamesRepo';
+import { fetchDailyMetricsByDateRange } from './repositories/dailyMetricsRepo';
+import { fetchUsageHistoryByPeriod, newUsageHistoryRef } from './repositories/usageHistoryRepo';
+import { fetchParAdjustmentsSince, addParAdjustmentRecord, newParAdjustmentRef } from './repositories/parAdjustmentsRepo';
+import { fetchDrugReturnsByDateRange, newDrugReturnRef } from './repositories/returnsRepo';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
@@ -2759,7 +2763,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           type: 'return', name: m.name, medId: it.medId, qty: after - before, unit: it.unit,
           reason: it.reason, note: it.note, loc: 'floor', by: userName(), ts: now,
         } satisfies Omit<import('../types').Tx, 'id'>);
-        trx.set(doc(collection(db, 'returns')), {
+        trx.set(newDrugReturnRef(), {
           medId: it.medId, medName: it.medName, medCode: it.medCode, unit: it.unit, category: categoryOf(m),
           hn, qty: after - before, unitPrice: m.price, value: (after - before) * m.price,
           reason: it.reason, note: it.note, date: isoDate(now), ts: now, by: userName(),
@@ -3311,7 +3315,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'par_updated', note: 'ปรับ par' + (which === 'sub' ? 'substock' : 'หน้างาน') + ' ' + m.name + ' เป็น ' + nf(which === 'sub' ? sug.sub : sug.floor) + ' ตามค่าแนะนำจากสถิติ' + (newFloorMin !== undefined ? ' (ปรับ Min ลงเหลือ ' + nf(newFloorMin) + ' ตามไปด้วย เพราะ Min เดิมสูงกว่า Max ใหม่)' : '') });
       // Real-world request: "ติดตามผลหลังปรับ par ว่านิ่งจริงไหม" — see ParAdjustmentRecord's own
       // doc comment (types.ts) for why logAudit's free-text note above isn't enough for this.
-      addDoc(collection(db, 'parAdjustments'), {
+      addParAdjustmentRecord({
         medId, medName: m.name, category: categoryOf(m),
         beforeFloor: m.parFloor, beforeSub: m.parSub,
         afterFloor: which === 'floor' ? sug.floor : m.parFloor, afterSub: which === 'sub' ? sug.sub : m.parSub,
@@ -3347,7 +3351,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // Real-world request: "ติดตามผลหลังปรับ par ว่านิ่งจริงไหม" — same durable record
           // applyOnePar writes for a single-med apply, here for every med this bulk action
           // actually changes.
-          batch.set(doc(collection(db, 'parAdjustments')), {
+          batch.set(newParAdjustmentRef(), {
             medId: m.id, medName: m.name, category: categoryOf(m),
             beforeFloor: m.parFloor, beforeSub: m.parSub, afterFloor: sug.floor, afterSub: sug.sub,
             used30AtAdjust: m.used30, usedPrev30AtAdjust: m.usedPrev30,
@@ -4755,11 +4759,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // live listener: a historical report doesn't need to re-render mid-view if today's row
   // happens to land while it's open, and the collection only ever gets one new doc/day.
   const fetchDailyMetrics = useCallback(async (fromDate: string, toDate: string): Promise<DailyMetrics[]> => {
-    const snap = await withTimeout(getDocs(query(
-      collection(db, 'dailyMetrics'),
-      where('date', '>=', fromDate), where('date', '<=', toDate), orderBy('date', 'asc'),
-    )));
-    return snap.docs.map((d) => d.data() as DailyMetrics);
+    return withTimeout(fetchDailyMetricsByDateRange(fromDate, toDate));
   }, []);
 
   const exportDailyMetricsCsv = useCallback(async (rows: DailyMetrics[]) => {
@@ -4790,11 +4790,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // collection can grow into the thousands of docs (one per matched med per import) — nothing
   // this screen does should hold it all in a permanent onSnapshot.
   const fetchUsageHistory = useCallback(async (fromDate: string, toDate: string): Promise<UsageHistoryRecord[]> => {
-    const snap = await withTimeout(getDocs(query(
-      collection(db, 'usageHistory'),
-      where('periodFrom', '>=', fromDate), where('periodFrom', '<=', toDate),
-    )));
-    return snap.docs.map((d) => d.data() as UsageHistoryRecord);
+    return withTimeout(fetchUsageHistoryByPeriod(fromDate, toDate));
   }, []);
 
   const exportUsageHistoryCsv = useCallback(async (records: UsageHistoryRecord[]) => {
@@ -4809,19 +4805,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Same "plain one-shot fetch, not a live listener" shape as fetchUsageHistory right above —
   // this screen (ReportScreen.tsx's insights tab) only needs a snapshot the moment it opens.
   const fetchParAdjustments = useCallback(async (sinceMs: number): Promise<ParAdjustmentRecord[]> => {
-    const snap = await withTimeout(getDocs(query(collection(db, 'parAdjustments'), where('adjustedAt', '>=', sinceMs))));
-    return snap.docs.map((d) => d.data() as ParAdjustmentRecord);
+    return withTimeout(fetchParAdjustmentsSince(sinceMs));
   }, []);
 
   // ---------- คืนยา (drug returns) — see DrugReturnRecord's own doc comment in types.ts ----------
   // Same "plain one-shot fetch over a caller-chosen range, not a live listener" shape as
   // fetchUsageHistory/fetchDailyMetrics above.
   const fetchDrugReturns = useCallback(async (fromDate: string, toDate: string): Promise<import('../types').DrugReturnRecord[]> => {
-    const snap = await withTimeout(getDocs(query(
-      collection(db, 'returns'),
-      where('date', '>=', fromDate), where('date', '<=', toDate), orderBy('date', 'asc'),
-    )));
-    return snap.docs.map((d) => d.data() as import('../types').DrugReturnRecord);
+    return withTimeout(fetchDrugReturnsByDateRange(fromDate, toDate));
   }, []);
 
   const exportDrugReturnsCsv = useCallback(async (records: import('../types').DrugReturnRecord[]) => {
@@ -5466,7 +5457,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const batch = writeBatch(db);
         ops.slice(i, i + 400).forEach((op) => {
           if (op.kind === 'med') batch.update(doc(db, 'meds', op.id), { used30: op.used30 });
-          else batch.set(doc(collection(db, 'usageHistory')), op.record satisfies UsageHistoryRecord);
+          else batch.set(newUsageHistoryRef(), op.record satisfies UsageHistoryRecord);
         });
         await withTimeout(batch.commit());
       }

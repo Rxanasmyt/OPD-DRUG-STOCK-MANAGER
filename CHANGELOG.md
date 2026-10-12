@@ -7,6 +7,16 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.165.0] - 2026-10-12
+
+### Changed
+- **[ทำงานค้างต่อตามคำสั่ง "จัดการต่อจนทำครบทั้งหมดครับ" — repository/service layer สำหรับ Firestore (รอบที่ 3 — collection กลุ่มรายงาน/วิเคราะห์ 4 ตัว)]**
+  - ทำต่อแบบค่อยเป็นค่อยไปทีละกลุ่ม collection ตามรอบที่ 1-2 (`auditLog`, `usernames`) — รอบนี้รวม 4 collection ที่เป็นรูปแบบเดียวกันเป๊ะๆ (ดึงรายงาน/สถิติแบบ one-shot ตามช่วงที่เลือก ไม่ใช่ live listener) ไว้ในรอบเดียว: `dailyMetrics`, `usageHistory`, `parAdjustments`, `returns`
+  - เพิ่ม `src/store/repositories/dailyMetricsRepo.ts`, `usageHistoryRepo.ts`, `parAdjustmentsRepo.ts`, `returnsRepo.ts` — แต่ละไฟล์ห่อฟังก์ชัน query/write ทั้งหมดที่ `AppContext.tsx` เรียกจริงสำหรับ collection นั้น (fetch ตามช่วงวันที่/since, เขียน record ใหม่, สร้าง ref auto-id สำหรับ `batch.set()`/`trx.set()`) แทนที่ 9 จุดเดิมที่เรียก `collection(db, 'X')`/`doc(db, 'X')` ตรงๆ
+  - เป็น pure "extract function" เหมือนทุกรอบที่แล้ว — ฟังก์ชัน repo ที่เดิมเรียก `withTimeout(getDocs(query(...)))` ตรงๆ ปรับให้ repo function คืนค่าที่ map เป็น type จริงแล้ว (`Promise<DailyMetrics[]>` ฯลฯ) แล้วห่อด้วย `withTimeout()` ที่จุดเรียกเหมือนเดิม — `withTimeout` เป็น generic ที่ race กับ promise อะไรก็ได้ ไม่ขึ้นกับว่าข้างในมี logic อะไร จึงยังรอ timeout เหมือนเดิมทุกตัวอักษร ไม่มี behavior เปลี่ยน
+
+  ผ่าน tsc (0 errors) + vitest (548 เทสต์ — เท่าเดิม ไม่มี regression) + build ครบ
+
 ## [3.164.0] - 2026-10-12
 
 ### Changed
