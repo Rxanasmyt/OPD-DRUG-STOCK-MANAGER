@@ -70,7 +70,7 @@ export function Qty({ value, unit, tone, size = 13 }: { value: number; unit?: st
  * a fully-stocked row just doesn't show one rather than showing "+0". Red/amber by how
  * urgent, matching the same severity language as toneFor()'s bar-fill color elsewhere.
  */
-export function DeficitBadge({ amount, unit, urgent, packSize }: { amount: number; unit?: string; urgent?: boolean; packSize?: number }) {
+export function DeficitBadge({ amount, unit, urgent, packSize }: { amount: number; unit?: string | undefined; urgent?: boolean | undefined; packSize?: number | undefined }) {
   if (amount <= 0) return null;
   const tone = urgent ? 'var(--red)' : 'var(--amber)';
   const bg = urgent ? 'var(--red-bg)' : 'var(--amber-bg)';
@@ -107,7 +107,7 @@ export function DeficitBadge({ amount, unit, urgent, packSize }: { amount: numbe
  * counting this med should be able to see at a glance regardless of whether it's short right
  * now. Unconditional on need — the only condition is the med actually being a boxed one
  * (Med.packSize set) at all. */
-export function PackSizeBadge({ packSize, unit }: { packSize?: number; unit: string }) {
+export function PackSizeBadge({ packSize, unit }: { packSize?: number | undefined; unit: string }) {
   if (!packSize || packSize <= 1) return null;
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, color: 'var(--ink)', background: 'var(--bg-subtle)', padding: '2.5px 8px', borderRadius: 20, whiteSpace: 'nowrap' }}>

@@ -36,7 +36,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 export function BottomSheet({ open, onClose, title, children }: {
   open: boolean;
   onClose: () => void;
-  title?: string;
+  title?: string | undefined;
   children: ReactNode;
 }) {
   const [shown, setShown] = useState<{ exiting: boolean } | null>(null);

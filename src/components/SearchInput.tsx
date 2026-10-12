@@ -24,7 +24,7 @@ export function SearchInput({
   style?: CSSProperties;
   inputStyle?: CSSProperties;
   autoFocus?: boolean;
-  onEnter?: () => void;
+  onEnter?: (() => void) | undefined;
 }) {
   return (
     <div style={{ position: 'relative', ...style }}>

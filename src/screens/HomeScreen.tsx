@@ -387,7 +387,7 @@ export default function HomeScreen() {
 // Clickable whenever there's actually something to jump to (onClick passed) — the exact
 // number a person wants to act on shouldn't be a dead end; tapping it should go straight to
 // the list behind it instead of making them scroll to find the same information again.
-function StatTile({ icon, label, value, tone, note, onClick }: { icon?: string; label: string; value: number; tone?: string; note: string; onClick?: () => void }) {
+function StatTile({ icon, label, value, tone, note, onClick }: { icon?: string | undefined; label: string; value: number; tone?: string | undefined; note: string; onClick?: (() => void) | undefined }) {
   const Tag = onClick ? 'button' : 'div';
   const t = tone || 'var(--ink)';
   return (
@@ -473,7 +473,7 @@ function HealthRing({ healthy, warn, critical, size = 76, stroke = 10 }: { healt
   );
 }
 
-function HealthLegendRow({ color, label, count, onClick }: { color: string; label: string; count: number; onClick?: () => void }) {
+function HealthLegendRow({ color, label, count, onClick }: { color: string; label: string; count: number; onClick?: (() => void) | undefined }) {
   const Tag = onClick ? 'button' : 'div';
   return (
     <Tag

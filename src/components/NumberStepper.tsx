@@ -20,7 +20,7 @@ export function NumberStepper({ value, onChange, unit, step, min = 0, max, input
    * (digitsOnly-filtered by the caller's own setter — see setAdjQty/setRecvQty). */
   value: string;
   onChange: (v: string) => void;
-  unit?: string;
+  unit?: string | undefined;
   step?: number;
   min?: number;
   max?: number;
@@ -30,7 +30,7 @@ export function NumberStepper({ value, onChange, unit, step, min = 0, max, input
    * requested for every quantity field EXCEPT คืนยา/ปรับยอด (those stay plain tablet counts,
    * since most returns aren't by the box). Typing an exact remainder by hand still works: the
    * field falls back to the plain digit value as soon as it's focused. */
-  packSize?: number;
+  packSize?: number | undefined;
 }) {
   const [focused, setFocused] = useState(false);
   const boxed = !!packSize && packSize > 1;
