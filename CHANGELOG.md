@@ -7,6 +7,16 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.168.0] - 2026-10-12
+
+### Changed
+- **[ทำงานค้างต่อตามคำสั่ง "จัดการต่อจนทำครบทั้งหมดครับ" — repository/service layer สำหรับ Firestore (รอบที่ 6 — collection `users`)]**
+  - ทำต่อแบบค่อยเป็นค่อยไปตามรอบที่ 1-5 — รอบนี้ครอบคลุม `users` (9 call site: profile listener ของตัวเอง, live listener รายชื่อผู้ใช้ทั้งหมด (เฉพาะ Admin), signUp/signIn, และ `setUserRole`/`toggleUserActive`/`lastAdminGuardedWrite` — กลไกป้องกัน "ปิด/ลด role Admin คนสุดท้าย" ที่อ่าน/เขียนผ่าน transaction)
+  - เพิ่ม `src/store/repositories/usersRepo.ts` (`userRef()`, `usersCollection()`, `queryAdminUsers()`) แทนที่ทั้ง 9 จุดเดิมที่เรียก `collection(db, 'users')`/`doc(db, 'users', ...)` ตรงๆ — ไม่แตะ transaction logic หรือกลไกป้องกัน last-admin ใดๆ
+  - pure "extract function" เหมือนทุกรอบที่แล้ว ไม่มี logic เปลี่ยนแม้แต่จุดเดียว
+
+  ผ่าน tsc (0 errors) + vitest (548 เทสต์ — เท่าเดิม ไม่มี regression) + build ครบ
+
 ## [3.167.0] - 2026-10-12
 
 ### Changed
