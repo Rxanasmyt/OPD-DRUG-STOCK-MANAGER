@@ -666,18 +666,29 @@ const Ctx = createContext<AppCtx | null>(null);
 // bigger, riskier change (every one of those consumers would need re-checking); this narrower
 // SECOND context covers only the handful of always-mounted "chrome" components that sit at the
 // root for the entire session regardless of which screen is open (Toast, IdleLogoutWarning,
-// UpdateBanner) — exactly the ones paying that re-render cost on literally every interaction
-// anywhere in the app, not just while their own small slice of state is relevant. Memoized on
-// only the 4 fields/callbacks they actually read, so its value object — and therefore these
-// three components — stays referentially stable across any OTHER state change.
+// UpdateBanner, ConfirmDialog, PromptDialog) — exactly the ones paying that re-render cost on
+// literally every interaction anywhere in the app, not just while their own small slice of
+// state is relevant. Memoized on only the fields/callbacks they actually read, so its value
+// object — and therefore these components — stays referentially stable across any OTHER state
+// change.
+//
+// confirmDialog/promptDialog/respondConfirm/respondPrompt (task: "split AppContext.tsx into
+// domain contexts", approached incrementally) — ConfirmDialog.tsx/PromptDialog.tsx are the
+// exact same shape of always-mounted root component as Toast, just missed when ChromeCtx was
+// first created; they used to read these via the wide useApp() and paid Toast's old re-render
+// cost until migrated here too.
 interface ChromeCtxValue {
   toast: string | null;
   idleWarnVisible: boolean;
   qrOpen: boolean;
   updateAvailable: boolean;
+  confirmDialog: { message: string } | null;
+  promptDialog: { message: string } | null;
   dismissIdleWarning: () => void;
   applyUpdate: () => void;
   dismissUpdate: () => void;
+  respondConfirm: (v: boolean) => void;
+  respondPrompt: (v: string | null) => void;
 }
 const ChromeCtx = createContext<ChromeCtxValue | null>(null);
 
@@ -5815,14 +5826,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [state, myProfile, theme, toggleTheme]);
 
-  // See ChromeCtx's own comment above — dismissIdleWarning/applyUpdate/dismissUpdate are each
-  // already a stable useCallback (deps only on `patch`, itself deps-free), so this object's
-  // identity only changes when one of the 4 state fields below actually does, not on every
-  // unrelated patch() elsewhere in the app.
+  // See ChromeCtx's own comment above — dismissIdleWarning/applyUpdate/dismissUpdate/
+  // respondConfirm/respondPrompt are each already a stable useCallback (deps only on `patch`,
+  // itself deps-free), so this object's identity only changes when one of the state fields
+  // below actually does, not on every unrelated patch() elsewhere in the app.
   const chromeValue = useMemo<ChromeCtxValue>(() => ({
     toast: state.toast, idleWarnVisible: state.idleWarnVisible, qrOpen: state.qrOpen, updateAvailable: state.updateAvailable,
-    dismissIdleWarning, applyUpdate, dismissUpdate,
-  }), [state.toast, state.idleWarnVisible, state.qrOpen, state.updateAvailable, dismissIdleWarning, applyUpdate, dismissUpdate]);
+    confirmDialog: state.confirmDialog, promptDialog: state.promptDialog,
+    dismissIdleWarning, applyUpdate, dismissUpdate, respondConfirm, respondPrompt,
+  }), [state.toast, state.idleWarnVisible, state.qrOpen, state.updateAvailable, state.confirmDialog, state.promptDialog, dismissIdleWarning, applyUpdate, dismissUpdate, respondConfirm, respondPrompt]);
 
   return (
     <Ctx.Provider value={value}>

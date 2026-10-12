@@ -73,3 +73,79 @@ describe('ChromeCtx — scoped re-render fix regression', () => {
     expect(chromeRenderCount).toBeGreaterThan(countAfterMount);
   });
 });
+
+// Follow-up to the fix above (task: "split AppContext.tsx into domain contexts", approached
+// incrementally): ConfirmDialog.tsx/PromptDialog.tsx are exactly the same shape of always-
+// mounted root "chrome" component as Toast (rendered unconditionally in App.tsx, regardless of
+// screen) but were missed when ChromeCtx was first created — they still read confirmDialog/
+// promptDialog/respondConfirm/respondPrompt via the wide useApp(), so they paid the exact same
+// re-render-on-every-unrelated-change cost Toast used to.
+let confirmChromeRenderCount = 0;
+function ConfirmChromeRenderCounter() {
+  const { confirmDialog } = useChrome();
+  confirmChromeRenderCount++;
+  return <div data-testid="confirmDialogValue">{confirmDialog?.message ?? ''}</div>;
+}
+
+// confirmLeaveIfDirty() is the simplest real action that opens the dialog with no Firestore/
+// meds setup — same choice ConfirmDialog.focustrap.test.tsx already makes, for the same reason.
+function ConfirmTriggerHarness() {
+  const { setFormDirty, confirmLeaveIfDirty } = useApp();
+  return <button onClick={() => { setFormDirty(true); void confirmLeaveIfDirty(); }}>open-confirm</button>;
+}
+
+describe('ChromeCtx — confirmDialog scoped re-render fix regression', () => {
+  it('does not re-render a chrome-only consumer when an unrelated state field changes, but does when confirmDialog changes', async () => {
+    confirmChromeRenderCount = 0;
+    const user = userEvent.setup();
+    renderWithApp(<><ConfirmChromeRenderCounter /><ConfirmTriggerHarness /><UnrelatedActionHarness /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    fireCollection('lots', [LOT]);
+
+    const countAfterMount = confirmChromeRenderCount;
+
+    await user.click(screen.getByRole('button', { name: 'bump-cart' }));
+    await waitFor(() => expect(screen.getByTestId('cartQty').textContent).toBe('7'));
+    expect(confirmChromeRenderCount).toBe(countAfterMount);
+
+    await user.click(screen.getByRole('button', { name: 'open-confirm' }));
+    await waitFor(() => expect(screen.getByTestId('confirmDialogValue').textContent).not.toBe(''));
+    expect(confirmChromeRenderCount).toBeGreaterThan(countAfterMount);
+  });
+});
+
+let promptChromeRenderCount = 0;
+function PromptChromeRenderCounter() {
+  const { promptDialog } = useChrome();
+  promptChromeRenderCount++;
+  return <div data-testid="promptDialogValue">{promptDialog?.message ?? ''}</div>;
+}
+
+function PromptTriggerHarness() {
+  const { promptAsync } = useApp();
+  return <button onClick={() => void promptAsync('พิมพ์เหตุผล')}>open-prompt</button>;
+}
+
+describe('ChromeCtx — promptDialog scoped re-render fix regression', () => {
+  it('does not re-render a chrome-only consumer when an unrelated state field changes, but does when promptDialog changes', async () => {
+    promptChromeRenderCount = 0;
+    const user = userEvent.setup();
+    renderWithApp(<><PromptChromeRenderCounter /><PromptTriggerHarness /><UnrelatedActionHarness /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    fireCollection('lots', [LOT]);
+
+    const countAfterMount = promptChromeRenderCount;
+
+    await user.click(screen.getByRole('button', { name: 'bump-cart' }));
+    await waitFor(() => expect(screen.getByTestId('cartQty').textContent).toBe('7'));
+    expect(promptChromeRenderCount).toBe(countAfterMount);
+
+    await user.click(screen.getByRole('button', { name: 'open-prompt' }));
+    await waitFor(() => expect(screen.getByTestId('promptDialogValue').textContent).not.toBe(''));
+    expect(promptChromeRenderCount).toBeGreaterThan(countAfterMount);
+  });
+});

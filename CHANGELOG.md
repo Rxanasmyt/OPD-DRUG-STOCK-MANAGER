@@ -7,6 +7,18 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.162.0] - 2026-10-12
+
+### Changed
+- **[ทำงานค้างต่อตามคำสั่ง "จัดการต่อจนทำครบทั้งหมดครับ" — แยก AppContext.tsx ออกเป็น domain context (รอบที่ 1 — ขยาย ChromeCtx ให้ครอบคลุม ConfirmDialog/PromptDialog)]**
+  - task นี้ทำแบบค่อยเป็นค่อยไป ทีละ domain เพราะเป็นจุดที่เสี่ยงที่สุดในรายการทั้งหมด (ไฟล์เดียวมี ~100 action, ~5,800 บรรทัด ทุกหน้าจอใน app พึ่ง `useApp()` ตัวเดียวกัน — การแยก context แบบเต็มรูปแบบในครั้งเดียวจะต้องตรวจสอบ consumer ทั้ง ~40 จุดใหม่หมด ซึ่งมีคอมเมนต์เตือนเรื่องนี้อยู่ในโค้ดเดิมแล้ว)
+  - รอบนี้ขยาย pattern ที่มีอยู่แล้วจริง (`ChromeCtx` — context แยกสำหรับ component "chrome" ที่ mount ตลอดทั้ง session ไม่ว่าอยู่หน้าไหน เช่น Toast/IdleLogoutWarning/UpdateBanner ซึ่งเดิม re-render ทุกครั้งที่มี patch() ที่ไหนก็ได้ในแอพ ถึงแม้ไม่เกี่ยวกับตัวเองเลย)
+  - **พบว่า `ConfirmDialog.tsx`/`PromptDialog.tsx` เป็น component รูปแบบเดียวกับ Toast เป๊ะๆ** (mount ตลอด session ใน App.tsx เหมือนกัน) แต่ตกหล่นตอนสร้าง ChromeCtx ครั้งแรก — ยังอ่าน `state.confirmDialog`/`state.promptDialog`/`respondConfirm`/`respondPrompt` ผ่าน `useApp()` ตัวเต็ม ทำให้ re-render ทุกครั้งที่มีการพิมพ์ในกล่องค้นหา, กด bump cart, หรือ patch() อะไรก็ตามที่ไหนในแอพ ทั้งที่ dialog ทั้งสองนี้ไม่ได้เปิดอยู่เลยก็ตาม
+  - ย้าย `confirmDialog`/`promptDialog`/`respondConfirm`/`respondPrompt` เข้าไปอยู่ใน `ChromeCtxValue` แล้วให้ทั้งสอง component อ่านผ่าน `useChrome()` แทน — ไม่กระทบ consumer อื่นเลยเพราะ `useApp()`/`AppCtx` ยังมีฟิลด์เดิมครบทุกตัวเหมือนเดิม (ของ `ConfirmDialog.focustrap.test.tsx`/`PromptDialog.focustrap.test.tsx` ที่ใช้ `useApp()` เปิด dialog อยู่ก็ยังผ่านโดยไม่ต้องแก้)
+  - เขียนเทสต์ regression ก่อนแก้ (ตามขั้นตอนมาตรฐาน) ขยาย `AppContext.chromeCtx.test.tsx` เพิ่ม 2 เคส ยืนยันว่า component ที่อ่านผ่าน `useChrome()` เท่านั้นไม่ re-render เมื่อ state อื่นที่ไม่เกี่ยวเปลี่ยน แต่ re-render จริงเมื่อ confirmDialog/promptDialog เปลี่ยน — ยืนยันว่า fail ก่อนแก้ (เพราะ ChromeCtxValue ยังไม่มีฟิลด์เหล่านี้) แล้วผ่านหลังแก้
+
+  ผ่าน tsc (0 errors) + vitest (548 เทสต์ — เพิ่ม 2 จากรอบก่อน) + build ครบ
+
 ## [3.161.0] - 2026-10-12
 
 ### Changed
