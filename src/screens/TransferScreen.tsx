@@ -41,7 +41,7 @@ function dismissToday(key: string) {
 // number the moment someone taps in to type a value by hand (that compact string isn't itself
 // parseable back into a number), and back to the box label on blur. A non-boxed med (no
 // packSize) just shows the plain number always — nothing to translate into boxes for.
-function CartQtyInput({ med, value, onChange }: { med: { packSize?: number; unit: string; name: string }; value: number; onChange: (v: string) => void }) {
+function CartQtyInput({ med, value, onChange }: { med: { packSize?: number | undefined; unit: string; name: string }; value: number; onChange: (v: string) => void }) {
   const [focused, setFocused] = useState(false);
   const boxed = !!med.packSize && med.packSize > 1;
   const label = boxed && !focused ? boxBreakdownLabel(med, value, true) : undefined;

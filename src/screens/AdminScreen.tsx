@@ -31,7 +31,7 @@ const TYPE_LABEL: Record<string, string> = {
 // commitCount (floor) and commitSubCount (substock) both log type:'count' — TYPE_LABEL alone
 // can't tell them apart (one key, one label), so this reads the row's loc too, the same
 // disambiguator fetchSubstockLedger's SUBSTOCK_LEDGER_TYPES filter uses for the same reason.
-function typeLabelOf(e: { type: string; loc?: string }): string {
+function typeLabelOf(e: { type: string; loc?: string | undefined }): string {
   if (e.type === 'count' && e.loc === 'substock') return 'นับสต็อก substock';
   return TYPE_LABEL[e.type] || e.type;
 }

@@ -7,6 +7,19 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.158.0] - 2026-10-12
+
+### Fixed
+- **[ทำงานค้างต่อตามคำสั่ง "จัดการต่อจนทำครบทั้งหมดครับ" — เปิด `exactOptionalPropertyTypes` ใน tsconfig.json จริงและแก้ให้ครบ (ไม่ใช่แค่ revert เหมือนรอบ v3.154.0)]**
+  - เดิมตอน audit รอบ v3.154.0 เปิด flag นี้แล้วเจอ 52 errors — ตัดสินใจ revert ไว้ก่อนเพราะเวลาจำกัด ("จุดที่เว้นไว้" ใน v3.155.0/v3.156.0's changelog) รอบนี้เปิดใหม่และแก้ทีละจุดจนครบ ไม่เหลือ error เลย (แก้ไปทั้งหมด 53 จุด — 52 จุดเดิม + อีก 1 จุดที่โผล่มาทีหลังเพราะ tsc ซ่อน error ที่ซ้อนกันไว้)
+  - ทุกจุดเป็นช่องว่างจริงในการประกาศ type ของ optional prop/field — โค้ดเขียนถูกต้องอยู่แล้ว (ส่ง `value | undefined` ไปยัง prop/field ที่ `optional?: T` อย่างตั้งใจ เช่น `onClick={cond ? fn : undefined}`, `note={x || undefined}`) แต่ type declaration เขียนแค่ `prop?: T` ไม่ได้ระบุ `| undefined` ชัดเจน — เพิ่ม `| undefined` ให้ตรงกับพฤติกรรมจริงที่ถูกต้องอยู่แล้ว ไม่ใช่การปิดทับ error โดยไม่ดู: ตรวจทุกจุดว่า component/field จัดการค่า `undefined` ได้ปลอดภัยจริง (fallback/truthy-check) ก่อนขยาย type เสมอ
+  - รวม `Med` type ใน `types.ts` (binSub/category/route/packSize/weekdayPeakFactor/weekdayPeakDay/weekdayPeakOccurrences/weekdayPattern/peakDayQty/peakDayDate) — ทุกจุดอ่านผ่าน selector/truthy-check ที่ถือว่า "undefined" กับ "ไม่มี field นี้" เหมือนกันอยู่แล้ว (เช่น `categoryOf()`, `routeOf()` ใน selectors.ts), การขยาย type จึงตรงกับพฤติกรรมจริงไม่ใช่การเปิดช่องใหม่
+  - `addMed`/`updateMedFull` (AppContext.tsx) — ขยาย signature ให้ตรงกับ MedsScreen.tsx's การเขียน `binSub || undefined` ฯลฯ ที่มีอยู่แล้วจริง
+  - `PrintLabel`/`PickListRow`/`HeldRow`/`SubstockCardRow`/`ExecSummaryStat`-รูปแบบ inline types ใน `utils/print.ts` — widen `tag?`/`bin?`/`note?`/`pickBin?`/`expectedReturn?`/`packSize?` ให้ตรงกับการใช้งานจริงทุกจุดเรียก
+  - ไม่มีจุดใดต้องแก้ call-site (ไม่มี bug จริงที่ `exactOptionalPropertyTypes` เจอ — ทุกจุดเป็นช่องว่างใน type declaration เท่านั้น) — เป็น type-only change ล้วนๆ ไม่กระทบ runtime behavior แม้แต่จุดเดียว
+
+  ผ่าน tsc (0 errors พร้อม `exactOptionalPropertyTypes: true` เปิดอยู่) + vitest (544 เทสต์) + build ครบ
+
 ## [3.157.0] - 2026-10-11
 
 ### Fixed

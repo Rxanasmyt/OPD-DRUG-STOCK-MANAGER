@@ -831,7 +831,7 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
   onSubmit: (v: MedFormValues) => void;
   /** The same drug's other-ward record (same name, opposite ward), if one exists — lets its
    * shelf code be edited right here instead of having to search it up as a separate row. */
-  sibling?: Med;
+  sibling?: Med | undefined;
   onSiblingBinChange?: (siblingId: string, val: string) => void;
   /** Folds `sibling`'s real stock into this med as one pooled OPD/IPD record — see
    * mergeWardMeds() in AppContext.tsx. Only offered when a sibling exists. */

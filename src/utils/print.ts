@@ -18,11 +18,11 @@ export interface PrintLabel {
   id: string;
   title: string;
   sub: string;
-  tag?: string;
+  tag?: string | undefined;
   /** Shelf/bin code (e.g. "J4") — when present, prints as a real shelf tag strip
    * (bin code + QR + name) matching the hospital's existing paper labels, instead of
    * the generic card layout used for lot/location sheets. */
-  bin?: string;
+  bin?: string | undefined;
   /** OPD and IPD versions of a drug deliberately share a name (own record, own bin/QR/par —
    * see wardOf/Ward) — printed without this, two labels reading the same name at a glance
    * would be indistinguishable once cut apart from their on-screen context. Shown on both
@@ -313,13 +313,13 @@ export interface PickListRow {
   // what substock actually has on hand, so it won't fully bring the shelf up to par even
   // after every row on this sheet is picked. Absent for every existing caller (unset renders
   // nothing extra), so this is additive, not a breaking change to the pick-list layout.
-  note?: string;
+  note?: string | undefined;
   // Real-world request: the printed sheet already says WHERE a row's qty is headed (`bin`),
   // but gave no clue where to physically go pick it FROM — someone carrying ใบเติมหน้างาน had
   // to separately look up each drug's substock shelf code themselves. Optional and additive:
   // a column for it only appears on sheets whose rows actually set it (see printPickListSheet
   // below), so the cart-based ใบจัดยาเติมชั้น (which never sets this) keeps its current layout.
-  pickBin?: string;
+  pickBin?: string | undefined;
   // Real-world request: "ใบเติมหน้างานประจำ และใบเบิกจากคลังให้แยกประเภทยากิน ยาฉีดด้วยครับ" — same
   // reasoning as TransferScreen's own on-screen route grouping (walking between the oral shelf
   // and the locked injectable cabinet with one unsorted sheet is real, physical confusion).
@@ -337,7 +337,7 @@ export interface HeldRow {
   name: string;
   reason: string;
   since: string;
-  expectedReturn?: string;
+  expectedReturn?: string | undefined;
 }
 
 /**
@@ -580,7 +580,7 @@ export interface SubstockCardRow {
   // SubstockCardScreen.tsx), but this printed sheet (🖨, the same "ใบหน้างาน" staff print and
   // keep at the shelf) silently dropped that and only ever showed the bare number.
   typeLabel: string;
-  note?: string;
+  note?: string | undefined;
 }
 
 /**
@@ -594,7 +594,7 @@ export function printSubstockCardSheet(
   // selectors.ts) print the SAME sheet shape against its floor par instead of substock par,
   // for a drug whose floor plays substock's role (see fetchFloorLedger in AppContext.tsx) —
   // both default to the original substock wording so every existing call site is unaffected.
-  med: { code: string; name: string; parSub: number; unit: string; ward?: 'opd' | 'ipd'; parLabel?: string; heading?: string; packSize?: number },
+  med: { code: string; name: string; parSub: number; unit: string; ward?: 'opd' | 'ipd'; parLabel?: string; heading?: string; packSize?: number | undefined },
   rows: SubstockCardRow[],
   fyLabel?: number | 'all',
   // Real-world request: this used to be a flat row-by-row table with nothing to tie the
@@ -609,7 +609,7 @@ export function printSubstockCardSheet(
   // this one, the actual replacement for the hand-written stock card someone can be asked to
   // produce for an audit, never did. Optional so every existing call site (no meta.printedBy
   // passed) still prints exactly as before, just showing "—" where the name would go.
-  meta: { totals?: { received: number; dispensed: number }; openingBalance?: number; liveBalance?: number; printedBy?: string } = {},
+  meta: { totals?: { received: number; dispensed: number } | undefined; openingBalance?: number | undefined; liveBalance?: number | undefined; printedBy?: string | undefined } = {},
 ): boolean {
   const now = new Date();
   // Defaults to today's fiscal year (the original single-year behavior), but the substock
@@ -998,7 +998,7 @@ export function printKpiReportSheet(rows: DailyMetrics[], meta: { fromDate: stri
   const sum = (f: (r: DailyMetrics) => number) => rows.reduce((s, r) => s + f(r), 0);
   const last = rows[rows.length - 1];
   const short = (d: string) => d.slice(5); // "2026-09-22" -> "09-22", plenty for a chart axis
-  const stats: { label: string; value: string; note?: string; tone?: string }[] = [
+  const stats: { label: string; value: string; note?: string | undefined; tone?: string | undefined }[] = [
     { label: 'มูลค่าคงคลังล่าสุด', value: last ? Math.round(last.totalStockValue).toLocaleString('en-US') + ' บาท' : '—', note: last ? 'ณ ' + last.date : undefined },
     // Bug fix (KPI clarity): same fix as ReportScreen's on-screen tiles — this sums a raw qty
     // across the entire active formulary (tablets + ml + vials + ... all in one number), unlike

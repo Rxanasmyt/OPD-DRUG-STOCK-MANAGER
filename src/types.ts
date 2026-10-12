@@ -54,7 +54,7 @@ export interface Med {
   // หรือเติมยาหน้างานจาก substock) — เมื่อตั้งค่านี้ไว้ จำนวนที่ระบบแนะนำ/บวกลบทีละขั้นจะปัดขึ้นให้
   // ลงตัวเป็นกล่องเสมอ (ดู packStep()/suggestTransferQty() ใน selectors.ts) แทนขั้นทั่วไปแบบ
   // 1/10/100 ตามขนาดตัวเลข. Optional — ยาส่วนใหญ่เบิกเป็นเม็ด/ชิ้นเดี่ยว ไม่มีขนาดกล่องบังคับ.
-  packSize?: number;
+  packSize?: number | undefined;
   // `shared: true` = OPD and IPD draw on the SAME physical pool for this drug (the real
   // workflow for most one-day-dose meds: IPD pulls straight off the OPD shelf) — one
   // floor/par/lots/used30 serves both, and it shows up under both ward tabs. Set either by
@@ -85,12 +85,12 @@ export interface Med {
   // and a med's substock rack position has no reason to match, or even exist alongside, its
   // floor shelf spot. Optional — unset for every med until someone assigns a real substock
   // location via MedsScreen, and meaningless for a noSubstock med (no back-room stock at all).
-  binSub?: string;
+  binSub?: string | undefined;
   // Therapeutic group id — see src/data/categories.ts for the fixed list this must be one of
   // (or absent). Optional because every med added before this feature existed has none; always
   // read via categoryOf() in selectors.ts so those fall back to the same "ยังไม่ระบุหมวด" bucket
   // instead of being invisible in a category-grouped/filtered view.
-  category?: string;
+  category?: string | undefined;
   // Real-world request: "แยกยากินกับยาฉีด...เพื่อง่ายต่อการเบิกยาจริงหน้างาน เพื่อไม่ให้ความสับสน" —
   // oral vs. injectable is a different cut than DRUG_CATEGORIES' therapeutic groups (a pain med
   // exists as both a tablet AND an injectable ampoule, under the same 'pain' category) and
@@ -112,7 +112,7 @@ export interface Med {
   // (not 'other') for every med added before this feature existed or never classified — always
   // read via routeOf() in selectors.ts, which treats missing exactly like 'other', so nothing
   // becomes invisible in a route-grouped view.
-  route?: 'oral' | 'injection' | 'inhaled' | 'topical' | 'eye' | 'ear' | 'paint' | 'other';
+  route?: 'oral' | 'injection' | 'inhaled' | 'topical' | 'eye' | 'ear' | 'paint' | 'other' | undefined;
   // Real-world request: "บริษัทยาไม่มาส่งยา ล่าช้า หรือเลิกผลิต อยู่ระหว่างสั่งยาบริษัทอื่น คลังปิด
   // ช่วงปลาย/ต้นปีงบประมาณ" — a med's supply chain can break temporarily for reasons that have
   // nothing to do with this pharmacy's own stock-management, where nothing substock/floor can
@@ -147,12 +147,12 @@ export interface Med {
   // occurrences to trust (see its own MIN_OCCURRENCES_PER_WEEKDAY), and only applies it to FLOOR
   // par — substock's much longer ~2-week requisition cycle already naturally absorbs a single
   // weekday's spike, so sizing IT off a peak-day rate would just oversize it for no real benefit.
-  weekdayPeakFactor?: number;
+  weekdayPeakFactor?: number | undefined;
   // Which weekday (1=จันทร์..5=ศุกร์, same Date.prototype.getDay() convention data/clinics.ts
   // uses) weekdayPeakFactor above was computed from — shown alongside the bare multiplier (e.g.
   // "×2.4 (อังคาร)") so an admin reviewing it sees WHY, not just an unexplained number, and can
   // cross-reference it against data/clinics.ts's own real clinic schedule.
-  weekdayPeakDay?: number;
+  weekdayPeakDay?: number | undefined;
   // Follow-up to weekdayPeakFactor — ผู้ใช้ถามว่า "มีอะไรตกหล่นบ้างจากที่เสนอ" หลัง merge รอบแรก
   // แล้วขอให้ทำทั้งหมด. How many distinct real calendar days of reconcile_hosxp history
   // weekdayPeakFactor/weekdayPeakDay above were actually computed from (always the SMALLEST of
@@ -162,7 +162,7 @@ export interface Med {
   // judge for themselves whether to trust a borderline case (right at MIN_OCC_PER_WEEKDAY) versus
   // a well-established one (a full LOOKBACK_DAYS of occurrences), instead of taking the bare
   // multiplier on faith.
-  weekdayPeakOccurrences?: number;
+  weekdayPeakOccurrences?: number | undefined;
   // Follow-up to weekdayPeakFactor — the FULL per-weekday ratio-to-average shape (Mon..Fri, same
   // order every time), not just the single busiest day. suggestPar() only ever needs the one
   // peak ratio (sizing floor par for the worst single day already safely covers every other,
@@ -174,7 +174,7 @@ export interface Med {
   // a med whose peak alone doesn't clear MEANINGFUL_FACTOR (so the insight panel can still show
   // "genuinely flat" honestly instead of nothing) — but weekdayPeakFactor/Day themselves still
   // stay unset in that case, exactly as before.
-  weekdayPattern?: number[];
+  weekdayPattern?: number[] | undefined;
 
   // Real-world request: "ยาบางตัว min max par ไม่เหมาะสมกับยาตัวนั่น เนื่องจากบางที่จำนวนยาในการใช้
   // 1 ครั้ง เยอะกว่าค่า min max ปัจจุบันอย่างมาก" (เช่น phenytoin 100 mg สั่ง 3 เดือน 270 เม็ดใน 1
@@ -188,12 +188,12 @@ export interface Med {
   // suggestPar() (selectors.ts) clamps both floor and sub par to never size BELOW this, so the
   // exact same real-world case showing up again never forces an emergency central-warehouse pull
   // (เบิกฉุกเฉิน) a second time.
-  peakDayQty?: number;
+  peakDayQty?: number | undefined;
   // The real calendar date (ISO, YYYY-MM-DD) peakDayQty above came from — shown alongside the
   // bare number so an admin reviewing it can judge plausibility (a genuinely huge one-time refill
   // vs. a suspicious data-entry spike) instead of taking it on faith, same reasoning as
   // weekdayPeakDay.
-  peakDayDate?: string;
+  peakDayDate?: string | undefined;
 }
 
 export interface Lot {

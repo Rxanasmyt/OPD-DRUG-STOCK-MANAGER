@@ -1237,7 +1237,7 @@ export default function ReportScreen() {
 /** One headline number for the ภาพรวมผู้บริหาร tab — deliberately plainer than HomeScreen's
  * StatTile (no icon, no click target): this screen is meant to be scanned/printed as a report,
  * not tapped through as a dashboard. */
-function ExecStat({ label, value, note, tone }: { label: string; value: string; note?: string; tone?: string }) {
+function ExecStat({ label, value, note, tone }: { label: string; value: string; note?: string | undefined; tone?: string | undefined }) {
   return (
     <div className="card" style={{ padding: '13px 13px 12px' }}>
       <div style={{ fontSize: 19, fontWeight: 800, lineHeight: 1.15, color: tone || 'var(--ink)', letterSpacing: '-.01em' }}>{value}</div>

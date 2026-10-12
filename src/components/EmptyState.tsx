@@ -5,7 +5,7 @@
  * tells someone what to actually do about it (search a different term, add the first item,
  * etc.) rather than leaving them to guess.
  */
-export function EmptyState({ icon = '🔍', title, sub }: { icon?: string; title: string; sub?: string }) {
+export function EmptyState({ icon = '🔍', title, sub }: { icon?: string; title: string; sub?: string | undefined }) {
   return (
     <div style={{ textAlign: 'center', padding: '34px 20px', animation: 'fade .28s var(--ease-out) both' }}>
       <div style={{ fontSize: 30, marginBottom: 10, opacity: 0.7, animation: 'checkPop .45s var(--ease-out) both' }} aria-hidden="true">{icon}</div>
