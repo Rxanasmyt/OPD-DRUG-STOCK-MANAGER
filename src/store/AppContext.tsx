@@ -23,6 +23,7 @@ import { subscribeRecentPendingReceives, newPendingReceiveRef, pendingReceiveRef
 import { settingsRef, subscribeSettings, medSeqRef } from './repositories/metaRepo';
 import { floorLotRef, subscribeFloorLots, fetchAllFloorLots, fetchFloorLotsByMedId } from './repositories/floorLotsRepo';
 import { userRef, usersCollection, queryAdminUsers } from './repositories/usersRepo';
+import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetchLotsByMedIds } from './repositories/lotsRepo';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
@@ -238,7 +239,7 @@ async function mergeWardPairTx(
   ipdMed: Med,
 ): Promise<number> {
   return runTx(async (trx) => {
-    const lotSnap = await getDocs(query(collection(db, 'lots'), where('medId', '==', ipdMed.id)));
+    const lotSnap = await fetchLotsByMedId(ipdMed.id);
     const floorLotSnap = await fetchFloorLotsByMedId(ipdMed.id);
     // These reads don't depend on each other — firing them concurrently instead of one lot at a
     // time saves real time when a med has several open lots, with no correctness change (each is
@@ -1365,7 +1366,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
         patch({ meds, dbReady: true });
       }, (e) => { window.clearTimeout(stallTimer); onErr('meds')(e); }),
-      onSnapshot(collection(db, 'lots'), (snap) => {
+      subscribeLots((snap) => {
         const lots = snap.docs.map((d) => {
           const raw = d.data() as Record<string, unknown>;
           return { id: d.id, ...raw, qty: numOr(raw, 'qty', 0) };
@@ -2116,7 +2117,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // query right before reading each lot shrinks that window to a single round trip;
           // the Firestore client SDK can't query inside the transaction itself (trx.get() only
           // takes a doc ref), so this runs just outside it, freshly on every retry.
-          const liveLotDocs = (await getDocs(query(collection(db, 'lots'), where('medId', '==', medId)))).docs;
+          const liveLotDocs = (await fetchLotsByMedId(medId)).docs;
           // Bug fix (FEFO correctness): a lot doc missing/lacking `exp` (legacy import, manual
           // Firestore edit) used to default to `exp: 0` — 1970 — which sorts FIRST, ahead of
           // every lot with a real near-term expiry. That's exactly backwards for FEFO: an
@@ -2139,7 +2140,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             .filter((l) => l.qty > 0 && !(l.exp && l.exp <= now)).sort((a, b) => a.exp - b.exp).map((l) => l.id);
           lotIdsByMed[medId] = lotIds;
           await Promise.all(lotIds.map(async (lotId) => {
-            const lotSnap = await trx.get(doc(db, 'lots', lotId));
+            const lotSnap = await trx.get(lotRef(lotId));
             const data = lotSnap.data() as { qty?: number; lotNo?: string; exp?: number } | undefined;
             lotReads[lotId] = { qty: data?.qty ?? 0, lotNo: data?.lotNo ?? '', exp: data?.exp ?? Infinity };
           }));
@@ -2210,7 +2211,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const lotData = lotReads[lotId];
             if (!lotData || lotData.qty <= 0) continue;
             const take = Math.min(need, lotData.qty);
-            trx.update(doc(db, 'lots', lotId), { qty: lotData.qty - take });
+            trx.update(lotRef(lotId), { qty: lotData.qty - take });
             need -= take;
             used.push(lotData.lotNo + ' (' + nf(take) + ')');
             const flId = floorLotDocId(medId, lotData.lotNo, lotData.exp);
@@ -2395,7 +2396,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const substockMedIds = [...new Set(items.filter((it) => !(liveMeds.get(it.medId)?.noSubstock)).map((it) => it.medId))];
       await runTx(async (trx) => {
         const liveLotEntries = await Promise.all(substockMedIds.map(async (medId) => {
-          const snap = await getDocs(query(collection(db, 'lots'), where('medId', '==', medId)));
+          const snap = await fetchLotsByMedId(medId);
           return [medId, snap.docs.map((d) => ({ id: d.id, ...(d.data() as { lotNo?: string; exp?: number; qty?: number }) }))] as const;
         }));
         const liveLotsByMed = new Map(liveLotEntries);
@@ -2412,7 +2413,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (candidateByKey.has(key)) continue;
           const existing = (liveLotsByMed.get(it.medId) || []).find((l) => l.lotNo === it.lotNo && l.exp === it.exp && (l.qty || 0) > 0);
           if (!existing) { candidateByKey.set(key, null); continue; }
-          const lotSnap = await trx.get(doc(db, 'lots', existing.id));
+          const lotSnap = await trx.get(lotRef(existing.id));
           const data = lotSnap.data() as { qty?: number } | undefined;
           candidateByKey.set(key, data && (data.qty || 0) > 0 ? { id: existing.id, qty: data.qty || 0 } : null);
         }
@@ -2443,11 +2444,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (staged) {
             trx.update(staged, { qty: increment(it.qty) });
           } else if (candidate) {
-            const ref = doc(db, 'lots', candidate.id);
+            const ref = lotRef(candidate.id);
             trx.update(ref, { qty: increment(it.qty) });
             stagedLotRefs.set(key, ref);
           } else {
-            const lotRef = doc(collection(db, 'lots'));
+            const lotRef = newLotRef();
             trx.set(lotRef, { code: genLotCode(m?.code, asMedId(it.medId), lotRef.id), medId: it.medId, lotNo: it.lotNo, exp: it.exp, qty: it.qty, loc: 'ชั้น bulk' });
             stagedLotRefs.set(key, lotRef);
           }
@@ -2508,19 +2509,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // every retry, same query-then-get workaround commitTransfer's FEFO lot lookup already
           // uses above) and only the one candidate doc it finds gets a proper trx.get() to
           // confirm it's still live before writing to it.
-          const liveLotDocs = (await getDocs(query(collection(db, 'lots'), where('medId', '==', pr.medId)))).docs;
+          const liveLotDocs = (await fetchLotsByMedId(pr.medId)).docs;
           const candidate = liveLotDocs.find((d) => { const l = d.data() as { lotNo?: string; exp?: number; qty?: number }; return l.lotNo === pr.lotNo && l.exp === pr.exp && (l.qty || 0) > 0; });
           let merged = false;
           if (candidate) {
-            const lotSnap = await trx.get(doc(db, 'lots', candidate.id));
+            const lotSnap = await trx.get(lotRef(candidate.id));
             const existing = lotSnap.data() as { qty?: number } | undefined;
             if (existing && (existing.qty || 0) > 0) {
-              trx.update(doc(db, 'lots', candidate.id), { qty: increment(pr.qty) });
+              trx.update(lotRef(candidate.id), { qty: increment(pr.qty) });
               merged = true;
             }
           }
           if (!merged) {
-            const lotRef = doc(collection(db, 'lots'));
+            const lotRef = newLotRef();
             trx.set(lotRef, { code: genLotCode(m?.code, asMedId(pr.medId), lotRef.id), medId: pr.medId, lotNo: pr.lotNo, exp: pr.exp, qty: pr.qty, loc: 'ชั้น bulk' });
           }
           trx.set(doc(collection(db, 'txs')), {
@@ -2842,7 +2843,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // non-atomic (see commitAdjust's note on this exact class of gap).
       let realQty = l.qty;
       await runTx(async (trx) => {
-        const ref = doc(db, 'lots', lotId);
+        const ref = lotRef(lotId);
         const snap = await trx.get(ref);
         realQty = (snap.data() as { qty?: number } | undefined)?.qty ?? l.qty;
         trx.update(ref, { qty: 0 });
@@ -4338,7 +4339,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // be deleted, so this can't silently discard stock that arrived after the check above.
       const [medSnap, lotSnap] = await withTimeout(Promise.all([
         getDoc(doc(db, 'meds', medId)),
-        getDocs(query(collection(db, 'lots'), where('medId', '==', medId))),
+        fetchLotsByMedId(medId),
       ]));
       const liveFloor = (medSnap.data() as { floor?: number } | undefined)?.floor ?? 0;
       const liveLotQty = lotSnap.docs.reduce((s, d) => s + ((d.data() as { qty?: number }).qty ?? 0), 0);
@@ -4390,7 +4391,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const liveFloorById = new Map<string, number>();
       for (const chunkIds of idChunks) {
         const [lotSnap, medSnaps] = await withTimeout(Promise.all([
-          getDocs(query(collection(db, 'lots'), where('medId', 'in', chunkIds))),
+          fetchLotsByMedIds(chunkIds),
           Promise.all(chunkIds.map((id) => getDoc(doc(db, 'meds', id)))),
         ]));
         lotSnap.docs.forEach((d) => lotDocs.push({ ref: d.ref, medId: asMedId((d.data() as { medId?: string }).medId ?? ''), qty: (d.data() as { qty?: number }).qty ?? 0 }));
@@ -4540,7 +4541,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // last saw, or an undo via restore-preresetsnapshot.mjs would restore the wrong floor.
       const [medSnap, lotSnap, floorLotSnap] = await Promise.all([
         withTimeout(getDocs(collection(db, 'meds'))),
-        withTimeout(getDocs(collection(db, 'lots'))),
+        withTimeout(fetchAllLots()),
         withTimeout(fetchAllFloorLots()),
       ]);
       const medCount = medSnap.docs.length;
@@ -5009,13 +5010,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // list has to be refreshed via a plain query immediately before the transaction starts —
       // this can't close the window to zero, but it shrinks it from "however long the count
       // screen was open" down to a single round trip.
-      const lotIds = (await getDocs(query(collection(db, 'lots'), where('medId', '==', medId)))).docs.map((d) => d.id);
+      const lotIds = (await fetchLotsByMedId(medId)).docs.map((d) => d.id);
       // Bug fix (data integrity): tx-log write folded into the same transaction as the lot
       // writes — see commitCount's note on this exact class of gap.
       await runTx(async (trx) => {
         const liveLots: { id: string; qty: number; exp: number }[] = [];
         for (const lotId of lotIds) {
-          const snap = await trx.get(doc(db, 'lots', lotId));
+          const snap = await trx.get(lotRef(lotId));
           const data = snap.data() as { qty?: number; exp?: number } | undefined;
           liveLots.push({ id: lotId, qty: data?.qty ?? 0, exp: data?.exp ?? Infinity }); // FEFO fix: unknown exp sorts last, not first (see commitTransfer's own note on this bug)
         }
@@ -5026,11 +5027,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           for (const l of [...liveLots].filter((x) => x.qty > 0).sort((a, b) => a.exp - b.exp)) {
             if (need <= 0) break;
             const take = Math.min(need, l.qty);
-            trx.update(doc(db, 'lots', l.id), { qty: l.qty - take });
+            trx.update(lotRef(l.id), { qty: l.qty - take });
             need -= take;
           }
         } else if (delta > 0) {
-          const lotRef = doc(collection(db, 'lots'));
+          const lotRef = newLotRef();
           trx.set(lotRef, {
             code: genLotCode(m.code, medId, lotRef.id), medId, lotNo: 'ปรับยอด (นับสต็อก)',
             exp: Date.now() + 100 * 365 * DAY, qty: delta, loc: 'ปรับยอด',
@@ -5089,13 +5090,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // right above — the lot-id set itself must be re-queried live, not read off the
         // onSnapshot cache, or a lot created concurrently (e.g. a receive landing mid-batch)
         // is invisible here and gets double-counted as a fabricated ปรับยอด lot.
-        const lotIds = (await getDocs(query(collection(db, 'lots'), where('medId', '==', medId)))).docs.map((d) => d.id);
+        const lotIds = (await fetchLotsByMedId(medId)).docs.map((d) => d.id);
         // Bug fix (data integrity): tx-log write folded into the same transaction — see
         // commitCount's note on this exact class of gap.
         await runTx(async (trx) => {
           const liveLots: { id: string; qty: number; exp: number }[] = [];
           for (const lotId of lotIds) {
-            const snap = await trx.get(doc(db, 'lots', lotId));
+            const snap = await trx.get(lotRef(lotId));
             const data = snap.data() as { qty?: number; exp?: number } | undefined;
             liveLots.push({ id: lotId, qty: data?.qty ?? 0, exp: data?.exp ?? Infinity }); // FEFO fix: unknown exp sorts last, not first (see commitTransfer's own note on this bug)
           }
@@ -5106,11 +5107,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             for (const l of [...liveLots].filter((x) => x.qty > 0).sort((a, b) => a.exp - b.exp)) {
               if (need <= 0) break;
               const take = Math.min(need, l.qty);
-              trx.update(doc(db, 'lots', l.id), { qty: l.qty - take });
+              trx.update(lotRef(l.id), { qty: l.qty - take });
               need -= take;
             }
           } else if (delta > 0) {
-            const lotRef = doc(collection(db, 'lots'));
+            const lotRef = newLotRef();
             trx.set(lotRef, {
               code: genLotCode(m.code, medId, lotRef.id), medId, lotNo: 'ปรับยอด (นับสต็อก)',
               exp: Date.now() + 100 * 365 * DAY, qty: delta, loc: 'ปรับยอด',
