@@ -18,6 +18,7 @@ import { useApp } from './AppContext';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import Toast from '../components/Toast';
 import { signInAs, fireCollection, hasListener, seedDoc, seedCollection, getLastTransactionWrites } from '../test-utils/firebaseTestDouble';
+import { asMedId } from '../types';
 
 vi.mock('../utils/haptic', () => ({ hapticSuccess: vi.fn(), hapticError: vi.fn() }));
 import { hapticSuccess } from '../utils/haptic';
@@ -25,20 +26,20 @@ import { hapticSuccess } from '../utils/haptic';
 beforeEach(() => { vi.mocked(hapticSuccess).mockClear(); });
 
 const MED = {
-  id: 'm1', code: 'MED-0001', name: 'Paracetamol 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  id: asMedId('m1'), code: 'MED-0001', name: 'Paracetamol 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
   price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 40, bin: 'A1',
   used30: 0, usedPrev30: 0, volatility: 0,
 };
 const MED2 = {
-  id: 'm2', code: 'MED-0002', name: 'Amoxicillin 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  id: asMedId('m2'), code: 'MED-0002', name: 'Amoxicillin 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
   price: 2, had: false, active: true, parSub: 500, parFloor: 100, floor: 20, bin: 'A2',
   used30: 0, usedPrev30: 0, volatility: 0,
 };
 
 function CountHarness() {
   const { setCountInput, commitCount } = useApp();
-  useEffect(() => { setCountInput('m1', '45'); }, [setCountInput]);
-  return <button onClick={() => commitCount('m1')}>commit-count</button>;
+  useEffect(() => { setCountInput(MED.id, '45'); }, [setCountInput]);
+  return <button onClick={() => commitCount(MED.id)}>commit-count</button>;
 }
 
 describe('commitCount — hapticSuccess regression', () => {
@@ -57,7 +58,7 @@ describe('commitCount — hapticSuccess regression', () => {
 
 function AllCountsHarness() {
   const { setCountInput, commitAllCounts } = useApp();
-  useEffect(() => { setCountInput('m1', '45'); }, [setCountInput]);
+  useEffect(() => { setCountInput(MED.id, '45'); }, [setCountInput]);
   return <button onClick={commitAllCounts}>commit-all-counts</button>;
 }
 
@@ -77,8 +78,8 @@ describe('commitAllCounts — hapticSuccess regression', () => {
 
 function SubCountHarness() {
   const { setSubCountInput, commitSubCount } = useApp();
-  useEffect(() => { setSubCountInput('m1', '10'); }, [setSubCountInput]);
-  return <button onClick={() => commitSubCount('m1')}>commit-subcount</button>;
+  useEffect(() => { setSubCountInput(MED.id, '10'); }, [setSubCountInput]);
+  return <button onClick={() => commitSubCount(MED.id)}>commit-subcount</button>;
 }
 
 describe('commitSubCount — hapticSuccess regression', () => {
@@ -101,7 +102,7 @@ describe('commitSubCount — hapticSuccess regression', () => {
 
 function AllSubCountsHarness() {
   const { setSubCountInput, commitAllSubCounts } = useApp();
-  useEffect(() => { setSubCountInput('m1', '10'); }, [setSubCountInput]);
+  useEffect(() => { setSubCountInput(MED.id, '10'); }, [setSubCountInput]);
   return <button onClick={commitAllSubCounts}>commit-all-subcounts</button>;
 }
 

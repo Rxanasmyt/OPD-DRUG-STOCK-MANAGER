@@ -2,7 +2,8 @@ import { useApp } from '../store/AppContext';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes, discrepancyByCategory, repeatAdrReturns, frequentFloorRefills } from '../store/selectors';
 import { nf, thDate, isoDate, fiscalYearStartIso, DAY } from '../utils/format';
-import type { ReportTab, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, DrugReturnRecord } from '../types';
+import type { ReportTab, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, DrugReturnRecord, MedId } from '../types';
+import { asMedId } from '../types';
 import { categoryLabel } from '../data/categories';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonList } from '../components/Skeleton';
@@ -366,7 +367,7 @@ export default function ReportScreen() {
   // over a period. Defaults to today (same as a live view, useful as a sanity check against the
   // real floor/subQty numbers elsewhere in the app before trusting an older date).
   const [stockAsOfDate, setStockAsOfDate] = useState(() => isoDate(Date.now()));
-  const [stockAsOfRows, setStockAsOfRows] = useState<{ medId: string; medName: string; unit: string; category: string; floor: number; sub: number; value: number }[]>([]);
+  const [stockAsOfRows, setStockAsOfRows] = useState<{ medId: MedId; medName: string; unit: string; category: string; floor: number; sub: number; value: number }[]>([]);
   const [stockAsOfLoading, setStockAsOfLoading] = useState(false);
   const [stockAsOfLoaded, setStockAsOfLoaded] = useState(false);
   const [stockAsOfSearch, setStockAsOfSearch] = useState('');
@@ -719,7 +720,7 @@ export default function ReportScreen() {
                   {parOutcomesVolatile.map((o) => (
                     <button
                       key={o.record.medId}
-                      onClick={() => goSubstockCardFor(o.record.medId)}
+                      onClick={() => goSubstockCardFor(asMedId(o.record.medId))}
                       className="row-interactive"
                       title="ดูบัตรสต็อกยานี้"
                       style={{ display: 'block', width: '100%', border: 0, background: 'transparent', textAlign: 'left', padding: '10px 13px', borderBottom: '1px solid var(--border-soft)' }}
@@ -795,7 +796,7 @@ export default function ReportScreen() {
                   {repeatAdr.slice(0, 5).map((a) => (
                     <button
                       key={a.medId}
-                      onClick={() => goSubstockCardFor(a.medId)}
+                      onClick={() => goSubstockCardFor(asMedId(a.medId))}
                       className="row-interactive"
                       title="ดูบัตรสต็อกยานี้"
                       style={{ display: 'flex', width: '100%', border: 0, background: 'transparent', textAlign: 'left', justifyContent: 'space-between', gap: 10, padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', alignItems: 'center' }}
@@ -828,7 +829,7 @@ export default function ReportScreen() {
                 return (
                   <Row
                     key={x.id}
-                    {...(x.medId ? { onClick: () => goSubstockCardFor(x.medId!), className: 'row-interactive', title: 'ดูบัตรสต็อกยานี้' } : {})}
+                    {...(x.medId ? { onClick: () => goSubstockCardFor(asMedId(x.medId!)), className: 'row-interactive', title: 'ดูบัตรสต็อกยานี้' } : {})}
                     style={{ display: 'block', width: '100%', border: 0, background: 'transparent', textAlign: 'left', padding: '11px 13px', borderBottom: '1px solid var(--border-soft)' }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>

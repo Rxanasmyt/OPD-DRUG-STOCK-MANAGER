@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
+import type { MedId } from '../types';
 import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, effectiveRouteOf, binDisplayAll, daysOfStockLeft, expTone, isOnStockHold, boxBreakdownLabel } from '../store/selectors';
 import { nf, thDate, digitsOnly, isoDate, daysUntil, bangkokWeekday } from '../utils/format';
 import { medColor } from '../utils/color';
@@ -75,7 +76,7 @@ export default function TransferScreen() {
   // HomeScreen's own rows use (see its "Bug fix (flow clarity)" comment) — gets there in one
   // tap instead of two. stopRowNav keeps the −/qty input/+ buttons and "ดูภาพรวม" toggle working
   // exactly as before (a tap on any of THEM must not also navigate away).
-  const rowToCard = (medId: string) => ({
+  const rowToCard = (medId: MedId) => ({
     role: 'button' as const,
     tabIndex: 0,
     onClick: () => goSubstockCardFor(medId),

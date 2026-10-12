@@ -9,8 +9,9 @@ import {
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
-  AppState, Med, Role, Screen, AdjType, RecvItem, ReturnCartItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord,
+  AppState, Med, Role, Screen, AdjType, RecvItem, ReturnCartItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, MedId, LotId, FloorLotId,
 } from '../types';
+import { asMedId, asLotId, asFloorLotId } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
@@ -109,7 +110,7 @@ function readPersisted<T>(key: string): T | null {
 // never match the mixed-case original stored in `code` — "กรอกรหัสด้วยมือ" was silently
 // broken for most real lots. Built instead from the med's own human-readable `code` (already
 // uppercase, already stable) plus the new lot document's own globally-unique ref id.
-function genLotCode(medCode: string | undefined, medId: string, lotRefId: string): string {
+function genLotCode(medCode: string | undefined, medId: MedId, lotRefId: string): string {
   const base = (medCode || medId).toUpperCase().replace(/[^A-Z0-9]/g, '');
   return 'LOT-' + base + '-' + lotRefId.slice(-6).toUpperCase();
 }
@@ -329,9 +330,9 @@ export interface AppCtx {
   myProfile: User | null;
   theme: 'light' | 'dark';
   toggleTheme: () => void;
-  sub: (medId: string) => number;
-  fefo: (medId: string) => ReturnType<typeof fefoLot>;
-  fefoFloor: (medId: string) => ReturnType<typeof fefoFloorLot>;
+  sub: (medId: MedId) => number;
+  fefo: (medId: MedId) => ReturnType<typeof fefoLot>;
+  fefoFloor: (medId: MedId) => ReturnType<typeof fefoFloorLot>;
   userName: () => string;
   roleLabel: () => string;
   roleLabelOf: (r: Role) => string;
@@ -403,14 +404,14 @@ export interface AppCtx {
   setSearch: (v: string) => void;
   setFilter: (f: AppState['filter']) => void;
   setWardFilter: (w: AppState['wardFilter']) => void;
-  bump: (id: string, d: number) => void;
-  setCartQty: (id: string, raw: string) => void;
+  bump: (id: MedId, d: number) => void;
+  setCartQty: (id: MedId, raw: string) => void;
   fillAll: () => void;
   fillUrgent: () => void;
   printPickList: () => void;
   printTodayReplenishList: () => void;
   printWarehouseRequestList: () => void;
-  removeFromCart: (id: string) => void;
+  removeFromCart: (id: MedId) => void;
   /** Empties the whole fill cart in one action — the only way out of a mis-built cart used
    * to be removing rows one at a time (or committing a transfer nobody wanted). */
   clearCart: () => void;
@@ -419,7 +420,7 @@ export interface AppCtx {
   // receive
   setRecvNo: (v: string) => void;
   setRecvSearch: (v: string) => void;
-  pickRecvMed: (medId: string) => void;
+  pickRecvMed: (medId: MedId) => void;
   setRecvLot: (v: string) => void;
   setRecvExp: (v: string) => void;
   setRecvQty: (v: string) => void;
@@ -432,13 +433,13 @@ export interface AppCtx {
   commitReceive: () => void;
   approvePendingReceive: (id: string) => void;
   rejectPendingReceive: (id: string, reason: string) => void;
-  goReceiveFor: (medId: string) => void;
+  goReceiveFor: (medId: MedId) => void;
 
   // ward move
   setWmFromSearch: (v: string) => void;
-  pickWmFromMed: (medId: string) => void;
+  pickWmFromMed: (medId: MedId) => void;
   setWmToSearch: (v: string) => void;
-  pickWmToMed: (medId: string) => void;
+  pickWmToMed: (medId: MedId) => void;
   setWmQty: (v: string) => void;
   setWmReason: (v: string) => void;
   commitWardMove: () => void;
@@ -446,7 +447,7 @@ export interface AppCtx {
   // adjust
   pickAdjType: (t: AdjType) => void;
   setAdjSearch: (v: string) => void;
-  pickAdjMed: (medId: string) => void;
+  pickAdjMed: (medId: MedId) => void;
   setAdjQty: (v: string) => void;
   setAdjReason: (v: string) => void;
   setAdjNote: (v: string) => void;
@@ -458,8 +459,8 @@ export interface AppCtx {
   commitReturnCart: () => void;
   fetchDrugReturns: (fromDate: string, toDate: string) => Promise<import('../types').DrugReturnRecord[]>;
   exportDrugReturnsCsv: (records: import('../types').DrugReturnRecord[]) => Promise<void>;
-  scrapLot: (lotId: string) => void;
-  scrapFloorLot: (lotId: string) => void;
+  scrapLot: (lotId: LotId) => void;
+  scrapFloorLot: (lotId: FloorLotId) => void;
 
   // report
   setReportTab: (t: AppState['reportTab']) => void;
@@ -476,29 +477,29 @@ export interface AppCtx {
    * AppState.labelWardScope. */
   setLabelWardScope: (s: AppState['labelWardScope']) => void;
   /** Toggle one med in the label picker (see LabelsScreen.tsx). */
-  toggleLabelSelected: (medId: string) => void;
+  toggleLabelSelected: (medId: MedId) => void;
   /** Check every one of the given med ids at once — used for the picker's "เลือกทั้งหมด" over
    * whatever's currently matching the search box, not literally every med in the formulary. */
-  selectAllLabels: (medIds: string[]) => void;
+  selectAllLabels: (medIds: MedId[]) => void;
   clearLabelSelected: () => void;
   printLabels: () => void;
 
   // settings / par
-  applyOnePar: (medId: string, which: 'sub' | 'floor') => void;
+  applyOnePar: (medId: MedId, which: 'sub' | 'floor') => void;
   applyAllSuggested: () => void;
   setAllMinHalfOfMax: () => void;
   setAllMinSuggested: () => void;
-  setParSub: (medId: string, v: string) => void;
-  setParFloor: (medId: string, v: string) => void;
-  setMedBin: (medId: string, v: string) => void;
+  setParSub: (medId: MedId, v: string) => void;
+  setParFloor: (medId: MedId, v: string) => void;
+  setMedBin: (medId: MedId, v: string) => void;
   /** Quick-fix counterpart to setMedBin for the substock shelf code — see its own doc comment
    * at the implementation. Used by MedsScreen's "ข้อมูลยังไม่ครบ" filtered list. */
-  setMedBinSub: (medId: string, v: string) => void;
+  setMedBinSub: (medId: MedId, v: string) => void;
   /** Quick-fix counterpart for category — see its own doc comment at the implementation. */
-  setMedCategory: (medId: string, categoryId: string) => void;
+  setMedCategory: (medId: MedId, categoryId: string) => void;
   /** Quick-fix counterpart for route (ยากิน/ยาฉีด/อื่นๆ) — see its own doc comment at the
    * implementation. */
-  setMedRoute: (medId: string, route: '' | RouteType) => void;
+  setMedRoute: (medId: MedId, route: '' | RouteType) => void;
   recomputeUsageStats: () => void;
   /** See its own doc comment at the implementation — computes Med.weekdayPeakFactor/
    * weekdayPeakDay AND Med.peakDayQty/peakDayDate from real reconcile_hosxp history, feeding
@@ -506,10 +507,10 @@ export interface AppCtx {
   analyzeWeekdayUsage: () => void;
   /** Quick-fix counterpart that clears an analyzed weekday pattern by hand — see its own doc
    * comment at the implementation. */
-  clearMedWeekdayPattern: (medId: string) => void;
+  clearMedWeekdayPattern: (medId: MedId) => void;
   /** Same escape hatch as clearMedWeekdayPattern, for the separate peakDayQty/peakDayDate
    * signal — see its own doc comment at the implementation. */
-  clearMedPeakDay: (medId: string) => void;
+  clearMedPeakDay: (medId: MedId) => void;
   updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; idleLogoutMinutes: number }>) => void;
 
   // meds (formulary) management
@@ -526,13 +527,13 @@ export interface AppCtx {
   // catch). Pass null when there's no meaningful baseline to compare against (there shouldn't
   // be a legitimate caller of updateMedFull without one, but it's optional rather than required
   // so a future caller can't be forced to fabricate one).
-  updateMedFull: (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined }, baseline: Med | null) => Promise<boolean | undefined>;
+  updateMedFull: (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined }, baseline: Med | null) => Promise<boolean | undefined>;
   /** Merges an existing OPD/IPD ward-pair (same name, one 'opd' one 'ipd' record) into a
    * single pooled record — see Med.binIpd. Survives as the OPD-ward record with the IPD
    * record's bin code carried over as `binIpd`; floor/used30/usedPrev30 are summed (not
    * re-derived — see mergeWardMeds() for why); the IPD record's lots are reassigned onto the
    * survivor, then it's deactivated with its floor zeroed. Irreversible from the UI. */
-  mergeWardMeds: (medIdA: string, medIdB: string) => void;
+  mergeWardMeds: (medIdA: MedId, medIdB: MedId) => void;
   /** mergeWardMeds() applied to every still-separate OPD/IPD pair in the formulary at once —
    * "รวมกันเลย" instead of clicking through each pair one at a time. */
   mergeAllWardPairs: () => void;
@@ -545,15 +546,15 @@ export interface AppCtx {
    * keyword actually matches. Never overwrites a human's existing choice. */
   autoCategorizeAll: () => void;
   autoRouteAll: () => void;
-  toggleMedActive: (medId: string) => void;
+  toggleMedActive: (medId: MedId) => void;
   /** Flags a med's supply chain as temporarily broken — see Med.outOfStockSince's own doc
    * comment and startStockHold()'s. `reason` is required; `expectedReturnAt` is optional. */
-  startStockHold: (medId: string, reason: string, expectedReturnAt?: number) => void;
+  startStockHold: (medId: MedId, reason: string, expectedReturnAt?: number) => void;
   /** Clears an active hold started by startStockHold() above, with an optional resolution
    * note (e.g. "ได้ของจากบริษัทใหม่แล้ว") carried into the audit log alongside how long it
    * lasted. No-ops if the med has no active hold. */
-  endStockHold: (medId: string, note?: string) => void;
-  deleteMed: (medId: string) => void;
+  endStockHold: (medId: MedId, note?: string) => void;
+  deleteMed: (medId: MedId) => void;
   deleteAllInactiveMeds: (medIds?: string[]) => void;
   /** Admin-only, permanently deletes every tx document (substock card ledger, report stats,
    * usage-rate history) without touching current floor/lot quantities — see its doc comment
@@ -565,16 +566,16 @@ export interface AppCtx {
    * price/etc. See its doc comment in AppContext.tsx. Same double-confirmation as
    * resetAllStockLedgers(). */
   resetAllQuantities: () => void;
-  setMedsFocusId: (id: string | null) => void;
-  goSubstockCardFor: (medId: string) => void;
-  setSubstockFocusId: (id: string | null) => void;
+  setMedsFocusId: (id: MedId | null) => void;
+  goSubstockCardFor: (medId: MedId) => void;
+  setSubstockFocusId: (id: MedId | null) => void;
 
   // count
-  fetchSubstockLedger: (medId: string) => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
-  fetchFloorLedger: (medId: string) => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
+  fetchSubstockLedger: (medId: MedId) => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
+  fetchFloorLedger: (medId: MedId) => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
   /** dateMs: reconstructed stock as of that instant — see fetchStockAsOf's own doc comment for
    * the backward-from-live-value method and its accuracy caveat. */
-  fetchStockAsOf: (dateMs: number) => Promise<{ medId: string; medName: string; unit: string; category: string; floor: number; sub: number; value: number }[]>;
+  fetchStockAsOf: (dateMs: number) => Promise<{ medId: MedId; medName: string; unit: string; category: string; floor: number; sub: number; value: number }[]>;
   exportStockAsOfCsv: (rows: { medName: string; unit: string; category: string; floor: number; sub: number; value: number }[], dateIso: string) => Promise<void>;
   /** date/date2 are inclusive ISO (YYYY-MM-DD) bounds — see DailyMetrics in types.ts and
    * scripts/collect-daily-metrics.mjs for what populates this collection and how. */
@@ -588,8 +589,8 @@ export interface AppCtx {
   /** sinceMs: only records adjusted at/after this ms epoch — see ParAdjustmentRecord in
    * types.ts and applyOnePar/applyAllSuggested for what populates this collection and how. */
   fetchParAdjustments: (sinceMs: number) => Promise<ParAdjustmentRecord[]>;
-  setCountInput: (medId: string, v: string) => void;
-  commitCount: (medId: string) => void;
+  setCountInput: (medId: MedId, v: string) => void;
+  commitCount: (medId: MedId) => void;
   /** Commits every count typed on the นับสต็อก screen in one action — same per-med
    * transaction + discrepancy-log line as commitCount(), just without making someone
    * tap "บันทึก" once per row down a 40-item cycle count. */
@@ -604,8 +605,8 @@ export interface AppCtx {
    * deliberate "unknown" sentinel, never a guessed date); a counted shortfall is real
    * shrinkage and comes out of the actual lots FEFO, the same order transfer_to_floor already
    * consumes them in. */
-  setSubCountInput: (medId: string, v: string) => void;
-  commitSubCount: (medId: string) => void;
+  setSubCountInput: (medId: MedId, v: string) => void;
+  commitSubCount: (medId: MedId) => void;
   /** Batch version of commitSubCount(), mirroring commitAllCounts(). */
   commitAllSubCounts: () => void;
 
@@ -632,12 +633,12 @@ export interface AppCtx {
   qrManual: () => void;
   setQrCode: (v: string) => void;
   setQrManualReason: (v: string) => void;
-  startHadScan: (medId: string) => void;
+  startHadScan: (medId: MedId) => void;
   /** ScanConfirmSheet's three actions — see qrDecodedImpl's transfer branch for how
    * scanConfirmMedId gets set in the first place. */
   confirmScanAndNext: () => void;
   confirmScanAndStop: () => void;
-  cancelScanConfirm: (medId: string) => void;
+  cancelScanConfirm: (medId: MedId) => void;
 
   // done
   doneAgain: () => void;
@@ -719,7 +720,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // doubled up. This tracks the last medId actually bumped by a scan and how long ago, so a
   // lingering repeat of the exact same drug is ignored; scanning it again after actually
   // moving on and coming back (the real "I need more of this" case) still works normally.
-  const lastScanBump = useRef<{ medId: string; ts: number } | null>(null);
+  const lastScanBump = useRef<{ medId: MedId; ts: number } | null>(null);
   // Bug fix: cancelScanConfirm() used to zero the med's WHOLE cart quantity, not just undo this
   // one scan's increment — scanning the same med twice (e.g. split across two bins), confirming
   // the first 20, then scanning again and cancelling THAT second scan wiped the already-confirmed
@@ -727,7 +728,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // tracks what the med's cart quantity was right before the scan that's currently pending
   // confirmation, so cancelling restores exactly that (a no-op if this was a debounced repeat
   // that never bumped anything) instead of always zeroing.
-  const lastScanConfirm = useRef<{ medId: string; prevQty: number } | null>(null);
+  const lastScanConfirm = useRef<{ medId: MedId; prevQty: number } | null>(null);
   const parDebounce = useRef<Record<string, number>>({});
   const binDebounce = useRef<Record<string, number>>({});
   const binSubDebounce = useRef<Record<string, number>>({});
@@ -949,9 +950,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // notably). Narrowing to exactly what each function reads is a pure dependency-array
   // correction — the computation itself is unchanged — and is what actually lets those
   // consumers' memoization do its job.
-  const sub = useCallback((medId: string) => subQty(state, medId), [state.lots]);
-  const fefo = useCallback((medId: string) => fefoLot(state, medId), [state.lots]);
-  const fefoFloor = useCallback((medId: string) => fefoFloorLot(state, medId), [state.floorLots]);
+  const sub = useCallback((medId: MedId) => subQty(state, medId), [state.lots]);
+  const fefo = useCallback((medId: MedId) => fefoLot(state, medId), [state.lots]);
+  const fefoFloor = useCallback((medId: MedId) => fefoFloorLot(state, medId), [state.floorLots]);
   const userName = useCallback(() => myProfile?.name || '', [myProfile]);
   // Real-world request: editing the master drug record (name/price/par/bin/active) and system
   // settings (par cover days, expiry warning threshold) is Admin-only now — pharm keeps every
@@ -1133,7 +1134,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Bug fix: the ':' + String(args[0]) suffix exists so per-item actions (scrapLot(lotId),
       // commitCount(medId), approveReceive(id)) key on that one item and don't block unrelated
       // items — but String() on anything that isn't already a primitive silently does the
-      // wrong thing instead of erroring. deleteAllInactiveMeds(medIds: string[]) is the real
+      // wrong thing instead of erroring. deleteAllInactiveMeds(medIds: MedId[]) is the real
       // case this bit: args[0] is an ARRAY, and String(anArray) joins it with commas — a
       // formulary-sized cleanup call turned into a single busyKeys/state.busy entry keyed on a
       // multi-hundred-character comma-joined id list. Not a crash, but it defeated the whole
@@ -1809,7 +1810,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // box/magnitude step (packStep) once confirmed — there's no real "need" to size a suggestion
   // off here, so a single step is the same reasonable starting point a normal first tap gives,
   // left for the person to bump further or type an exact pre-pack quantity into the field.
-  const bump = useCallback(async (id: string, d: number) => {
+  const bump = useCallback(async (id: MedId, d: number) => {
     if (d > 0 && !(state.cart[id] > 0)) {
       const m = state.meds.find((x) => x.id === id);
       if (m) {
@@ -1841,7 +1842,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, [state, toast, confirmAsync]);
 
-  const setCartQty = useCallback((id: string, raw: string) => {
+  const setCartQty = useCallback((id: MedId, raw: string) => {
     setState((st) => {
       const cap = subQty(st, id);
       const v = Math.max(0, Math.min(cap, parseIntSafe(raw)));
@@ -1860,7 +1861,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const removeFromCart = useCallback((id: string) => {
+  const removeFromCart = useCallback((id: MedId) => {
     setState((st) => { const c = { ...st.cart }; delete c[id]; return { ...st, cart: c }; });
   }, []);
 
@@ -2061,7 +2062,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const commitTransfer = useCallback(guardOnce('transfer', async () => {
     const cart = { ...state.cart };
-    const ids = Object.keys(cart);
+    const ids = Object.keys(cart) as MedId[];
     if (!ids.length) return;
     const meds = state.meds;
     let resultRows: AppState['doneRows'] = [];
@@ -2231,12 +2232,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---------- receive ----------
   const setRecvNo = useCallback((v: string) => patch({ recvNo: v }), [patch]);
   const setRecvSearch = useCallback((v: string) => patch({ recvSearch: v, recvMed: v ? null : state.recvMed }), [patch, state.recvMed]);
-  const pickRecvMed = useCallback((medId: string) => {
+  const pickRecvMed = useCallback((medId: MedId) => {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
     patch({ recvMed: medId, recvSearch: m.name, recvLot: '', recvExp: '', recvQty: '' });
   }, [patch, state.meds]);
-  const goReceiveFor = useCallback((medId: string) => {
+  const goReceiveFor = useCallback((medId: MedId) => {
     const m = state.meds.find((x) => x.id === medId);
     setState((st) => ({ ...st, screen: 'receive', navStack: pushNav(st.navStack, st.screen), recvMed: medId, recvSearch: m ? m.name : '', recvLot: '', recvExp: '', recvQty: '' }));
   }, [state.meds]);
@@ -2347,7 +2348,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         hapticSuccess();
         setState((st) => ({
           ...st, screen: 'done', navStack: pushNav(st.navStack, st.screen), doneKind: 'recvPending',
-          doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + it.lotNo + ' · exp ' + thDate(it.exp), qty: nf(it.qty) + ' ' + it.unit, medId: it.medId })),
+          doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + it.lotNo + ' · exp ' + thDate(it.exp), qty: nf(it.qty) + ' ' + it.unit, medId: asMedId(it.medId) })),
           recvItems: [], recvNo: genDefaultRecvNo(),
         }));
         return;
@@ -2426,7 +2427,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             stagedLotRefs.set(key, ref);
           } else {
             const lotRef = doc(collection(db, 'lots'));
-            trx.set(lotRef, { code: genLotCode(m?.code, it.medId, lotRef.id), medId: it.medId, lotNo: it.lotNo, exp: it.exp, qty: it.qty, loc: 'ชั้น bulk' });
+            trx.set(lotRef, { code: genLotCode(m?.code, asMedId(it.medId), lotRef.id), medId: it.medId, lotNo: it.lotNo, exp: it.exp, qty: it.qty, loc: 'ชั้น bulk' });
             stagedLotRefs.set(key, lotRef);
           }
           const boxLabel = m?.packSize ? boxBreakdownLabel({ packSize: m.packSize, unit: it.unit }, it.qty) : undefined;
@@ -2439,7 +2440,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       hapticSuccess();
       setState((st) => ({
         ...st, screen: 'done', navStack: pushNav(st.navStack, st.screen), doneKind: 'receive',
-        doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + it.lotNo + ' · exp ' + thDate(it.exp), qty: nf(it.qty) + ' ' + it.unit, medId: it.medId })),
+        doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + it.lotNo + ' · exp ' + thDate(it.exp), qty: nf(it.qty) + ' ' + it.unit, medId: asMedId(it.medId) })),
         recvItems: [], recvNo: genDefaultRecvNo(),
       }));
     } catch (e) {
@@ -2499,7 +2500,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
           if (!merged) {
             const lotRef = doc(collection(db, 'lots'));
-            trx.set(lotRef, { code: genLotCode(m?.code, pr.medId, lotRef.id), medId: pr.medId, lotNo: pr.lotNo, exp: pr.exp, qty: pr.qty, loc: 'ชั้น bulk' });
+            trx.set(lotRef, { code: genLotCode(m?.code, asMedId(pr.medId), lotRef.id), medId: pr.medId, lotNo: pr.lotNo, exp: pr.exp, qty: pr.qty, loc: 'ชั้น bulk' });
           }
           trx.set(doc(collection(db, 'txs')), {
             type: 'receive_from_central' as TxType, name: pr.name, medId: pr.medId, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'substock',
@@ -2548,13 +2549,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ("เปลี่ยน") clears the selection first — so unconditionally clearing wmFromMed here (not
   // the pointless `v ? null : null` this used to read) matches every actual call site.
   const setWmFromSearch = useCallback((v: string) => patch({ wmFromSearch: v, wmFromMed: null }), [patch]);
-  const pickWmFromMed = useCallback((medId: string) => {
+  const pickWmFromMed = useCallback((medId: MedId) => {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
     patch({ wmFromMed: medId, wmFromSearch: m.name });
   }, [patch, state.meds]);
   const setWmToSearch = useCallback((v: string) => patch({ wmToSearch: v, wmToMed: null }), [patch]);
-  const pickWmToMed = useCallback((medId: string) => {
+  const pickWmToMed = useCallback((medId: MedId) => {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
     patch({ wmToMed: medId, wmToSearch: m.name });
@@ -2628,7 +2629,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // back — this used to just patch adjSearch with nothing clearing adjMed, so options (which
   // only ever renders while !state.adjMed) could never reappear once something was picked.
   const setAdjSearch = useCallback((v: string) => patch((st) => ({ adjSearch: v, adjMed: v ? null : st.adjMed })), [patch]);
-  const pickAdjMed = useCallback((medId: string) => {
+  const pickAdjMed = useCallback((medId: MedId) => {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
     patch({ adjMed: medId, adjSearch: m.name });
@@ -2801,7 +2802,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }), [state.returnCart, state.adjHn, state.meds, writeReturnBatch, toast, toastErr, patch, guardOnce]);
 
-  const scrapLot = useCallback(guardOnce('scrapLot', async (lotId: string) => {
+  const scrapLot = useCallback(guardOnce('scrapLot', async (lotId: LotId) => {
     const l = state.lots.find((x) => x.id === lotId);
     if (!l) return;
     const m = state.meds.find((x) => x.id === l.medId);
@@ -2843,7 +2844,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // หมดอายุ บนชั้น) flow, same as it always was before floor-lot tracking existed — this action
   // only corrects the floor-lot BOOKKEEPING, not the real floor quantity, so it stays purely
   // additive and can never put floor stock out of sync with what commitAdjust already controls.
-  const scrapFloorLot = useCallback(guardOnce('scrapFloorLot', async (lotId: string) => {
+  const scrapFloorLot = useCallback(guardOnce('scrapFloorLot', async (lotId: FloorLotId) => {
     const l = state.floorLots.find((x) => x.id === lotId);
     if (!l) return;
     const m = state.meds.find((x) => x.id === l.medId);
@@ -3155,8 +3156,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setLabelType = useCallback((t: AppState['labelType']) => patch({ labelType: t }), [patch]);
   const setLocScope = useCallback((s: AppState['locScope']) => patch({ locScope: s }), [patch]);
   const setLabelWardScope = useCallback((s: AppState['labelWardScope']) => patch({ labelWardScope: s }), [patch]);
-  const toggleLabelSelected = useCallback((medId: string) => patch((st) => ({ labelSelected: { ...st.labelSelected, [medId]: !st.labelSelected[medId] } })), [patch]);
-  const selectAllLabels = useCallback((medIds: string[]) => patch((st) => {
+  const toggleLabelSelected = useCallback((medId: MedId) => patch((st) => ({ labelSelected: { ...st.labelSelected, [medId]: !st.labelSelected[medId] } })), [patch]);
+  const selectAllLabels = useCallback((medIds: MedId[]) => patch((st) => {
     const next = { ...st.labelSelected };
     medIds.forEach((id) => { next[id] = true; });
     return { labelSelected: next };
@@ -3274,7 +3275,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.meds, state.lots, state.labelType, state.wardFilter, state.expiryWarnDays, state.labelSelected, state.locScope, state.labelWardScope, toast]);
 
   // ---------- settings / par ----------
-  const applyOnePar = useCallback(async (medId: string, which: 'sub' | 'floor') => {
+  const applyOnePar = useCallback(async (medId: MedId, which: 'sub' | 'floor') => {
     if (!canEditMeds) return;
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
@@ -3410,7 +3411,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { toastErr(e, 'ตั้งค่า Min ไม่สำเร็จ'); }
   }), [canEditMeds, state.meds, state.parFloorCoverDays, state.parSubCoverDays, confirmAsync, logAudit, toast, toastErr, guardOnce]);
 
-  const debouncedParWrite = useCallback((medId: string, field: 'parSub' | 'parFloor', val: number) => {
+  const debouncedParWrite = useCallback((medId: MedId, field: 'parSub' | 'parFloor', val: number) => {
     const key = 'par:' + medId + field;
     window.clearTimeout(parDebounce.current[medId + field]);
     const fire = () => {
@@ -3435,21 +3436,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     parDebounce.current[medId + field] = window.setTimeout(fire, 500);
   }, [toast]);
 
-  const setParSub = useCallback((medId: string, v: string) => {
+  const setParSub = useCallback((medId: MedId, v: string) => {
     if (!canEditMeds) return;
     const val = parseIntSafe(v);
     setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, parSub: val } : x)) }));
     debouncedParWrite(medId, 'parSub', val);
   }, [canEditMeds, debouncedParWrite]);
 
-  const setParFloor = useCallback((medId: string, v: string) => {
+  const setParFloor = useCallback((medId: MedId, v: string) => {
     if (!canEditMeds) return;
     const val = parseIntSafe(v);
     setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, parFloor: val } : x)) }));
     debouncedParWrite(medId, 'parFloor', val);
   }, [canEditMeds, debouncedParWrite]);
 
-  const setMedBin = useCallback((medId: string, v: string) => {
+  const setMedBin = useCallback((medId: MedId, v: string) => {
     if (!canEditMeds) return;
     // Same widened charset as normBin/sanitizeBin — see normBin's doc comment.
     const val = v.toUpperCase().replace(/[^A-Z0-9\u0E00-\u0E7F-]/g, '').slice(0, 10);
@@ -3478,7 +3479,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Real-world request: "ข้อมูลยังไม่ครบ" diagnostic filter (MedsScreen) needs a fast way to fill
   // in a missing substock shelf code right from that filtered list, without opening the full
   // edit form — same debounced-write-with-rollback shape as setMedBin above, just for binSub.
-  const setMedBinSub = useCallback((medId: string, v: string) => {
+  const setMedBinSub = useCallback((medId: MedId, v: string) => {
     if (!canEditMeds) return;
     const val = normBin(v);
     setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, binSub: val || undefined } : x)) }));
@@ -3502,7 +3503,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Same "ข้อมูลยังไม่ครบ" quick-fix need as setMedBinSub above, for category — a single select
   // choice rather than typed text, so written immediately (no debounce needed: there's no
   // keystroke-by-keystroke churn to coalesce for a dropdown pick).
-  const setMedCategory = useCallback(async (medId: string, categoryId: string) => {
+  const setMedCategory = useCallback(async (medId: MedId, categoryId: string) => {
     if (!canEditMeds) return;
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
@@ -3523,7 +3524,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // tracked as a field every active med should have explicitly set (see missingFields() in
   // MedsScreen.tsx). Same immediate-write-no-debounce shape as category — a tap on one chip, not
   // keystroke-by-keystroke text entry.
-  const setMedRoute = useCallback(async (medId: string, route: '' | RouteType) => {
+  const setMedRoute = useCallback(async (medId: MedId, route: '' | RouteType) => {
     if (!canEditMeds) return;
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
@@ -3782,7 +3783,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * มาเองถึงจะหายไป ไม่มีทางล้างเองได้ทันที ปุ่มนี้ (การ์ด insight ในหน้าตั้งค่า) ให้ล้างได้ทันที
    * เหมือน setMedCategory/setMedRoute เดิม — เขียนทับแค่ 4 ฟิลด์นี้ ไม่กระทบ par/floorMin ที่ตั้งไว้
    * เอง (ยังต้องกด "ใช้ค่าแนะนำทั้งหมด" แยกต่างหากถ้าต้องการให้ par กลับไปไม่มีตัวคูณนี้). */
-  const clearMedWeekdayPattern = useCallback(async (medId: string) => {
+  const clearMedWeekdayPattern = useCallback(async (medId: MedId) => {
     if (!canEditMeds) return;
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
@@ -3804,7 +3805,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * shouldn't have to wait for PEAK_LOOKBACK_DAYS of new history to age the old peak out on its
    * own. Only ever clears these 2 fields — suggestPar()'s own clamp simply stops applying; par
    * itself still needs a separate "ใช้ค่าแนะนำ" to actually move back down. */
-  const clearMedPeakDay = useCallback(async (medId: string) => {
+  const clearMedPeakDay = useCallback(async (medId: MedId) => {
     if (!canEditMeds) return;
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
@@ -3973,7 +3974,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     shared: 'ใช้ยอดร่วมกัน', binIpd: 'ชั้นวาง IPD', category: 'หมวดยา', packSize: 'ขนาดแพ็ค',
     route: 'ประเภทการให้ยา',
   };
-  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: string, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined }, baseline: Med | null): Promise<boolean> => {
+  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined }, baseline: Med | null): Promise<boolean> => {
     if (!canEditMeds) return false;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
@@ -4061,7 +4062,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // shelf code, the other record's `bin` becomes `binIpd`. Drugs that genuinely keep separate
   // stock (e.g. IPD's locked injectable cabinet) simply never call this — WardMoveScreen still
   // covers moving stock between two still-separate records exactly as before.
-  const mergeWardMeds = useCallback(guardOnce('mergeWardMeds', async (medIdA: string, medIdB: string) => {
+  const mergeWardMeds = useCallback(guardOnce('mergeWardMeds', async (medIdA: MedId, medIdB: MedId) => {
     if (!canEditMeds) return;
     const a = state.meds.find((x) => x.id === medIdA);
     const b = state.meds.find((x) => x.id === medIdB);
@@ -4241,7 +4242,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { toastErr(e, 'แยกประเภทอัตโนมัติไม่สำเร็จ'); }
   }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce, confirmAsync]);
 
-  const toggleMedActive = useCallback(async (medId: string) => {
+  const toggleMedActive = useCallback(async (medId: MedId) => {
     if (!canEditMeds) return;
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
@@ -4260,7 +4261,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // fix a supply problem — repeating the same unfulfillable ask every print run is noise, not
   // help. Reason is required (not just a bare toggle) since the whole point is staff elsewhere
   // being able to see WHY at a glance — see StockHoldBanner.tsx.
-  const startStockHold = useCallback(async (medId: string, reason: string, expectedReturnAt?: number) => {
+  const startStockHold = useCallback(async (medId: MedId, reason: string, expectedReturnAt?: number) => {
     if (!canEditMeds) return;
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
@@ -4284,7 +4285,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Ends an active hold started by startStockHold() above — logs how long it actually lasted
   // (not just that it ended) since "how long did we go without this drug" is exactly the kind
   // of question this whole feature exists to make answerable later via the audit log.
-  const endStockHold = useCallback(async (medId: string, note?: string) => {
+  const endStockHold = useCallback(async (medId: MedId, note?: string) => {
     if (!canEditMeds) return;
     const m = state.meds.find((x) => x.id === medId);
     if (!m || typeof m.outOfStockSince !== 'number') return;
@@ -4301,7 +4302,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ'); }
   }, [canEditMeds, state.meds, logAudit, toast, toastErr]);
 
-  const deleteMed = useCallback(async (medId: string) => {
+  const deleteMed = useCallback(async (medId: MedId) => {
     if (!canEditMeds) return;
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
@@ -4356,7 +4357,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const idChunks: string[][] = [];
       for (let i = 0; i < removable.length; i += 30) idChunks.push(removable.slice(i, i + 30).map((m) => m.id));
-      const lotDocs: { ref: ReturnType<typeof doc>; medId: string; qty: number }[] = [];
+      const lotDocs: { ref: ReturnType<typeof doc>; medId: MedId; qty: number }[] = [];
       // Bug fix (real stock deletion risk): lots were fetched live (good — catches a lot that
       // arrived after `removable` was computed from cached state), but their quantities were
       // never actually checked before deleting them — any lot doc found for a removable med
@@ -4371,7 +4372,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           getDocs(query(collection(db, 'lots'), where('medId', 'in', chunkIds))),
           Promise.all(chunkIds.map((id) => getDoc(doc(db, 'meds', id)))),
         ]));
-        lotSnap.docs.forEach((d) => lotDocs.push({ ref: d.ref, medId: (d.data() as { medId?: string }).medId ?? '', qty: (d.data() as { qty?: number }).qty ?? 0 }));
+        lotSnap.docs.forEach((d) => lotDocs.push({ ref: d.ref, medId: asMedId((d.data() as { medId?: string }).medId ?? ''), qty: (d.data() as { qty?: number }).qty ?? 0 }));
         medSnaps.forEach((s) => liveFloorById.set(s.id, (s.data() as { floor?: number } | undefined)?.floor ?? 0));
       }
       const liveLotQtyByMed = new Map<string, number>();
@@ -4396,7 +4397,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { toastErr(e, 'ลบไม่สำเร็จ'); }
   }), [canEditMeds, state, logAudit, toast, toastErr, confirmAsync, guardOnce]);
 
-  const setMedsFocusId = useCallback((id: string | null) => patch({ medsFocusId: id }), [patch]);
+  const setMedsFocusId = useCallback((id: MedId | null) => patch({ medsFocusId: id }), [patch]);
 
   // ---------- pre-delete safety snapshot ----------
   // Extra recovery layer specifically for the two go-live reset buttons below, on top of (not
@@ -4561,10 +4562,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Jump straight into บัตรสต็อก substock for one med, already open — used from เสร็จสิ้น
   // (DoneScreen) so "รับเข้า/เติมหน้างานสำเร็จ แล้วอยากดูบัตรตอนนี้เลย" is one tap instead of
   // navigating to the screen and searching for the drug by name again.
-  const goSubstockCardFor = useCallback((medId: string) => {
+  const goSubstockCardFor = useCallback((medId: MedId) => {
     setState((st) => ({ ...st, screen: 'substockcard', navStack: pushNav(st.navStack, st.screen), substockFocusId: medId }));
   }, []);
-  const setSubstockFocusId = useCallback((id: string | null) => patch({ substockFocusId: id }), [patch]);
+  const setSubstockFocusId = useCallback((id: MedId | null) => patch({ substockFocusId: id }), [patch]);
 
   // ---------- virtual substock card ----------
   // Replaces the paper "ใบเบิกยาจากคลัง-จ่ายเข้าชั้นวางยา" ledger — รับ/จ่าย/คงเหลือ for one
@@ -4579,7 +4580,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // fresh each time (not the capped live 300) so the running balance is correct back to this
   // med's very first substock transaction, however long ago that was.
   const SUBSTOCK_LEDGER_TYPES = new Set(['receive_from_central', 'transfer_to_floor', 'expired', 'count']);
-  const fetchSubstockLedger = useCallback(async (medId: string) => {
+  const fetchSubstockLedger = useCallback(async (medId: MedId) => {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return [];
     // Bug fix: a noSubstock med (liquids/inhalers/sprays — see usesSubstock()) never has a
@@ -4625,7 +4626,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // SUBSTOCK_LEDGER_TYPES above (same class of bug the pre-existing 'expired' guard here
       // was already written to prevent, generalized to the new type).
       .filter((x) => SUBSTOCK_LEDGER_TYPES.has(x.type) && (x.type !== 'expired' || x.loc === 'substock') && (x.type !== 'count' || x.loc === 'substock'))
-      .filter((x) => !hasNameTwin || x.medId === m.id || (x.medId != null && mergedFromIds.has(x.medId)))
+      .filter((x) => !hasNameTwin || x.medId === m.id || (x.medId != null && mergedFromIds.has(asMedId(x.medId))))
       .map((x) => ({ ts: x.ts, type: x.type, qty: x.type === 'transfer_to_floor' ? -Math.abs(x.qty) : x.qty, note: x.note || '', by: x.by }))
       .sort((a, b) => a.ts - b.ts);
     let bal = 0;
@@ -4641,7 +4642,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // floor-inflow/outflow reading — unlike transfer_to_floor's flip in the substock ledger (an
   // outflow there), it's the same number read as an INFLOW here, so no sign massaging needed.
   const FLOOR_LEDGER_TYPES = new Set(['receive_from_central', 'transfer_to_floor', 'reconcile_hosxp', 'adjust', 'return', 'damaged', 'ward_move_in', 'ward_move_out', 'count']);
-  const fetchFloorLedger = useCallback(async (medId: string) => {
+  const fetchFloorLedger = useCallback(async (medId: MedId) => {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return [];
     // Same OPD/IPD name-twin hazard, and same mergedInto refinement, as fetchSubstockLedger
@@ -4656,7 +4657,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // belongs here. Every other type in FLOOR_LEDGER_TYPES is only ever logged against floor
       // in the first place (see fetchSubstockLedger's comment), so no further guard needed.
       .filter((x) => FLOOR_LEDGER_TYPES.has(x.type) && (x.type !== 'receive_from_central' || x.to === 'floor') && (x.type !== 'count' || x.loc === 'floor'))
-      .filter((x) => !hasNameTwin || x.medId === m.id || (x.medId != null && mergedFromIds.has(x.medId)))
+      .filter((x) => !hasNameTwin || x.medId === m.id || (x.medId != null && mergedFromIds.has(asMedId(x.medId))))
       .map((x) => ({ ts: x.ts, type: x.type, qty: x.qty, note: x.note || '', by: x.by }))
       .sort((a, b) => a.ts - b.ts);
     let bal = 0;
@@ -4676,7 +4677,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // clamped to ≥0: a negative result is itself a real, worth-surfacing signal that some
   // stock-affecting event in that window was never logged as a tx — matching this app's "never
   // silently correct, always show" convention elsewhere (parAnomalies, usageAnomalies, ...).
-  const fetchStockAsOf = useCallback(async (dateMs: number): Promise<{ medId: string; medName: string; unit: string; category: string; floor: number; sub: number; value: number }[]> => {
+  const fetchStockAsOf = useCallback(async (dateMs: number): Promise<{ medId: MedId; medName: string; unit: string; category: string; floor: number; sub: number; value: number }[]> => {
     const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('ts', '>', dateMs))));
     const medById = new Map(state.meds.map((m) => [m.id, m]));
     const medsByName = new Map<string, Med[]>();
@@ -4693,7 +4694,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // explicit medId tag when present, otherwise only attribute an untagged old row by name
       // when that name is unambiguous (no live twin) — an ambiguous row is excluded rather than
       // risked, same "incomplete-but-correct beats complete-but-wrong" reasoning.
-      let medId = x.medId && medById.has(x.medId) ? x.medId : undefined;
+      let medId = x.medId && medById.has(asMedId(x.medId)) ? asMedId(x.medId) : undefined;
       if (!medId) {
         const candidates = medsByName.get(x.name);
         if (candidates && candidates.length === 1) medId = candidates[0].id;
@@ -4822,9 +4823,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ---------- count ----------
-  const setCountInput = useCallback((medId: string, v: string) => patch((st) => ({ countInputs: { ...st.countInputs, [medId]: digitsOnly(v) } })), [patch]);
+  const setCountInput = useCallback((medId: MedId, v: string) => patch((st) => ({ countInputs: { ...st.countInputs, [medId]: digitsOnly(v) } })), [patch]);
 
-  const commitCount = useCallback(guardOnce('count', async (medId: string) => {
+  const commitCount = useCallback(guardOnce('count', async (medId: MedId) => {
     const raw = state.countInputs[medId];
     const q = parseInt(raw, 10);
     if (isNaN(q)) return;
@@ -4954,7 +4955,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }), [state.countInputs, state.meds, toast, patch, guardOnce, confirmAsync]);
 
   // ---------- substock count ----------
-  const setSubCountInput = useCallback((medId: string, v: string) => patch((st) => ({ subCountInputs: { ...st.subCountInputs, [medId]: digitsOnly(v) } })), [patch]);
+  const setSubCountInput = useCallback((medId: MedId, v: string) => patch((st) => ({ subCountInputs: { ...st.subCountInputs, [medId]: digitsOnly(v) } })), [patch]);
 
   // Applies one counted substock total against the med's real lots. Unlike floor (a single
   // number on the med doc), substock is the SUM of however many lots this med has, each with
@@ -4970,7 +4971,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   //    a plausible-looking near date would be actively worse than admitting the date isn't
   //    known. Whoever finds the real lot/expiry later can scrap this placeholder and log a
   //    proper "รับเข้า" instead.
-  const commitSubCount = useCallback(guardOnce('subCount', async (medId: string) => {
+  const commitSubCount = useCallback(guardOnce('subCount', async (medId: MedId) => {
     const raw = state.subCountInputs[medId];
     const q = parseInt(raw, 10);
     if (isNaN(q)) return;
@@ -5048,7 +5049,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * not a burst of concurrent transactions contending on the same docs. */
   const commitAllSubCounts = useCallback(guardOnce('subCountAll', async () => {
     const entries = Object.entries(state.subCountInputs)
-      .map(([medId, raw]) => ({ medId, q: parseInt(raw, 10) }))
+      .map(([medId, raw]) => ({ medId: asMedId(medId), q: parseInt(raw, 10) }))
       .filter((e) => !isNaN(e.q));
     if (!entries.length) { toast('ยังไม่ได้กรอกจำนวนที่นับได้สักรายการ'); return; }
     // Bug fix (typo safety net — bulk gap): same gap as commitAllCounts's own fix — commitSubCount's
@@ -5479,7 +5480,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const confirmScanAndStop = useCallback(() => {
     patch({ scanConfirmMedId: null });
   }, [patch]);
-  const cancelScanConfirm = useCallback((medId: string) => {
+  const cancelScanConfirm = useCallback((medId: MedId) => {
     // Restore the cart quantity to what it was right before THIS scan, not always 0 — see
     // lastScanConfirm's doc comment. Falls back to 0 only if the ref doesn't match (shouldn't
     // happen in practice — cancelScanConfirm only ever fires for the med the sheet is currently
@@ -5618,7 +5619,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   qrDecodedRef.current = qrDecodedImpl;
   const qrDecoded = useCallback((raw: string, manual = false) => qrDecodedRef.current(raw, manual), []);
 
-  const startHadScan = useCallback((medId: string) => patch({ qrOpen: true, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: medId }), [patch]);
+  const startHadScan = useCallback((medId: MedId) => patch({ qrOpen: true, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: medId }), [patch]);
 
   // ---------- done ----------
   const doneAgain = useCallback(() => go(state.doneKind === 'transfer' ? 'transfer' : 'receive'), [go, state.doneKind]);

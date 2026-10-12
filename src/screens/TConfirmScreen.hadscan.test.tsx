@@ -15,9 +15,10 @@ import { useApp } from '../store/AppContext';
 import { encodeQr } from '../utils/qr';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import { signInAs, fireCollection, hasListener } from '../test-utils/firebaseTestDouble';
+import { asMedId, type MedId } from '../types';
 
 const HAD_MED = {
-  id: 'm1', code: 'MED-0001', name: 'Heparin 5000U', unit: 'ขวด', dosageForm: 'ฉีด',
+  id: asMedId('m1'), code: 'MED-0001', name: 'Heparin 5000U', unit: 'ขวด', dosageForm: 'ฉีด',
   price: 200, had: true, active: true, parSub: 20, parFloor: 5, floor: 1, bin: 'A1',
   used30: 0, usedPrev30: 0, volatility: 0,
 };
@@ -33,7 +34,7 @@ function ScanToAddHarness({ medCode }: { medCode: string }) {
   );
 }
 
-function PickByIdHarness({ medId }: { medId: string }) {
+function PickByIdHarness({ medId }: { medId: MedId }) {
   const { bump } = useApp();
   return <button onClick={() => bump(medId, 1)}>pick-without-scan</button>;
 }

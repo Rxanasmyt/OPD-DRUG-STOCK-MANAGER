@@ -70,6 +70,7 @@ import { signInWithEmailAndPassword } from 'firebase/auth';
 import TConfirmScreen from '../screens/TConfirmScreen';
 import AdjustScreen from '../screens/AdjustScreen';
 import { useApp } from './AppContext';
+import { asMedId, asLotId, type MedId } from '../types';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import Toast from '../components/Toast';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -89,7 +90,7 @@ vi.mock('../utils/print', async (importOriginal) => {
 });
 
 const MED = {
-  id: 'm1', code: 'MED-0001', name: 'Paracetamol 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  id: asMedId('m1'), code: 'MED-0001', name: 'Paracetamol 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
   price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 40, bin: 'A1',
   used30: 0, usedPrev30: 0, volatility: 0,
 };
@@ -176,7 +177,7 @@ describe('commitTransfer — FEFO regression', () => {
 });
 
 const BOXED_MED = {
-  id: 'm2', code: 'MED-0002', name: 'Amoxicillin 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  id: asMedId('m2'), code: 'MED-0002', name: 'Amoxicillin 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
   price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 10, bin: 'A1', packSize: 10,
   used30: 0, usedPrev30: 0, volatility: 0,
 };
@@ -218,7 +219,7 @@ describe('commitTransfer — box-breakdown tx-note regression', () => {
   });
 });
 
-function SetBoxCartQtyHarness({ medId, raw }: { medId: string; raw: string }) {
+function SetBoxCartQtyHarness({ medId, raw }: { medId: MedId; raw: string }) {
   const { state, setCartQty } = useApp();
   return (
     <div>
@@ -360,7 +361,7 @@ describe('commitAdjust — ledger-accuracy regression', () => {
 //     one full DrugReturnRecord, not a shortcut/less-detailed path) but clearing every return
 //     field afterward (including HN), unlike addToReturnCart's "keep HN for the next drug".
 const MED2 = {
-  id: 'm2', code: 'MED-0002', name: 'Amoxicillin 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  id: asMedId('m2'), code: 'MED-0002', name: 'Amoxicillin 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
   price: 2, had: false, active: true, parSub: 500, parFloor: 100, floor: 20, bin: 'A2',
   used30: 0, usedPrev30: 0, volatility: 0,
 };
@@ -428,7 +429,7 @@ describe('ทีละตัว (single return) — commitSingleReturn regressio
 
 // Drives pick-type/HN/add-to-cart/commit through the real useApp() plumbing, for N drugs under
 // one shared HN — mirrors how AdjustScreen.tsx itself drives these same actions.
-function ReturnCartHarness({ hn, medIds }: { hn: string; medIds: string[] }) {
+function ReturnCartHarness({ hn, medIds }: { hn: string; medIds: MedId[] }) {
   const { state, pickAdjType, pickAdjMed, setAdjQty, setAdjReason, setAdjHn, addToReturnCart, commitReturnCart } = useApp();
   useEffect(() => { if (!state.adjType) pickAdjType('return'); }, [state.adjType, pickAdjType]);
   useEffect(() => { if (state.adjType && !state.adjHn && hn) setAdjHn(hn); }, [state.adjType, state.adjHn, setAdjHn, hn]);
@@ -499,7 +500,7 @@ describe('ตะกร้าคืนยา (return cart) — commitReturnCart r
 
 function ScrapHarness() {
   const { scrapLot, state } = useApp();
-  return <button onClick={() => scrapLot('lotKnown')} disabled={!state.lots.length}>scrap-lotKnown</button>;
+  return <button onClick={() => scrapLot(asLotId('lotKnown'))} disabled={!state.lots.length}>scrap-lotKnown</button>;
 }
 
 // scrapLot's confirmAsync() shows an in-app dialog (ConfirmDialog.tsx) rather than a real
@@ -567,8 +568,8 @@ describe('deleteMed — real-stock-deletion-risk regression', () => {
   });
 });
 
-const OPD_MED = { ...MED, id: 'mOpd', ward: 'opd' as const, floor: 10, used30: 4, usedPrev30: 2, bin: 'A1' };
-const IPD_MED = { ...MED, id: 'mIpd', ward: 'ipd' as const, floor: 5, used30: 1, usedPrev30: 1, bin: 'B2' };
+const OPD_MED = { ...MED, id: asMedId('mOpd'), ward: 'opd' as const, floor: 10, used30: 4, usedPrev30: 2, bin: 'A1' };
+const IPD_MED = { ...MED, id: asMedId('mIpd'), ward: 'ipd' as const, floor: 5, used30: 1, usedPrev30: 1, bin: 'B2' };
 
 function MergeWardHarness() {
   const { mergeWardMeds } = useApp();
@@ -741,14 +742,16 @@ describe('approvePendingReceive — data-integrity regression', () => {
 
 function CountHarness() {
   const { setCountInput, commitCount } = useApp();
-  useEffect(() => { setCountInput('m1', '10'); }, [setCountInput]);
-  return <button onClick={() => commitCount('m1')}>commit-count</button>;
+  const id = asMedId('m1');
+  useEffect(() => { setCountInput(id, '10'); }, [setCountInput, id]);
+  return <button onClick={() => commitCount(id)}>commit-count</button>;
 }
 
 function SubCountHarness() {
   const { setSubCountInput, commitSubCount } = useApp();
-  useEffect(() => { setSubCountInput('m1', '10'); }, [setSubCountInput]);
-  return <button onClick={() => commitSubCount('m1')}>commit-subcount</button>;
+  const id = asMedId('m1');
+  useEffect(() => { setSubCountInput(id, '10'); }, [setSubCountInput, id]);
+  return <button onClick={() => commitSubCount(id)}>commit-subcount</button>;
 }
 
 describe('commitCount / commitSubCount — silent-no-op regression', () => {
@@ -818,8 +821,9 @@ describe('logout — shared-device data-leak regression', () => {
 
 function CountPlausibilityHarness({ value }: { value: string }) {
   const { setCountInput, commitCount } = useApp();
-  useEffect(() => { setCountInput('m1', value); }, [setCountInput, value]);
-  return <button onClick={() => commitCount('m1')}>commit-count</button>;
+  const id = asMedId('m1');
+  useEffect(() => { setCountInput(id, value); }, [setCountInput, value, id]);
+  return <button onClick={() => commitCount(id)}>commit-count</button>;
 }
 
 describe('commitCount — plausibility-check regression', () => {
@@ -1048,8 +1052,8 @@ function WardMoveHarness() {
   const { pickWmFromMed, pickWmToMed, setWmQty, setWmReason, commitWardMove } = useApp();
   return (
     <div>
-      <button onClick={() => pickWmFromMed('m1')}>pick-from</button>
-      <button onClick={() => pickWmToMed('m2')}>pick-to</button>
+      <button onClick={() => pickWmFromMed(asMedId('m1'))}>pick-from</button>
+      <button onClick={() => pickWmToMed(asMedId('m2'))}>pick-to</button>
       <button onClick={() => { setWmQty('5'); setWmReason('เติม stat drawer'); }}>fill-form</button>
       <button onClick={commitWardMove}>commit-wardmove</button>
     </div>
@@ -1149,7 +1153,7 @@ describe('addMed — bin-collision regression', () => {
 
 function CountAllPlausibilityHarness({ value }: { value: string }) {
   const { setCountInput, commitAllCounts } = useApp();
-  useEffect(() => { setCountInput('m1', value); }, [setCountInput, value]);
+  useEffect(() => { setCountInput(asMedId('m1'), value); }, [setCountInput, value]);
   return <button onClick={commitAllCounts}>commit-all-counts</button>;
 }
 
@@ -1281,7 +1285,7 @@ const MED2_ACTIVE = { ...MED_BOTTLE, id: 'm2', code: 'MED-0002', name: 'Ventolin
 
 function CountAllInactiveMedHarness() {
   const { setCountInput, commitAllCounts } = useApp();
-  useEffect(() => { setCountInput('m1', '45'); setCountInput('m2', '10'); }, [setCountInput]);
+  useEffect(() => { setCountInput(asMedId('m1'), '45'); setCountInput(asMedId('m2'), '10'); }, [setCountInput]);
   return <button onClick={commitAllCounts}>commit-all-counts</button>;
 }
 
@@ -1487,11 +1491,11 @@ describe('signIn — double-submit-consistency regression', () => {
 // WEEKDAYS_PER_30_DAYS * 4 * 1) = roundStep(112.29...) = 120 — deterministic suggested Max well
 // below the med's existing hand-set Min (400).
 const STALE_MIN_MED = {
-  id: 'm3', code: 'MED-0003', name: 'Dexamethasone 4mg/ml', unit: 'Amp.', dosageForm: 'ฉีด',
+  id: asMedId('m3'), code: 'MED-0003', name: 'Dexamethasone 4mg/ml', unit: 'Amp.', dosageForm: 'ฉีด',
   price: 1, had: false, active: true, parSub: 800, parFloor: 200, floorMin: 400, bin: 'T2',
   used30: 560, usedPrev30: 0, volatility: 1,
 };
-function ApplyOneParHarness({ medId }: { medId: string }) {
+function ApplyOneParHarness({ medId }: { medId: MedId }) {
   const { applyOnePar } = useApp();
   return <button onClick={() => applyOnePar(medId, 'floor')}>apply-par-floor</button>;
 }
@@ -1521,7 +1525,7 @@ describe('applyOnePar — stale-Min-above-new-Max regression', () => {
 
   it('leaves floorMin untouched when it already sits at or below the new parFloor', async () => {
     const user = userEvent.setup();
-    const med = { ...STALE_MIN_MED, id: 'm4', floorMin: 50 };
+    const med = { ...STALE_MIN_MED, id: asMedId('m4'), floorMin: 50 };
     renderWithApp(<ApplyOneParHarness medId={med.id} />);
     await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
@@ -1745,12 +1749,12 @@ describe('printWarehouseRequestList — box-breakdown note format regression', (
 // needsWarehouseRequest() everywhere that's computed, and log a full permanent history via the
 // audit log (see types.ts's AuditType additions).
 const HOLD_MED = {
-  id: 'm8', code: 'MED-0008', name: 'Cefixime 100mg', unit: 'แคปซูล', dosageForm: 'แคปซูล',
+  id: asMedId('m8'), code: 'MED-0008', name: 'Cefixime 100mg', unit: 'แคปซูล', dosageForm: 'แคปซูล',
   price: 1, had: false, active: true, parSub: 200, parFloor: 60, floorMin: 30, floor: 50,
   bin: 'D8', binSub: 'S30', noSubstock: false, used30: 0, usedPrev30: 0, volatility: 0,
 };
 
-function StockHoldHarness({ medId }: { medId: string }) {
+function StockHoldHarness({ medId }: { medId: MedId }) {
   const { startStockHold, endStockHold } = useApp();
   return (
     <div>
@@ -1787,7 +1791,7 @@ describe('startStockHold / endStockHold — temporary-stockout regression', () =
 
   it('clears all three fields and logs a stock_hold_ended audit entry, for a med with an active hold', async () => {
     const user = userEvent.setup();
-    const med = { ...HOLD_MED, id: 'm9', outOfStockSince: Date.now() - 5 * 86400000, outOfStockReason: 'จัดส่งล่าช้า' };
+    const med = { ...HOLD_MED, id: asMedId('m9'), outOfStockSince: Date.now() - 5 * 86400000, outOfStockReason: 'จัดส่งล่าช้า' };
     renderWithApp(<StockHoldHarness medId={med.id} />);
     await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));

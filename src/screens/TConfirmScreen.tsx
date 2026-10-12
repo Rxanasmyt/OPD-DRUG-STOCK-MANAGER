@@ -6,10 +6,11 @@ import { HadTag } from '../components/Badge';
 import { medColor } from '../utils/color';
 import { StepIndicator, TRANSFER_STEPS } from '../components/StepIndicator';
 import { EmptyState } from '../components/EmptyState';
+import type { MedId } from '../types';
 
 export default function TConfirmScreen() {
   const { state, removeFromCart, startHadScan, commitTransfer, userName, roleLabel, go } = useApp();
-  const cartIds = Object.keys(state.cart);
+  const cartIds = Object.keys(state.cart) as MedId[];
   const meds = state.meds;
   const hadPending = cartIds.filter((id) => meds.find((m) => m.id === id)?.had && !state.hadOk[id]);
 

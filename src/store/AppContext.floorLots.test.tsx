@@ -26,9 +26,10 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import {
   signInAs, fireCollection, hasListener, seedDoc, seedCollection, getLastTransactionWrites,
 } from '../test-utils/firebaseTestDouble';
+import { asMedId, asFloorLotId } from '../types';
 
 const MED = {
-  id: 'm1', code: 'MED-0001', name: 'Paracetamol 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  id: asMedId('m1'), code: 'MED-0001', name: 'Paracetamol 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
   price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 40, bin: 'A1',
   used30: 0, usedPrev30: 0, volatility: 0,
 };
@@ -232,7 +233,7 @@ describe('commitReconcile — floor-lot FEFO deduction regression', () => {
 
 function ScrapFloorLotHarness() {
   const { scrapFloorLot, state } = useApp();
-  return <button onClick={() => scrapFloorLot('flKnown')} disabled={!state.floorLots.length}>scrap-flKnown</button>;
+  return <button onClick={() => scrapFloorLot(asFloorLotId('flKnown'))} disabled={!state.floorLots.length}>scrap-flKnown</button>;
 }
 
 function AutoConfirmYes() {

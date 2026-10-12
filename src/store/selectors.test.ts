@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { AppState, Med, Tx, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord } from '../types';
+import type { AppState, Med, Lot, Tx, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord } from '../types';
+import { asMedId } from '../types';
 import {
   wardOf, matchesWard, binFor, binDisplayAll, floorMinOf, isUrgentLow, needsWarehouseRequest,
   lastReconcileDateIso, subQty, usageAnomalies, dailyUsageRate,
@@ -21,12 +22,13 @@ const WEEKDAYS_PER_30_DAYS = 30 * (5 / 7) * (1 - 18 / (365 * (5 / 7)));
 // Minimal, fully-typed fixture — every test overrides only the fields it cares about, so a
 // future required field on Med surfaces here as a type error instead of a runtime surprise in
 // this file three months from now.
-function med(overrides: Partial<Med> = {}): Med {
+function med(overrides: Partial<Omit<Med, 'id'>> & { id?: string } = {}): Med {
+  const { id, ...rest } = overrides;
   return {
-    id: 'm1', code: 'M1', name: 'Test Drug', unit: 'เม็ด', dosageForm: 'tab', price: 1,
+    id: asMedId(id ?? 'm1'), code: 'M1', name: 'Test Drug', unit: 'เม็ด', dosageForm: 'tab', price: 1,
     had: false, active: true, parSub: 100, parFloor: 50, floor: 25, bin: 'A1',
     used30: 0, usedPrev30: 0, volatility: 1,
-    ...overrides,
+    ...rest,
   };
 }
 
@@ -160,7 +162,7 @@ describe('categoryStats', () => {
     const lots = [
       { id: 'l1', code: 'L1', medId: 'a', lotNo: '1', exp: soon, qty: 10, loc: 'A1' },
       { id: 'l2', code: 'L2', medId: 'a', lotNo: '2', exp: far, qty: 100, loc: 'A1' },
-    ];
+    ] as unknown as Lot[];
     const rows = categoryStats(state({ meds, lots }), meds, 30);
     expect(rows[0].atRisk).toBe(10 * 5); // only the soon-expiring lot counts
   });
@@ -234,21 +236,21 @@ describe('subQty / fefoLot', () => {
   ] } as unknown as AppState;
 
   it('subQty sums only lots for the given med', () => {
-    expect(subQty(st, 'm1')).toBe(15);
-    expect(subQty(st, 'nonexistent')).toBe(0);
+    expect(subQty(st, asMedId('m1'))).toBe(15);
+    expect(subQty(st, asMedId('nonexistent'))).toBe(0);
   });
 
   it('subQty stays correct across different state objects (WeakMap index cache does not cross-contaminate)', () => {
     const other = { ...st, lots: [
       { id: 'x1', code: 'X1', medId: 'm1', lotNo: '1', exp: 300, qty: 42, loc: 'x' },
     ] } as unknown as AppState;
-    expect(subQty(st, 'm1')).toBe(15); // unchanged
-    expect(subQty(other, 'm1')).toBe(42); // different lots array, different answer
-    expect(subQty(st, 'm1')).toBe(15); // still correct after querying a different state
+    expect(subQty(st, asMedId('m1'))).toBe(15); // unchanged
+    expect(subQty(other, asMedId('m1'))).toBe(42); // different lots array, different answer
+    expect(subQty(st, asMedId('m1'))).toBe(15); // still correct after querying a different state
   });
 
   it('fefoLot picks the soonest-expiring lot that still has stock (first-expired-first-out)', () => {
-    const l = fefoLot(st, 'm1');
+    const l = fefoLot(st, asMedId('m1'));
     expect(l?.id).toBe('l2'); // exp 100, earliest among qty>0 lots (l3 is depleted)
   });
 
@@ -259,7 +261,7 @@ describe('subQty / fefoLot', () => {
     ] } as unknown as AppState;
     // A missing exp used to coerce to NaN (or 0 in the transaction path) and could sort FIRST,
     // ahead of a lot with a real near-term expiry — exactly backwards for FEFO.
-    expect(fefoLot(stWithUnknownExp, 'm2')?.id).toBe('known');
+    expect(fefoLot(stWithUnknownExp, asMedId('m2'))?.id).toBe('known');
   });
 });
 

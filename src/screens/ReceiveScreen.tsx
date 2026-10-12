@@ -8,7 +8,8 @@ import { WardBadge } from '../components/WardBadge';
 import { StepIndicator, RECEIVE_STEPS } from '../components/StepIndicator';
 import { SearchInput } from '../components/SearchInput';
 import StockHoldBanner from '../components/StockHoldBanner';
-import type { Med } from '../types';
+import type { Med, MedId } from '../types';
+import { asMedId } from '../types';
 
 // The "ควรเบิกจากคลังใหญ่" sort order — a noSubstock med has no substock stage to rank by (see
 // needsReceive's doc comment below), so its floor/parFloor ratio stands in for it there.
@@ -47,7 +48,7 @@ export default function ReceiveScreen() {
   // - CardPeekButton: for a row that's itself the PRIMARY action (tapping it picks the drug for
   //   receiving — pickRecvMed) — can't repurpose the whole row for navigation without breaking
   //   that, so this adds a small, separate, stopPropagation'd icon button instead.
-  const rowToCard = (medId: string) => ({
+  const rowToCard = (medId: MedId) => ({
     role: 'button' as const,
     tabIndex: 0,
     onClick: () => goSubstockCardFor(medId),
@@ -152,7 +153,7 @@ export default function ReceiveScreen() {
             {(canApprove ? pending : myPending).map((r) => {
               const rMed = state.meds.find((m) => m.id === r.medId);
               return (
-              <div key={r.id} className="row-interactive" {...rowToCard(r.medId)} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', cursor: 'pointer' }}>
+              <div key={r.id} className="row-interactive" {...rowToCard(asMedId(r.medId))} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', cursor: 'pointer' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                   <span style={{ fontSize: 13.5, fontWeight: 600, minWidth: 0, display: 'flex', alignItems: 'center', gap: 7 }}>{r.name} {rMed && <WardBadge med={rMed} />}</span>
                   <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--green)', flex: 'none' }}>{nf(r.qty)} {r.unit}</span>
@@ -331,7 +332,7 @@ export default function ReceiveScreen() {
             {state.recvItems.map((it, i) => {
               const itMed = state.meds.find((m) => m.id === it.medId);
               return (
-                <div key={i} className="row-interactive" {...rowToCard(it.medId)} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+                <div key={i} className="row-interactive" {...rowToCard(asMedId(it.medId))} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>{it.name} {itMed && <WardBadge med={itMed} />}</div>
                     <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>lot {it.lotNo} · exp {thDate(it.exp)} · {nf(it.qty)} {it.unit}</div>
@@ -372,7 +373,7 @@ const inputStyle: CSSProperties = { width: '100%', border: '1px solid var(--bord
 // on rowToCard/stopRowNav above for why this can't just be the whole row like HomeScreen's own
 // rows. stopPropagation is baked in here (not left to each call site) since every call site
 // needs it for the same reason: this button always sits inside a row that has its own onClick.
-function CardPeekButton({ medId, name, onOpen }: { medId: string; name: string; onOpen: (medId: string) => void }) {
+function CardPeekButton({ medId, name, onOpen }: { medId: MedId; name: string; onOpen: (medId: MedId) => void }) {
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onOpen(medId); }}
