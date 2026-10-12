@@ -213,6 +213,51 @@ async function confirmLargeExport(
   }
 }
 
+// Shared core of mergeWardMeds()/mergeAllWardPairs() — folds ipdMed's floor stock into opdMed's,
+// reassigning its lots/floorLots and marking it merged-away. Extracted after an audit finding:
+// the two call sites had quietly drifted apart — mergeAllWardPairs' bulk "รวมกันเลย" path
+// reassigned `lots` but forgot `floorLots` entirely (a floor-level batch for the IPD med would
+// silently orphan, still pointing at a now-inactive, merged-away med id, and drop out of every
+// floor-lot-aware view with no error anywhere), while mergeWardMeds' single-pair path already
+// handled both correctly. One shared transaction body closes that gap for good, instead of two
+// copies that can silently diverge again the next time either one gets its own bug fix.
+async function mergeWardPairTx(
+  runTx: <T,>(fn: (trx: Transaction) => Promise<T>) => Promise<T>,
+  opdMed: Med,
+  ipdMed: Med,
+): Promise<number> {
+  return runTx(async (trx) => {
+    const lotSnap = await getDocs(query(collection(db, 'lots'), where('medId', '==', ipdMed.id)));
+    const floorLotSnap = await getDocs(query(collection(db, 'floorLots'), where('medId', '==', ipdMed.id)));
+    // These reads don't depend on each other — firing them concurrently instead of one lot at a
+    // time saves real time when a med has several open lots, with no correctness change (each is
+    // still read via trx.get(), so Firestore still retries this transaction if any changes before
+    // commit).
+    await Promise.all([...lotSnap.docs, ...floorLotSnap.docs].map((d) => trx.get(d.ref)));
+    const opdSnap = await trx.get(doc(db, 'meds', opdMed.id));
+    const ipdSnap = await trx.get(doc(db, 'meds', ipdMed.id));
+    const freshOpdFloor = (opdSnap.data() as { floor?: number } | undefined)?.floor ?? opdMed.floor;
+    const freshIpdFloor = (ipdSnap.data() as { floor?: number } | undefined)?.floor ?? ipdMed.floor;
+    const merged = freshOpdFloor + freshIpdFloor;
+    lotSnap.docs.forEach((d) => trx.update(d.ref, { medId: opdMed.id }));
+    floorLotSnap.docs.forEach((d) => trx.update(d.ref, { medId: opdMed.id }));
+    trx.update(doc(db, 'meds', opdMed.id), {
+      shared: true,
+      binIpd: ipdMed.bin,
+      floor: merged,
+      used30: opdMed.used30 + ipdMed.used30,
+      usedPrev30: opdMed.usedPrev30 + ipdMed.usedPrev30,
+      ward: 'opd',
+    });
+    // Records WHICH surviving med this merge folded into — see Med.mergedInto's own doc comment
+    // in types.ts for why fetchFloorLedger/fetchSubstockLedger/SubstockCardScreen's hasNameTwin
+    // need this to tell a real ward-merge apart from an unrelated same-name med deactivated for
+    // any other reason.
+    trx.update(doc(db, 'meds', ipdMed.id), { active: false, floor: 0, mergedInto: opdMed.id });
+    return merged;
+  });
+}
+
 function freshState(): AppState {
   return {
     meds: [], lots: [], floorLots: [], txs: [], users: [], authLog: [], dbReady: false,
@@ -4037,54 +4082,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // either side's floor between whenever that snapshot last synced and this commit (a
       // transfer/count/adjust from another device, easily minutes on a walk to confirm the
       // merge dialog) got silently overwritten/lost, not just "stale, go recount" as the old
-      // comment framed it. Re-reading both med docs live inside a transaction, right before
-      // writing, makes the merge use whatever floor actually exists at commit time.
-      //
-      // Bug fix (orphaned lot): the lots query used to run once, OUTSIDE and before this
-      // transaction — a lot created for ipdMed in the gap between that query and commit (e.g. a
-      // receive landing mid-merge) was missing from the result and never got reassigned to
-      // opdMed.id, then became permanently invisible once ipdMed.active was set false. Moved
-      // inside the transaction callback, same pattern commitTransfer/commitSubCount already use
-      // for their own live lot lookups: the Firestore client SDK can't query inside a
-      // transaction directly, but running the query fresh on every retry (and reading each
-      // found lot doc via trx.get(), which Firestore's transaction retries on if it changes
-      // before commit) closes the window down to just the final attempt instead of the whole
-      // confirm-dialog-to-commit gap.
-      const mergedFloor = await runTx(async (trx) => {
-        const lotSnap = await getDocs(query(collection(db, 'lots'), where('medId', '==', ipdMed.id)));
-        // Floor-lot tracking: ipdMed's floor is folded into opdMed's shared floor number below,
-        // so any floorLots docs still pointing at ipdMed.id (its own floor-level batches) need
-        // the same medId reassignment as substock lots just above — otherwise they'd silently
-        // point at a now-inactive, merged-away med and drop out of every floor-lot-aware view.
-        const floorLotSnap = await getDocs(query(collection(db, 'floorLots'), where('medId', '==', ipdMed.id)));
-        // Bug fix (flow latency): these reads don't depend on each other — firing them
-        // concurrently instead of one lot at a time saves real time when a med has several open
-        // lots, with no correctness change (each is still read via trx.get(), so Firestore still
-        // retries this transaction if any of them changes before commit).
-        await Promise.all([...lotSnap.docs, ...floorLotSnap.docs].map((d) => trx.get(d.ref)));
-        const opdSnap = await trx.get(doc(db, 'meds', opdMed.id));
-        const ipdSnap = await trx.get(doc(db, 'meds', ipdMed.id));
-        const freshOpdFloor = (opdSnap.data() as { floor?: number } | undefined)?.floor ?? opdMed.floor;
-        const freshIpdFloor = (ipdSnap.data() as { floor?: number } | undefined)?.floor ?? ipdMed.floor;
-        const merged = freshOpdFloor + freshIpdFloor;
-        lotSnap.docs.forEach((d) => trx.update(d.ref, { medId: opdMed.id }));
-        floorLotSnap.docs.forEach((d) => trx.update(d.ref, { medId: opdMed.id }));
-        trx.update(doc(db, 'meds', opdMed.id), {
-          shared: true,
-          binIpd: ipdMed.bin,
-          floor: merged,
-          used30: opdMed.used30 + ipdMed.used30,
-          usedPrev30: opdMed.usedPrev30 + ipdMed.usedPrev30,
-          ward: 'opd',
-        });
-        // Bug fix (ledger disambiguation — audit finding): records WHICH surviving med this
-        // merge folded into — see Med.mergedInto's own doc comment in types.ts for why
-        // fetchFloorLedger/fetchSubstockLedger/SubstockCardScreen's hasNameTwin need this to
-        // tell a real ward-merge apart from an unrelated same-name med deactivated for any
-        // other reason.
-        trx.update(doc(db, 'meds', ipdMed.id), { active: false, floor: 0, mergedInto: opdMed.id });
-        return merged;
-      });
+      // comment framed it. mergeWardPairTx() re-reads both med docs live inside a transaction,
+      // right before writing, so the merge uses whatever floor actually exists at commit time —
+      // see its own doc comment for the orphaned-lot fix bundled into the same transaction.
+      const mergedFloor = await mergeWardPairTx(runTx, opdMed, ipdMed);
       logAudit({
         type: 'med_edited',
         note: 'รวมสต็อก OPD/IPD ของ ' + opdMed.name + ' เป็นยอดเดียวกัน (' + nf(mergedFloor) + ' ' + opdMed.unit + ') ชั้นวาง OPD ' + (opdMed.bin || '—') + ' / IPD ' + (ipdMed.bin || '—'),
@@ -4121,45 +4122,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       + 'แนะนำให้นับสต็อกจริงทุกตัวหลังรวมเพื่อยืนยันยอด'
     ))) return;
     // Bug fix (lost-update race): this used to compute each pair's merged floor from
-    // state.meds (the client's cached snapshot) once up front, then write everything via
-    // plain chunked writeBatch calls — same class of bug as mergeWardMeds's single-pair
-    // version (see its own fix note): anything landing on either side's floor between whenever
-    // that snapshot last synced and this commit got silently overwritten/lost. Same fix here,
-    // per pair: a small transaction that re-reads both med docs live right before writing.
-    // Sequential (not parallel) same reasoning as commitAllCounts/commitAllSubCounts — a slow
-    // connection degrades into "slower", not a burst of concurrent transactions contending on
-    // the same docs, and one pair's failure doesn't need to abort every other pair's merge.
+    // state.meds (the client's cached snapshot) once up front, then write everything via plain
+    // chunked writeBatch calls — same class of bug as mergeWardMeds's single-pair version (see
+    // mergeWardPairTx's own doc comment). mergeWardPairTx() re-reads both med docs live inside a
+    // transaction right before writing, per pair. Sequential (not parallel) same reasoning as
+    // commitAllCounts/commitAllSubCounts — a slow connection degrades into "slower", not a burst
+    // of concurrent transactions contending on the same docs, and one pair's failure doesn't
+    // need to abort every other pair's merge.
     const names: string[] = [];
     let ok = 0;
     let failed = 0;
     for (const p of pairs) {
       try {
-        // Bug fix (orphaned lot) — same fix as mergeWardMeds's own note: the lots query moved
-        // inside the transaction callback so it re-runs fresh on every retry, and each found lot
-        // doc is read via trx.get() so Firestore's transaction retries if one changes before
-        // commit, instead of running once outside the transaction and missing a lot created in
-        // the gap before commit.
-        await runTx(async (trx) => {
-          const lotSnap = await getDocs(query(collection(db, 'lots'), where('medId', '==', p.ipdMed.id)));
-          // Bug fix (flow latency) — same fix as mergeWardMeds's own note: these reads don't
-          // depend on each other, so run them concurrently instead of one lot at a time.
-          await Promise.all(lotSnap.docs.map((d) => trx.get(d.ref)));
-          const opdSnap = await trx.get(doc(db, 'meds', p.opdMed.id));
-          const ipdSnap = await trx.get(doc(db, 'meds', p.ipdMed.id));
-          const freshOpdFloor = (opdSnap.data() as { floor?: number } | undefined)?.floor ?? p.opdMed.floor;
-          const freshIpdFloor = (ipdSnap.data() as { floor?: number } | undefined)?.floor ?? p.ipdMed.floor;
-          lotSnap.docs.forEach((d) => trx.update(d.ref, { medId: p.opdMed.id }));
-          trx.update(doc(db, 'meds', p.opdMed.id), {
-            shared: true,
-            binIpd: p.ipdMed.bin,
-            floor: freshOpdFloor + freshIpdFloor,
-            used30: p.opdMed.used30 + p.ipdMed.used30,
-            usedPrev30: p.opdMed.usedPrev30 + p.ipdMed.usedPrev30,
-            ward: 'opd',
-          });
-          // Bug fix (ledger disambiguation) — same fix as mergeWardMeds's own note.
-          trx.update(doc(db, 'meds', p.ipdMed.id), { active: false, floor: 0, mergedInto: p.opdMed.id });
-        });
+        await mergeWardPairTx(runTx, p.opdMed, p.ipdMed);
         names.push(p.opdMed.name);
         ok++;
       } catch (e) { console.error(e); failed++; }

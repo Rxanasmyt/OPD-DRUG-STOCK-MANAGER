@@ -12,7 +12,7 @@
 import { vi } from 'vitest';
 import { waitFor } from '@testing-library/dom';
 
-export type FakeDoc = { id: string; data: () => Record<string, unknown> };
+export type FakeDoc = { id: string; data: () => Record<string, unknown>; ref?: { path: string; id: string } };
 type CollectionCb = (snap: { docs: FakeDoc[]; forEach: (fn: (d: FakeDoc) => void) => void }) => void;
 type DocCb = (snap: { exists: () => boolean; id: string; data: () => Record<string, unknown> | undefined; metadata: { fromCache: boolean } }) => void;
 
@@ -201,9 +201,17 @@ vi.mock('firebase/firestore', () => ({
     };
   },
   getDoc: vi.fn(async (target: { path: string }) => readSeededDoc(target.path)),
+  // Bug fix (test-double fidelity): a real QueryDocumentSnapshot always carries its own `.ref`
+  // back to the document it came from — several real write paths (mergeWardMeds/
+  // mergeAllWardPairs' lot/floorLot reassignment, deleteMed's lot cleanup, commitUsageImport)
+  // read that `.ref` directly off a getDocs() result instead of reconstructing doc(db, ...) by
+  // hand, exactly as the real SDK encourages. Omitting it here meant any test seeding a
+  // NON-EMPTY getDocs() result for one of those paths crashed with "Cannot read properties of
+  // undefined (reading 'path')" the moment that code ran — this gap had simply never been
+  // exercised because every prior test of those paths happened to seed an empty collection.
   getDocs: vi.fn(async (target: { path: string }) => {
     const rows = collectionStore.get(target.path) ?? [];
-    const docs: FakeDoc[] = rows.map((r) => ({ id: r.id, data: () => r.data }));
+    const docs: FakeDoc[] = rows.map((r) => ({ id: r.id, data: () => r.data, ref: ref(target.path + '/' + r.id) }));
     return { docs, forEach: (fn: (d: FakeDoc) => void) => docs.forEach(fn) };
   }),
   // Mirrors getDocs' own seeded-rows source so a test can assert the exact count a real
