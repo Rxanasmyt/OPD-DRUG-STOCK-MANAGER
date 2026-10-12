@@ -19,6 +19,8 @@ import { fetchDailyMetricsByDateRange } from './repositories/dailyMetricsRepo';
 import { fetchUsageHistoryByPeriod, newUsageHistoryRef } from './repositories/usageHistoryRepo';
 import { fetchParAdjustmentsSince, addParAdjustmentRecord, newParAdjustmentRef } from './repositories/parAdjustmentsRepo';
 import { fetchDrugReturnsByDateRange, newDrugReturnRef } from './repositories/returnsRepo';
+import { subscribeRecentPendingReceives, newPendingReceiveRef, pendingReceiveRef } from './repositories/pendingReceivesRepo';
+import { settingsRef, subscribeSettings, medSeqRef } from './repositories/metaRepo';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
@@ -1392,7 +1394,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Receives submitted by a ผู้ช่วยเภสัชกร (tech) sit here until a pharmacist/admin
       // approves them — everyone who can see the receive screen needs the live list (tech
       // to see their own request's status, pharm/admin to actually act on it).
-      onSnapshot(query(collection(db, 'pendingReceives'), orderBy('ts', 'desc'), limit(200)), (snap) => {
+      subscribeRecentPendingReceives((snap) => {
         const rows = snap.docs.map((d) => {
           const raw = d.data() as Record<string, unknown>;
           return { id: d.id, ...raw, qty: numOr(raw, 'qty', 0), ts: numOr(raw, 'ts', 0) };
@@ -1405,7 +1407,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // saved settings (that's literally what the screen is called) but were just showing
       // dead numbers. Missing doc on a fresh project is expected and not an error — freshState
       // already has sane defaults, so a snapshot with no data simply leaves them as-is.
-      onSnapshot(doc(db, 'meta', 'settings'), (snap) => {
+      subscribeSettings((snap) => {
         if (!snap.exists()) return;
         const d = snap.data() as Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; idleLogoutMinutes: number; usageStatsRecomputedAt: number; latestVersion: string }>;
         patch((st) => ({
@@ -2355,7 +2357,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // approves each one from the "รออนุมัติ" list on this same screen (or rejects it
         // with a reason); nothing here touches meds/lots stock until that happens.
         items.forEach((it) => {
-          batch.set(doc(collection(db, 'pendingReceives')), {
+          batch.set(newPendingReceiveRef(), {
             recvNo: state.recvNo, medId: it.medId, name: it.name, unit: it.unit, lotNo: it.lotNo, exp: it.exp, qty: it.qty,
             requestedBy: userName(), requestedByUid: state.myUid, status: 'pending', ts: Date.now(),
           });
@@ -2473,7 +2475,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!canApproveReceive) return;
     try {
       await runTx(async (trx) => {
-        const ref = doc(db, 'pendingReceives', id);
+        const ref = pendingReceiveRef(id);
         const snap = await trx.get(ref);
         const pr = snap.data() as PendingReceive | undefined;
         if (!pr || pr.status !== 'pending') throw new Error('already-resolved');
@@ -2542,7 +2544,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!pr) return;
     try {
       await runTx(async (trx) => {
-        const ref = doc(db, 'pendingReceives', id);
+        const ref = pendingReceiveRef(id);
         const snap = await trx.get(ref);
         const cur = snap.data() as PendingReceive | undefined;
         if (!cur || cur.status !== 'pending') throw new Error('already-resolved');
@@ -3615,7 +3617,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // แล้ว" — records when this last actually ran (merged into the same shared meta/settings doc
       // expiryWarnDays/parFloorCoverDays/parSubCoverDays already live in), so SettingsScreen can
       // warn when the numbers behind every par suggestion are stale instead of staying silent.
-      await withTimeout(setDoc(doc(db, 'meta', 'settings'), { usageStatsRecomputedAt: now }, { merge: true }));
+      await withTimeout(setDoc(settingsRef(), { usageStatsRecomputedAt: now }, { merge: true }));
       logAudit({ type: 'par_updated', note: 'คำนวณสถิติการใช้ยาใหม่จากประวัติ HOSxP 60 วันล่าสุด (' + targets.length + ' รายการ)' });
       toast('คำนวณสถิติใหม่แล้ว ' + targets.length + ' รายการ — กด "ใช้ค่าแนะนำทั้งหมด" ด้านบนอีกครั้งเพื่ออัปเดต par ตามสถิติใหม่');
     } catch (e) { toastErr(e, 'คำนวณสถิติไม่สำเร็จ ลองใหม่อีกครั้ง'); }
@@ -3860,7 +3862,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // read a label or answer a phone call triggers it.
     if (patchFields.idleLogoutMinutes !== undefined) patchFields = { ...patchFields, idleLogoutMinutes: Math.max(5, patchFields.idleLogoutMinutes) };
     try {
-      await withTimeout(setDoc(doc(db, 'meta', 'settings'), patchFields, { merge: true }));
+      await withTimeout(setDoc(settingsRef(), patchFields, { merge: true }));
       logAudit({ type: 'par_updated', note: 'แก้ไขการตั้งค่า: ' + Object.entries(patchFields).map(([k, v]) => k + '=' + v).join(', ') });
       toast('บันทึกการตั้งค่าแล้ว');
     } catch (e) { toastErr(e, 'บันทึกการตั้งค่าไม่สำเร็จ'); }
@@ -3917,7 +3919,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // regardless of how many people are adding meds at once — Firestore itself retries the
       // transaction if another client's commit lands first.
       const code = await runTx(async (trx) => {
-        const seqRef = doc(db, 'meta', 'medSeq');
+        const seqRef = medSeqRef();
         const seqSnap = await trx.get(seqRef);
         let next: number;
         if (seqSnap.exists()) {

@@ -7,6 +7,16 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.166.0] - 2026-10-12
+
+### Changed
+- **[ทำงานค้างต่อตามคำสั่ง "จัดการต่อจนทำครบทั้งหมดครับ" — repository/service layer สำหรับ Firestore (รอบที่ 4 — collection `pendingReceives` และ `meta`)]**
+  - ทำต่อแบบค่อยเป็นค่อยไปตามรอบที่ 1-3 — รอบนี้ครอบคลุม `pendingReceives` (4 call site: live feed "รออนุมัติ", เขียนคำขอใหม่, อนุมัติ/ปฏิเสธ) และ `meta` (4 call site: อ่าน/เขียนค่าตั้งค่าระบบที่ `meta/settings`, ตัวนับรหัสยาที่ `meta/medSeq`)
+  - เพิ่ม `src/store/repositories/pendingReceivesRepo.ts` (`subscribeRecentPendingReceives()`, `newPendingReceiveRef()`, `pendingReceiveRef()`) และ `src/store/repositories/metaRepo.ts` (`settingsRef()`, `subscribeSettings()`, `medSeqRef()`) แทนที่ทั้ง 8 จุดเดิมที่เรียก `collection(db, 'X')`/`doc(db, 'X', ...)` ตรงๆ
+  - pure "extract function" เหมือนทุกรอบที่แล้ว ไม่มี logic เปลี่ยนแม้แต่จุดเดียว
+
+  ผ่าน tsc (0 errors) + vitest (548 เทสต์ — เท่าเดิม ไม่มี regression) + build ครบ
+
 ## [3.165.0] - 2026-10-12
 
 ### Changed
