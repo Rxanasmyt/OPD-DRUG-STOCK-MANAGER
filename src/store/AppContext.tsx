@@ -13,6 +13,7 @@ import type {
 } from '../types';
 import { asMedId, asLotId, asFloorLotId } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
+import { subscribeRecentAuditLog, appendAuditLogEntry, queryAllAuditLog, queryAuditLogByDateRange } from './repositories/auditLogRepo';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
@@ -1376,7 +1377,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }) as AppState['txs'];
         patch({ txs });
       }, onErr('txs')),
-      onSnapshot(query(collection(db, 'auditLog'), orderBy('ts', 'desc'), limit(300)), (snap) => {
+      subscribeRecentAuditLog((snap) => {
         const authLog = snap.docs.map((d) => {
           const raw = d.data() as Record<string, unknown>;
           return { id: d.id, ...raw, ts: numOr(raw, 'ts', 0) };
@@ -1583,7 +1584,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // reason to exist — audit trail entries (a human-readable note, not a stock-affecting ledger
   // row) are the only thing still logged outside a transaction, via logAudit() below.
   const logAudit = useCallback(async (entry: { type: AuditType; note: string }) => {
-    try { await withTimeout(addDoc(collection(db, 'auditLog'), { ...entry, by: userName(), ts: Date.now() })); }
+    try { await withTimeout(appendAuditLogEntry({ ...entry, by: userName(), ts: Date.now() })); }
     catch (e) { console.error('audit log write failed:', e); toast('บันทึกลง audit log ไม่สำเร็จ — รายการหลักบันทึกแล้ว แต่ประวัตินี้อาจหายไป'); }
   }, [userName, toast]);
 
@@ -3081,7 +3082,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // uses for the same two collections — the whole export finishes in however long the
       // SLOWER of the two queries takes, not both added together.
       const allReportsTxsQuery = query(collection(db, 'txs'), orderBy('ts', 'desc'));
-      const allReportsAuditQuery = query(collection(db, 'auditLog'), orderBy('ts', 'desc'));
+      const allReportsAuditQuery = queryAllAuditLog();
       if (!(await confirmLargeExport(confirmAsync, [allReportsTxsQuery, allReportsAuditQuery]))) return;
       toast('กำลังดึงประวัติธุรกรรมและ audit log ทั้งหมด…');
       const [txSnap, auditSnap] = await withTimeout(Promise.all([
@@ -5744,7 +5745,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const exportAudit = useCallback(async () => {
     // Same reasoning as exportReportCsv — the live subscriptions are capped at 300 each for
     // the on-screen "recent activity" feed; a real audit export needs the full history.
-    const auditQuery = query(collection(db, 'auditLog'), orderBy('ts', 'desc'));
+    const auditQuery = queryAllAuditLog();
     const auditTxsQuery = query(collection(db, 'txs'), orderBy('ts', 'desc'));
     if (!(await confirmLargeExport(confirmAsync, [auditQuery, auditTxsQuery]))) return;
     toast('กำลังดึงประวัติทั้งหมด…');
@@ -5779,7 +5780,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const CAP = 1500;
     try {
       const [auditSnap, txSnap] = await withTimeout(Promise.all([
-        getDocs(query(collection(db, 'auditLog'), where('ts', '>=', from), where('ts', '<=', to))),
+        getDocs(queryAuditLogByDateRange(from, to)),
         getDocs(query(collection(db, 'txs'), where('ts', '>=', from), where('ts', '<=', to))),
       ]));
       const all = [

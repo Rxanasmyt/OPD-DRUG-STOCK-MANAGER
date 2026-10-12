@@ -7,6 +7,16 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.163.0] - 2026-10-12
+
+### Changed
+- **[ทำงานค้างต่อตามคำสั่ง "จัดการต่อจนทำครบทั้งหมดครับ" — เริ่ม repository/service layer สำหรับ Firestore (รอบที่ 1 — collection `auditLog`)]**
+  - `AppContext.tsx` เรียก Firestore SDK ตรงๆกระจายอยู่ทั่วไฟล์ ~5,800 บรรทัด — ชื่อ collection อย่าง `'auditLog'` เป็น magic string ซ้ำกันถึง 5 จุดแยกกัน ไม่มีที่เดียวให้ดูว่า collection นี้ถูกอ่าน/เขียนจากตรงไหนบ้าง ทำแบบค่อยเป็นค่อยไปทีละ collection (บทเรียนจาก task #34 ที่ทำก่อนหน้า) เลือก `auditLog` เป็น collection แรกเพราะเล็กและไม่เกี่ยวกับ transaction เลย (ปลอดภัยที่สุดที่จะเริ่ม)
+  - เพิ่ม `src/store/repositories/auditLogRepo.ts` รวมฟังก์ชันสำหรับ `auditLog` collection ทั้ง 4 แบบที่ใช้จริง: `subscribeRecentAuditLog()` (live feed แคป 300 แถวล่าสุด), `appendAuditLogEntry()` (เขียน entry ใหม่), `queryAllAuditLog()` (export ประวัติทั้งหมด), `queryAuditLogByDateRange()` (ค้นหาตามช่วงวันที่) — แทนที่ 5 จุดเดิมใน `AppContext.tsx` ที่เรียก `collection(db, 'auditLog')`/`addDoc(collection(db,'auditLog'), ...)` ตรงๆ
+  - เป็น pure "extract function" ล้วนๆ ทุกฟังก์ชันห่อ query/write แบบเดียวกับที่จุดเรียกเดิมทำอยู่แล้วทุกตัวอักษร ไม่มี logic เปลี่ยนแม้แต่จุดเดียว — ไม่ต้องเขียนเทสต์ regression ใหม่ (ไม่มีบั๊กให้ป้องกัน) อาศัยชุดเทสต์เดิมยืนยันว่าไม่กระทบพฤติกรรม
+
+  ผ่าน tsc (0 errors) + vitest (548 เทสต์ — เท่าเดิม ไม่มี regression) + build ครบ
+
 ## [3.162.0] - 2026-10-12
 
 ### Changed
