@@ -7,6 +7,16 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.169.0] - 2026-10-12
+
+### Changed
+- **[ทำงานค้างต่อตามคำสั่ง "จัดการต่อจนทำครบทั้งหมดครับ" — repository/service layer สำหรับ Firestore (รอบที่ 7 — collection `lots`)]**
+  - ทำต่อแบบค่อยเป็นค่อยไปตามรอบที่ 1-6 — รอบนี้ครอบคลุม `lots` (substock) ซึ่งเป็น collection ที่ใหญ่เป็นอันดับ 3 (25 call site: live listener, ref/query ที่ใช้ในแทบทุก commit action หลักของแอพ — commitTransfer, commitReceive, approvePendingReceive, commitCount/commitSubCount/commitAllCounts/commitAllSubCounts, scrapLot, mergeWardMeds, รวมถึง query แบบ `in` สำหรับดึงหลายเมดพร้อมกัน และ fetch ทั้ง collection สำหรับ resetAllQuantities)
+  - เพิ่ม `src/store/repositories/lotsRepo.ts` (`lotRef()`, `newLotRef()`, `subscribeLots()`, `fetchAllLots()`, `fetchLotsByMedId()`, `fetchLotsByMedIds()`) แทนที่ทั้ง 25 จุดเดิมที่เรียก `collection(db, 'lots')`/`doc(db, 'lots', ...)` ตรงๆ — **ไม่แตะ transaction logic ใดๆ**: ทุกฟังก์ชัน repo คืนค่าแค่ ref/query object กลับไปให้ `trx.get()`/`trx.set()`/`trx.update()` ที่จุดเรียกใช้เหมือนเดิมทุกตัวอักษร
+  - pure "extract function" เหมือนทุกรอบที่แล้ว ไม่มี logic เปลี่ยนแม้แต่จุดเดียว
+
+  ผ่าน tsc (0 errors) + vitest (548 เทสต์ — เท่าเดิม ไม่มี regression) + build ครบ
+
 ## [3.168.0] - 2026-10-12
 
 ### Changed
