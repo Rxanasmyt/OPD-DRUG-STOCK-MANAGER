@@ -4,8 +4,8 @@ import {
   setPersistence, browserLocalPersistence, browserSessionPersistence,
 } from 'firebase/auth';
 import {
-  collection, doc, onSnapshot, query, orderBy, limit, where, writeBatch, addDoc, updateDoc, setDoc,
-  runTransaction, getDocs, getDoc, getCountFromServer, increment, deleteField, serverTimestamp, waitForPendingWrites, type Transaction, type Query, type DocumentData,
+  onSnapshot, writeBatch, addDoc, updateDoc, setDoc,
+  runTransaction, getDocs, getDoc, getCountFromServer, increment, deleteField, serverTimestamp, waitForPendingWrites, type Transaction, type Query, type DocumentData, type DocumentReference,
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
@@ -25,6 +25,8 @@ import { floorLotRef, subscribeFloorLots, fetchAllFloorLots, fetchFloorLotsByMed
 import { userRef, usersCollection, queryAdminUsers } from './repositories/usersRepo';
 import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetchLotsByMedIds } from './repositories/lotsRepo';
 import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchReconcileHosxpTxs, fetchAllTxs, fetchTxsByName, fetchTxsAfter, queryTxsByDateRange } from './repositories/txsRepo';
+import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
+import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
@@ -247,14 +249,14 @@ async function mergeWardPairTx(
     // still read via trx.get(), so Firestore still retries this transaction if any changes before
     // commit).
     await Promise.all([...lotSnap.docs, ...floorLotSnap.docs].map((d) => trx.get(d.ref)));
-    const opdSnap = await trx.get(doc(db, 'meds', opdMed.id));
-    const ipdSnap = await trx.get(doc(db, 'meds', ipdMed.id));
+    const opdSnap = await trx.get(medRef(opdMed.id));
+    const ipdSnap = await trx.get(medRef(ipdMed.id));
     const freshOpdFloor = (opdSnap.data() as { floor?: number } | undefined)?.floor ?? opdMed.floor;
     const freshIpdFloor = (ipdSnap.data() as { floor?: number } | undefined)?.floor ?? ipdMed.floor;
     const merged = freshOpdFloor + freshIpdFloor;
     lotSnap.docs.forEach((d) => trx.update(d.ref, { medId: opdMed.id }));
     floorLotSnap.docs.forEach((d) => trx.update(d.ref, { medId: opdMed.id }));
-    trx.update(doc(db, 'meds', opdMed.id), {
+    trx.update(medRef(opdMed.id), {
       shared: true,
       binIpd: ipdMed.bin,
       floor: merged,
@@ -266,7 +268,7 @@ async function mergeWardPairTx(
     // in types.ts for why fetchFloorLedger/fetchSubstockLedger/SubstockCardScreen's hasNameTwin
     // need this to tell a real ward-merge apart from an unrelated same-name med deactivated for
     // any other reason.
-    trx.update(doc(db, 'meds', ipdMed.id), { active: false, floor: 0, mergedInto: opdMed.id });
+    trx.update(medRef(ipdMed.id), { active: false, floor: 0, mergedInto: opdMed.id });
     return merged;
   });
 }
@@ -1354,7 +1356,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       patch({ dbReady: true });
     }, 20000);
     const unsubs = [
-      onSnapshot(collection(db, 'meds'), (snap) => {
+      subscribeMeds((snap) => {
         window.clearTimeout(stallTimer);
         const meds = snap.docs.map((d) => {
           const raw = d.data() as Record<string, unknown>;
@@ -2110,7 +2112,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // collapses this phase to roughly one round-trip's worth of latency regardless of cart
         // size.
         await Promise.all(ids.map(async (medId) => {
-          const medSnap = await trx.get(doc(db, 'meds', medId));
+          const medSnap = await trx.get(medRef(medId));
           medReads[medId] = (medSnap.data() as { floor?: number } | undefined)?.floor ?? 0;
           // Bug fix (false "substock ไม่พอ" rejection + FEFO-skip risk): lotsCache (state.lots,
           // the onSnapshot cache) could miss a lot created between building the cart and
@@ -2226,7 +2228,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // Safe: the missing-med check above already threw before this loop could run for
           // any medId that doesn't resolve, so every lookup here is guaranteed to hit.
           const m = meds.find((x) => x.id === medId)!;
-          trx.update(doc(db, 'meds', medId), { floor: medReads[medId] + cart[medId] });
+          trx.update(medRef(medId), { floor: medReads[medId] + cart[medId] });
           // Real-world request: "ประวัติของการรับยาจาก substock ว่ารับมากี่กล่อง จำนวนกี่เม็ด" —
           // the stock-card ledger (fetchSubstockLedger/fetchFloorLedger) reads this exact `note`
           // field, so a box-only med's history line can show the real box count it was actually
@@ -2346,7 +2348,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // roughly one round trip regardless of how many distinct meds are in the delivery.
       const uniqueMedIds = [...new Set(items.map((it) => it.medId))];
       const liveMedEntries = await Promise.all(uniqueMedIds.map(async (medId) => {
-        const snap = await getDoc(doc(db, 'meds', medId));
+        const snap = await getDoc(medRef(medId));
         return snap.exists() ? [medId, snap.data() as { code?: string; noSubstock?: boolean; packSize?: number }] as const : null;
       }));
       const liveMeds = new Map(liveMedEntries.filter((e): e is readonly [string, { code?: string; noSubstock?: boolean; packSize?: number }] => e !== null));
@@ -2421,7 +2423,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Also merges two rows of THIS SAME receipt sharing a lotNo/exp for one med — neither
         // the live query nor the trx.get pass above can see a lot this same batch is about to
         // create, so track it locally too.
-        const stagedLotRefs = new Map<string, ReturnType<typeof doc>>();
+        const stagedLotRefs = new Map<string, DocumentReference>();
         items.forEach((it) => {
           // Liquids/inhalers/sprays — some meds skip substock entirely and go straight from
           // the central warehouse to the shelf (see noSubstock on Med). No lot is created for
@@ -2431,7 +2433,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // ever transfer out of.
           const m = liveMeds.get(it.medId);
           if (m && m.noSubstock) {
-            trx.update(doc(db, 'meds', it.medId), { floor: increment(it.qty) });
+            trx.update(medRef(it.medId), { floor: increment(it.qty) });
             const noSubBoxLabel = m.packSize ? boxBreakdownLabel({ packSize: m.packSize, unit: it.unit }, it.qty) : undefined;
             trx.set(newTxRef(), {
               type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'floor',
@@ -2492,12 +2494,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // med doc part of this transaction's live read set, so Firestore retries (and then
         // correctly throws) if it's deleted concurrently, the same guarantee every other
         // transactional read in this file relies on.
-        const mSnap = await trx.get(doc(db, 'meds', pr.medId));
+        const mSnap = await trx.get(medRef(pr.medId));
         const m = mSnap.exists() ? (mSnap.data() as { code?: string; noSubstock?: boolean; packSize?: number }) : undefined;
         if (!m) throw new Error('missing-med');
         const boxLabel = m.packSize ? boxBreakdownLabel({ packSize: m.packSize, unit: pr.unit }, pr.qty) : undefined;
         if (m.noSubstock) {
-          trx.update(doc(db, 'meds', pr.medId), { floor: increment(pr.qty) });
+          trx.update(medRef(pr.medId), { floor: increment(pr.qty) });
           trx.set(newTxRef(), {
             type: 'receive_from_central' as TxType, name: pr.name, medId: pr.medId, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'floor',
             note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + (boxLabel ? ' · ' + boxLabel : '') + ' — ไม่มี substock ขึ้นหน้างานทันที — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
@@ -2608,8 +2610,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let latestFloor = from.floor;
     try {
       await runTx(async (trx) => {
-        const fromRef = doc(db, 'meds', from.id);
-        const toRef = doc(db, 'meds', to.id);
+        const fromRef = medRef(from.id);
+        const toRef = medRef(to.id);
         const fromSnap = await trx.get(fromRef);
         const curFloor = (fromSnap.data() as { floor?: number } | undefined)?.floor ?? from.floor;
         latestFloor = curFloor;
@@ -2697,7 +2699,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // write into the same transaction (trx.set, not logTx()) so both commit atomically.
       const now = Date.now();
       await runTx(async (trx) => {
-        const ref = doc(db, 'meds', m.id);
+        const ref = medRef(m.id);
         const snap = await trx.get(ref);
         before = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
         after = Math.max(0, before - q);
@@ -2755,7 +2757,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await runTx(async (trx) => {
       const beforeByMed = new Map<string, number>();
       for (const medId of uniqueMedIds) {
-        const snap = await trx.get(doc(db, 'meds', medId));
+        const snap = await trx.get(medRef(medId));
         const m = state.meds.find((x) => x.id === medId);
         beforeByMed.set(medId, (snap.data() as { floor?: number } | undefined)?.floor ?? m?.floor ?? 0);
       }
@@ -2764,7 +2766,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const before = beforeByMed.get(it.medId)!;
         const after = before + it.qty;
         beforeByMed.set(it.medId, after); // a second line for the same drug in this batch stacks onto the first, not onto the stale pre-batch floor
-        trx.update(doc(db, 'meds', it.medId), { floor: after });
+        trx.update(medRef(it.medId), { floor: after });
         trx.set(newTxRef(), {
           type: 'return', name: m.name, medId: it.medId, qty: after - before, unit: it.unit,
           reason: it.reason, note: it.note, loc: 'floor', by: userName(), ts: now,
@@ -3317,7 +3319,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // fallback.
       const newFloorMin = which === 'floor' && typeof m.floorMin === 'number' && m.floorMin > sug.floor
         ? sug.min : undefined;
-      await withTimeout(updateDoc(doc(db, 'meds', medId), { ...(which === 'sub' ? { parSub: sug.sub } : { parFloor: sug.floor }), ...(newFloorMin !== undefined ? { floorMin: newFloorMin } : {}) }));
+      await withTimeout(updateDoc(medRef(medId), { ...(which === 'sub' ? { parSub: sug.sub } : { parFloor: sug.floor }), ...(newFloorMin !== undefined ? { floorMin: newFloorMin } : {}) }));
       logAudit({ type: 'par_updated', note: 'ปรับ par' + (which === 'sub' ? 'substock' : 'หน้างาน') + ' ' + m.name + ' เป็น ' + nf(which === 'sub' ? sug.sub : sug.floor) + ' ตามค่าแนะนำจากสถิติ' + (newFloorMin !== undefined ? ' (ปรับ Min ลงเหลือ ' + nf(newFloorMin) + ' ตามไปด้วย เพราะ Min เดิมสูงกว่า Max ใหม่)' : '') });
       // Real-world request: "ติดตามผลหลังปรับ par ว่านิ่งจริงไหม" — see ParAdjustmentRecord's own
       // doc comment (types.ts) for why logAudit's free-text note above isn't enough for this.
@@ -3353,7 +3355,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // suggestPar()'s own data-driven `min`, same reasoning as applyOnePar's own fix.
           const floorMinFix = typeof m.floorMin === 'number' && m.floorMin > sug.floor
             ? { floorMin: sug.min } : {};
-          batch.update(doc(db, 'meds', m.id), { parSub: sug.sub, parFloor: sug.floor, ...floorMinFix });
+          batch.update(medRef(m.id), { parSub: sug.sub, parFloor: sug.floor, ...floorMinFix });
           // Real-world request: "ติดตามผลหลังปรับ par ว่านิ่งจริงไหม" — same durable record
           // applyOnePar writes for a single-med apply, here for every med this bulk action
           // actually changes.
@@ -3392,7 +3394,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       for (let i = 0; i < targets.length; i += 400) {
         const batch = writeBatch(db);
         targets.slice(i, i + 400).forEach((m) => {
-          batch.update(doc(db, 'meds', m.id), { floorMin: halfOfMaxRounded(m.parFloor) });
+          batch.update(medRef(m.id), { floorMin: halfOfMaxRounded(m.parFloor) });
         });
         await withTimeout(batch.commit());
       }
@@ -3425,7 +3427,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       for (let i = 0; i < targets.length; i += 400) {
         const batch = writeBatch(db);
         targets.slice(i, i + 400).forEach(({ m, sug }) => {
-          batch.update(doc(db, 'meds', m.id), { floorMin: sug.min });
+          batch.update(medRef(m.id), { floorMin: sug.min });
         });
         await withTimeout(batch.commit());
       }
@@ -3439,7 +3441,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     window.clearTimeout(parDebounce.current[medId + field]);
     const fire = () => {
       delete pendingFlush.current[key];
-      updateDoc(doc(db, 'meds', medId), { [field]: val }).catch(async () => {
+      updateDoc(medRef(medId), { [field]: val }).catch(async () => {
         toast('บันทึกค่า par ไม่สำเร็จ — กำลังดึงค่าจริงกลับมาแสดง');
         // Bug fix: the optimistic local edit above (setParSub/setParFloor, applied immediately
         // on keystroke) used to stay on screen forever on a write failure — nothing rolled it
@@ -3447,7 +3449,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // only a toast (easy to miss, especially mid-typing) ever having said so. Re-read the
         // real value and restore it so the screen never silently disagrees with Firestore.
         try {
-          const snap = await getDoc(doc(db, 'meds', medId));
+          const snap = await getDoc(medRef(medId));
           const real = (snap.data() as Record<string, unknown> | undefined)?.[field];
           if (typeof real === 'number') {
             setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, [field]: real } : x)) }));
@@ -3482,12 +3484,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     window.clearTimeout(binDebounce.current[medId]);
     const fire = () => {
       delete pendingFlush.current[key];
-      updateDoc(doc(db, 'meds', medId), { bin: val }).catch(async () => {
+      updateDoc(medRef(medId), { bin: val }).catch(async () => {
         toast('บันทึกชั้นวางไม่สำเร็จ — กำลังดึงค่าจริงกลับมาแสดง');
         // Bug fix: same rollback gap as debouncedParWrite above — restore the real saved bin
         // code on a write failure instead of leaving the field showing an unsaved value.
         try {
-          const snap = await getDoc(doc(db, 'meds', medId));
+          const snap = await getDoc(medRef(medId));
           const real = (snap.data() as { bin?: string } | undefined)?.bin;
           if (typeof real === 'string') {
             setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, bin: real } : x)) }));
@@ -3510,10 +3512,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     window.clearTimeout(binSubDebounce.current[medId]);
     const fire = () => {
       delete pendingFlush.current[key];
-      updateDoc(doc(db, 'meds', medId), { binSub: val ? val : deleteField() }).catch(async () => {
+      updateDoc(medRef(medId), { binSub: val ? val : deleteField() }).catch(async () => {
         toast('บันทึกชั้นวาง substock ไม่สำเร็จ — กำลังดึงค่าจริงกลับมาแสดง');
         try {
-          const snap = await getDoc(doc(db, 'meds', medId));
+          const snap = await getDoc(medRef(medId));
           const real = (snap.data() as { binSub?: string } | undefined)?.binSub;
           setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, binSub: real } : x)) }));
         } catch { /* best-effort rollback; the live meds listener will eventually correct it too */ }
@@ -3533,7 +3535,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const prevCategory = m.category;
     setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, category: categoryId || undefined } : x)) }));
     try {
-      await withTimeout(updateDoc(doc(db, 'meds', medId), categoryId ? { category: categoryId } : { category: deleteField() }));
+      await withTimeout(updateDoc(medRef(medId), categoryId ? { category: categoryId } : { category: deleteField() }));
     } catch (e) {
       console.error(e);
       toast('บันทึกหมวดกลุ่มยาไม่สำเร็จ — กำลังดึงค่าจริงกลับมาแสดง');
@@ -3554,7 +3556,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const prevRoute = m.route;
     setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, route: route || undefined } : x)) }));
     try {
-      await withTimeout(updateDoc(doc(db, 'meds', medId), route ? { route } : { route: deleteField() }));
+      await withTimeout(updateDoc(medRef(medId), route ? { route } : { route: deleteField() }));
     } catch (e) {
       console.error(e);
       toast('บันทึกประเภทการให้ยาไม่สำเร็จ — กำลังดึงค่าจริงกลับมาแสดง');
@@ -3613,7 +3615,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         targets.slice(i, i + 400).forEach((m) => {
           const used30 = dupNames.has(m.name) ? (curById[m.id] || 0) : (curByName[m.name] || 0);
           const usedPrev30 = dupNames.has(m.name) ? (prevById[m.id] || 0) : (prevByName[m.name] || 0);
-          batch.update(doc(db, 'meds', m.id), { used30: Math.round(used30), usedPrev30: Math.round(usedPrev30) });
+          batch.update(medRef(m.id), { used30: Math.round(used30), usedPrev30: Math.round(usedPrev30) });
         });
         await withTimeout(batch.commit());
       }
@@ -3789,7 +3791,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           } else if (w.peak) {
             fields.peakDayQty = w.peak.qty; fields.peakDayDate = w.peak.date;
           }
-          batch.update(doc(db, 'meds', w.id), fields);
+          batch.update(medRef(w.id), fields);
         });
         await withTimeout(batch.commit());
       }
@@ -3813,7 +3815,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const prev = { weekdayPeakFactor: m.weekdayPeakFactor, weekdayPeakDay: m.weekdayPeakDay, weekdayPeakOccurrences: m.weekdayPeakOccurrences, weekdayPattern: m.weekdayPattern };
     setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, weekdayPeakFactor: undefined, weekdayPeakDay: undefined, weekdayPeakOccurrences: undefined, weekdayPattern: undefined } : x)) }));
     try {
-      await withTimeout(updateDoc(doc(db, 'meds', medId), { weekdayPeakFactor: deleteField(), weekdayPeakDay: deleteField(), weekdayPeakOccurrences: deleteField(), weekdayPattern: deleteField() }));
+      await withTimeout(updateDoc(medRef(medId), { weekdayPeakFactor: deleteField(), weekdayPeakDay: deleteField(), weekdayPeakOccurrences: deleteField(), weekdayPattern: deleteField() }));
       logAudit({ type: 'par_updated', note: 'ล้างรูปแบบการใช้ยารายวันของ ' + m.name + ' ด้วยตนเอง' });
     } catch (e) {
       console.error(e);
@@ -3835,7 +3837,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const prev = { peakDayQty: m.peakDayQty, peakDayDate: m.peakDayDate };
     setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, peakDayQty: undefined, peakDayDate: undefined } : x)) }));
     try {
-      await withTimeout(updateDoc(doc(db, 'meds', medId), { peakDayQty: deleteField(), peakDayDate: deleteField() }));
+      await withTimeout(updateDoc(medRef(medId), { peakDayQty: deleteField(), peakDayDate: deleteField() }));
       logAudit({ type: 'par_updated', note: 'ล้างค่าวันจ่ายยาสูงสุดของ ' + m.name + ' ด้วยตนเอง' });
     } catch (e) {
       console.error(e);
@@ -3945,8 +3947,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const c = 'MED-' + String(next).padStart(4, '0');
         const binIpd = input.binIpd ? normBin(input.binIpd) : '';
         const binSub = input.binSub ? normBin(input.binSub) : '';
-        const medRef = doc(collection(db, 'meds'));
-        trx.set(medRef, {
+        const newMed = newMedRef();
+        trx.set(newMed, {
           code: c, name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
           // Bug fix (data integrity): every other numeric field on this same write (parSub,
           // parFloor, floorMin) is clamped with Math.max(0, ...) — price wasn't, so a typo like
@@ -3967,7 +3969,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ...(input.packSize && input.packSize > 1 ? { packSize: Math.round(input.packSize) } : {}),
           ...(input.route ? { route: input.route } : {}),
         });
-        return { code: c, id: medRef.id };
+        return { code: c, id: newMed.id };
       });
       logAudit({ type: 'med_added', note: 'เพิ่มยาใหม่ ' + name + ' (' + code.code + ')' });
       toast('เพิ่ม ' + name + ' แล้ว');
@@ -4015,7 +4017,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // guardOnce's own timeout-retry confirm and processHosxp's paste-mistake safety net already
     // use elsewhere in this file.
     if (baseline) {
-      const liveSnap = await withTimeout(getDoc(doc(db, 'meds', medId)));
+      const liveSnap = await withTimeout(getDoc(medRef(medId)));
       if (!liveSnap.exists()) { toast('ยานี้ถูกลบออกจากระบบไปแล้ว — บันทึกไม่ได้'); return false; }
       const live = liveSnap.data() as Record<string, unknown>;
       const baselineRec = baseline as unknown as Record<string, unknown>;
@@ -4064,7 +4066,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       route: input.route ? input.route : deleteField(),
     };
     try {
-      await withTimeout(updateDoc(doc(db, 'meds', medId), patch));
+      await withTimeout(updateDoc(medRef(medId), patch));
       logAudit({ type: 'med_edited', note: 'แก้ไขข้อมูลยา ' + name });
       toast('บันทึกข้อมูล ' + name + ' แล้ว');
       return true;
@@ -4195,7 +4197,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       for (let i = 0; i < targets.length; i += 400) {
         const batch = writeBatch(db);
-        targets.slice(i, i + 400).forEach((m) => batch.update(doc(db, 'meds', m.id), { shared: true }));
+        targets.slice(i, i + 400).forEach((m) => batch.update(medRef(m.id), { shared: true }));
         await withTimeout(batch.commit());
       }
       logAudit({ type: 'med_edited', note: 'ตั้งให้ยาใช้สต็อกร่วมกันทั้ง OPD/IPD ทั้งหมด ' + targets.length + ' รายการ' });
@@ -4224,7 +4226,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       for (let i = 0; i < candidates.length; i += 400) {
         const batch = writeBatch(db);
-        candidates.slice(i, i + 400).forEach(({ m, cat }) => batch.update(doc(db, 'meds', m.id), { category: cat }));
+        candidates.slice(i, i + 400).forEach(({ m, cat }) => batch.update(medRef(m.id), { category: cat }));
         await withTimeout(batch.commit());
       }
       const leftover = uncategorizedTotal - candidates.length;
@@ -4256,7 +4258,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       for (let i = 0; i < candidates.length; i += 400) {
         const batch = writeBatch(db);
-        candidates.slice(i, i + 400).forEach(({ m, route }) => batch.update(doc(db, 'meds', m.id), { route }));
+        candidates.slice(i, i + 400).forEach(({ m, route }) => batch.update(medRef(m.id), { route }));
         await withTimeout(batch.commit());
       }
       const leftover = unclassifiedTotal - candidates.length;
@@ -4271,7 +4273,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!m) return;
     const next = !m.active;
     try {
-      await withTimeout(updateDoc(doc(db, 'meds', medId), { active: next }));
+      await withTimeout(updateDoc(medRef(medId), { active: next }));
       logAudit({ type: 'med_status_changed', note: (next ? 'เปิดใช้งานยา ' : 'ปิดใช้งานยา (ตัดออกจากบัญชี) ') + m.name });
       toast((next ? 'เปิดใช้งาน ' : 'ปิดใช้งาน ') + m.name + ' แล้ว');
     } catch (e) { toastErr(e, 'เปลี่ยนสถานะไม่สำเร็จ'); }
@@ -4291,7 +4293,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const trimmed = reason.trim();
     if (!trimmed) { toast('กรุณาระบุเหตุผลที่ยาขาดชั่วคราว'); return; }
     try {
-      await withTimeout(updateDoc(doc(db, 'meds', medId), {
+      await withTimeout(updateDoc(medRef(medId), {
         outOfStockSince: Date.now(),
         outOfStockReason: trimmed,
         ...(expectedReturnAt ? { outOfStockExpectedReturn: expectedReturnAt } : { outOfStockExpectedReturn: deleteField() }),
@@ -4314,7 +4316,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!m || typeof m.outOfStockSince !== 'number') return;
     const days = Math.max(0, Math.round((Date.now() - m.outOfStockSince) / DAY));
     try {
-      await withTimeout(updateDoc(doc(db, 'meds', medId), {
+      await withTimeout(updateDoc(medRef(medId), {
         outOfStockSince: deleteField(), outOfStockReason: deleteField(), outOfStockExpectedReturn: deleteField(),
       }));
       logAudit({
@@ -4339,7 +4341,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // live lot quantities right before actually deleting, using the same lot docs about to
       // be deleted, so this can't silently discard stock that arrived after the check above.
       const [medSnap, lotSnap] = await withTimeout(Promise.all([
-        getDoc(doc(db, 'meds', medId)),
+        getDoc(medRef(medId)),
         fetchLotsByMedId(medId),
       ]));
       const liveFloor = (medSnap.data() as { floor?: number } | undefined)?.floor ?? 0;
@@ -4347,7 +4349,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (liveFloor > 0 || liveLotQty > 0) { toast('ลบไม่ได้ — มียอดคงเหลือเข้ามาระหว่างนี้ (หน้างานหรือ substock) ต้องปรับยอด/ตัดออกให้เป็น 0 ก่อน'); return; }
       const batch = writeBatch(db);
       lotSnap.docs.forEach((d) => batch.delete(d.ref));
-      batch.delete(doc(db, 'meds', medId));
+      batch.delete(medRef(medId));
       await withTimeout(batch.commit());
       logAudit({ type: 'med_deleted', note: 'ลบยา ' + m.name + ' (' + m.code + ') ออกจากระบบถาวร' });
       toast('ลบ ' + m.name + ' แล้ว');
@@ -4380,7 +4382,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const idChunks: string[][] = [];
       for (let i = 0; i < removable.length; i += 30) idChunks.push(removable.slice(i, i + 30).map((m) => m.id));
-      const lotDocs: { ref: ReturnType<typeof doc>; medId: MedId; qty: number }[] = [];
+      const lotDocs: { ref: DocumentReference; medId: MedId; qty: number }[] = [];
       // Bug fix (real stock deletion risk): lots were fetched live (good — catches a lot that
       // arrived after `removable` was computed from cached state), but their quantities were
       // never actually checked before deleting them — any lot doc found for a removable med
@@ -4393,7 +4395,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       for (const chunkIds of idChunks) {
         const [lotSnap, medSnaps] = await withTimeout(Promise.all([
           fetchLotsByMedIds(chunkIds),
-          Promise.all(chunkIds.map((id) => getDoc(doc(db, 'meds', id)))),
+          Promise.all(chunkIds.map((id) => getDoc(medRef(id)))),
         ]));
         lotSnap.docs.forEach((d) => lotDocs.push({ ref: d.ref, medId: asMedId((d.data() as { medId?: string }).medId ?? ''), qty: (d.data() as { qty?: number }).qty ?? 0 }));
         medSnaps.forEach((s) => liveFloorById.set(s.id, (s.data() as { floor?: number } | undefined)?.floor ?? 0));
@@ -4407,7 +4409,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Combine into one flat list of refs before chunking — chunking meds and lots
       // separately at 400 each could put up to 800 deletes in one batch, over Firestore's
       // hard 500-per-commit limit.
-      const allRefs = [...stillEmpty.map((m) => doc(db, 'meds', m.id)), ...lotDocs.filter((l) => stillEmptyIds.has(l.medId)).map((l) => l.ref)];
+      const allRefs = [...stillEmpty.map((m) => medRef(m.id)), ...lotDocs.filter((l) => stillEmptyIds.has(l.medId)).map((l) => l.ref)];
       for (let i = 0; i < allRefs.length; i += 450) {
         const batch = writeBatch(db);
         allRefs.slice(i, i + 450).forEach((ref) => batch.delete(ref));
@@ -4450,7 +4452,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // can be dozens of chunks, and the destructive delete right after this only starts once
       // ALL of them resolve, so doing this serially would multiply both the wait and the chance
       // any single chunk's withTimeout trips on a slow connection.
-      writes.push(withTimeout(setDoc(doc(db, '_preResetSnapshots', `${label}-${stamp}-${i}`), {
+      writes.push(withTimeout(setDoc(preResetSnapshotRef(`${label}-${stamp}-${i}`), {
         createdAt: serverTimestamp(),
         createdBy: userName(),
         label,
@@ -4541,7 +4543,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // record the actual value about to be overwritten in Firestore, not whatever this tab
       // last saw, or an undo via restore-preresetsnapshot.mjs would restore the wrong floor.
       const [medSnap, lotSnap, floorLotSnap] = await Promise.all([
-        withTimeout(getDocs(collection(db, 'meds'))),
+        withTimeout(fetchAllMeds()),
         withTimeout(fetchAllLots()),
         withTimeout(fetchAllFloorLots()),
       ]);
@@ -4561,7 +4563,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         toastErr(e, 'ยกเลิก — สำรองข้อมูลก่อนลบไม่สำเร็จ (อาจยังไม่ได้ publish กฎ Firestore ล่าสุด) ยังไม่มีอะไรถูกเปลี่ยน');
         return;
       }
-      const ops: { ref: ReturnType<typeof doc>; kind: 'update' | 'delete' }[] = [
+      const ops: { ref: DocumentReference; kind: 'update' | 'delete' }[] = [
         ...medSnap.docs.map((d) => ({ ref: d.ref, kind: 'update' as const })),
         ...lotSnap.docs.map((d) => ({ ref: d.ref, kind: 'delete' as const })),
         ...floorLotSnap.docs.map((d) => ({ ref: d.ref, kind: 'delete' as const })),
@@ -4866,7 +4868,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // write (was a separate logTx() call after commit) — see commitAdjust's note on this
       // exact class of gap.
       await runTx(async (trx) => {
-        const ref = doc(db, 'meds', medId);
+        const ref = medRef(medId);
         const snap = await trx.get(ref);
         const curFloor = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
         delta = q - curFloor;
@@ -4938,7 +4940,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Bug fix (data integrity): tx-log write folded into the same per-med transaction —
         // see commitCount's note on this exact class of gap.
         await runTx(async (trx) => {
-          const ref = doc(db, 'meds', medId);
+          const ref = medRef(medId);
           const snap = await trx.get(ref);
           const curFloor = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
           delta = q - curFloor;
@@ -5038,7 +5040,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             exp: Date.now() + 100 * 365 * DAY, qty: delta, loc: 'ปรับยอด',
           });
         }
-        trx.update(doc(db, 'meds', medId), { lastSubCountTs: Date.now() });
+        trx.update(medRef(medId), { lastSubCountTs: Date.now() });
         note = delta < 0
           ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — ตัดออกจาก lot ที่ใกล้หมดอายุที่สุดก่อน'
           : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ลงเป็น lot ปรับยอด ยังไม่ทราบวันหมดอายุจริง ควรแก้ไขเมื่อทราบ' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
@@ -5118,7 +5120,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               exp: Date.now() + 100 * 365 * DAY, qty: delta, loc: 'ปรับยอด',
             });
           }
-          trx.update(doc(db, 'meds', medId), { lastSubCountTs: Date.now() });
+          trx.update(medRef(medId), { lastSubCountTs: Date.now() });
           const note = delta < 0
             ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — ตัดออกจาก lot ที่ใกล้หมดอายุที่สุดก่อน'
             : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ลงเป็น lot ปรับยอด ยังไม่ทราบวันหมดอายุจริง ควรแก้ไขเมื่อทราบ' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
@@ -5278,7 +5280,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // number this whole app exists to keep trustworthy — so it gets the same atomic
           // treatment every other stock-mutating flow already has.
           await runTx(async (trx) => {
-            const ref = doc(db, 'meds', m.id);
+            const ref = medRef(m.id);
             const snap = await trx.get(ref);
             const before = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
             const after = Math.max(0, before - r.qty);
@@ -5462,7 +5464,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       for (let i = 0; i < ops.length; i += 400) {
         const batch = writeBatch(db);
         ops.slice(i, i + 400).forEach((op) => {
-          if (op.kind === 'med') batch.update(doc(db, 'meds', op.id), { used30: op.used30 });
+          if (op.kind === 'med') batch.update(medRef(op.id), { used30: op.used30 });
           else batch.set(newUsageHistoryRef(), op.record satisfies UsageHistoryRecord);
         });
         await withTimeout(batch.commit());
