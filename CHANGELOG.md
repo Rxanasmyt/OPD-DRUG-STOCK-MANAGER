@@ -7,6 +7,19 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.171.0] - 2026-10-12
+
+### Changed
+- **[ทำงานค้างต่อตามคำสั่ง "จัดการต่อจนทำครบทั้งหมดครับ" — repository/service layer สำหรับ Firestore (รอบที่ 9/9 — collection `meds` + `_preResetSnapshots`) — task #35 เสร็จสมบูรณ์]**
+  - รอบสุดท้ายของ task #35 — ครอบคลุม **`meds`** collection ที่ใหญ่/ถูกอ้างอิงมากที่สุดในไฟล์ (52 call site: drug master list ที่ทุกหน้าจอใน UI อ่าน, และแทบทุก admin/commit action เขียนฟิลด์ลง — addMed, mergeWardMeds, approvePendingReceive, commitAdjust, การแก้ par/floorMin/bin/binSub/category/route แต่ละอัน, toggle active, ลบยา, reset ระบบ ฯลฯ)
+  - เพิ่ม `src/store/repositories/medsRepo.ts` (`medRef()`, `newMedRef()`, `subscribeMeds()`, `fetchAllMeds()`) แทนที่ทั้ง 52 จุดเดิมที่เรียก `collection(db, 'meds')`/`doc(db, 'meds', ...)` ตรงๆ
+  - พบ collection ที่ 10 ที่ตกไปจากการสำรวจรอบแรก — **`_preResetSnapshots`** (admin-only backup collection ของ `snapshotBeforeDelete()`, 1 call site) — เก็บกวาดให้ครบในรอบนี้ด้วย `src/store/repositories/preResetSnapshotsRepo.ts` (`preResetSnapshotRef()`)
+  - **ไม่แตะ transaction logic ใดๆ** เหมือนทุกรอบที่แล้ว — pure "extract function" refactor ทุกฟังก์ชัน repo คืนค่าแค่ ref/query/Unsubscribe กลับไปให้ `trx.get()`/`trx.set()`/`trx.update()`/`updateDoc()`/`batch.update()`/`batch.delete()` ที่จุดเรียกใช้เหมือนเดิมทุกตัวอักษร
+  - เก็บกวาด import ที่ไม่ใช้แล้วใน `AppContext.tsx` (`collection`, `doc`, `query`, `orderBy`, `limit`, `where` จาก `firebase/firestore` — ไม่มีจุดเรียก Firestore SDK ตรงๆ เหลืออยู่ในไฟล์นี้แล้ว ทุก collection ผ่าน repository module ทั้งหมด) และเปลี่ยน 3 ที่ที่ใช้ `ReturnType<typeof doc>` เป็น `DocumentReference` โดยตรง
+  - **task #35 (repository/service layer สำหรับ Firestore access) เสร็จสมบูรณ์ — ครบทั้ง 10 collection แล้ว** (auditLog, usernames, dailyMetrics, usageHistory, parAdjustments, returns, pendingReceives, meta, floorLots, users, lots, txs, meds, _preResetSnapshots — รวม 9 ไฟล์ repo)
+
+  ผ่าน tsc (0 errors) + vitest (548 เทสต์ — เท่าเดิม ไม่มี regression) + build ครบ
+
 ## [3.170.0] - 2026-10-12
 
 ### Changed
