@@ -206,6 +206,12 @@ vi.mock('firebase/firestore', () => ({
     const docs: FakeDoc[] = rows.map((r) => ({ id: r.id, data: () => r.data }));
     return { docs, forEach: (fn: (d: FakeDoc) => void) => docs.forEach(fn) };
   }),
+  // Mirrors getDocs' own seeded-rows source so a test can assert the exact count a real
+  // getCountFromServer() aggregate query would report, without needing a second seeding path.
+  getCountFromServer: vi.fn(async (target: { path: string }) => {
+    const rows = collectionStore.get(target.path) ?? [];
+    return { data: () => ({ count: rows.length }) };
+  }),
   addDoc: vi.fn(async () => ({ id: 'new-doc' })),
   updateDoc: vi.fn(async () => undefined),
   setDoc: vi.fn(async () => undefined),

@@ -5,7 +5,7 @@ import {
 } from 'firebase/auth';
 import {
   collection, doc, onSnapshot, query, orderBy, limit, where, writeBatch, addDoc, updateDoc, setDoc,
-  runTransaction, getDocs, getDoc, getCountFromServer, increment, deleteField, serverTimestamp, waitForPendingWrites, type Transaction,
+  runTransaction, getDocs, getDoc, getCountFromServer, increment, deleteField, serverTimestamp, waitForPendingWrites, type Transaction, type Query, type DocumentData,
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
@@ -179,6 +179,38 @@ function genDefaultRecvNo(): string {
 function numOr(raw: Record<string, unknown>, key: string, fallback: number): number {
   const v = raw[key];
   return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+}
+
+// Bug fix (audit finding — unbounded export query): exportReportCsv's "ความคลาดเคลื่อน" tab,
+// exportAllReports(), and exportAudit() each getDocs() the FULL txs collection (two of them
+// also the full auditLog) with no limit() at all — once a hospital has been live long enough,
+// that is potentially tens of thousands of documents pulled into memory in a single request,
+// with the person who clicked "export" having no idea how big that pull is and no way to back
+// out once it starts. Deliberately does NOT cap what actually gets exported — every one of
+// those functions' own doc comments already states the point is the FULL history, never a
+// truncated sample (see exportReportCsv's "a compliance report can't silently drop everything
+// before that cutoff") — this only makes the size visible and gives a cancel option before
+// committing to the real fetch. getCountFromServer() reads server-side aggregate metadata only
+// (no documents transferred), so checking "is this huge?" first costs next to nothing even
+// when the answer turns out to be yes.
+const LARGE_EXPORT_WARN_AT = 5000;
+async function confirmLargeExport(
+  confirmAsync: (message: string) => Promise<boolean>,
+  queries: Query<DocumentData>[],
+): Promise<boolean> {
+  try {
+    const counts = await Promise.all(queries.map((q) => getCountFromServer(q)));
+    const total = counts.reduce((s, c) => s + c.data().count, 0);
+    if (total <= LARGE_EXPORT_WARN_AT) return true;
+    return confirmAsync(
+      'ข้อมูลที่จะดึงมีทั้งหมดประมาณ ' + nf(total) + ' รายการ — การดึงข้อมูลขนาดนี้อาจใช้เวลานาน'
+      + 'และกินหน่วยความจำมากบนมือถือหรือเบราว์เซอร์ที่เชื่อมต่อช้า ต้องการดำเนินการต่อหรือไม่?'
+    );
+  } catch {
+    // A failed pre-flight count shouldn't block an export that might still succeed on its own —
+    // fall through and let the real fetch (which already has its own try/catch) decide.
+    return true;
+  }
 }
 
 function freshState(): AppState {
@@ -2853,11 +2885,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // The live txs subscription is capped at the most recent 300 (kept small on purpose —
       // it only backs the "recent activity" UI). A compliance report can't silently drop
       // everything before that, so re-fetch the full collection fresh at export time.
+      const txsQuery = query(collection(db, 'txs'), orderBy('ts', 'desc'));
+      if (!(await confirmLargeExport(confirmAsync, [txsQuery]))) return;
       toast('กำลังดึงประวัติทั้งหมด…');
       const types = ['adjust', 'return', 'damaged', 'expired', 'count', 'reconcile_hosxp'];
       let rows: (string | number)[][];
       try {
-        const snap = await withTimeout(getDocs(query(collection(db, 'txs'), orderBy('ts', 'desc'))));
+        const snap = await withTimeout(getDocs(txsQuery));
         rows = snap.docs
           .map((d) => d.data() as { type: string; ts: number; name: string; qty: number; unit: string; loc?: string; reason?: string; note?: string; by: string; medId?: string })
           .filter((x) => types.indexOf(x.type) >= 0)
@@ -2867,7 +2901,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     if (outcome === 'saved') toast('ดาวน์โหลด ' + names[state.reportTab] + ' แล้ว');
     else if (outcome === 'unavailable') toast('ดาวน์โหลดไฟล์ไม่ได้ในเบราว์เซอร์นี้');
-  }, [state, toast, toastErr]);
+  }, [state, toast, toastErr, confirmAsync]);
 
   // "Dashboard สรุปภาพรวมสำหรับผู้บริหาร/หัวหน้าเภสัชกรรม" — same underlying numbers the aging/
   // category/turnover tabs already compute on screen, rolled into one headline-first printout
@@ -2989,10 +3023,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // result. Promise.all runs them concurrently instead, same pattern exportAudit() already
       // uses for the same two collections — the whole export finishes in however long the
       // SLOWER of the two queries takes, not both added together.
+      const allReportsTxsQuery = query(collection(db, 'txs'), orderBy('ts', 'desc'));
+      const allReportsAuditQuery = query(collection(db, 'auditLog'), orderBy('ts', 'desc'));
+      if (!(await confirmLargeExport(confirmAsync, [allReportsTxsQuery, allReportsAuditQuery]))) return;
       toast('กำลังดึงประวัติธุรกรรมและ audit log ทั้งหมด…');
       const [txSnap, auditSnap] = await withTimeout(Promise.all([
-        getDocs(query(collection(db, 'txs'), orderBy('ts', 'desc'))),
-        getDocs(query(collection(db, 'auditLog'), orderBy('ts', 'desc'))),
+        getDocs(allReportsTxsQuery),
+        getDocs(allReportsAuditQuery),
       ]));
       const txDocs = txSnap.docs.map((d) => d.data() as {
         type: string; ts: number; name: string; qty: number; unit: string; loc?: string;
@@ -3067,7 +3104,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       XLSX.writeFile(wb, fname);
       toast('ดาวน์โหลด ' + fname + ' แล้ว — รวมข้อมูลทุกอย่างในแอพเป็นไฟล์เดียว คนละ sheet');
     } catch (e) { toastErr(e, 'รวบรวมข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }), [state, toast, toastErr, guardOnce]);
+  }), [state, toast, toastErr, guardOnce, confirmAsync]);
 
   // ---------- labels ----------
   const setLabelType = useCallback((t: AppState['labelType']) => patch({ labelType: t }), [patch]);
@@ -5720,13 +5757,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const exportAudit = useCallback(async () => {
     // Same reasoning as exportReportCsv — the live subscriptions are capped at 300 each for
     // the on-screen "recent activity" feed; a real audit export needs the full history.
+    const auditQuery = query(collection(db, 'auditLog'), orderBy('ts', 'desc'));
+    const auditTxsQuery = query(collection(db, 'txs'), orderBy('ts', 'desc'));
+    if (!(await confirmLargeExport(confirmAsync, [auditQuery, auditTxsQuery]))) return;
     toast('กำลังดึงประวัติทั้งหมด…');
     type Entry = { type: string; by: string; ts: number; note: string };
     let all: Entry[];
     try {
       const [auditSnap, txSnap] = await withTimeout(Promise.all([
-        getDocs(query(collection(db, 'auditLog'), orderBy('ts', 'desc'))),
-        getDocs(query(collection(db, 'txs'), orderBy('ts', 'desc'))),
+        getDocs(auditQuery),
+        getDocs(auditTxsQuery),
       ]));
       all = [
         ...auditSnap.docs.map((d) => d.data() as Entry),
@@ -5736,7 +5776,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { toastErr(e, 'ดึงประวัติไม่สำเร็จ ลองใหม่อีกครั้ง'); return; }
     const outcome = await downloadCsv([['date_time', 'event', 'by', 'detail'], ...all.sort((a, b) => b.ts - a.ts).map((e) => [new Date(e.ts).toISOString(), EVENT_TYPE_LABEL[e.type] || e.type, e.by, e.note])], 'audit_log.csv');
     if (outcome === 'saved') toast('ดาวน์โหลด audit_log.csv แล้ว');
-  }, [toast, toastErr]);
+  }, [toast, toastErr, confirmAsync]);
 
   // ---------- audit/tx history search (browse any date range, not just the live 300-cap) ----------
   const setHistoryFrom = useCallback((v: string) => patch({ historyFrom: v }), [patch]);
