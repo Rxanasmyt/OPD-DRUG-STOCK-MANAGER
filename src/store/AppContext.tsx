@@ -24,6 +24,7 @@ import { settingsRef, subscribeSettings, medSeqRef } from './repositories/metaRe
 import { floorLotRef, subscribeFloorLots, fetchAllFloorLots, fetchFloorLotsByMedId } from './repositories/floorLotsRepo';
 import { userRef, usersCollection, queryAdminUsers } from './repositories/usersRepo';
 import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetchLotsByMedIds } from './repositories/lotsRepo';
+import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchReconcileHosxpTxs, fetchAllTxs, fetchTxsByName, fetchTxsAfter, queryTxsByDateRange } from './repositories/txsRepo';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
@@ -1380,7 +1381,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }) as AppState['floorLots'];
         patch({ floorLots });
       }, onErr('floorLots')),
-      onSnapshot(query(collection(db, 'txs'), orderBy('ts', 'desc'), limit(300)), (snap) => {
+      subscribeRecentTxs((snap) => {
         const txs = snap.docs.map((d) => {
           const raw = d.data() as Record<string, unknown>;
           return { id: d.id, ...raw, qty: numOr(raw, 'qty', 0), ts: numOr(raw, 'ts', 0) };
@@ -2233,7 +2234,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // sheet already shows (boxes, never rounded away since cart[medId] isn't guaranteed to
           // land on a clean multiple of packSize).
           const boxNote = boxBreakdownLabel(m, cart[medId]);
-          trx.set(doc(collection(db, 'txs')), {
+          trx.set(newTxRef(), {
             type: 'transfer_to_floor', name: m.name, medId, qty: cart[medId], unit: m.unit, from: 'substock', to: 'floor',
             note: 'FEFO lot ' + used.join(', ') + (boxNote ? ' · ' + boxNote : ''), by: userName(), ts,
           } satisfies Omit<import('../types').Tx, 'id'>);
@@ -2432,7 +2433,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (m && m.noSubstock) {
             trx.update(doc(db, 'meds', it.medId), { floor: increment(it.qty) });
             const noSubBoxLabel = m.packSize ? boxBreakdownLabel({ packSize: m.packSize, unit: it.unit }, it.qty) : undefined;
-            trx.set(doc(collection(db, 'txs')), {
+            trx.set(newTxRef(), {
               type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'floor',
               note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp) + (noSubBoxLabel ? ' · ' + noSubBoxLabel : '') + ' — ไม่มี substock ขึ้นหน้างานทันที', by: userName(), ts: Date.now(),
             });
@@ -2453,7 +2454,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             stagedLotRefs.set(key, lotRef);
           }
           const boxLabel = m?.packSize ? boxBreakdownLabel({ packSize: m.packSize, unit: it.unit }, it.qty) : undefined;
-          trx.set(doc(collection(db, 'txs')), {
+          trx.set(newTxRef(), {
             type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'substock',
             note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp) + (boxLabel ? ' · ' + boxLabel : ''), by: userName(), ts: Date.now(),
           });
@@ -2497,7 +2498,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const boxLabel = m.packSize ? boxBreakdownLabel({ packSize: m.packSize, unit: pr.unit }, pr.qty) : undefined;
         if (m.noSubstock) {
           trx.update(doc(db, 'meds', pr.medId), { floor: increment(pr.qty) });
-          trx.set(doc(collection(db, 'txs')), {
+          trx.set(newTxRef(), {
             type: 'receive_from_central' as TxType, name: pr.name, medId: pr.medId, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'floor',
             note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + (boxLabel ? ' · ' + boxLabel : '') + ' — ไม่มี substock ขึ้นหน้างานทันที — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
           });
@@ -2524,7 +2525,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const lotRef = newLotRef();
             trx.set(lotRef, { code: genLotCode(m?.code, asMedId(pr.medId), lotRef.id), medId: pr.medId, lotNo: pr.lotNo, exp: pr.exp, qty: pr.qty, loc: 'ชั้น bulk' });
           }
-          trx.set(doc(collection(db, 'txs')), {
+          trx.set(newTxRef(), {
             type: 'receive_from_central' as TxType, name: pr.name, medId: pr.medId, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'substock',
             note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + (boxLabel ? ' · ' + boxLabel : '') + ' — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
           });
@@ -2615,11 +2616,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (curFloor < q) throw new Error('insufficient');
         trx.update(fromRef, { floor: curFloor - q });
         trx.update(toRef, { floor: increment(q) });
-        trx.set(doc(collection(db, 'txs')), {
+        trx.set(newTxRef(), {
           type: 'ward_move_out' as TxType, name: from.name, medId: from.id, qty: -q, unit: from.unit, to: to.name,
           reason: state.wmReason.trim(), note: 'ย้ายไป ' + to.name + ' — ' + state.wmReason.trim(), by: userName(), ts: Date.now(), loc: 'floor',
         });
-        trx.set(doc(collection(db, 'txs')), {
+        trx.set(newTxRef(), {
           type: 'ward_move_in' as TxType, name: to.name, medId: to.id, qty: q, unit: to.unit, from: from.name,
           reason: state.wmReason.trim(), note: 'ย้ายมาจาก ' + from.name + ' — ' + state.wmReason.trim(), by: userName(), ts: Date.now(), loc: 'floor',
         });
@@ -2701,7 +2702,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         before = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
         after = Math.max(0, before - q);
         trx.update(ref, { floor: after });
-        trx.set(doc(collection(db, 'txs')), {
+        trx.set(newTxRef(), {
           type: t, name: m.name, medId: m.id, qty: after - before, unit: m.unit,
           reason: state.adjReason, note: state.adjNote || '—', loc: 'floor', by: userName(), ts: now,
         } satisfies Omit<import('../types').Tx, 'id'>);
@@ -2764,7 +2765,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const after = before + it.qty;
         beforeByMed.set(it.medId, after); // a second line for the same drug in this batch stacks onto the first, not onto the stale pre-batch floor
         trx.update(doc(db, 'meds', it.medId), { floor: after });
-        trx.set(doc(collection(db, 'txs')), {
+        trx.set(newTxRef(), {
           type: 'return', name: m.name, medId: it.medId, qty: after - before, unit: it.unit,
           reason: it.reason, note: it.note, loc: 'floor', by: userName(), ts: now,
         } satisfies Omit<import('../types').Tx, 'id'>);
@@ -2847,7 +2848,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const snap = await trx.get(ref);
         realQty = (snap.data() as { qty?: number } | undefined)?.qty ?? l.qty;
         trx.update(ref, { qty: 0 });
-        trx.set(doc(collection(db, 'txs')), {
+        trx.set(newTxRef(), {
           type: 'expired', name: m.name, medId: m.id, qty: -realQty, unit: m.unit,
           reason: 'หมดอายุ / ใกล้หมดอายุ', note: 'lot ' + l.lotNo + ' exp ' + thDate(l.exp) + ' · มูลค่า ' + nf(realQty * m.price) + ' บาท',
           loc: 'substock', by: userName(), ts: Date.now(),
@@ -2953,7 +2954,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // The live txs subscription is capped at the most recent 300 (kept small on purpose —
       // it only backs the "recent activity" UI). A compliance report can't silently drop
       // everything before that, so re-fetch the full collection fresh at export time.
-      const txsQuery = query(collection(db, 'txs'), orderBy('ts', 'desc'));
+      const txsQuery = queryAllTxs();
       if (!(await confirmLargeExport(confirmAsync, [txsQuery]))) return;
       toast('กำลังดึงประวัติทั้งหมด…');
       const types = ['adjust', 'return', 'damaged', 'expired', 'count', 'reconcile_hosxp'];
@@ -2994,7 +2995,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // (which can only ever under-count, never over-count) if that fetch fails.
     let txsThisMonth: number;
     try {
-      const snap = await withTimeout(getCountFromServer(query(collection(db, 'txs'), where('ts', '>=', monthAgo))));
+      const snap = await withTimeout(getCountFromServer(queryTxsSince(monthAgo)));
       txsThisMonth = snap.data().count;
     } catch {
       txsThisMonth = state.txs.filter((x) => x.ts >= monthAgo).length;
@@ -3091,7 +3092,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // result. Promise.all runs them concurrently instead, same pattern exportAudit() already
       // uses for the same two collections — the whole export finishes in however long the
       // SLOWER of the two queries takes, not both added together.
-      const allReportsTxsQuery = query(collection(db, 'txs'), orderBy('ts', 'desc'));
+      const allReportsTxsQuery = queryAllTxs();
       const allReportsAuditQuery = queryAllAuditLog();
       if (!(await confirmLargeExport(confirmAsync, [allReportsTxsQuery, allReportsAuditQuery]))) return;
       toast('กำลังดึงประวัติธุรกรรมและ audit log ทั้งหมด…');
@@ -3574,7 +3575,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!canEditMeds) return;
     toast('กำลังคำนวณสถิติการใช้ยาใหม่จากประวัติ HOSxP…');
     try {
-      const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('type', '==', 'reconcile_hosxp'))));
+      const snap = await withTimeout(fetchReconcileHosxpTxs());
       const now = Date.now();
       // Same OPD/IPD name-twin hazard as fetchSubstockLedger/matchHosxpMed — aggregating by
       // name alone would sum both wards' dispensing into one number and then write that same
@@ -3663,7 +3664,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const PEAK_LOOKBACK_DAYS = 180; // ~26 weeks — reliably covers at least one quarterly refill cycle
     toast('กำลังวิเคราะห์รูปแบบการใช้ยารายวันและวันจ่ายสูงสุด…');
     try {
-      const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('type', '==', 'reconcile_hosxp'))));
+      const snap = await withTimeout(fetchReconcileHosxpTxs());
       const now = Date.now();
       const cutoff = now - LOOKBACK_DAYS * DAY;
       const peakCutoff = now - PEAK_LOOKBACK_DAYS * DAY;
@@ -4493,7 +4494,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const typed = await promptAsync('พิมพ์ RESET (ตัวพิมพ์ใหญ่) เพื่อยืนยันการลบประวัติธุรกรรมทั้งหมดถาวร — พิมพ์อย่างอื่นหรือกดยกเลิกเพื่อไม่ทำอะไรเลย');
     if (typed !== 'RESET') { toast('ยกเลิก — ไม่ได้พิมพ์ยืนยันตรงตามที่กำหนด ไม่มีอะไรถูกลบ'); return; }
     try {
-      const snap = await withTimeout(getDocs(collection(db, 'txs')));
+      const snap = await withTimeout(fetchAllTxs());
       const rows = snap.docs.map((d) => ({ id: d.id, data: d.data() }));
       try {
         await snapshotBeforeDelete('txs', rows);
@@ -4503,7 +4504,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       for (let i = 0; i < rows.length; i += 450) {
         const batch = writeBatch(db);
-        rows.slice(i, i + 450).forEach((r) => batch.delete(doc(db, 'txs', r.id)));
+        rows.slice(i, i + 450).forEach((r) => batch.delete(txRef(r.id)));
         await withTimeout(batch.commit());
       }
       await logAudit({ type: 'stock_ledger_reset', note: 'รีเซ็ตบัตรสต็อกยาทุกตัว — ลบประวัติธุรกรรมทั้งหมด ' + nf(rows.length) + ' รายการ (สำรองไว้ล่วงหน้าใน _preResetSnapshots แล้ว) เพื่อเริ่มต้นใช้งานระบบจริง โดย ' + userName() });
@@ -4639,7 +4640,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // for its warning banner, though it only needs the boolean, not this id set.)
     const mergedFromIds = new Set(state.meds.filter((x) => x.id !== m.id && x.name === m.name && x.mergedInto === m.id).map((x) => x.id));
     const hasNameTwin = state.meds.some((x) => x.id !== m.id && x.name === m.name && !mergedFromIds.has(x.id));
-    const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('name', '==', m.name))));
+    const snap = await withTimeout(fetchTxsByName(m.name));
     const rows = snap.docs
       .map((d) => d.data() as { type: string; ts: number; qty: number; note?: string; by: string; loc?: string; medId?: string })
       // Bug-guard: 'count' is logged for BOTH floor counts (loc:'floor', commitCount) and
@@ -4671,7 +4672,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // above — see its own comment for the full reasoning.
     const mergedFromIds = new Set(state.meds.filter((x) => x.id !== m.id && x.name === m.name && x.mergedInto === m.id).map((x) => x.id));
     const hasNameTwin = state.meds.some((x) => x.id !== m.id && x.name === m.name && !mergedFromIds.has(x.id));
-    const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('name', '==', m.name))));
+    const snap = await withTimeout(fetchTxsByName(m.name));
     const rows = snap.docs
       .map((d) => d.data() as { type: string; ts: number; qty: number; note?: string; by: string; loc?: string; to?: string; medId?: string })
       // receive_from_central needs its own guard unlike the rest: a med WITH substock has this
@@ -4700,7 +4701,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // stock-affecting event in that window was never logged as a tx — matching this app's "never
   // silently correct, always show" convention elsewhere (parAnomalies, usageAnomalies, ...).
   const fetchStockAsOf = useCallback(async (dateMs: number): Promise<{ medId: MedId; medName: string; unit: string; category: string; floor: number; sub: number; value: number }[]> => {
-    const snap = await withTimeout(getDocs(query(collection(db, 'txs'), where('ts', '>', dateMs))));
+    const snap = await withTimeout(fetchTxsAfter(dateMs));
     const medById = new Map(state.meds.map((m) => [m.id, m]));
     const medsByName = new Map<string, Med[]>();
     for (const m of state.meds) {
@@ -4751,7 +4752,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const fetchExecTxsThisMonth = useCallback(async (): Promise<number | null> => {
     try {
       const from = Date.now() - 30 * 86400000;
-      const snap = await withTimeout(getCountFromServer(query(collection(db, 'txs'), where('ts', '>=', from))));
+      const snap = await withTimeout(getCountFromServer(queryTxsSince(from)));
       return snap.data().count;
     } catch {
       return null;
@@ -4873,7 +4874,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — คาดว่าจ่ายผ่าน HOSxP แต่ยังไม่ reconcile'
           : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ควรตรวจสอบย้อนหลัง' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
         trx.update(ref, { floor: q, lastCountTs: Date.now() });
-        trx.set(doc(collection(db, 'txs')), {
+        trx.set(newTxRef(), {
           type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit,
           reason: 'นับสต็อกหน้างานประจำรอบ', note, loc: 'floor', by: userName(), ts: Date.now(),
         } satisfies Omit<import('../types').Tx, 'id'>);
@@ -4945,7 +4946,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — คาดว่าจ่ายผ่าน HOSxP แต่ยังไม่ reconcile'
             : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ควรตรวจสอบย้อนหลัง' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
           trx.update(ref, { floor: q, lastCountTs: Date.now() });
-          trx.set(doc(collection(db, 'txs')), {
+          trx.set(newTxRef(), {
             type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit,
             reason: 'นับสต็อกหน้างานประจำรอบ (บันทึกทั้งชุด)', note, loc: 'floor', by: userName(), ts: Date.now(),
           } satisfies Omit<import('../types').Tx, 'id'>);
@@ -5041,7 +5042,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         note = delta < 0
           ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — ตัดออกจาก lot ที่ใกล้หมดอายุที่สุดก่อน'
           : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ลงเป็น lot ปรับยอด ยังไม่ทราบวันหมดอายุจริง ควรแก้ไขเมื่อทราบ' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
-        trx.set(doc(collection(db, 'txs')), {
+        trx.set(newTxRef(), {
           type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit,
           reason: 'นับสต็อก substock ประจำรอบ', note, loc: 'substock', by: userName(), ts: Date.now(),
         } satisfies Omit<import('../types').Tx, 'id'>);
@@ -5121,7 +5122,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const note = delta < 0
             ? 'นับได้น้อยกว่าระบบ ' + nf(Math.abs(delta)) + ' ' + m.unit + ' — ตัดออกจาก lot ที่ใกล้หมดอายุที่สุดก่อน'
             : delta > 0 ? 'นับได้มากกว่าระบบ ' + nf(delta) + ' ' + m.unit + ' — ลงเป็น lot ปรับยอด ยังไม่ทราบวันหมดอายุจริง ควรแก้ไขเมื่อทราบ' : 'นับตรงกับระบบ ไม่มีส่วนต่าง';
-          trx.set(doc(collection(db, 'txs')), {
+          trx.set(newTxRef(), {
             type: 'count', name: m.name, medId: m.id, qty: delta, unit: m.unit,
             reason: 'นับสต็อก substock ประจำรอบ (บันทึกทั้งชุด)', note, loc: 'substock', by: userName(), ts: Date.now(),
           } satisfies Omit<import('../types').Tx, 'id'>);
@@ -5307,7 +5308,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             } catch { /* best-effort — floor-lot tracking is a secondary signal, never blocks the real deduction below */ }
             trx.update(ref, { floor: after });
             for (const t of flTakes) trx.update(floorLotRef(t.id), { qty: t.qty - t.take });
-            trx.set(doc(collection(db, 'txs')), {
+            trx.set(newTxRef(), {
               type: 'reconcile_hosxp', name: m.name, medId: m.id, qty: -(before - after), unit: m.unit,
               reason: 'นำเข้าจากไฟล์ HOSxP',
               note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP' + (r.match.kind === 'fuzzy' ? ' (จับคู่ชื่อแบบไม่ตรงเป๊ะ — ยืนยันโดยผู้ใช้แล้ว)' : ''),
@@ -5743,7 +5744,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Same reasoning as exportReportCsv — the live subscriptions are capped at 300 each for
     // the on-screen "recent activity" feed; a real audit export needs the full history.
     const auditQuery = queryAllAuditLog();
-    const auditTxsQuery = query(collection(db, 'txs'), orderBy('ts', 'desc'));
+    const auditTxsQuery = queryAllTxs();
     if (!(await confirmLargeExport(confirmAsync, [auditQuery, auditTxsQuery]))) return;
     toast('กำลังดึงประวัติทั้งหมด…');
     type Entry = { type: string; by: string; ts: number; note: string };
@@ -5778,7 +5779,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const [auditSnap, txSnap] = await withTimeout(Promise.all([
         getDocs(queryAuditLogByDateRange(from, to)),
-        getDocs(query(collection(db, 'txs'), where('ts', '>=', from), where('ts', '<=', to))),
+        getDocs(queryTxsByDateRange(from, to)),
       ]));
       const all = [
         ...auditSnap.docs.map((d) => d.data() as { type: string; by: string; ts: number; note: string }),
