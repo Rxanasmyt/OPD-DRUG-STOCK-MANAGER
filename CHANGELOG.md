@@ -7,6 +7,16 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.164.0] - 2026-10-12
+
+### Changed
+- **[ทำงานค้างต่อตามคำสั่ง "จัดการต่อจนทำครบทั้งหมดครับ" — repository/service layer สำหรับ Firestore (รอบที่ 2 — collection `usernames`)]**
+  - ทำต่อแบบค่อยเป็นค่อยไปทีละ collection ตามรอบที่ 1 (`auditLog`) — รอบนี้เลือก `usernames` collection เล็กสุดที่เหลือ (2 call site ทั้งคู่อยู่ใน `signUp()` เท่านั้น — เช็คชื่อผู้ใช้ซ้ำ + จอง username ไว้คู่กับ uid)
+  - เพิ่ม `src/store/repositories/usernamesRepo.ts` — ฟังก์ชันเดียว `usernameRef(username)` ห่อ `doc(db, 'usernames', username)` แทนที่ทั้ง 2 จุดเดิม (จุดเช็คซ้ำผ่าน `getDoc()` และจุดจองผ่าน `writeBatch.set()`)
+  - pure "extract function" เช่นเดิม ไม่มี logic เปลี่ยนแม้แต่จุดเดียว
+
+  ผ่าน tsc (0 errors) + vitest (548 เทสต์ — เท่าเดิม ไม่มี regression) + build ครบ
+
 ## [3.163.0] - 2026-10-12
 
 ### Changed

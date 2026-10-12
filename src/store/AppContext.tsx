@@ -14,6 +14,7 @@ import type {
 import { asMedId, asLotId, asFloorLotId } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
 import { subscribeRecentAuditLog, appendAuditLogEntry, queryAllAuditLog, queryAuditLogByDateRange } from './repositories/auditLogRepo';
+import { usernameRef } from './repositories/usernamesRepo';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
@@ -1668,7 +1669,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (password.length < 6) { patch({ authError: 'รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร' }); return; }
     patch({ authBusy: true, authError: null });
     try {
-      const takenSnap = await withTimeout(getDoc(doc(db, 'usernames', username)));
+      const takenSnap = await withTimeout(getDoc(usernameRef(username)));
       if (takenSnap.exists()) { patch({ authError: 'ชื่อผู้ใช้นี้มีคนใช้แล้ว' }); return; }
 
       // Same fix as signIn(): unwrapped, this could hang forever on a stuck connection with
@@ -1679,7 +1680,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const profile: Omit<User, 'id'> = { username, name, role: 'tech', dept, active: false, createdAt: Date.now(), lastLogin: null };
         const batch = writeBatch(db);
         batch.set(doc(db, 'users', cred.user.uid), profile);
-        batch.set(doc(db, 'usernames', username), { uid: cred.user.uid });
+        batch.set(usernameRef(username), { uid: cred.user.uid });
         await withTimeout(batch.commit());
       } catch (inner) {
         // Someone else claimed this username in the split second between our
