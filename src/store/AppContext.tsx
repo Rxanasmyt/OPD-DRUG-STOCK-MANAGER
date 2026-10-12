@@ -22,6 +22,7 @@ import { fetchDrugReturnsByDateRange, newDrugReturnRef } from './repositories/re
 import { subscribeRecentPendingReceives, newPendingReceiveRef, pendingReceiveRef } from './repositories/pendingReceivesRepo';
 import { settingsRef, subscribeSettings, medSeqRef } from './repositories/metaRepo';
 import { floorLotRef, subscribeFloorLots, fetchAllFloorLots, fetchFloorLotsByMedId } from './repositories/floorLotsRepo';
+import { userRef, usersCollection, queryAdminUsers } from './repositories/usersRepo';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
@@ -908,7 +909,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let downgradeTimer: number | undefined;
     const clearDowngrade = () => window.clearTimeout(downgradeTimer);
     const unsub = onSnapshot(
-      doc(db, 'users', state.myUid),
+      userRef(state.myUid),
       (snap) => {
         const downgradeDelay = snap.metadata.fromCache ? 4000 : 300;
         if (!snap.exists()) {
@@ -1442,7 +1443,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }, onErr('settings')),
     ];
     if (myProfile?.role === 'admin') {
-      unsubs.push(onSnapshot(collection(db, 'users'), (snap) => {
+      unsubs.push(onSnapshot(usersCollection(), (snap) => {
         // Bug fix (type-safety audit): `active` gates whether a user can do anything at all
         // app-wide — defaulting a missing/malformed value to `false` (never truthy) is the
         // only safe direction for a boolean this central to fail toward.
@@ -1657,7 +1658,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // connection the button spun on "กำลังดำเนินการ" indefinitely with nothing to tell the
       // person to retry or walk away.
       const cred = await withTimeout(signInWithEmailAndPassword(auth, usernameToEmail(username), password));
-      await withTimeout(setDoc(doc(db, 'users', cred.user.uid), { lastLogin: Date.now() }, { merge: true }));
+      await withTimeout(setDoc(userRef(cred.user.uid), { lastLogin: Date.now() }, { merge: true }));
     } catch (e) {
       patch({ authError: authErrorMessage(e) });
     } finally {
@@ -1686,7 +1687,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const profile: Omit<User, 'id'> = { username, name, role: 'tech', dept, active: false, createdAt: Date.now(), lastLogin: null };
         const batch = writeBatch(db);
-        batch.set(doc(db, 'users', cred.user.uid), profile);
+        batch.set(userRef(cred.user.uid), profile);
         batch.set(usernameRef(username), { uid: cred.user.uid });
         await withTimeout(batch.commit());
       } catch (inner) {
@@ -5645,9 +5646,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // closes the race: whichever of the two transactions commits second gets forced to retry
   // against the first one's already-written result, and its recount then correctly blocks it.
   const lastAdminGuardedWrite = useCallback(async (targetId: string, apply: (trx: Transaction, live: { role: Role; active: boolean }) => boolean | void) => {
-    const adminIds = (await getDocs(query(collection(db, 'users'), where('role', '==', 'admin')))).docs.map((d) => d.id);
+    const adminIds = (await getDocs(queryAdminUsers())).docs.map((d) => d.id);
     await runTx(async (trx) => {
-      const targetSnap = await trx.get(doc(db, 'users', targetId));
+      const targetSnap = await trx.get(userRef(targetId));
       const targetData = targetSnap.data() as { role?: Role; active?: boolean } | undefined;
       if (!targetData) throw new Error('not-found');
       const live = { role: (targetData.role ?? 'tech') as Role, active: !!targetData.active };
@@ -5667,7 +5668,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         let activeAdmins = 0;
         for (const aid of adminIds) {
           if (aid === targetId) { if (live.active && live.role === 'admin') activeAdmins++; continue; }
-          const s = await trx.get(doc(db, 'users', aid));
+          const s = await trx.get(userRef(aid));
           const sd = s.data() as { role?: Role; active?: boolean } | undefined;
           if (sd?.active && sd?.role === 'admin') activeAdmins++;
         }
@@ -5691,7 +5692,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       let fromRole = u.role;
       await lastAdminGuardedWrite(id, (trx, live) => {
         fromRole = live.role;
-        trx.update(doc(db, 'users', id), { role });
+        trx.update(userRef(id), { role });
         // Demoting the last active admin would lock the hospital out of admin functions
         // entirely (nobody left to approve accounts or promote anyone back) — the only
         // recovery would be hand-editing Firestore in the Firebase console again, same as
@@ -5726,7 +5727,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // account is a genuine first approval; one that has logged in before is being
         // reinstated, not approved for the first time.
         wasFirstApproval = next && !u.lastLogin;
-        trx.update(doc(db, 'users', id), { active: next });
+        trx.update(userRef(id), { active: next });
         return !next && live.role === 'admin' && live.active;
       });
       logAudit({ type: wasFirstApproval ? 'user_approved' : 'user_status_changed', note: (next ? (wasFirstApproval ? 'อนุมัติบัญชี ' : 'เปิดใช้งานบัญชี ') : 'ปิดใช้งานบัญชี ') + u.name });
