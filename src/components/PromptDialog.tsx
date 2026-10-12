@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useApp } from '../store/AppContext';
+import { useChrome } from '../store/AppContext';
 
 /** In-app replacement for window.prompt() — rendered once, globally, in App.tsx. Same
  * reasoning as ConfirmDialog.tsx: the native browser prompt() can silently no-op inside some
@@ -8,7 +8,12 @@ import { useApp } from '../store/AppContext';
  * Same "closes gracefully, not just vanishes" fix ConfirmDialog.tsx/Toast.tsx got — see
  * ConfirmDialog's own doc comment for why. */
 export default function PromptDialog() {
-  const { state, respondPrompt } = useApp();
+  // Bug fix (audit finding — performance): reads the narrower chrome-only context instead of
+  // useApp() — this always-mounted component only ever needs promptDialog/respondPrompt, so
+  // subscribing to the whole app context used to re-render it on every unrelated state change
+  // anywhere in the app, the exact same gap Toast.tsx was already fixed for. See ChromeCtx's own
+  // doc comment in AppContext.tsx.
+  const { promptDialog, respondPrompt } = useChrome();
   const [value, setValue] = useState('');
   const [shown, setShown] = useState<{ message: string; exiting: boolean } | null>(null);
   const exitTimer = useRef<number>();
@@ -21,14 +26,14 @@ export default function PromptDialog() {
   // stays mounted for the app's whole lifetime (App.tsx renders it unconditionally), so a
   // leftover value from a previous prompt would otherwise bleed into the next one.
   useEffect(() => {
-    if (state.promptDialog) setValue('');
-  }, [state.promptDialog]);
+    if (promptDialog) setValue('');
+  }, [promptDialog]);
 
   useEffect(() => {
     window.clearTimeout(exitTimer.current);
-    if (state.promptDialog) {
+    if (promptDialog) {
       triggerRef.current = document.activeElement;
-      setShown({ message: state.promptDialog.message, exiting: false });
+      setShown({ message: promptDialog.message, exiting: false });
     } else {
       setShown((s) => (s ? { ...s, exiting: true } : s));
       exitTimer.current = window.setTimeout(() => setShown(null), 180);
@@ -37,7 +42,7 @@ export default function PromptDialog() {
     }
     return () => window.clearTimeout(exitTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.promptDialog]);
+  }, [promptDialog]);
 
   // Every other dismiss path (backdrop tap, ✕/ยกเลิก) already cancels the prompt — a physical
   // Escape key (common on tablets paired with a keyboard, or accessibility switch devices that
@@ -47,7 +52,7 @@ export default function PromptDialog() {
   // closed — Tab/Shift+Tab used to walk straight out of this dialog into the (supposedly inert)
   // screen behind it, since nothing here constrained focus to the dialog's own input/buttons.
   useEffect(() => {
-    if (!state.promptDialog) return;
+    if (!promptDialog) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { respondPrompt(null); return; }
       if (e.key !== 'Tab' || !cardRef.current) return;
@@ -63,7 +68,7 @@ export default function PromptDialog() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [state.promptDialog, respondPrompt]);
+  }, [promptDialog, respondPrompt]);
 
   if (!shown) return null;
   return (

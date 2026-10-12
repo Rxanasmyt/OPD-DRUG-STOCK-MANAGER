@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useApp } from '../store/AppContext';
+import { useChrome } from '../store/AppContext';
 
 /** In-app replacement for window.confirm() — rendered once, globally, in App.tsx. See
  * confirmAsync()/respondConfirm() in AppContext.tsx and confirmDialog's doc comment in
@@ -13,7 +13,12 @@ import { useApp } from '../store/AppContext';
  * instead of visibly responding to the tap. Keeps rendering one more beat with an exit
  * animation instead. */
 export default function ConfirmDialog() {
-  const { state, respondConfirm } = useApp();
+  // Bug fix (audit finding — performance): reads the narrower chrome-only context instead of
+  // useApp() — this always-mounted component only ever needs confirmDialog/respondConfirm, so
+  // subscribing to the whole app context used to re-render it on every unrelated state change
+  // anywhere in the app, the exact same gap Toast.tsx was already fixed for. See ChromeCtx's own
+  // doc comment in AppContext.tsx.
+  const { confirmDialog, respondConfirm } = useChrome();
   const [shown, setShown] = useState<{ message: string; exiting: boolean } | null>(null);
   const exitTimer = useRef<number>();
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -28,9 +33,9 @@ export default function ConfirmDialog() {
 
   useEffect(() => {
     window.clearTimeout(exitTimer.current);
-    if (state.confirmDialog) {
+    if (confirmDialog) {
       triggerRef.current = document.activeElement;
-      setShown({ message: state.confirmDialog.message, exiting: false });
+      setShown({ message: confirmDialog.message, exiting: false });
     } else {
       setShown((s) => (s ? { ...s, exiting: true } : s));
       exitTimer.current = window.setTimeout(() => setShown(null), 180);
@@ -39,7 +44,7 @@ export default function ConfirmDialog() {
     }
     return () => window.clearTimeout(exitTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.confirmDialog]);
+  }, [confirmDialog]);
 
   // Bug fix (audit finding — accessibility): moves focus onto "ยกเลิก" (the safe default
   // action) once the dialog is actually in the DOM — without this, focus stayed on the trigger
@@ -61,7 +66,7 @@ export default function ConfirmDialog() {
   // closed — Tab/Shift+Tab used to walk straight out of this dialog into the (supposedly inert)
   // screen behind it, since nothing here constrained focus to the dialog's own two buttons.
   useEffect(() => {
-    if (!state.confirmDialog) return;
+    if (!confirmDialog) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { respondConfirm(false); return; }
       if (e.key !== 'Tab' || !cardRef.current) return;
@@ -77,7 +82,7 @@ export default function ConfirmDialog() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [state.confirmDialog, respondConfirm]);
+  }, [confirmDialog, respondConfirm]);
 
   if (!shown) return null;
   return (
