@@ -603,6 +603,16 @@ export type HosxpMatch =
   | { kind: 'ambiguous'; candidateIds: string[] }
   | { kind: 'none' };
 
+/** One calendar day (within fetchReconcileGaps' lookback window, see AppContext.tsx) where the
+ * daily HOSxP reconcile looks incomplete — either the day has NO reconcile_hosxp tx at all
+ * ('missing': the file was never attached that day), or it has some, but a drug that normally
+ * moves every day (active && used30 > 0) got no deduction on it ('partial': the same "ยาหลุด"
+ * risk ReconcileScreen's single-latest-day notDeductedLatestDay check already flags, just now
+ * checked across the whole window instead of only the most recent reconciled day). */
+export type ReconcileGapDay =
+  | { dateIso: string; kind: 'missing' }
+  | { dateIso: string; kind: 'partial'; missingMeds: Med[] };
+
 export type AdminTab = 'users' | 'audit';
 export type AuditFilter = 'all' | 'users' | 'stock';
 export type TransferFilter = 'low' | 'all' | 'had' | 'urgent' | 'fridge';

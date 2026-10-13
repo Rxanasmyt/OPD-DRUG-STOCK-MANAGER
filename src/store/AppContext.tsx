@@ -9,7 +9,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
-  AppState, Med, Role, Screen, AdjType, RecvItem, ReturnCartItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, MedId, LotId, FloorLotId,
+  AppState, Med, Role, Screen, AdjType, RecvItem, ReturnCartItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, MedId, LotId, FloorLotId, ReconcileGapDay,
 } from '../types';
 import { asMedId, asLotId, asFloorLotId } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
@@ -631,6 +631,7 @@ export interface AppCtx {
   setHosxpConfirmFuzzy: (v: boolean) => void;
   setHosxpConfirmSingleDay: (v: boolean) => void;
   commitReconcile: () => void;
+  fetchReconcileGaps: (days: number) => Promise<ReconcileGapDay[]>;
 
   // usage-rate import (par)
   setUsageDateFrom: (v: string) => void;
@@ -5353,6 +5354,55 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpConfirmSingleDay, state.meds, state.txs, userName, logAudit, toast, toastErr, patch, guardOnce, confirmAsync]);
 
+  // Real-world request: "ป้องกันการหลุดยาที่มีในระบบแต่ไม่ได้ถูกตัดจำนวนยา และป้องกันการหลุดวันที่
+  // ยังไม่ได้แนบไฟล์" — ReconcileScreen's own notDeductedLatestDay only ever checks the single
+  // MOST RECENT day that happens to have any reconcile_hosxp tx at all, so a day skipped entirely
+  // (the file never attached — the exact failure mode being asked about) just silently becomes
+  // invisible the moment the next day's file IS attached; nothing before this ever looked
+  // backward over a whole window. Scans the last `days` calendar days (today excluded — still in
+  // progress, not a real gap yet) and flags each one as either 'missing' (zero reconcile_hosxp tx
+  // that day — the file was never attached) or 'partial' (reconciled, but a drug that normally
+  // moves every day — active && used30 > 0 — got no deduction that day, same risk
+  // notDeductedLatestDay already names, just checked across the whole window instead of only the
+  // latest day).
+  //
+  // Deliberately queries Firestore directly (queryTxsByDateRange) rather than reading
+  // state.txs — that's the realtime cache capped to the 300 most-recent rows across ALL tx
+  // types (see fetchExecTxsThisMonth's own comment on this exact cap), and a single busy
+  // reconcile day alone can be 50-150+ rows; relying on it here could make a week-old gap
+  // invisible long before this function's own lookback window even started. Bounded to
+  // `days` + a 1-day pad (not an unbounded fetchReconcileHosxpTxs() full-history scan like
+  // recomputeUsageStats/analyzeWeekdayUsage use) — this runs every time ReconcileScreen mounts,
+  // not just on an explicit admin action, so it stays cheap by design.
+  const fetchReconcileGaps = useCallback(async (days: number): Promise<ReconcileGapDay[]> => {
+    const todayIso = isoDate(Date.now());
+    const from = Date.now() - (days + 1) * DAY;
+    const snap = await withTimeout(getDocs(queryTxsByDateRange(from, Date.now())));
+    const deductedByDay = new Map<string, Set<string>>();
+    for (const d of snap.docs) {
+      const x = d.data() as { type: string; medId?: string; ts: number };
+      if (x.type !== 'reconcile_hosxp' || !x.medId) continue;
+      const dIso = isoDate(x.ts);
+      const set = deductedByDay.get(dIso) || new Set<string>();
+      set.add(x.medId);
+      deductedByDay.set(dIso, set);
+    }
+    const regularMeds = state.meds.filter((m) => m.active && m.used30 > 0);
+    const result: ReconcileGapDay[] = [];
+    for (let i = 1; i <= days; i++) {
+      const dateIso = isoDate(Date.now() - i * DAY);
+      if (dateIso === todayIso) continue;
+      const deducted = deductedByDay.get(dateIso);
+      if (!deducted) {
+        result.push({ dateIso, kind: 'missing' });
+        continue;
+      }
+      const missingMeds = regularMeds.filter((m) => !deducted.has(m.id));
+      if (missingMeds.length) result.push({ dateIso, kind: 'partial', missingMeds });
+    }
+    return result.sort((a, b) => b.dateIso.localeCompare(a.dateIso));
+  }, [state.meds]);
+
   // ---------- usage-rate import (par) ----------
   // Lets a site whose formulary is too new to have 60 days of in-app HOSxP reconcile history
   // (recomputeUsageStats' only source) still seed used30 with a real number, by importing a
@@ -5817,7 +5867,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, autoRouteAll, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, fetchFloorLedger, fetchStockAsOf, exportStockAsOfCsv, fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
-    setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile,
+    setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile, fetchReconcileGaps,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     confirmScanAndNext, confirmScanAndStop, cancelScanConfirm,
