@@ -1,12 +1,20 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { wardOf } from '../store/selectors';
 import { nf, thDate } from '../utils/format';
-import type { HosxpMatch, Med } from '../types';
+import type { HosxpMatch, Med, ReconcileGapDay } from '../types';
 import { Badge } from '../components/Badge';
 
+// Real-world request: "ป้องกันการหลุดยาที่มีในระบบแต่ไม่ได้ถูกตัดจำนวนยา และป้องกันการหลุดวันที่
+// ยังไม่ได้แนบไฟล์" — how far back fetchReconcileGaps (AppContext.tsx) looks every time this
+// screen opens. 7 days: far enough to catch a missed day from a few days ago (a short staffing
+// gap, a long weekend) while staying a cheap, bounded Firestore query every mount — not the
+// unbounded full-history scan recomputeUsageStats/analyzeWeekdayUsage use for their own very
+// different (admin-triggered, infrequent) purpose.
+const RECONCILE_GAP_LOOKBACK_DAYS = 7;
+
 export default function ReconcileScreen() {
-  const { state, setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile } = useApp();
+  const { state, setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile, fetchReconcileGaps, toast } = useApp();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const medById = (id: string) => state.meds.find((x) => x.id === id);
@@ -84,6 +92,31 @@ export default function ReconcileScreen() {
       .sort((a, b) => b.used30 - a.used30);
     return { dayLabel: thDate(latestTs), missing };
   }, [state.txs, state.meds]);
+
+  // Real-world request: "ป้องกันการหลุดยาที่มีในระบบแต่ไม่ได้ถูกตัดจำนวนยา และป้องกันการหลุดวันที่
+  // ยังไม่ได้แนบไฟล์ เพื่อป้องกันจำนวนยาในระบบไม่ตรงกับจำนวนยาที่ใช้ยาจริง" — notDeductedLatestDay
+  // above only ever checks the single MOST RECENT day with any reconcile_hosxp tx, so a day
+  // skipped entirely (the file never attached — the exact risk being asked about) becomes
+  // invisible the moment the next day's file IS attached. This instead scans the whole last
+  // RECONCILE_GAP_LOOKBACK_DAYS window independently of whatever's loaded in hosxpRows above —
+  // see fetchReconcileGaps' own doc comment (AppContext.tsx) for exactly what it flags.
+  const [gapDays, setGapDays] = useState<ReconcileGapDay[] | null>(null);
+  const gapReqId = useRef(0);
+  useEffect(() => {
+    // Skip while a commit is mid-flight — refetches once state.busy['reconcile'] goes back to
+    // false below, so the panel reflects what the commit that just ran actually wrote instead of
+    // going stale until this screen is left and reopened.
+    if (state.busy['reconcile']) return;
+    const reqId = ++gapReqId.current;
+    fetchReconcileGaps(RECONCILE_GAP_LOOKBACK_DAYS).then((days) => {
+      if (reqId !== gapReqId.current) return;
+      setGapDays(days);
+    }).catch((e) => {
+      if (reqId !== gapReqId.current) return;
+      toast((e as Error)?.message || 'ตรวจสอบวันที่ขาดการตัดยอดไม่สำเร็จ');
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.busy['reconcile']]);
 
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
@@ -164,6 +197,46 @@ export default function ReconcileScreen() {
             {state.busy['reconcile'] ? 'กำลังตัดยอด…' : `ตัดยอดหน้างานตามไฟล์นี้ และบันทึก discrepancy log${skippedCount > 0 ? ' (ข้าม ' + skippedCount + ' รายการที่จับคู่ไม่ได้)' : ''}`}
           </button>
         </>
+      )}
+
+      {gapDays !== null && gapDays.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div className="muted" style={{ fontSize: 12, fontWeight: 600, margin: '0 2px 8px' }}>
+            ตรวจสอบความครบถ้วนของการตัดยอด {RECONCILE_GAP_LOOKBACK_DAYS} วันล่าสุด — พบ {gapDays.length} วันที่ควรตรวจสอบ
+          </div>
+          <div className="card stagger" style={{ overflow: 'hidden' }}>
+            {gapDays.map((g) => (
+              <div key={g.dateIso} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: g.kind === 'partial' ? 4 : 0 }}>
+                  {g.kind === 'missing'
+                    ? <Badge flexNone size={11} padding="2px 8px" color="var(--red)" bg="var(--red-bg)">ไม่มีไฟล์</Badge>
+                    : <Badge flexNone size={11} padding="2px 8px" color="var(--amber-ink)" bg="var(--amber-bg)">ตัดไม่ครบ</Badge>}
+                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>
+                    {thDate(new Date(g.dateIso + 'T12:00:00').getTime())}
+                    {g.kind === 'missing' ? ' — ไม่มีการตัดยอด HOSxP เลยทั้งวัน' : ' — ' + g.missingMeds.length + ' รายการที่ปกติจ่ายทุกวันไม่ถูกตัดยอด'}
+                  </span>
+                </div>
+                {g.kind === 'partial' && (
+                  <div className="muted" style={{ fontSize: 11, lineHeight: 1.5 }}>
+                    {g.missingMeds.slice(0, 5).map((m) => m.name).join(', ')}
+                    {g.missingMeds.length > 5 ? ' และอีก ' + (g.missingMeds.length - 5) + ' รายการ' : ''}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 6 }}>
+            "ไม่มีไฟล์" คือวันที่ไม่มีการตัดยอด HOSxP แม้แต่รายการเดียว — ถ้ายังมีไฟล์ของวันนั้นอยู่ ควรกลับไปแนบให้ครบ
+            "ตัดไม่ครบ" คือมีการตัดยอดวันนั้นแล้ว แต่ยาบางตัวที่ปกติจ่ายทุกวันไม่ถูกตัด อาจเพราะไฟล์วันนั้นดึงข้อมูลมาไม่ครบ
+            หรือวันนั้นผู้ป่วยไม่ได้ใช้ยาตัวนั้นจริงๆ
+          </div>
+        </div>
+      )}
+      {gapDays !== null && gapDays.length === 0 && (
+        <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', gap: 8, padding: '10px 13px', background: 'var(--green-tint)', borderRadius: 10 }}>
+          <span style={{ fontSize: 13 }}>✓</span>
+          <span style={{ fontSize: 12.5, color: 'var(--green)', fontWeight: 600 }}>ตัดยอด HOSxP ครบทุกวันใน {RECONCILE_GAP_LOOKBACK_DAYS} วันที่ผ่านมา — ไม่พบวันที่ขาดหรือยาที่หลุด</span>
+        </div>
       )}
 
       {unmatchedFreq.length > 0 && (
