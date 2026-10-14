@@ -71,3 +71,43 @@ describe('scrapLot — toastErr regression (transaction-based write)', () => {
     expect(screen.queryByText('ตัด lot ไม่สำเร็จ ลองใหม่อีกครั้ง')).not.toBeInTheDocument();
   });
 });
+
+// Real-world report: "เติมหน้างานไม่สำเร็จ ลองใหม่อีกครั้ง" repeated on every retry for a specific
+// med — a firestore.rules rejection (permission-denied) under the hood, but the flat fallback
+// toast gave zero clue that's what it was, and this app's primary real device (a phone/tablet on
+// the floor) has no DevTools console to read console.error(e) from. Appending the raw Firestore
+// error code to every OTHER (non-timeout, non-offline) toastErr fallback turns the toast itself
+// into the diagnostic signal — see toastErr's own doc comment.
+describe('toastErr — unrecognized Firestore error code regression', () => {
+  it('appends the raw error code to the fallback message for a code neither timeout nor offline already covers', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ScrapLotHarness /><Toast /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    fireCollection('lots', [{ id: 'lot1', medId: MED.id, lotNo: 'L1', qty: 10, exp: Date.now() + 86400000 }]);
+
+    const err = Object.assign(new Error('Missing or insufficient permissions.'), { code: 'permission-denied' });
+    vi.mocked(runTransaction).mockRejectedValueOnce(err);
+    await user.click(await screen.findByText('scrap-lot'));
+    await user.click(await screen.findByRole('button', { name: 'ยืนยัน' }));
+
+    await screen.findByText('ตัด lot ไม่สำเร็จ ลองใหม่อีกครั้ง (permission-denied)');
+  });
+
+  it('never appends a code to the connection-specific offline/timeout messages', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ScrapLotHarness /><Toast /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    fireCollection('lots', [{ id: 'lot1', medId: MED.id, lotNo: 'L1', qty: 10, exp: Date.now() + 86400000 }]);
+
+    const err = Object.assign(new Error('offline'), { code: 'unavailable' });
+    vi.mocked(runTransaction).mockRejectedValueOnce(err);
+    await user.click(await screen.findByText('scrap-lot'));
+    await user.click(await screen.findByRole('button', { name: 'ยืนยัน' }));
+
+    await screen.findByText('ไม่มีสัญญาณอินเทอร์เน็ต — ยังไม่ได้บันทึก ลองใหม่อีกครั้งเมื่อเชื่อมต่อได้');
+  });
+});

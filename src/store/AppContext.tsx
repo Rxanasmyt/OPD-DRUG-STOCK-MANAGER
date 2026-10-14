@@ -1633,7 +1633,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast(e.message);
     }
     else if (code === 'unavailable' || code === 'failed-precondition') toast('ไม่มีสัญญาณอินเทอร์เน็ต — ยังไม่ได้บันทึก ลองใหม่อีกครั้งเมื่อเชื่อมต่อได้');
-    else toast(fallback);
+    // Bug fix (resilience audit — real debugging gap): every OTHER Firestore error code (most
+    // commonly 'permission-denied' — a firestore.rules rejection, from either a real access
+    // problem or a malformed field on the doc being written, like scanMedCountTsIssues' own
+    // incident — but also 'aborted' on real transaction contention, 'resource-exhausted', etc.)
+    // used to fall through to this bare fallback with zero distinguishing information. On a
+    // phone/tablet with no DevTools console (this app's primary real-world device — see
+    // console.error(e) just above, which nobody on the floor can ever actually read), that left
+    // "why" as a total guessing game for both staff and whoever's troubleshooting it with them.
+    // Appending the raw code turns the toast itself into the diagnostic signal.
+    else toast(fallback + (code ? ' (' + code + ')' : ''));
   }, [toast]);
 
   // ---------- auth actions ----------
