@@ -9,7 +9,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
-  AppState, Med, Role, Screen, AdjType, RecvItem, ReturnCartItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, MedId, LotId, FloorLotId, ReconcileGapDay,
+  AppState, Med, Role, Screen, AdjType, RecvItem, ReturnCartItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, MedId, LotId, FloorLotId, ReconcileGapDay, MedCountTsIssue,
 } from '../types';
 import { asMedId, asLotId, asFloorLotId } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
@@ -164,6 +164,7 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
   hosxp_unmatched: 'ยาที่จับคู่ไม่ได้จาก HOSxP',
   ward_move_out: 'ย้ายชั้นวาง (ต้นทาง)', ward_move_in: 'ย้ายชั้นวาง (ปลายทาง)',
   stock_drift_detected: 'ตรวจพบความเพี้ยนของยอดคงคลัง (ตรวจสอบอัตโนมัติ)',
+  med_data_repair: 'ซ่อมแซมข้อมูลวันที่นับสต็อกที่เสีย',
 };
 
 // Bug fix (audit finding): a placeholder เลขที่ใบเบิก, not a real auto-incrementing document
@@ -580,6 +581,11 @@ export interface AppCtx {
    * price/etc. See its doc comment in AppContext.tsx. Same double-confirmation as
    * resetAllStockLedgers(). */
   resetAllQuantities: () => void;
+  /** Read-only — see its own doc comment in AppContext.tsx for the real incident that prompted
+   * this. */
+  scanMedCountTsIssues: () => Promise<MedCountTsIssue[]>;
+  /** Admin-only. Pass exactly what scanMedCountTsIssues() returned. */
+  repairMedCountTsIssues: (issues: MedCountTsIssue[]) => Promise<void>;
   setMedsFocusId: (id: MedId | null) => void;
   goSubstockCardFor: (medId: MedId) => void;
   setSubstockFocusId: (id: MedId | null) => void;
@@ -4566,7 +4572,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // batch record stale (stock that, as of this reset, is no longer really there), so it's
         // deleted right alongside `lots` rather than left behind pointing at quantities that no
         // longer exist.
-        await snapshotBeforeDelete('meds-floor', medSnap.docs.map((d) => ({ id: d.id, data: { floor: d.data().floor ?? 0, lastCountTs: d.data().lastCountTs ?? null, lastSubCountTs: d.data().lastSubCountTs ?? null } })));
+        // Bug fix (data integrity — real production incident): this used to coerce a missing
+        // lastCountTs/lastSubCountTs to a literal `null` (`?? null`) rather than omitting the
+        // key — harmless in THIS snapshot write itself (admin-only, bypasses rules), but
+        // restoring it later via restore-preresetsnapshot.mjs's own merge update() plants that
+        // literal `null` permanently into the live med doc. firestore.rules requires either
+        // field be `is number` WHENEVER PRESENT (see meds.update's isActive() branch) — once
+        // `null` is in there, EVERY future write to that med (not just this field) gets
+        // silently rejected, with no specific error code for toastErr to name — see
+        // scanMedCountTsIssues' own doc comment for the diagnostic/repair tool this same
+        // incident led to. Omitting the key entirely (never writing `undefined` — the client
+        // SDK rejects that outright) is both what "never actually counted" honestly means and
+        // exactly what a later merge update() leaves untouched instead of overwriting.
+        await snapshotBeforeDelete('meds-floor', medSnap.docs.map((d) => {
+          const data = d.data() as { floor?: number; lastCountTs?: unknown; lastSubCountTs?: unknown };
+          return {
+            id: d.id,
+            data: {
+              floor: data.floor ?? 0,
+              ...(typeof data.lastCountTs === 'number' ? { lastCountTs: data.lastCountTs } : {}),
+              ...(typeof data.lastSubCountTs === 'number' ? { lastSubCountTs: data.lastSubCountTs } : {}),
+            },
+          };
+        }));
         await snapshotBeforeDelete('lots', lotSnap.docs.map((d) => ({ id: d.id, data: d.data() })));
         if (floorLotSnap.docs.length) await snapshotBeforeDelete('floorLots', floorLotSnap.docs.map((d) => ({ id: d.id, data: d.data() })));
       } catch (e) {
@@ -4593,6 +4621,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toastErr(e, 'รีเซ็ตไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
   }), [myProfile, confirmAsync, promptAsync, toast, toastErr, logAudit, userName, guardOnce, snapshotBeforeDelete]);
+
+  // Real-world request: a floor-count commit (commitCount/commitSubCount) kept failing with
+  // only a generic "บันทึกไม่สำเร็จ" for one specific med — traced to firestore.rules requiring
+  // lastCountTs/lastSubCountTs be `is number` WHENEVER PRESENT (meds.update's isActive()
+  // branch): once either field holds anything else (a literal `null` was the one concrete way
+  // this could happen — see resetAllQuantities' own snapshotBeforeDelete fix just above), EVERY
+  // future write to that med gets silently rejected, not just a write touching that field, and
+  // permission-denied isn't one of the codes toastErr names specifically, so it falls through to
+  // the generic fallback with no clue what actually went wrong. Read-only: fetches every med
+  // FRESH (not the live onSnapshot cache — see fetchStockAsOf's own comment on why a stale cache
+  // can't be trusted for this kind of check) and flags any med whose raw field is present but
+  // not a real number, so "is this isolated to one drug or wider" has a real answer instead of
+  // staff having to hit the same error on every drug by hand to find out.
+  const scanMedCountTsIssues = useCallback(async (): Promise<MedCountTsIssue[]> => {
+    const snap = await withTimeout(fetchAllMeds());
+    const issues: MedCountTsIssue[] = [];
+    for (const d of snap.docs) {
+      const x = d.data() as { name?: string; lastCountTs?: unknown; lastSubCountTs?: unknown };
+      const badLastCountTs = 'lastCountTs' in x && typeof x.lastCountTs !== 'number';
+      const badLastSubCountTs = 'lastSubCountTs' in x && typeof x.lastSubCountTs !== 'number';
+      if (badLastCountTs || badLastSubCountTs) {
+        issues.push({ medId: asMedId(d.id), medName: x.name || d.id, badLastCountTs, badLastSubCountTs });
+      }
+    }
+    return issues.sort((a, b) => a.medName.localeCompare(b.medName, 'th'));
+  }, []);
+
+  // Repairs exactly the issues scanMedCountTsIssues() found — deleteField()s whichever field is
+  // malformed on each flagged med, restoring the honest "never counted" state (the value wasn't
+  // usable for its real purpose anyway) rather than guessing a replacement number. Admin-only,
+  // matching every other data-maintenance action in this file (resetAllQuantities/
+  // resetAllStockLedgers just above).
+  const repairMedCountTsIssues = useCallback(async (issues: MedCountTsIssue[]) => {
+    if (!canEditMeds) { toast('เฉพาะ Admin เท่านั้นที่ซ่อมแซมข้อมูลนี้ได้'); return; }
+    if (!issues.length) return;
+    try {
+      for (let i = 0; i < issues.length; i += 450) {
+        const batch = writeBatch(db);
+        issues.slice(i, i + 450).forEach((it) => {
+          const fields: Record<string, ReturnType<typeof deleteField>> = {};
+          if (it.badLastCountTs) fields.lastCountTs = deleteField();
+          if (it.badLastSubCountTs) fields.lastSubCountTs = deleteField();
+          batch.update(medRef(it.medId), fields);
+        });
+        await withTimeout(batch.commit());
+      }
+      await logAudit({ type: 'med_data_repair', note: 'ซ่อมแซมฟิลด์ lastCountTs/lastSubCountTs ที่เสียของยา ' + nf(issues.length) + ' รายการ: ' + issues.map((it) => it.medName).join(', ') });
+      hapticSuccess();
+      toast('ซ่อมแซมข้อมูลแล้ว ' + nf(issues.length) + ' รายการ — ลองบันทึกการนับสต็อกใหม่ได้เลย');
+    } catch (e) {
+      toastErr(e, 'ซ่อมแซมไม่สำเร็จ ลองใหม่อีกครั้ง');
+    }
+  }, [canEditMeds, toast, toastErr, logAudit]);
 
   // Jump straight into บัตรสต็อก substock for one med, already open — used from เสร็จสิ้น
   // (DoneScreen) so "รับเข้า/เติมหน้างานสำเร็จ แล้วอยากดูบัตรตอนนี้เลย" is one tap instead of
@@ -5873,7 +5954,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setAllMinSuggested, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, clearMedPeakDay, updateGlobalSettings,
-    addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, autoRouteAll, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, setMedsFocusId,
+    addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, autoRouteAll, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, scanMedCountTsIssues, repairMedCountTsIssues, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, fetchFloorLedger, fetchStockAsOf, exportStockAsOfCsv, fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
     setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile, fetchReconcileGaps,
