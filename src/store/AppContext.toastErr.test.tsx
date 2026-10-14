@@ -111,3 +111,27 @@ describe('toastErr — unrecognized Firestore error code regression', () => {
     await screen.findByText('ไม่มีสัญญาณอินเทอร์เน็ต — ยังไม่ได้บันทึก ลองใหม่อีกครั้งเมื่อเชื่อมต่อได้');
   });
 });
+
+// Real-world report: "เติมหน้างานไม่สำเร็จ (resource-exhausted)" repeating on every retry for one
+// med, with scanMedCountTsIssues confirming no corrupt data — i.e. Firestore itself refusing the
+// request (daily quota, or this device's local IndexedDB cache full), not this app's rules or
+// data. Distinguishing this from the generic code-appended fallback (see toastErr's own doc
+// comment) matters because "try again" is not the fix here the way it is for a dropped connection.
+describe('toastErr — resource-exhausted regression', () => {
+  it('shows the quota/local-storage-specific message, not the bare code-appended fallback', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ScrapLotHarness /><Toast /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    fireCollection('lots', [{ id: 'lot1', medId: MED.id, lotNo: 'L1', qty: 10, exp: Date.now() + 86400000 }]);
+
+    const err = Object.assign(new Error('Resource exhausted'), { code: 'resource-exhausted' });
+    vi.mocked(runTransaction).mockRejectedValueOnce(err);
+    await user.click(await screen.findByText('scrap-lot'));
+    await user.click(await screen.findByRole('button', { name: 'ยืนยัน' }));
+
+    await screen.findByText(/เกินขีดจำกัดการใช้งานชั่วคราว \(resource-exhausted\)/);
+    expect(screen.queryByText('ตัด lot ไม่สำเร็จ ลองใหม่อีกครั้ง (resource-exhausted)')).not.toBeInTheDocument();
+  });
+});
