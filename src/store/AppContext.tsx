@@ -1633,15 +1633,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast(e.message);
     }
     else if (code === 'unavailable' || code === 'failed-precondition') toast('ไม่มีสัญญาณอินเทอร์เน็ต — ยังไม่ได้บันทึก ลองใหม่อีกครั้งเมื่อเชื่อมต่อได้');
+    // Bug fix (real production report, 2026-10-14): 'resource-exhausted' first turned up live as
+    // a flat, repeating "เติมหน้างานไม่สำเร็จ (resource-exhausted)" on a single med with no data
+    // corruption (scanMedCountTsIssues came back clean) — i.e. not this app's data or rules, but
+    // Firestore itself refusing the request. The two real causes this code covers are very
+    // different in who can act on them: (a) the project's Firestore quota for the day/window is
+    // exhausted — happens on the free Spark plan's hard daily read/write cap, fixed by an admin
+    // checking Firebase Console usage and upgrading billing, not by retrying — or (b) this
+    // specific device's local IndexedDB cache (persistentLocalCache — see firebase.ts) is full,
+    // most often on iOS Safari's tight per-origin storage quota, fixed by that one device's
+    // browser storage, not the server. Neither is "try again in a sec and it's probably fine"
+    // like a dropped connection — surfacing it distinctly (instead of folding into the generic
+    // fallback below) stops staff from re-tapping the same action expecting a different result.
+    else if (code === 'resource-exhausted') toast('ระบบ Firestore เกินขีดจำกัดการใช้งานชั่วคราว (resource-exhausted) — อาจเกิดจากโควต้ารายวันของระบบเต็ม หรือพื้นที่เก็บข้อมูลของเครื่องนี้เต็ม ลองใหม่อีกครั้ง ถ้ายังไม่หายให้แจ้งผู้ดูแลระบบ');
     // Bug fix (resilience audit — real debugging gap): every OTHER Firestore error code (most
     // commonly 'permission-denied' — a firestore.rules rejection, from either a real access
     // problem or a malformed field on the doc being written, like scanMedCountTsIssues' own
-    // incident — but also 'aborted' on real transaction contention, 'resource-exhausted', etc.)
-    // used to fall through to this bare fallback with zero distinguishing information. On a
-    // phone/tablet with no DevTools console (this app's primary real-world device — see
-    // console.error(e) just above, which nobody on the floor can ever actually read), that left
-    // "why" as a total guessing game for both staff and whoever's troubleshooting it with them.
-    // Appending the raw code turns the toast itself into the diagnostic signal.
+    // incident — but also 'aborted' on real transaction contention, etc.) used to fall through to
+    // this bare fallback with zero distinguishing information. On a phone/tablet with no DevTools
+    // console (this app's primary real-world device — see console.error(e) just above, which
+    // nobody on the floor can ever actually read), that left "why" as a total guessing game for
+    // both staff and whoever's troubleshooting it with them. Appending the raw code turns the
+    // toast itself into the diagnostic signal.
     else toast(fallback + (code ? ' (' + code + ')' : ''));
   }, [toast]);
 
