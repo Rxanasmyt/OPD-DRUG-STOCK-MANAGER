@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { thDate, thTime } from '../utils/format';
-import type { AdminTab, AuditFilter, Role, User } from '../types';
+import type { AdminTab, AuditFilter, MedCountTsIssue, Role, User } from '../types';
 import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
 import { QrCode } from '../components/QrCode';
@@ -27,6 +27,7 @@ const TYPE_LABEL: Record<string, string> = {
   quantity_reset: 'รีเซ็ตจำนวนยาทุกตัวเป็น 0',
   stock_hold_started: 'ทำเครื่องหมายยาขาดชั่วคราว', stock_hold_ended: 'ยกเลิกยาขาดชั่วคราว',
   stock_drift_detected: 'ตรวจพบความเพี้ยนของยอดคงคลัง (ตรวจสอบอัตโนมัติ)',
+  med_data_repair: 'ซ่อมแซมข้อมูลวันที่นับสต็อกที่เสีย',
 };
 // commitCount (floor) and commitSubCount (substock) both log type:'count' — TYPE_LABEL alone
 // can't tell them apart (one key, one label), so this reads the row's loc too, the same
@@ -50,9 +51,37 @@ export default function AdminScreen() {
   const {
     state, setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit, roleLabelOf, toast,
     setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, resetAllStockLedgers, resetAllQuantities,
+    scanMedCountTsIssues, repairMedCountTsIssues,
   } = useApp();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [userQuery, setUserQuery] = useState('');
+  // Real-world request: a floor-count commit kept failing with a generic error for one specific
+  // med — see scanMedCountTsIssues' own doc comment (AppContext.tsx) for the root cause. `null`
+  // (not yet scanned) is distinct from `[]` (scanned, nothing found), so the UI below can tell
+  // "ยังไม่ได้ตรวจสอบ" from "ตรวจแล้ว ไม่พบปัญหา" instead of showing nothing either way.
+  const [countTsIssues, setCountTsIssues] = useState<MedCountTsIssue[] | null>(null);
+  const [scanningCountTs, setScanningCountTs] = useState(false);
+  const [repairingCountTs, setRepairingCountTs] = useState(false);
+  const runCountTsScan = async () => {
+    setScanningCountTs(true);
+    try {
+      setCountTsIssues(await scanMedCountTsIssues());
+    } catch (e) {
+      toast((e as Error)?.message || 'ตรวจสอบไม่สำเร็จ ลองใหม่อีกครั้ง');
+    } finally {
+      setScanningCountTs(false);
+    }
+  };
+  const runCountTsRepair = async () => {
+    if (!countTsIssues?.length) return;
+    setRepairingCountTs(true);
+    try {
+      await repairMedCountTsIssues(countTsIssues);
+      setCountTsIssues([]);
+    } finally {
+      setRepairingCountTs(false);
+    }
+  };
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
 
   const copyInviteLink = async () => {
@@ -248,6 +277,57 @@ export default function AdminScreen() {
                 (confirmAsync + a typed "RESET") lives in each action itself, AppContext.tsx. */}
             {state.role === 'admin' && (
               <>
+                {/* Real-world request: a floor-count commit kept failing for one specific med
+                    with no clue why — see scanMedCountTsIssues' own doc comment
+                    (AppContext.tsx) for the root cause this traces to. Styled neutral/green
+                    (not the red danger-zone block below) since this is read-only until the
+                    person explicitly taps "ซ่อมแซม", unlike a reset that destroys data the
+                    moment it's tapped. */}
+                <div style={{ fontSize: 13.5, fontWeight: 600, margin: '20px 2px 8px' }}>ตรวจสอบข้อมูลยา</div>
+                <div className="card" style={{ padding: 13, marginBottom: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>ตรวจสอบและซ่อมแซมข้อมูลวันที่นับสต็อกที่เสีย</div>
+                  <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginBottom: 10 }}>
+                    ใช้เมื่อนับสต็อกหน้างาน/substock ของยาตัวใดตัวหนึ่งแล้วขึ้น "บันทึกไม่สำเร็จ" ซ้ำๆ — สแกนหายาที่มีข้อมูลวันที่นับ (lastCountTs/lastSubCountTs) เสียอยู่ในฐานข้อมูล (สาเหตุที่พบได้จริง: ค่าที่กู้คืนมาจาก snapshot ก่อนรีเซ็ตเก่า) ซึ่งทำให้บันทึกการนับของยาตัวนั้นไม่ได้เลยจนกว่าจะซ่อมแซม
+                  </div>
+                  <button
+                    onClick={runCountTsScan}
+                    disabled={scanningCountTs}
+                    style={{ width: '100%', border: '1px solid var(--green)', background: 'var(--bg-card)', color: 'var(--green)', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40, opacity: scanningCountTs ? 0.7 : 1 }}
+                  >
+                    {scanningCountTs ? 'กำลังตรวจสอบ…' : 'ตรวจสอบยาทุกตัว'}
+                  </button>
+                  {countTsIssues !== null && (
+                    countTsIssues.length === 0 ? (
+                      <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, padding: '9px 11px', background: 'var(--green-tint)', borderRadius: 9 }}>
+                        <span style={{ fontSize: 13 }}>✓</span>
+                        <span style={{ fontSize: 12, color: 'var(--green)', fontWeight: 600 }}>ไม่พบยาที่มีข้อมูลเสีย</span>
+                      </div>
+                    ) : (
+                      <div style={{ marginTop: 10 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--red)', marginBottom: 6 }}>พบ {countTsIssues.length} รายการที่มีข้อมูลเสีย</div>
+                        <div style={{ border: '1px solid var(--border-soft)', borderRadius: 9, overflow: 'hidden', marginBottom: 8 }}>
+                          {countTsIssues.map((it) => (
+                            <div key={it.medId} style={{ padding: '7px 10px', borderBottom: '1px solid var(--border-soft)', fontSize: 11.5 }}>
+                              {it.medName}
+                              <span className="muted" style={{ marginLeft: 6 }}>
+                                ({[it.badLastCountTs && 'lastCountTs', it.badLastSubCountTs && 'lastSubCountTs'].filter(Boolean).join(', ')})
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          onClick={runCountTsRepair}
+                          disabled={repairingCountTs}
+                          className="btn-primary"
+                          style={{ width: '100%', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40, opacity: repairingCountTs ? 0.7 : 1 }}
+                        >
+                          {repairingCountTs ? 'กำลังซ่อมแซม…' : 'ซ่อมแซมทั้งหมด (' + countTsIssues.length + ' รายการ)'}
+                        </button>
+                      </div>
+                    )
+                  )}
+                </div>
+
                 <div style={{ fontSize: 13.5, fontWeight: 600, margin: '20px 2px 8px', color: 'var(--red)' }}>เครื่องมือระบบ — ใช้ด้วยความระมัดระวัง</div>
                 <div className="card" style={{ padding: 13, borderColor: 'var(--red)', marginBottom: 12 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>รีเซ็ตจำนวนยาทุกตัวเป็น 0</div>

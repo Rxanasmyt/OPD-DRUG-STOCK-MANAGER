@@ -333,6 +333,15 @@ export type AuditType =
   // logout path that happens with nobody at the keyboard to have actually chosen it, so it gets
   // its own durable trail of who was signed out and when, distinct from an ordinary 'login'.
   | 'idle_logout'
+  // Logged by repairMedCountTsIssues() (AppContext.tsx, AdminScreen's "ตรวจสอบและซ่อมแซมข้อมูล
+  // วันที่นับสต็อก" tool) — real-world request: a floor-count commit kept failing with a
+  // generic "บันทึกไม่สำเร็จ" for one specific med, traced to its lastCountTs/lastSubCountTs
+  // field holding something other than a real number (firestore.rules requires either field be
+  // `is number` WHENEVER PRESENT — see meds.update's isActive() branch — so a malformed value
+  // rejects every future write to that med, not just this field, with no specific error code
+  // toastErr can name). deleteField()s whichever field was bad, restoring the honest "never
+  // counted" state rather than guessing a replacement number.
+  | 'med_data_repair'
   | TxType;
 
 export interface AuditEntry {
@@ -612,6 +621,16 @@ export type HosxpMatch =
 export type ReconcileGapDay =
   | { dateIso: string; kind: 'missing' }
   | { dateIso: string; kind: 'partial'; missingMeds: Med[] };
+
+/** One med whose `lastCountTs` and/or `lastSubCountTs` is present but not a real number — see
+ * scanMedCountTsIssues' own doc comment (AppContext.tsx) for how this happens and why it
+ * silently breaks every future floor/substock-count commit for that med specifically. */
+export interface MedCountTsIssue {
+  medId: MedId;
+  medName: string;
+  badLastCountTs: boolean;
+  badLastSubCountTs: boolean;
+}
 
 export type AdminTab = 'users' | 'audit';
 export type AuditFilter = 'all' | 'users' | 'stock';
