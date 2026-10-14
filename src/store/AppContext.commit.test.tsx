@@ -1722,8 +1722,8 @@ const WH_BOXED_MED = {
   bin: 'B12', binSub: 'S60', noSubstock: false, packSize: 30, used30: 0, usedPrev30: 0, volatility: 0,
 };
 
-describe('printWarehouseRequestList — box-breakdown note format regression', () => {
-  it('writes the row note in "NxSIZE" notation for a box-only med', async () => {
+describe('printWarehouseRequestList — box-breakdown/par/balance columns regression', () => {
+  it('reports qty, boxes, par, and curBalance for a box-only med', async () => {
     const user = userEvent.setup();
     renderWithApp(<PrintWarehouseRequestHarness />);
     await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
@@ -1738,8 +1738,13 @@ describe('printWarehouseRequestList — box-breakdown note format regression', (
     const rows = vi.mocked(printModule.printPickListSheet).mock.calls[callsBefore][0];
     const row = rows.find((r) => r.name === WH_BOXED_MED.name);
     // Deficit 500 (parSub 500 - subQty 0), packSize 30 → rounds UP (this list has no substock
-    // cap, see packStep()/this function's own comment) to ceil(500/30)=17 boxes (510 units).
-    expect(row?.note).toBe('17x30');
+    // cap, see packStep()/this function's own comment) to ceil(500/30)=17 boxes (510 units) —
+    // structured into `boxes`/`qty` (the printed sheet's own primary-box/secondary-unit split —
+    // see PickListRow.boxes' own doc comment) instead of the old "17x30" note string.
+    expect(row?.qty).toBe(510);
+    expect(row?.boxes).toBe(17);
+    expect(row?.par).toBe(WH_BOXED_MED.parSub);
+    expect(row?.curBalance).toBe(0);
   });
 });
 

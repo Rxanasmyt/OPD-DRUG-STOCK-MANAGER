@@ -326,6 +326,21 @@ export interface PickListRow {
   // Optional and additive: when NO row sets this (the cart-based ใบจัดยาเติมชั้น, which doesn't),
   // printPickListSheet renders its original single ungrouped table unchanged.
   route?: RouteType;
+  // Real-world request (ใบขอเบิกจากคลังใหญ่): "อยากให้มีรายละเอียดของ par stock แต่ละตัว...และยอด
+  // คงเหลือ ณ ปัจจุบันที่ทำใบเบิก" — optional and additive like pickBin/route above: only
+  // printWarehouseRequestList (AppContext.tsx) sets `par`/`curBalance`/`boxes`, so the other two
+  // pick-list sheets (ใบจัดยาเติมชั้น/ใบเติมหน้างานประจำวัน) keep their current layout and column
+  // count completely unchanged — see showParCols below.
+  par?: number;
+  /** Substock (or floor, for a noSubstock med) balance at the moment this sheet was printed —
+   * the number a reviewer/approver needs to judge "is this request still right" without having
+   * to separately look the med up in the app. */
+  curBalance?: number;
+  /** Whole-box count this row's `qty` breaks down to (0/undefined for a med with no real box
+   * size — Med.packSize unset — which falls back to the plain qty/unit the other two sheets
+   * already show). Printed as the PRIMARY quantity when set, with the exact unit count moved to
+   * a secondary detail line underneath — the reverse of `note`'s smaller/secondary treatment. */
+  boxes?: number;
 }
 
 /** One row of the optional "ยาขาดชั่วคราว" informational section — see printPickListSheet's
@@ -381,13 +396,21 @@ export function printPickListSheet(
   // Only show the "pick from" column when at least one row actually sets it — the cart-based
   // ใบจัดยาเติมชั้น (printPickList) never does, so it keeps its original layout unchanged.
   const showPickBin = sorted.some((r) => r.pickBin);
-  const colCount = 3 + (showPickBin ? 1 : 0) + 2; // ลำดับ, ชั้น, [หยิบจาก], รายการยา, จำนวน, ✓
+  // Only the warehouse-requisition sheet sets these (see PickListRow.par's own doc comment) —
+  // the other two pick-list sheets never do, so this stays false for them and their column
+  // count/qty-cell layout is completely unaffected.
+  const showParCols = sorted.some((r) => r.par !== undefined);
+  const colCount = 3 + (showPickBin ? 1 : 0) + (showParCols ? 2 : 0) + 2; // ลำดับ, ชั้น, [หยิบจาก], รายการยา, [Par, คงเหลือ], จำนวน, ✓
+  const qtyCell = (r: PickListRow) => showParCols && r.boxes
+    ? `<td class="qty"><div class="qtybox">${r.boxes.toLocaleString('en-US')} กล่อง</div><div class="qtysub">${r.qty.toLocaleString('en-US')} ${escapeHtml(r.unit)}</div></td>`
+    : `<td class="qty">${r.qty.toLocaleString('en-US')} ${escapeHtml(r.unit)}</td>`;
   const rowHtml = (r: PickListRow, i: number) => `<tr>
       <td class="n">${i + 1}</td>
       <td class="bin">${escapeHtml(r.bin || '—')}</td>
       ${showPickBin ? `<td class="pickbin">${escapeHtml(r.pickBin || '—')}</td>` : ''}
       <td class="name">${escapeHtml(r.name)}${r.note ? `<div class="note">หมายเหตุ: ${escapeHtml(r.note)}</div>` : ''}</td>
-      <td class="qty">${r.qty.toLocaleString('en-US')} ${escapeHtml(r.unit)}</td>
+      ${showParCols ? `<td class="par">${r.par != null ? r.par.toLocaleString('en-US') : '—'}</td><td class="curbal">${r.curBalance != null ? r.curBalance.toLocaleString('en-US') : '—'}</td>` : ''}
+      ${qtyCell(r)}
       <td class="check">☐</td>
     </tr>`;
 
@@ -483,9 +506,15 @@ export function printPickListSheet(
   .n { width: 7mm; color: #667; text-align: center; }
   .bin { width: 22mm; font-weight: 700; white-space: nowrap; }
   .pickbin { width: 22mm; font-weight: 700; white-space: nowrap; color: #245a59; }
-  .qty { width: 30mm; font-weight: 700; text-align: right; }
+  .qty { width: 26mm; font-weight: 700; text-align: right; }
   .check { width: 10mm; text-align: center; font-size: 12pt; }
   .note { font-size: 8pt; color: #a15c00; font-weight: 600; margin-top: 0.5mm; }
+  /* Par/คงเหลือ (ใบขอเบิกจากคลังใหญ่ only — see PickListRow.par's own doc comment) — narrow
+     plain-number columns, kept visually lighter than .qty (which is the actual action item on
+     this sheet) so the reviewer's eye still lands on "เบิกเท่าไหร่" first. */
+  .par, .curbal { width: 14mm; text-align: right; color: #556; }
+  .qtybox { font-weight: 700; }
+  .qtysub { font-size: 7.5pt; color: #667; font-weight: 400; margin-top: 0.3mm; }
 
   .heldsection { margin-top: 4mm; }
   .heldsection .heldtitle { font-size: 10.5pt; font-weight: 700; color: #8a2e2e; margin-bottom: 1mm; }
@@ -524,7 +553,7 @@ export function printPickListSheet(
       <tr><td class="k">ผู้จัดทำรายการ</td><td class="v">${escapeHtml(meta.printedBy || '—')}</td><td class="k">วันที่จัดพิมพ์เอกสาร</td><td class="v">${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }))}</td></tr>
     </table>
     <table class="rows">
-      <thead><tr><th class="n">ลำดับ</th><th class="bin">${escapeHtml(colLabels.bin)}</th>${showPickBin ? `<th class="pickbin">${escapeHtml(colLabels.pickBin || 'หยิบจาก (substock)')}</th>` : ''}<th class="name">รายการยา</th><th class="qty">${escapeHtml(colLabels.qty)}</th><th class="check">✓</th></tr></thead>
+      <thead><tr><th class="n">ลำดับ</th><th class="bin">${escapeHtml(colLabels.bin)}</th>${showPickBin ? `<th class="pickbin">${escapeHtml(colLabels.pickBin || 'หยิบจาก (substock)')}</th>` : ''}<th class="name">รายการยา</th>${showParCols ? '<th class="par">Par</th><th class="curbal">คงเหลือ</th>' : ''}<th class="qty">${escapeHtml(colLabels.qty)}</th><th class="check">✓</th></tr></thead>
       <tbody>${body}</tbody>
     </table>
     ${heldRows.length ? `<div class="heldsection">

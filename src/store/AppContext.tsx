@@ -2059,13 +2059,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!items.length && !heldMeds.length) { toast('ทุกรายการยังสูงกว่า par — ยังไม่ต้องเบิกเพิ่ม'); return; }
     const rows = items.map((m) => {
       const short = usesSubstock(m);
-      const need = Math.max(0, (short ? m.parSub - subQty(state, m.id) : m.parFloor - m.floor));
+      const curBalance = short ? subQty(state, m.id) : m.floor;
+      const par = short ? m.parSub : m.parFloor;
+      const need = Math.max(0, par - curBalance);
       // Round the raw shortfall up to a whole multiple of this med's requisition step — for a
       // box-only med (Med.packSize set) that's real box count, never a fractional box; for
       // everything else it's the same generic magnitude step packStep() already falls back to.
       const step = packStep(m);
       const qty = Math.ceil(need / step) * step;
-      const note = boxBreakdownLabel(m, qty);
+      // Real-world request: "จำนวนที่ต้องเบิกเป็นจำนวนกล่อง...และยอดคงเหลือ ณ ปัจจุบัน" — qty above
+      // is always an EXACT multiple of m.packSize whenever one is set (step === m.packSize in
+      // that case), so this is a plain division, never a Math.floor-and-drop-remainder guess;
+      // 0 for a med with no real box size, which printPickListSheet falls back to a plain
+      // qty/unit display for (see PickListRow.boxes' own doc comment) — same as this sheet
+      // showed before this round, just without the old boxBreakdownLabel() "note" line, which
+      // this replaces with a real structured column instead of a small subtext string.
+      const boxes = m.packSize && m.packSize > 1 ? qty / m.packSize : 0;
       // Real-world request: รหัสยา (m.code, e.g. MED-0002) isn't actually used in practice — what
       // staff actually need on this sheet is where to put the stock once the warehouse releases
       // it, i.e. the substock shelf code. A med with its own substock stage uses that shelf
@@ -2074,7 +2083,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // meds are judged against floor par here), so fall back to its floor bin for those.
       // Real-world request: "ใบเติมหน้างานประจำ และใบเบิกจากคลังให้แยกประเภทยากิน ยาฉีดด้วยครับ" —
       // see printTodayReplenishList's own comment above on the exact same addition there.
-      return { bin: short ? (m.binSub || '—') : binDisplayAll(m), name: m.name + (short ? '' : ' (ไม่มี substock)'), qty, unit: m.unit, note, route: effectiveRouteOf(m) };
+      return { bin: short ? (m.binSub || '—') : binDisplayAll(m), name: m.name + (short ? '' : ' (ไม่มี substock)'), qty, unit: m.unit, par, curBalance, boxes, route: effectiveRouteOf(m) };
     });
     const heldRows = heldMeds.map((m) => ({
       name: m.name,
