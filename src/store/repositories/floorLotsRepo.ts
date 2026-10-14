@@ -16,13 +16,22 @@ export function floorLotRef(id: string): DocumentReference {
   return doc(db, 'floorLots', id);
 }
 
-/** The live floorLots listener — unlike `lots`/`txs`, this collection has no live-feed cap:
- * every floor-lot doc that exists is always relevant to FEFO/aging across the whole app. */
+/** The live floorLots listener.
+ *
+ * Bug fix (Firestore quota incident, 2026-10-14): this doc comment used to claim "every
+ * floor-lot doc that exists is always relevant to FEFO/aging across the whole app" — not true of
+ * any real consumer: floorLotsFor()/fefoFloorLot() (selectors.ts), AdjustScreen's floorScrapRows,
+ * and scrapFloorLot's own lookup (AppContext.tsx) all filter to `qty > 0` themselves, same as
+ * every `lots` consumer (see subscribeLots' own doc comment, same incident, same fix). A
+ * floor-lot drawn down to 0 by commitTransfer/commitAdjust/commitReconcile just sits there
+ * forever as a spent record, unfiltered — pure dead weight re-synced to every client on every
+ * connect. Filtering it out of the live query itself (not just client-side, which already
+ * happened everywhere that mattered) removes that waste with no loss of functionality. */
 export function subscribeFloorLots(
   onNext: (snap: QuerySnapshot) => void,
   onError: (e: FirestoreError) => void,
 ): Unsubscribe {
-  return onSnapshot(floorLotsCollection(), onNext, onError);
+  return onSnapshot(query(floorLotsCollection(), where('qty', '>', 0)), onNext, onError);
 }
 
 /** Every floorLots doc that exists — resetAllQuantities()'s own pre-reset snapshot needs the
