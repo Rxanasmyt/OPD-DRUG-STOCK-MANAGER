@@ -79,9 +79,13 @@ async function main() {
 
   console.log(`Checking stock drift (project "${serviceAccount.project_id}")...`);
 
+  // Bug fix (Firestore quota incident — same fix as collect-daily-metrics.mjs/notify-low-stock.mjs,
+  // see collect-daily-metrics.mjs's own doc comment): subByMed below already discards a qty<=0 lot
+  // implicitly (adding 0 changes nothing), so filtering server-side costs nothing functionally
+  // while skipping every long-dead, fully-dispensed lot `lots` never deletes.
   const [medsSnap, lotsSnap, prevSnapDoc] = await Promise.all([
     db.collection('meds').get(),
-    db.collection('lots').get(),
+    db.collection('lots').where('qty', '>', 0).get(),
     snapshotRef.get(),
   ]);
   const meds = medsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));

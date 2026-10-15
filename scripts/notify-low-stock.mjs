@@ -61,8 +61,12 @@ async function main() {
   initializeApp({ credential: cert(serviceAccount) });
   const db = getFirestore();
 
+  // Bug fix (Firestore quota incident — same fix as collect-daily-metrics.mjs/check-stock-drift.mjs,
+  // see collect-daily-metrics.mjs's own doc comment): the loop below already requires `l.qty > 0`
+  // before counting a lot, so filtering server-side costs nothing functionally while skipping
+  // every long-dead, fully-dispensed lot `lots` never deletes.
   console.log('Reading meds/lots...');
-  const [medSnap, lotSnap] = await Promise.all([db.collection('meds').get(), db.collection('lots').get()]);
+  const [medSnap, lotSnap] = await Promise.all([db.collection('meds').get(), db.collection('lots').where('qty', '>', 0).get()]);
   const meds = medSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((m) => m.active);
 
   const subByMed = new Map();
