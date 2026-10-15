@@ -1397,13 +1397,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }) as AppState['txs'];
         patch({ txs });
       }, onErr('txs')),
-      subscribeRecentAuditLog((snap) => {
-        const authLog = snap.docs.map((d) => {
-          const raw = d.data() as Record<string, unknown>;
-          return { id: d.id, ...raw, ts: numOr(raw, 'ts', 0) };
-        }) as AppState['authLog'];
-        patch({ authLog });
-      }, onErr('auditLog')),
+      // Bug fix (Firestore quota incident, same round as the lots/floorLots fix — see those
+      // repos' own doc comments): the audit log used to live here too, syncing for EVERY
+      // signed-in device the whole session regardless of what screen it was actually on. Moved
+      // to its own screen-scoped effect just below (only subscribes while state.screen is
+      // 'reconcile' or 'admin' — the only two places state.authLog is ever read; verified by
+      // grepping every reference app-wide) since the 86K→53K drop from the lots/floorLots fix
+      // alone still weren't enough to stay under the free Spark plan's daily cap.
       // Receives submitted by a ผู้ช่วยเภสัชกร (tech) sit here until a pharmacist/admin
       // approves them — everyone who can see the receive screen needs the live list (tech
       // to see their own request's status, pharm/admin to actually act on it).
@@ -1467,6 +1467,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     return () => { window.clearTimeout(stallTimer); unsubs.forEach((u) => u()); };
   }, [state.authStatus, myProfile?.role, patch, toast]);
+
+  // Audit log — screen-scoped live listener (see the "Bug fix (Firestore quota incident)" comment
+  // just above where this used to live, in the always-on bundle). state.authLog is read in
+  // exactly two places app-wide — ReconcileScreen's "ยาที่หลุดบ่อย" panel (every role, not just
+  // admin) and AdminScreen's own log view (admin only) — so gating on state.screen rather than
+  // role covers both correctly. Re-subscribing fresh every time either screen is entered gives
+  // the exact same data those screens always showed, just not kept warm in the background for the
+  // other screens a device spends most of its session on; the persistent IndexedDB cache
+  // (firebase.ts) means a repeat visit within the same session typically has this instantly from
+  // cache anyway, same as any other collection here.
+  useEffect(() => {
+    if (state.authStatus !== 'signedIn') return;
+    if (state.screen !== 'reconcile' && state.screen !== 'admin') return;
+    const unsub = subscribeRecentAuditLog((snap) => {
+      const authLog = snap.docs.map((d) => {
+        const raw = d.data() as Record<string, unknown>;
+        return { id: d.id, ...raw, ts: numOr(raw, 'ts', 0) };
+      }) as AppState['authLog'];
+      patch({ authLog });
+    }, (e) => {
+      console.error('onSnapshot(auditLog) failed:', e);
+      toast('เชื่อมต่อข้อมูลบางส่วนไม่สำเร็จ — ลองโหลดหน้าใหม่ ถ้ายังไม่หายให้แจ้งผู้ดูแลระบบ');
+    });
+    return unsub;
+  }, [state.authStatus, state.screen, patch, toast]);
 
   // Checks real lot data for anything near/past expiry and, if the person opted in and granted
   // OS permission, shows a local notification — at most once a day (see maybeNotifyExpiring's

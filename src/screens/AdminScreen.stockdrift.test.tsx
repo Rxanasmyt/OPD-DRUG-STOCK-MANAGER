@@ -7,14 +7,28 @@
 import { describe, it, expect } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useEffect } from 'react';
 import AdminScreen from './AdminScreen';
+import { useApp } from '../store/AppContext';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import { signInAs, fireCollection, hasListener } from '../test-utils/firebaseTestDouble';
+
+// AppContext's audit log listener is screen-scoped (only live while state.screen is 'reconcile'
+// or 'admin' — see its own "Bug fix (Firestore quota incident)" doc comment), unlike the real app
+// where AdminScreen only ever mounts via go('admin') through App.tsx's router. Rendering
+// <AdminScreen /> directly (as this test used to) bypasses that router entirely, so state.screen
+// never actually becomes 'admin' and the listener never subscribes — this harness restores that
+// real-world precondition instead of relying on it by accident.
+function Harness() {
+  const { go } = useApp();
+  useEffect(() => { go('admin'); }, [go]);
+  return <AdminScreen />;
+}
 
 describe('AdminScreen — stock_drift_detected audit label regression', () => {
   it('shows the Thai label for a stock_drift_detected entry, not the raw type string', async () => {
     const user = userEvent.setup();
-    renderWithApp(<AdminScreen />);
+    renderWithApp(<Harness />);
     await signInAs('admin0', { role: 'admin', name: 'แอดมิน หนึ่ง', username: 'admin0' });
     await waitFor(() => expect(hasListener('auditLog')).toBe(true));
     fireCollection('auditLog', [
