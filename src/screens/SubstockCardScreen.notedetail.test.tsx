@@ -3,11 +3,13 @@
 // หน้างานใหม่แล้วคลาดเคลื่อนจากเดิม นับสต็อคsubstockใหม่แล้วคลาดเคลื่อนจากเดิม...ให้มีรายละเอียดที่
 // ชัดเจนตรวจสอบย้อนหลังได้" — every row already carried this exact detail in its `note` (see
 // commitCount/commitSubCount in AppContext.tsx), but the only place it ever surfaced was a row's
-// `title` attribute, a hover-only tooltip a touchscreen never triggers. See SubstockCardScreen.tsx's
-// own "Real-world request" comments on expandedRows/labelFor for the two-part fix: (1) tap a row to
-// reveal its full type label + note as real, visible text, and (2) a "count" row's label itself now
-// says WHICH stage was recounted (substock vs หน้างาน) instead of one flat generic wording, since a
-// printed sheet or CSV row read outside this screen's own toggle had no other way to tell them apart.
+// `title` attribute, a hover-only tooltip a touchscreen never triggers. First fixed as tap-to-reveal;
+// a follow-up real-world request ("แยกให้ชัดเจน...") asked for always-visible instead, matching the
+// printed sheet (printSubstockCardSheet, print.ts), which never hid this — see SubstockCardScreen.tsx's
+// own "Real-world request" comments on TYPE_META/labelFor for the full fix: (1) every row's type
+// label + note now renders as its own always-visible line, color-coded by type, and (2) a "count" row's
+// label itself says WHICH stage was recounted (substock vs หน้างาน) instead of one flat generic wording,
+// since a printed sheet or CSV row read outside this screen's own toggle had no other way to tell them apart.
 import { describe, it, expect } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -62,17 +64,9 @@ describe('SubstockCardScreen — count-row wording regression', () => {
   });
 });
 
-describe('SubstockCardScreen — tap-to-reveal note detail regression', () => {
-  it('keeps the note hidden as plain text until the row is tapped, then shows it, then hides it again on a second tap', async () => {
-    const user = await openCard();
-    const row = await screen.findByTitle(/^นับสต็อก substock ใหม่/);
-
-    expect(screen.queryByText(/นับได้มากกว่าระบบ 10 เม็ด/)).not.toBeInTheDocument();
-
-    await user.click(row);
+describe('SubstockCardScreen — always-visible note detail regression', () => {
+  it('shows the type label + note as real, always-visible text — no tap needed', async () => {
+    await openCard();
     await screen.findByText(/นับสต็อก substock ใหม่ \(ปรับยอด\) — นับได้มากกว่าระบบ 10 เม็ด/);
-
-    await user.click(row);
-    await waitFor(() => expect(screen.queryByText(/นับได้มากกว่าระบบ 10 เม็ด/)).not.toBeInTheDocument());
   });
 });

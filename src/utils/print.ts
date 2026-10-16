@@ -610,7 +610,34 @@ export interface SubstockCardRow {
   // keep at the shelf) silently dropped that and only ever showed the bare number.
   typeLabel: string;
   note?: string | undefined;
+  // Real-world request: "อยากให้ข้อมูลแต่ละประเภทแถบสีคนละสีเพื่อแยกให้ชัดเจน" — the raw Tx `type`
+  // (not just its already-resolved typeLabel string), so this sheet can look up the SAME accent
+  // color the on-screen ledger uses for this exact type (TX_TYPE_COLOR_HEX just below — kept as a
+  // literal-hex copy of SubstockCardScreen.tsx's TYPE_META colors/styles.css's --tx-* tokens,
+  // since a standalone print document opened in its own window can't resolve this app's live CSS
+  // custom properties). Optional so a caller that predates this field (none left in this
+  // codebase, but kept defensive) still prints with no accent bar rather than crashing.
+  type?: string | undefined;
 }
+
+// Literal-hex mirror of styles.css's --tx-receive/--tx-reconcile/--tx-return/--tx-loss (+ the
+// reused var(--green)/var(--amber)/var(--muted) light-mode values) — see that file's own comment
+// on why a print document needs its own hardcoded copy instead of var(). Keep these two in sync
+// by hand if either changes; a drift here only means the printed sheet's colors fall slightly out
+// of step with the live app's, never a functional break (the type label text is always correct
+// either way).
+const TX_TYPE_COLOR_HEX: Record<string, string> = {
+  receive_from_central: '#1c64c7',
+  transfer_to_floor: '#007371',
+  expired: '#92400e',
+  count: '#b8710f',
+  reconcile_hosxp: '#1e3a5f',
+  adjust: '#b8710f',
+  return: '#0891b2',
+  damaged: '#92400e',
+  ward_move_in: '#6b7269',
+  ward_move_out: '#6b7269',
+};
 
 /**
  * Digital replacement for the hand-written "บัตรคุมสต็อกยา" (yellow stock card) — same
@@ -679,15 +706,21 @@ export function printSubstockCardSheet(
     return label?.includes('x') ? `<br><span style="font-size:7.5pt;font-weight:500;color:#667">${escapeHtml(label)}</span>` : '';
   };
   const body = openingRow + rows
-    .map((r, i) => `<tr${r.balance < 0 ? ' style="background:#fbeceb"' : ''}>
+    .map((r, i) => {
+      // Real-world request: "อยากให้ข้อมูลแต่ละประเภทแถบสีคนละสีเพื่อแยกให้ชัดเจน" — same left
+      // accent bar the on-screen ledger gives this exact type (TYPE_META, SubstockCardScreen.tsx),
+      // via TX_TYPE_COLOR_HEX's literal-hex mirror of those colors.
+      const accent = (r.type && TX_TYPE_COLOR_HEX[r.type]) || '#c7cbc3';
+      return `<tr${r.balance < 0 ? ' style="background:#fbeceb"' : ''}>
       <td class="no">${i + 1}</td>
       <td class="date">${escapeHtml(new Date(r.ts).toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: '2-digit' }))}</td>
-      <td class="type">${escapeHtml(r.typeLabel)}${r.note ? `<br><span style="font-size:7.5pt;font-weight:500;color:#667">${escapeHtml(r.note)}</span>` : ''}</td>
+      <td class="type" style="border-left:3px solid ${accent}">${escapeHtml(r.typeLabel)}${r.note ? `<br><span style="font-size:7.5pt;font-weight:500;color:#667">${escapeHtml(r.note)}</span>` : ''}</td>
       <td class="num recv">${r.received ? r.received.toLocaleString('en-US') + boxSub(r.received) : ''}</td>
       <td class="num disp">${r.dispensed ? r.dispensed.toLocaleString('en-US') + boxSub(r.dispensed) : ''}</td>
       <td class="num bal" style="${r.balance < 0 ? 'color:#a32b22' : ''}">${r.balance.toLocaleString('en-US')}${r.balance < 0 ? ' *' : ''}${boxSub(Math.abs(r.balance))}</td>
       <td class="by">${escapeHtml(r.by)}</td>
-    </tr>`)
+    </tr>`;
+    })
     .join('');
 
   // Styled after the real hand-written yellow "บัตรคุมสต็อกยา" ledger card — a boxed field

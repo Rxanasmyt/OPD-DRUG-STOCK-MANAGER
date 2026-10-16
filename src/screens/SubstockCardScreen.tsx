@@ -19,23 +19,33 @@ interface LedgerRow { ts: number; type: string; qty: number; note: string; by: s
 // identical red number with nothing to tell them apart, which is exactly the kind of thing a
 // real stock-card review needs to distinguish at a glance. One small icon+label per row fixes
 // it without touching the color-coded รับ/จ่าย columns already in place.
-const TYPE_META: Record<string, { icon: string; label: string }> = {
-  receive_from_central: { icon: '📥', label: 'รับจากคลังใหญ่' },
-  transfer_to_floor: { icon: '🚚', label: 'เติมหน้างาน' },
-  expired: { icon: '🗑️', label: 'ตัดหมดอายุ' },
+//
+// Real-world request: "อยากให้ข้อมูลแต่ละประเภทแถบสีคนละสีเพื่อแยกให้ชัดเจน" — the icon above was
+// already a per-type signal, but small enough (and similar enough at a glance — 🔢 vs ⚖️, ↘️ vs
+// ↗️) that a quick scan down a long history still took real reading, not just looking. `color`
+// adds a second, bigger channel (the icon's chip background, and the row's left accent bar — see
+// the table body below) that reads at a glance even before the icon/label registers. See
+// styles.css's own comment on --tx-receive/--tx-reconcile/--tx-return/--tx-loss for why those
+// three are genuinely new tokens rather than reusing --ipd/--fridge/--had (different, unrelated
+// flags already live on this exact screen) — transfer_to_floor/count/adjust/ward_move reuse
+// var(--green)/var(--amber)/var(--muted) instead, deliberately, for the same reason stated there.
+const TYPE_META: Record<string, { icon: string; label: string; color: string; bg: string }> = {
+  receive_from_central: { icon: '📥', label: 'รับจากคลังใหญ่', color: 'var(--tx-receive)', bg: 'var(--tx-receive-bg)' },
+  transfer_to_floor: { icon: '🚚', label: 'เติมหน้างาน', color: 'var(--green)', bg: 'var(--green-tint)' },
+  expired: { icon: '🗑️', label: 'ตัดหมดอายุ', color: 'var(--tx-loss)', bg: 'var(--tx-loss-bg)' },
   // Generic fallback label for 'count' — labelFor() below always overrides this with a
   // substock-vs-หน้างาน-specific wording instead, since which one applies depends on which
   // ledger side is open (not knowable from the type string alone). Kept here only as the
-  // icon source and a safety-net label for any caller that doesn't go through labelFor().
-  count: { icon: '🔢', label: 'นับสต็อก (ปรับยอด)' },
+  // icon/color source and a safety-net label for any caller that doesn't go through labelFor().
+  count: { icon: '🔢', label: 'นับสต็อก (ปรับยอด)', color: 'var(--amber)', bg: 'var(--amber-bg)' },
   // The rest only ever show up on a FLOOR ledger (noSubstock med — see fetchFloorLedger) —
   // adjust/return/damaged/reconcile_hosxp/ward_move all only ever touch floor, never substock.
-  reconcile_hosxp: { icon: '🧾', label: 'ตัดยอด HOSxP' },
-  adjust: { icon: '⚖️', label: 'ปรับยอด' },
-  return: { icon: '↩️', label: 'คืนยา' },
-  damaged: { icon: '💥', label: 'ยาเสีย/ชำรุด' },
-  ward_move_in: { icon: '↘️', label: 'ย้ายมาจากชั้นอื่น' },
-  ward_move_out: { icon: '↗️', label: 'ย้ายไปชั้นอื่น' },
+  reconcile_hosxp: { icon: '🧾', label: 'ตัดยอด HOSxP', color: 'var(--tx-reconcile)', bg: 'var(--tx-reconcile-bg)' },
+  adjust: { icon: '⚖️', label: 'ปรับยอด', color: 'var(--amber)', bg: 'var(--amber-bg)' },
+  return: { icon: '↩️', label: 'คืนยา', color: 'var(--tx-return)', bg: 'var(--tx-return-bg)' },
+  damaged: { icon: '💥', label: 'ยาเสีย/ชำรุด', color: 'var(--tx-loss)', bg: 'var(--tx-loss-bg)' },
+  ward_move_in: { icon: '↘️', label: 'ย้ายมาจากชั้นอื่น', color: 'var(--muted)', bg: 'var(--border-soft)' },
+  ward_move_out: { icon: '↗️', label: 'ย้ายไปชั้นอื่น', color: 'var(--muted)', bg: 'var(--border-soft)' },
 };
 
 // Real-world request: "นับสต็อคหน้างานใหม่แล้วคลาดเคลื่อนจากเดิม นับสต็อคsubstockใหม่แล้ว
@@ -86,17 +96,13 @@ export default function SubstockCardScreen() {
   // ที่ชัดเจนตรวจสอบย้อนหลังได้" — every row already carried this exact detail in its `note`
   // (FEFO lot used, box breakdown, นับได้มากกว่า/น้อยกว่าระบบ เท่าไร, the typed adjust/return
   // reason, ...), but the only place it ever showed was the row's `title` attribute — a
-  // mouse-hover tooltip a touchscreen never triggers, same class of gap already fixed for the
-  // type-icon legend below. Tap-to-expand works on both; a Set so more than one row can be open
-  // for comparison at once. Keyed by row index within the currently-viewed rows, so it's reset
-  // whenever that set changes (new med, side switch, live refetch) to avoid a stale index
-  // pointing at a now-different row.
-  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
-  const toggleRowNote = (i: number) => setExpandedRows((prev) => {
-    const next = new Set(prev);
-    if (next.has(i)) next.delete(i); else next.add(i);
-    return next;
-  });
+  // mouse-hover tooltip a touchscreen never triggers. This first shipped as tap-to-expand
+  // (a hidden detail row revealed on tap), matching the printed sheet's note column — except the
+  // printed sheet (printSubstockCardSheet, print.ts) always shows its note, never hidden behind a
+  // tap, so the two disagreed on how "clear" actually looks. A follow-up real-world request asked
+  // for exactly that: always-visible, not tap-to-reveal, same as the print sheet already does —
+  // see the note line rendered directly under each row's type label below (no more expand state
+  // needed; a note-less row simply has no second line to show).
 
   const med = medId ? state.meds.find((m) => m.id === medId) : null;
   // Real-world request: a noSubstock med (liquids/inhalers/sprays/injectables) has no substock
@@ -190,11 +196,6 @@ export default function SubstockCardScreen() {
     if (!rows) return null;
     return year === 'all' ? rows : rows.filter((r) => fiscalYear(r.ts) === year);
   }, [rows, year]);
-
-  // Collapse any open note rows whenever the underlying ledger changes — a new med, a side
-  // switch, or a live refetch all swap in a different set of rows, so an expanded-by-index
-  // row from before could otherwise silently point at an unrelated transaction after the swap.
-  useEffect(() => { setExpandedRows(new Set()); }, [rows]);
 
   const yearTotals = useMemo(() => {
     if (!viewRows) return null;
@@ -319,7 +320,7 @@ export default function SubstockCardScreen() {
     if (!med || !viewRows) return;
     const cardRows = viewRows.map((r) => ({
       ts: r.ts, received: r.qty > 0 ? r.qty : 0, dispensed: r.qty < 0 ? -r.qty : 0, balance: r.balance, by: r.by,
-      typeLabel: labelFor(r.type, hasSub), note: r.note || undefined,
+      typeLabel: labelFor(r.type, hasSub), note: r.note || undefined, type: r.type,
     }));
     // ยอดยกมา — the balance right before this printed period's first row, backed out of that
     // row's own signed qty (same math the running balance itself uses).
@@ -559,9 +560,12 @@ export default function SubstockCardScreen() {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px', padding: '9px 13px', background: 'var(--bg-subtle)', border: '1px solid var(--border-soft)', borderRadius: 12, marginBottom: 12 }}>
             {Array.from(new Set((rows || []).map((r) => r.type)))
               .filter((t) => !!TYPE_META[t])
-              .map((t) => ({ type: t, icon: TYPE_META[t].icon, label: labelFor(t, hasSub) }))
+              .map((t) => ({ type: t, icon: TYPE_META[t].icon, label: labelFor(t, hasSub), color: TYPE_META[t].color }))
               .map((t) => (
                 <span key={t.type} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11 }}>
+                  {/* Same color each type's row carries below (left accent bar + icon chip) —
+                      doubles as the legend for what each color means, not just each icon. */}
+                  <span aria-hidden="true" style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: t.color, flexShrink: 0 }} />
                   <span aria-hidden="true">{t.icon}</span>
                   <span className="muted">{t.label}</span>
                 </span>
@@ -600,43 +604,16 @@ export default function SubstockCardScreen() {
                     // same boxBreakdownLabel() helper (not just transfer_to_floor rows anymore).
                     const boxLine = boxBreakdownLabel(med, Math.abs(r.qty), true);
                     const balanceBoxLine = boxBreakdownLabel(med, Math.abs(r.balance), true);
-                    // Real-world request: "ยังไม่มีรายละเอียดบอกว่าที่บอกเพิ่มหรือลบคือเกิดจาก
-                    // อะไร...ให้มีรายละเอียดที่ชัดเจนตรวจสอบย้อนหลังได้" — tap the row to expand
-                    // its full type label + note (see expandedRows' own doc comment above for
-                    // why this replaces a hover-only title on a screen staff mainly use by
-                    // phone). A row with no note (`r.note` is '' for the rare type that never
-                    // sets one) has nothing more to reveal, so it isn't made tappable at all —
-                    // no dead-end expand arrow for an empty detail.
-                    const expanded = expandedRows.has(i);
                     return (
                       <Fragment key={i}>
-                        {/* Bug fix (audit finding — keyboard accessibility): this row's expand/
-                            collapse was mouse/touch-only — no keyboard user (or screen reader,
-                            since a plain <tr onClick> has no accessible role) could reach the
-                            note a tap here reveals. role="button" + tabIndex + Enter/Space
-                            mirror what a real <button> gives for free, gated by the same r.note
-                            check the click handler already uses (a note-less row stays inert). */}
-                        {/* Bug fix (audit finding — keyboard accessibility): this row's expand/
-                            collapse was mouse/touch-only — no keyboard user (or screen reader,
-                            since a plain <tr onClick> has no accessible role) could reach the
-                            note a tap here reveals. role="button" + tabIndex + Enter/Space
-                            mirror what a real <button> gives for free, gated by the same r.note
-                            check the click handler already uses (a note-less row stays inert). */}
-                        <tr
-                          title={title}
-                          onClick={r.note ? () => toggleRowNote(i) : undefined}
-                          onKeyDown={r.note ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleRowNote(i); } } : undefined}
-                          role={r.note ? 'button' : undefined}
-                          tabIndex={r.note ? 0 : undefined}
-                          aria-expanded={r.note ? expanded : undefined}
-                          style={r.note ? { cursor: 'pointer' } : undefined}
-                        >
-                          <Td num style={{ color: 'var(--muted)', fontSize: 10.5 }}>{i + 1}</Td>
-                          <Td style={{ textAlign: 'center', fontSize: 12 }}>{meta ? meta.icon : ''}</Td>
-                          <Td>
-                            {thDate(r.ts)}
-                            {r.note && <span aria-hidden="true" style={{ marginLeft: 3, fontSize: 8.5, color: 'var(--muted)' }}>{expanded ? '▲' : '▾'}</span>}
+                        <tr title={title}>
+                          <Td num style={{ color: 'var(--muted)', fontSize: 10.5, borderLeft: `3px solid ${meta?.color || 'transparent'}` }}>{i + 1}</Td>
+                          <Td style={{ textAlign: 'center', fontSize: 12, padding: '5px 6px' }}>
+                            <span aria-hidden="true" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: 7, background: meta?.bg || 'transparent' }}>
+                              {meta ? meta.icon : ''}
+                            </span>
                           </Td>
+                          <Td>{thDate(r.ts)}</Td>
                           <Td num style={{ fontWeight: 700, fontSize: 13, color: 'var(--green)' }}>
                             {r.qty > 0 ? nf(r.qty) : ''}
                             {r.qty > 0 && boxLine?.includes('x') && <div className="muted" style={{ fontSize: 9, fontWeight: 500 }}>{boxLine}</div>}
@@ -651,13 +628,21 @@ export default function SubstockCardScreen() {
                           </Td>
                           <Td style={{ color: 'var(--muted)', fontSize: 10.5, maxWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.by}</Td>
                         </tr>
-                        {expanded && r.note && (
-                          <tr>
-                            <td colSpan={7} style={{ padding: '7px 10px', fontSize: 11, fontWeight: 600, lineHeight: 1.5, background: 'var(--bg-subtle)', border: '1px solid var(--border-soft)' }}>
-                              {label + ' — ' + r.note}
-                            </td>
-                          </tr>
-                        )}
+                        {/* Real-world request: "ยังไม่มีรายละเอียดบอกว่าที่บอกเพิ่มหรือลบคือเกิดจาก
+                            อะไร...ให้มีรายละเอียดที่ชัดเจนตรวจสอบย้อนหลังได้" — always visible, not
+                            hidden behind a tap (that was this screen's first pass at the same
+                            request; the printed sheet — printSubstockCardSheet, print.ts — never
+                            hid this, so the two disagreed on how "ชัดเจน" actually looks). Every
+                            row gets this line, even one with no note, since the type label ALONE
+                            ("เติมหน้างาน", "คืนยา", ...) already answers "เพิ่ม/ลดจากอะไร" — a note
+                            (FEFO lot, box breakdown, นับได้มากกว่า/น้อยกว่าเท่าไร, the typed
+                            adjust/return reason) is extra detail appended after it, not the only
+                            thing worth showing. */}
+                        <tr>
+                          <td colSpan={7} style={{ padding: '1px 10px 6px', fontSize: 10.5, fontWeight: 600, lineHeight: 1.4, color: 'var(--muted)', background: meta?.bg || 'var(--bg-subtle)', borderLeft: `3px solid ${meta?.color || 'transparent'}`, borderBottom: '1px solid var(--border-soft)' }}>
+                            {label}{r.note ? ' — ' + r.note : ''}
+                          </td>
+                        </tr>
                       </Fragment>
                     );
                   })}
