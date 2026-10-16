@@ -12,7 +12,11 @@ export default function TConfirmScreen() {
   const { state, removeFromCart, startHadScan, commitTransfer, userName, roleLabel, go } = useApp();
   const cartIds = Object.keys(state.cart) as MedId[];
   const meds = state.meds;
-  const hadPending = cartIds.filter((id) => meds.find((m) => m.id === id)?.had && !state.hadOk[id]);
+  // Real-world request: "ยา HAD ไม่ต้องยืนยันสแกนก่อนครับ ตอนนี้ป้ายชั้นวางยายังไม่ได้ทำ" — the
+  // scan step needs a physical QR shelf label to scan; while a hospital's labels aren't printed
+  // yet, this must stay empty so the gate below never blocks a transfer. See
+  // state.requireHadScan's own doc comment (AppContext.tsx) for the admin-facing toggle.
+  const hadPending = state.requireHadScan ? cartIds.filter((id) => meds.find((m) => m.id === id)?.had && !state.hadOk[id]) : [];
 
   // A med in the cart can, in principle, have been deleted from the formulary by someone else
   // (a different device/session) between adding it to the cart and reaching this confirm
@@ -100,7 +104,7 @@ export default function TConfirmScreen() {
               {m.fridge && (
                 <div style={{ fontSize: 11.5, marginTop: 2, fontWeight: 600, color: 'var(--fridge)' }}>🧊 ยาตู้เย็น — รีบนำเข้าตู้เย็นทันทีหลังเติมหน้างาน</div>
               )}
-              {m.had && (
+              {m.had && state.requireHadScan && (
                 <div style={{ fontSize: 11.5, marginTop: 2, fontWeight: 600, color: state.hadOk[id] ? 'var(--green)' : 'var(--had)' }}>
                   {state.hadOk[id] ? '✓ ยืนยัน QR แล้ว' : 'ต้องสแกน QR ก่อนยืนยัน'}
                 </div>

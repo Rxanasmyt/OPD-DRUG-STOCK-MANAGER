@@ -808,6 +808,11 @@ export interface AppState {
   // per-device — see updateGlobalSettings/idleWarnVisible below and the idle-tracking effect in
   // AppContext.tsx.
   idleLogoutMinutes: number;
+  // Real-world request: "ยา HAD ไม่ต้องยืนยันสแกนก่อนครับ ตอนนี้ป้ายชั้นวางยายังไม่ได้ทำ" — whether
+  // TConfirmScreen's high-alert QR re-scan step is required before confirming a floor-fill
+  // transfer. Shared hospital-wide setting like expiryWarnDays above (meta/settings) — see
+  // updateGlobalSettings/SettingsScreen.tsx.
+  requireHadScan: boolean;
   // When used30/usedPrev30 (the par-suggestion inputs) were last recomputed from real HOSxP
   // dispensing history — by recomputeUsageStats() (this app) or the scheduled
   // scripts/recompute-usage-stats.mjs job, whichever ran last. null means neither has ever run.

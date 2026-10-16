@@ -171,6 +171,32 @@ export default function SettingsScreen() {
         )}
       </div>
 
+      {/* Real-world request: "ยา HAD ไม่ต้องยืนยันสแกนก่อนครับ ตอนนี้ป้ายชั้นวางยายังไม่ได้ทำ" —
+          TConfirmScreen's high-alert re-scan step needs a physical QR shelf label to scan; a
+          hospital still mid-rollout of its labeling has nothing to scan yet. Shared hospital-wide
+          like every other setting on this screen, not per-device — see state.requireHadScan's own
+          doc comment (AppContext.tsx). Defaults to เปิดอยู่ (the safety gate stays on) until an
+          admin explicitly turns it off here, and back on once labels are ready. */}
+      <div className="card" style={{ padding: 13, marginBottom: 13 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}>ต้องสแกน QR ยืนยันยา High Alert ก่อนเติมหน้างาน</div>
+        <div className="muted" style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 10 }}>
+          ก่อนยืนยันเติมหน้างานยา High Alert (⚠ HAD) ต้องสแกน QR ฉลากที่ชั้นวางยืนยันก่อนทุกครั้ง — ปิดชั่วคราวได้ถ้ายังไม่ได้ติดป้าย QR ที่ชั้นวางยาครบ แล้วเปิดกลับมาเมื่อติดป้ายพร้อมแล้ว
+        </div>
+        {canEdit ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <StatusDot color={state.requireHadScan ? 'var(--green)' : 'var(--muted)'}>{state.requireHadScan ? 'เปิดอยู่' : 'ปิดอยู่'}</StatusDot>
+            <button
+              onClick={() => updateGlobalSettings({ requireHadScan: !state.requireHadScan })}
+              style={{ marginLeft: 'auto', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 44 }}
+            >
+              {state.requireHadScan ? 'ปิด' : 'เปิด'}
+            </button>
+          </div>
+        ) : (
+          <StatusDot color={state.requireHadScan ? 'var(--green)' : 'var(--muted)'}>{state.requireHadScan ? 'เปิดอยู่' : 'ปิดอยู่'}</StatusDot>
+        )}
+      </div>
+
       {/* Per-device opt-in, not a par setting — visible/settable to every role since it's just
           "แจ้งฉันตอนเปิดแอพ" on whatever phone/tablet this is, not something that affects anyone
           else's view. See utils/notify.ts for why this can only ever fire while the app is
