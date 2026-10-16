@@ -247,15 +247,28 @@ async function main() {
 
   // ---- เวลารอเบิกยา (เบิก→อนุมัติ, see DailyMetrics.receiveLeadTimeAvgHours's own doc comment
   // for why this only ever measures the tech-submitted/pharm-approved flow) ----
-  const pendingSnap = await db.collection('pendingReceives').get();
-  let leadTimeSumHours = 0, receiveApprovedCount = 0, receivePendingBacklog = 0;
-  for (const d of pendingSnap.docs) {
+  // Bug fix (Firestore quota incident, same round as the lots fix above — pendingReceives is
+  // another collection `status` never prunes: a request sits here forever once resolved, same
+  // as a spent `lots` doc). This used to read the ENTIRE collection — every pending, approved,
+  // AND rejected request ever submitted — every single run (25x/day via hourly-metrics.yml). Of
+  // the 3 real statuses (PendingReceive['status'], types.ts), a 'rejected' request is never read
+  // below at all, so excluding it at the query level (instead of after downloading it) costs
+  // nothing. Still can't push the resolvedTs date-range into the 'approved' query itself without
+  // a composite index this project doesn't have configured (same constraint the auditLog query
+  // above was already written to avoid) — that half still scans every approved request ever
+  // resolved, just no longer every rejected one too.
+  const [pendingSnap, approvedSnap] = await Promise.all([
+    db.collection('pendingReceives').where('status', '==', 'pending').get(),
+    db.collection('pendingReceives').where('status', '==', 'approved').get(),
+  ]);
+  // receivePendingBacklog: current backlog count, not date-scoped — see the file header's
+  // "Bug fix (doc accuracy)" note. A pending request has no resolved-date to filter on, so this
+  // can only ever reflect "right now", same caveat as the คงคลัง stock-snapshot section.
+  const receivePendingBacklog = pendingSnap.size;
+  let leadTimeSumHours = 0, receiveApprovedCount = 0;
+  for (const d of approvedSnap.docs) {
     const p = d.data();
-    // receivePendingBacklog: current backlog count, not date-scoped — see the file header's
-    // "Bug fix (doc accuracy)" note. A pending request has no resolved-date to filter on, so
-    // this can only ever reflect "right now", same caveat as the คงคลัง stock-snapshot section.
-    if (p.status === 'pending') { receivePendingBacklog++; continue; }
-    if (p.status !== 'approved' || typeof p.resolvedTs !== 'number') continue;
+    if (typeof p.resolvedTs !== 'number') continue;
     if (p.resolvedTs < dayStart || p.resolvedTs >= dayEnd) continue; // resolved ON this target day
     leadTimeSumHours += (p.resolvedTs - p.ts) / (60 * 60 * 1000);
     receiveApprovedCount++;
