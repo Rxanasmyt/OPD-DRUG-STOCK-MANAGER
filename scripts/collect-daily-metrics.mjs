@@ -117,9 +117,17 @@ async function main() {
 
   console.log(`Collecting KPI snapshot for ${targetDate} (project "${serviceAccount.project_id}")...`);
 
+  // Bug fix (Firestore quota incident, same class as the client app's lots/floorLots fix — see
+  // src/store/repositories/lotsRepo.ts's own doc comment): this used to read EVERY `lots` doc
+  // unfiltered, including every lot long since dispensed/scrapped down to qty 0, which `lots`
+  // never deletes. The only use below (subByMed) already discards qty<=0 rows implicitly (adding
+  // 0 changes nothing), so this costs nothing functionally — but this script runs via
+  // hourly-metrics.yml (every hour, 24x/day) PLUS daily-metrics.yml, so reading the full dead-lot
+  // backlog here, 25 times a day, every day, was likely the single largest contributor to the
+  // project exceeding its free Firestore quota — bigger than anything a live client session does.
   const [medsSnap, lotsSnap, settingsSnap] = await Promise.all([
     db.collection('meds').get(),
-    db.collection('lots').get(),
+    db.collection('lots').where('qty', '>', 0).get(),
     db.collection('meta').doc('settings').get(),
   ]);
   const meds = medsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
