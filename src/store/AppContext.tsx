@@ -330,6 +330,16 @@ function freshState(): AppState {
     // needs enough room to absorb that without the shelf actually running dry).
     expiryWarnDays: 90, parFloorCoverDays: 4, parSubCoverDays: 28, usageStatsRecomputedAt: null,
     idleLogoutMinutes: 30,
+    // Real-world request: "ยา HAD ไม่ต้องยืนยันสแกนก่อนครับ ตอนนี้ป้ายชั้นวางยายังไม่ได้ทำ" —
+    // TConfirmScreen's high-alert re-scan step (hadPending/startHadScan) needs a physical QR
+    // shelf label to scan; a hospital still mid-rollout of its physical labeling has none yet,
+    // so the step was unconditionally blocking EVERY high-alert transfer with no way to comply.
+    // Defaults to `true` (the gate stays on) — a safety control should fail toward stricter, not
+    // silently relax for every fresh session/new deployment before the real Firestore value
+    // loads — an admin turns it off explicitly in Settings once they know their labels aren't
+    // ready, and back on once they are, same self-service pattern as every other global setting
+    // here (see updateGlobalSettings/SettingsScreen.tsx).
+    requireHadScan: true,
 
     confirmDialog: null,
     promptDialog: null,
@@ -526,7 +536,7 @@ export interface AppCtx {
   /** Same escape hatch as clearMedWeekdayPattern, for the separate peakDayQty/peakDayDate
    * signal — see its own doc comment at the implementation. */
   clearMedPeakDay: (medId: MedId) => void;
-  updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; idleLogoutMinutes: number }>) => void;
+  updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; idleLogoutMinutes: number; requireHadScan: boolean }>) => void;
 
   // meds (formulary) management
   // Bug fix (flow friction): returns whether the add actually succeeded — MedsScreen's "add
@@ -1422,12 +1432,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // already has sane defaults, so a snapshot with no data simply leaves them as-is.
       subscribeSettings((snap) => {
         if (!snap.exists()) return;
-        const d = snap.data() as Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; idleLogoutMinutes: number; usageStatsRecomputedAt: number; latestVersion: string }>;
+        const d = snap.data() as Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; idleLogoutMinutes: number; requireHadScan: boolean; usageStatsRecomputedAt: number; latestVersion: string }>;
         patch((st) => ({
           expiryWarnDays: typeof d.expiryWarnDays === 'number' ? d.expiryWarnDays : st.expiryWarnDays,
           parFloorCoverDays: typeof d.parFloorCoverDays === 'number' ? d.parFloorCoverDays : st.parFloorCoverDays,
           parSubCoverDays: typeof d.parSubCoverDays === 'number' ? d.parSubCoverDays : st.parSubCoverDays,
           idleLogoutMinutes: typeof d.idleLogoutMinutes === 'number' ? d.idleLogoutMinutes : st.idleLogoutMinutes,
+          requireHadScan: typeof d.requireHadScan === 'boolean' ? d.requireHadScan : st.requireHadScan,
           // Real-world request: "used30 ไม่มีการคำนวณใหม่อัตโนมัติ...ไม่มีสัญญาณเตือนว่าข้อมูลเก่า
           // แค่ไหนแล้ว" — written by recomputeUsageStats() (this file) and by the scheduled
           // scripts/recompute-usage-stats.mjs GitHub Actions job, whichever last ran. null until
@@ -3911,7 +3922,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Persists to meta/settings (see the onSnapshot listener above) — a merge write so this
   // can be called with just the one field that changed without clobbering the other two.
-  const updateGlobalSettings = useCallback(async (patchFields: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; idleLogoutMinutes: number }>) => {
+  const updateGlobalSettings = useCallback(async (patchFields: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; idleLogoutMinutes: number; requireHadScan: boolean }>) => {
     if (!canEditMeds) return;
     // Bug fix (data integrity): parFloorCoverDays/parSubCoverDays feed suggestPar()'s
     // `roundStep(daily * coverDays * volatility)` for the WHOLE shared formulary (this is
