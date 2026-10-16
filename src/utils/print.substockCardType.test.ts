@@ -45,3 +45,30 @@ describe('printSubstockCardSheet — type/note detail column regression', () => 
     expect(html).toContain('ยอดยกมา');
   });
 });
+
+// Real-world request: "อยากให้ข้อมูลแต่ละประเภทแถบสีคนละสีเพื่อแยกให้ชัดเจน" — the printed sheet
+// gives each row a left accent bar keyed to its real Tx `type`, same color family the on-screen
+// ledger uses (TYPE_META, SubstockCardScreen.tsx) — see SubstockCardRow.type's own doc comment.
+describe('printSubstockCardSheet — per-type accent color regression', () => {
+  it('gives two different transaction types two different accent colors', () => {
+    const { getHtml } = captureWrittenHtml();
+    const rows: SubstockCardRow[] = [
+      { ts: Date.now() - 86400000, received: 100, dispensed: 0, balance: 100, by: 'ทดสอบ ภก.', typeLabel: 'รับจากคลังใหญ่', type: 'receive_from_central' },
+      { ts: Date.now(), received: 0, dispensed: 20, balance: 80, by: 'ทดสอบ ภก.', typeLabel: 'เติมหน้างาน', type: 'transfer_to_floor' },
+    ];
+    printSubstockCardSheet(MED, rows);
+    const html = getHtml();
+
+    expect(html).toContain('border-left:3px solid #1c64c7'); // receive_from_central
+    expect(html).toContain('border-left:3px solid #007371'); // transfer_to_floor
+  });
+
+  it('falls back to a neutral gray accent for a row with no type (never crashes)', () => {
+    const { getHtml } = captureWrittenHtml();
+    const rows: SubstockCardRow[] = [
+      { ts: Date.now(), received: 5, dispensed: 0, balance: 5, by: 'ทดสอบ ภก.', typeLabel: 'รับจากคลังใหญ่' },
+    ];
+    expect(() => printSubstockCardSheet(MED, rows)).not.toThrow();
+    expect(getHtml()).toContain('border-left:3px solid #c7cbc3');
+  });
+});
