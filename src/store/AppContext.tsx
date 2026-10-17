@@ -5558,6 +5558,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // notDeductedLatestDay already names, just checked across the whole window instead of only the
   // latest day).
   //
+  // Real-world explanation: "วันเสาร์อาทิตย์ที่เป็นวันหยุดราชการ...โดยปกติจะไม่มีการตัดยอด ถ้า Admin
+  // ไม่ได้อยู่เวรเสาร์อาทิตย์...จะตัดยอดอีกทีเช้าวันจันทร์" — this hospital routinely has NO HOSxP
+  // reconcile at all on Sat/Sun (same assumption analyzeWeekdayUsage()/scripts/recompute-usage-
+  // stats.mjs already make — "this hospital never reconciles on a weekend"), so every weekend day
+  // used to show up here as a false 'missing' flag, every single week, with no way to ever clear
+  // (the 7-day window always contains 2 of them) — permanent noise drowning out a genuine weekday
+  // gap, and the all-clear message below could never actually show. Skips Sun(0)/Sat(6) entirely
+  // from this scan, same as that existing precedent — a weekend day that DOES happen to carry a
+  // real reconcile (an on-duty admin that particular weekend) still isn't penalized either way,
+  // since it's simply never looked at here, not forced into either bucket.
+  //
   // Deliberately queries Firestore directly (queryTxsByDateRange) rather than reading
   // state.txs — that's the realtime cache capped to the 300 most-recent rows across ALL tx
   // types (see fetchExecTxsThisMonth's own comment on this exact cap), and a single busy
@@ -5582,8 +5593,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const regularMeds = state.meds.filter((m) => m.active && m.used30 > 0);
     const result: ReconcileGapDay[] = [];
     for (let i = 1; i <= days; i++) {
-      const dateIso = isoDate(Date.now() - i * DAY);
+      const ts = Date.now() - i * DAY;
+      const dateIso = isoDate(ts);
       if (dateIso === todayIso) continue;
+      const wd = bangkokWeekday(ts);
+      if (wd === 0 || wd === 6) continue; // Sun/Sat — this hospital never reconciles on a weekend
       const deducted = deductedByDay.get(dateIso);
       if (!deducted) {
         result.push({ dateIso, kind: 'missing' });

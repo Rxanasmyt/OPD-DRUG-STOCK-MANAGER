@@ -6,7 +6,17 @@
 // scans a whole lookback window and flags each day as either 'missing' (zero reconcile_hosxp tx
 // that day) or 'partial' (reconciled, but a drug that normally moves every day — active &&
 // used30 > 0 — got no deduction). See its own doc comment in AppContext.tsx for the full design.
-import { describe, it, expect } from 'vitest';
+//
+// Follow-up real-world explanation: "วันเสาร์อาทิตย์ที่เป็นวันหยุดราชการ...โดยปกติจะไม่มีการตัดยอด" —
+// this hospital routinely has NO HOSxP reconcile at all on Sat/Sun, so every weekend day used to
+// show up as a permanent false 'missing' flag, every single week. fetchReconcileGaps now skips
+// Sun/Sat entirely from the scan — see the dedicated describe block below.
+//
+// Time is pinned to a real Thursday (2026-01-08) so "yesterday"/"the day before" in every test
+// below land on real weekdays regardless of which real calendar day this suite happens to run on
+// — otherwise a test run on certain days of the week would spuriously hit the new weekend-skip
+// and break for a reason unrelated to what it's actually testing.
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useState } from 'react';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -16,7 +26,15 @@ import { signInAs, fireCollection, seedCollection, hasListener } from '../test-u
 import type { ReconcileGapDay } from '../types';
 
 const DAY = 86400000;
-const now = Date.now();
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+function bangkokNoon(y: number, m: number, d: number): number {
+  return Date.UTC(y, m, d, 12, 0) - BANGKOK_OFFSET_MS;
+}
+// A real Thursday — i=1 (Wed) and i=2 (Tue) both land on ordinary weekdays.
+const NOW = bangkokNoon(2026, 0, 8);
+
+beforeEach(() => vi.setSystemTime(NOW));
+afterEach(() => vi.useRealTimers());
 
 // Both regularly dispensed (active && used30 > 0) — the exact shape fetchReconcileGaps' own
 // 'partial' check targets.
@@ -71,9 +89,10 @@ describe('fetchReconcileGaps — missed-day and per-day leak detection regressio
     const user = userEvent.setup();
     renderWithApp(<GapsHarness days={2} />);
     await setup([MED_A]);
-    // Yesterday (i=1) fully covered; the day before (i=2) has no reconcile_hosxp tx whatsoever.
+    // Yesterday (i=1, Wed) fully covered; the day before (i=2, Tue) has no reconcile_hosxp tx
+    // whatsoever.
     seedCollection('txs', [
-      { type: 'reconcile_hosxp', medId: MED_A.id, ts: now - 1 * DAY },
+      { type: 'reconcile_hosxp', medId: MED_A.id, ts: NOW - 1 * DAY },
     ]);
 
     await user.click(screen.getByRole('button', { name: 'run' }));
@@ -85,9 +104,10 @@ describe('fetchReconcileGaps — missed-day and per-day leak detection regressio
     const user = userEvent.setup();
     renderWithApp(<GapsHarness days={1} />);
     await setup([MED_A, MED_B]);
-    // Yesterday: only MED_A got a reconcile_hosxp tx — MED_B (also regularly dispensed) did not.
+    // Yesterday (Wed): only MED_A got a reconcile_hosxp tx — MED_B (also regularly dispensed)
+    // did not.
     seedCollection('txs', [
-      { type: 'reconcile_hosxp', medId: MED_A.id, ts: now - 1 * DAY },
+      { type: 'reconcile_hosxp', medId: MED_A.id, ts: NOW - 1 * DAY },
     ]);
 
     await user.click(screen.getByRole('button', { name: 'run' }));
@@ -116,9 +136,9 @@ describe('fetchReconcileGaps — missed-day and per-day leak detection regressio
     const user = userEvent.setup();
     renderWithApp(<GapsHarness days={1} />);
     await setup([MED_A]);
-    // Yesterday fully covered; today has nothing yet (still in progress) — must not appear.
+    // Yesterday (Wed) fully covered; today has nothing yet (still in progress) — must not appear.
     seedCollection('txs', [
-      { type: 'reconcile_hosxp', medId: MED_A.id, ts: now - 1 * DAY },
+      { type: 'reconcile_hosxp', medId: MED_A.id, ts: NOW - 1 * DAY },
     ]);
 
     await user.click(screen.getByRole('button', { name: 'run' }));
@@ -130,11 +150,60 @@ describe('fetchReconcileGaps — missed-day and per-day leak detection regressio
   });
 });
 
+// Real-world explanation: "วันเสาร์อาทิตย์ที่เป็นวันหยุดราชการ...โดยปกติจะไม่มีการตัดยอด ถ้า Admin
+// ไม่ได้อยู่เวรเสาร์อาทิตย์...จะตัดยอดอีกทีเช้าวันจันทร์" — a weekend day with no reconcile at all is
+// the hospital's normal routine, not a real gap; it must never surface as 'missing' the way a
+// skipped WEEKDAY genuinely should.
+describe('fetchReconcileGaps — weekend skip regression', () => {
+  // With NOW pinned to Thursday 2026-01-08: i=1..3 are Wed/Tue/Mon (real weekdays), i=4 is
+  // Sunday, i=5 is Saturday.
+  it('never flags Saturday or Sunday as "missing" even with zero reconcile_hosxp tx on either day', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<GapsHarness days={5} />);
+    await setup([MED_A]);
+    // Only Wed (i=1) reconciled — Tue (i=2) and Mon (i=3) are real weekday gaps; Sun (i=4) and
+    // Sat (i=5) must be silently skipped, not reported, despite also having zero tx.
+    seedCollection('txs', [
+      { type: 'reconcile_hosxp', medId: MED_A.id, ts: NOW - 1 * DAY },
+    ]);
+
+    await user.click(screen.getByRole('button', { name: 'run' }));
+    await waitFor(() => expect(screen.getByTestId('gap-' + isoDay(2))).toHaveTextContent('missing')); // Tue
+    expect(screen.getByTestId('gap-' + isoDay(3))).toHaveTextContent('missing'); // Mon
+    expect(screen.queryByTestId('gap-' + isoDay(4))).not.toBeInTheDocument(); // Sun
+    expect(screen.queryByTestId('gap-' + isoDay(5))).not.toBeInTheDocument(); // Sat
+    // Only the 2 real weekday gaps — not 4 (which a naive weekend-blind scan would report).
+    expect(screen.getByTestId('gap-count')).toHaveTextContent('2');
+  });
+
+  it('does not penalize a weekend day that DID get a real reconcile (an on-duty admin that weekend)', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<GapsHarness days={5} />);
+    await setup([MED_A, MED_B]);
+    // Every real weekday (Wed/Tue/Mon) fully covered for both meds — no weekday gaps at all.
+    // Sat (i=5): reconciled, but only MED_A — MED_B got no deduction, which WOULD be 'partial'
+    // if this day were evaluated at all. It never is (weekend days are skipped outright), so it
+    // must not surface either way.
+    seedCollection('txs', [
+      { type: 'reconcile_hosxp', medId: MED_A.id, ts: NOW - 1 * DAY },
+      { type: 'reconcile_hosxp', medId: MED_B.id, ts: NOW - 1 * DAY },
+      { type: 'reconcile_hosxp', medId: MED_A.id, ts: NOW - 2 * DAY },
+      { type: 'reconcile_hosxp', medId: MED_B.id, ts: NOW - 2 * DAY },
+      { type: 'reconcile_hosxp', medId: MED_A.id, ts: NOW - 3 * DAY },
+      { type: 'reconcile_hosxp', medId: MED_B.id, ts: NOW - 3 * DAY },
+      { type: 'reconcile_hosxp', medId: MED_A.id, ts: NOW - 5 * DAY }, // Sat — MED_B missing
+    ]);
+
+    await user.click(screen.getByRole('button', { name: 'run' }));
+    await waitFor(() => expect(screen.getByTestId('gap-count')).toHaveTextContent('0'));
+    expect(screen.queryByTestId('gap-' + isoDay(5))).not.toBeInTheDocument();
+  });
+});
+
 // Mirrors isoDate()'s own Bangkok-anchored conversion (utils/format.ts) so expected test ids
 // never depend on the host machine's own timezone.
 function isoDay(daysAgo: number): string {
-  const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
-  const shifted = new Date(now - daysAgo * DAY + BANGKOK_OFFSET_MS);
+  const shifted = new Date(NOW - daysAgo * DAY + BANGKOK_OFFSET_MS);
   const y = shifted.getUTCFullYear();
   const m = String(shifted.getUTCMonth() + 1).padStart(2, '0');
   const d = String(shifted.getUTCDate()).padStart(2, '0');
