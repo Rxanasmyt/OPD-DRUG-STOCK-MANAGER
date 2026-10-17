@@ -1004,6 +1004,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // pharm+admin) even though both used to be the same flag; splitting them means this change
   // can't silently also take away pharm's receive-approval ability.
   const canEditMeds = myProfile?.role === 'admin';
+  // Real-world request: "ให้ admin และเภสัชกรเป็นคนตัดยอด" — the hospital's daily HOSxP reconcile
+  // (commitReconcile) is routinely done by a pharmacist, not just an admin, and the auto-trigger
+  // right after it (recomputeUsageStats()/analyzeWeekdayUsage() — see commitReconcile's own doc
+  // comment) needs a pharm-performed reconcile to actually write used30/weekdayPeakFactor/etc.,
+  // not silently no-op like it did against the admin-only `canEditMeds` above. A narrow carve-out
+  // (firestore.rules' own isPharmOrAdmin() OR-branch on `meds` mirrors this exactly) — ONLY these
+  // 2 functions use it, and ONLY for the derived usage-stat fields they write; every other
+  // formulary/settings edit (par, price, name, bin, ...) stays admin-only via canEditMeds above,
+  // unchanged from the "Admin only now (was pharm/admin)" decision its own comment describes.
+  const canRecomputeUsageStats = myProfile?.role === 'admin' || myProfile?.role === 'pharm';
   // Real-world request: จพ.เภสัชกรรม (tech) now receives directly from the central warehouse
   // without waiting for approval (short-staffed right now — see commitReceive's `approve`
   // below, now always true). This flag still gates approving/rejecting any already-pending
@@ -3650,17 +3660,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // `opts.silent` — real-world request: "อยากให้รันอัตโนมัติหลักจากแนบไฟล์การใช้ยาจาก hosxp" — this
   // runs automatically right after commitReconcile() below succeeds, not just once a day on the
   // GitHub Actions schedule, so par suggestions reflect today's dispensing the same day instead of
-  // waiting for tomorrow's 00:30 cron run. A reconcile is routine daily data entry, not an
-  // admin-only action (no role check in commitReconcile at all), but `canEditMeds` right below IS
-  // admin-only (firestore.rules only lets an admin write these fields on `meds` — a deliberate,
-  // recent tightening, see that rule's own comment) — so for a non-admin reconcile this still
-  // quietly no-ops exactly like it always has, falling back to the next scheduled run, while an
-  // admin-performed reconcile gets same-day freshness for free. `silent` only mutes the toasts
-  // (this is a background side effect of a different action, not something the person explicitly
-  // asked to watch run) — logAudit still records it, same as a manual run, so there's still a
-  // trace of why these numbers moved without anyone clicking the button.
+  // waiting for tomorrow's 00:30 cron run. A reconcile is routine daily data entry — follow-up
+  // request "ให้ admin และเภสัชกรเป็นคนตัดยอด" confirmed a pharmacist is one of the real people who
+  // do it — so this gates on `canRecomputeUsageStats` (admin OR pharm, see its own doc comment),
+  // not the admin-only `canEditMeds` every other formulary edit in this file uses; a tech-
+  // performed reconcile still quietly no-ops, falling back to the next scheduled run. `silent`
+  // only mutes the toasts (this is a background side effect of a different action, not something
+  // the person explicitly asked to watch run) — logAudit still records it, same as a manual run,
+  // so there's still a trace of why these numbers moved without anyone clicking the button.
   const recomputeUsageStats = useCallback(guardOnce('recomputeUsageStats', async (opts?: { silent?: boolean }) => {
-    if (!canEditMeds) return;
+    if (!canRecomputeUsageStats) return;
     if (!opts?.silent) toast('กำลังคำนวณสถิติการใช้ยาใหม่จากประวัติ HOSxP…');
     try {
       const snap = await withTimeout(fetchReconcileHosxpTxs());
@@ -3716,7 +3725,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!opts?.silent) toastErr(e, 'คำนวณสถิติไม่สำเร็จ ลองใหม่อีกครั้ง');
       else console.error('recomputeUsageStats (auto-trigger after HOSxP reconcile) failed:', e);
     }
-  }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce]);
+  }), [canRecomputeUsageStats, state.meds, logAudit, toast, toastErr, guardOnce]);
 
   /**
    * Real-world request: "นำข้อมูลการจ่ายยาหน้างานจริงในแต่ละวันจันทร์-ศุกร์ นำมาวิเคราะห์การใช้ยา
@@ -3741,10 +3750,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * par number by itself.
    */
   // `opts.silent` — see recomputeUsageStats()'s own doc comment just above for the full "why"
-  // (same auto-trigger-after-HOSxP-reconcile reasoning, same admin-only no-op for a non-admin
-  // reconcile, same toast-muting-only scope).
+  // (same auto-trigger-after-HOSxP-reconcile reasoning, same canRecomputeUsageStats admin-or-
+  // pharm gate, same toast-muting-only scope).
   const analyzeWeekdayUsage = useCallback(guardOnce('analyzeWeekdayUsage', async (opts?: { silent?: boolean }) => {
-    if (!canEditMeds) return;
+    if (!canRecomputeUsageStats) return;
     const LOOKBACK_DAYS = 91; // ~13 weeks — up to 13 real occurrences of each weekday to average
     const MIN_OCC_PER_WEEKDAY = 4; // below this, a weekday's own average isn't trustworthy yet
     const MEANINGFUL_FACTOR = 1.15; // peak-vs-average ratio below this reads as flat/noise
@@ -3893,7 +3902,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!opts?.silent) toastErr(e, 'วิเคราะห์รูปแบบการใช้ยาไม่สำเร็จ ลองใหม่อีกครั้ง');
       else console.error('analyzeWeekdayUsage (auto-trigger after HOSxP reconcile) failed:', e);
     }
-  }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce]);
+  }), [canRecomputeUsageStats, state.meds, logAudit, toast, toastErr, guardOnce]);
 
   /** Follow-up to analyzeWeekdayUsage() — ผู้ใช้ถามว่า "มีอะไรตกหล่นบ้าง" หลัง merge รอบแรก แล้ว
    * ขอให้ทำทั้งหมด: "แก้ไข/ยกเลิกรูปแบบที่ตรวจพบเองไม่ได้" — ก่อนหน้านี้ analyzeWeekdayUsage() เอง
@@ -5514,13 +5523,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         + (zeroQty ? ' · ' + zeroQty + ' รายการจำนวน 0 (ไม่ตัดยอด)' : '')
         + ' — บันทึกลง discrepancy log'
       );
-      // Real-world request: "อยากให้รันอัตโนมัติหลักจากแนบไฟล์การใช้ยาจาก hosxp" — fire-and-forget,
-      // AFTER the toast above (never delays the person's own "เสร็จแล้ว" feedback) and sequential,
-      // not parallel (both batch-write the same `meds` docs; running them one after another avoids
-      // two independent batches racing on the same documents). See recomputeUsageStats()/
-      // analyzeWeekdayUsage()'s own doc comments for why `silent` is safe to fire unconditionally
-      // here regardless of who's signed in (a non-admin reconcile — the common case — just
-      // no-ops, same as always, with the nightly scheduled job still catching it up).
+      // Real-world request: "อยากให้รันอัตโนมัติหลักจากแนบไฟล์การใช้ยาจาก hosxp" (ตามด้วย "ให้ admin
+      // และเภสัชกรเป็นคนตัดยอด") — fire-and-forget, AFTER the toast above (never delays the
+      // person's own "เสร็จแล้ว" feedback) and sequential, not parallel (both batch-write the same
+      // `meds` docs; running them one after another avoids two independent batches racing on the
+      // same documents). See recomputeUsageStats()/analyzeWeekdayUsage()'s own doc comments for
+      // why `silent` is safe to fire unconditionally here regardless of who's signed in — their
+      // own `canRecomputeUsageStats` gate (admin or pharm — the two roles who actually perform a
+      // reconcile) covers the permission check; a tech-performed reconcile still just no-ops, same
+      // as always, with the nightly scheduled job still catching it up.
       if (applied > 0) {
         void recomputeUsageStats({ silent: true })
           .then(() => analyzeWeekdayUsage({ silent: true }))

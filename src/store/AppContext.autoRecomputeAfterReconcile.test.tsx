@@ -1,10 +1,12 @@
-// Regression test for a real request: "merge อยากให้รันอัตโนมัติหลักจากแนบไฟล์การใช้ยาจาก hosxp" —
-// recomputeUsageStats()/analyzeWeekdayUsage() used to need someone to click a manual button in
-// SettingsScreen (scripts/recompute-usage-stats.mjs's daily cron covers "doesn't rely on someone
-// remembering", but still means par suggestions can lag a real day behind the HOSxP file a
-// pharmacist just attached). commitReconcile() now fires both functions itself, silently, right
-// after a successful reconcile — see its own doc comment in AppContext.tsx for why this still
-// correctly no-ops for a non-admin reconcile (the common case) rather than erroring.
+// Regression test for a real request: "merge อยากให้รันอัตโนมัติหลักจากแนบไฟล์การใช้ยาจาก hosxp"
+// followed by "ให้ admin และเภสัชกรเป็นคนตัดยอด" — recomputeUsageStats()/analyzeWeekdayUsage() used
+// to need someone to click a manual button in SettingsScreen (scripts/recompute-usage-stats.mjs's
+// daily cron covers "doesn't rely on someone remembering", but still means par suggestions can
+// lag a real day behind the HOSxP file a pharmacist just attached). commitReconcile() now fires
+// both functions itself, silently, right after a successful reconcile, for whichever role
+// actually performs it — admin OR pharm (canRecomputeUsageStats/isPharmOrAdmin — see both doc
+// comments in AppContext.tsx/firestore.rules) — and still correctly no-ops for a tech-performed
+// reconcile rather than erroring.
 import { describe, it, expect } from 'vitest';
 import { useEffect } from 'react';
 import { screen, waitFor } from '@testing-library/react';
@@ -34,10 +36,13 @@ function ReconcileHarness() {
 }
 
 describe('commitReconcile — auto-trigger usage-stats recompute regression', () => {
-  it('silently recomputes used30 right after an admin-performed reconcile, with no progress/success toast', async () => {
+  it.each([
+    ['admin', 'ทดสอบ Admin'] as const,
+    ['pharm', 'ทดสอบ ภก.'] as const,
+  ])('silently recomputes used30 right after a %s-performed reconcile, with no progress/success toast', async (role, name) => {
     const user = userEvent.setup();
     renderWithApp(<><ReconcileHarness /><Toast /></>);
-    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await signInAs('u1', { role, name, username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
     fireCollection('meds', [MED]);
     await waitFor(() => expect(hasListener('txs')).toBe(true));
@@ -69,10 +74,10 @@ describe('commitReconcile — auto-trigger usage-stats recompute regression', ()
     expect(screen.queryByText(/กำลังวิเคราะห์รูปแบบการใช้ยา/)).not.toBeInTheDocument();
   });
 
-  it('does nothing extra when a non-admin (pharm) performs the reconcile — no permission error, just the ordinary reconcile', async () => {
+  it('does nothing extra when a tech performs the reconcile — no permission error, just the ordinary reconcile', async () => {
     const user = userEvent.setup();
     renderWithApp(<><ReconcileHarness /><Toast /></>);
-    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await signInAs('u1', { role: 'tech', name: 'ทดสอบ จพ.', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
     fireCollection('meds', [MED]);
     await waitFor(() => expect(hasListener('txs')).toBe(true));
