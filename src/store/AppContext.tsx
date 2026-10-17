@@ -1004,6 +1004,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // pharm+admin) even though both used to be the same flag; splitting them means this change
   // can't silently also take away pharm's receive-approval ability.
   const canEditMeds = myProfile?.role === 'admin';
+  // Real-world request: "ให้ admin และเภสัชกรเป็นคนตัดยอด" — the hospital's daily HOSxP reconcile
+  // (commitReconcile) is routinely done by a pharmacist, not just an admin, and the auto-trigger
+  // right after it (recomputeUsageStats()/analyzeWeekdayUsage() — see commitReconcile's own doc
+  // comment) needs a pharm-performed reconcile to actually write used30/weekdayPeakFactor/etc.,
+  // not silently no-op like it did against the admin-only `canEditMeds` above. A narrow carve-out
+  // (firestore.rules' own isPharmOrAdmin() OR-branch on `meds` mirrors this exactly) — ONLY these
+  // 2 functions use it, and ONLY for the derived usage-stat fields they write; every other
+  // formulary/settings edit (par, price, name, bin, ...) stays admin-only via canEditMeds above,
+  // unchanged from the "Admin only now (was pharm/admin)" decision its own comment describes.
+  const canRecomputeUsageStats = myProfile?.role === 'admin' || myProfile?.role === 'pharm';
   // Real-world request: จพ.เภสัชกรรม (tech) now receives directly from the central warehouse
   // without waiting for approval (short-staffed right now — see commitReceive's `approve`
   // below, now always true). This flag still gates approving/rejecting any already-pending
@@ -3647,9 +3657,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * A drug with no reconcile history yet in a given window computes to 0 for it — expected
    * right after go-live, before HOSxP reconcile has been run daily for a while.
    */
-  const recomputeUsageStats = useCallback(guardOnce('recomputeUsageStats', async () => {
-    if (!canEditMeds) return;
-    toast('กำลังคำนวณสถิติการใช้ยาใหม่จากประวัติ HOSxP…');
+  // `opts.silent` — real-world request: "อยากให้รันอัตโนมัติหลักจากแนบไฟล์การใช้ยาจาก hosxp" — this
+  // runs automatically right after commitReconcile() below succeeds, not just once a day on the
+  // GitHub Actions schedule, so par suggestions reflect today's dispensing the same day instead of
+  // waiting for tomorrow's 00:30 cron run. A reconcile is routine daily data entry — follow-up
+  // request "ให้ admin และเภสัชกรเป็นคนตัดยอด" confirmed a pharmacist is one of the real people who
+  // do it — so this gates on `canRecomputeUsageStats` (admin OR pharm, see its own doc comment),
+  // not the admin-only `canEditMeds` every other formulary edit in this file uses; a tech-
+  // performed reconcile still quietly no-ops, falling back to the next scheduled run. `silent`
+  // only mutes the toasts (this is a background side effect of a different action, not something
+  // the person explicitly asked to watch run) — logAudit still records it, same as a manual run,
+  // so there's still a trace of why these numbers moved without anyone clicking the button.
+  const recomputeUsageStats = useCallback(guardOnce('recomputeUsageStats', async (opts?: { silent?: boolean }) => {
+    if (!canRecomputeUsageStats) return;
+    if (!opts?.silent) toast('กำลังคำนวณสถิติการใช้ยาใหม่จากประวัติ HOSxP…');
     try {
       const snap = await withTimeout(fetchReconcileHosxpTxs());
       const now = Date.now();
@@ -3698,10 +3719,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // expiryWarnDays/parFloorCoverDays/parSubCoverDays already live in), so SettingsScreen can
       // warn when the numbers behind every par suggestion are stale instead of staying silent.
       await withTimeout(setDoc(settingsRef(), { usageStatsRecomputedAt: now }, { merge: true }));
-      logAudit({ type: 'par_updated', note: 'คำนวณสถิติการใช้ยาใหม่จากประวัติ HOSxP 60 วันล่าสุด (' + targets.length + ' รายการ)' });
-      toast('คำนวณสถิติใหม่แล้ว ' + targets.length + ' รายการ — กด "ใช้ค่าแนะนำทั้งหมด" ด้านบนอีกครั้งเพื่ออัปเดต par ตามสถิติใหม่');
-    } catch (e) { toastErr(e, 'คำนวณสถิติไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce]);
+      logAudit({ type: 'par_updated', note: 'คำนวณสถิติการใช้ยาใหม่จากประวัติ HOSxP 60 วันล่าสุด (' + targets.length + ' รายการ)' + (opts?.silent ? ' (อัตโนมัติหลังตัดยอด HOSxP)' : '') });
+      if (!opts?.silent) toast('คำนวณสถิติใหม่แล้ว ' + targets.length + ' รายการ — กด "ใช้ค่าแนะนำทั้งหมด" ด้านบนอีกครั้งเพื่ออัปเดต par ตามสถิติใหม่');
+    } catch (e) {
+      if (!opts?.silent) toastErr(e, 'คำนวณสถิติไม่สำเร็จ ลองใหม่อีกครั้ง');
+      else console.error('recomputeUsageStats (auto-trigger after HOSxP reconcile) failed:', e);
+    }
+  }), [canRecomputeUsageStats, state.meds, logAudit, toast, toastErr, guardOnce]);
 
   /**
    * Real-world request: "นำข้อมูลการจ่ายยาหน้างานจริงในแต่ละวันจันทร์-ศุกร์ นำมาวิเคราะห์การใช้ยา
@@ -3725,8 +3749,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * reads weekdayPeakFactor automatically from then on), so nothing here silently changes a live
    * par number by itself.
    */
-  const analyzeWeekdayUsage = useCallback(guardOnce('analyzeWeekdayUsage', async () => {
-    if (!canEditMeds) return;
+  // `opts.silent` — see recomputeUsageStats()'s own doc comment just above for the full "why"
+  // (same auto-trigger-after-HOSxP-reconcile reasoning, same canRecomputeUsageStats admin-or-
+  // pharm gate, same toast-muting-only scope).
+  const analyzeWeekdayUsage = useCallback(guardOnce('analyzeWeekdayUsage', async (opts?: { silent?: boolean }) => {
+    if (!canRecomputeUsageStats) return;
     const LOOKBACK_DAYS = 91; // ~13 weeks — up to 13 real occurrences of each weekday to average
     const MIN_OCC_PER_WEEKDAY = 4; // below this, a weekday's own average isn't trustworthy yet
     const MEANINGFUL_FACTOR = 1.15; // peak-vs-average ratio below this reads as flat/noise
@@ -3738,7 +3765,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // genuinely-quarterly case entirely depending on exact timing. See Med.peakDayQty's own
     // doc comment for the full "why" and how suggestPar() uses it.
     const PEAK_LOOKBACK_DAYS = 180; // ~26 weeks — reliably covers at least one quarterly refill cycle
-    toast('กำลังวิเคราะห์รูปแบบการใช้ยารายวันและวันจ่ายสูงสุด…');
+    if (!opts?.silent) toast('กำลังวิเคราะห์รูปแบบการใช้ยารายวันและวันจ่ายสูงสุด…');
     try {
       const snap = await withTimeout(fetchReconcileHosxpTxs());
       const now = Date.now();
@@ -3846,7 +3873,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (weekday || peak) writes.push({ id: m.id, weekday, peak });
       }
       if (!writes.length) {
-        toast(analyzed > 0
+        if (!opts?.silent) toast(analyzed > 0
           ? 'วิเคราะห์ ' + analyzed + ' รายการที่มีข้อมูลพอ — ไม่พบรูปแบบรายวันหรือวันจ่ายพีคใหม่ที่ต้องปรับ'
           : 'ยังไม่มียาตัวไหนมีประวัติ HOSxP ต่อเนื่องพอจะวิเคราะห์ (ต้องมีข้อมูลแต่ละวันจันทร์-ศุกร์อย่างน้อย ' + MIN_OCC_PER_WEEKDAY + ' ครั้งภายใน ' + LOOKBACK_DAYS + ' วันล่าสุด)');
         return;
@@ -3869,10 +3896,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
         await withTimeout(batch.commit());
       }
-      logAudit({ type: 'par_updated', note: 'วิเคราะห์รูปแบบการใช้ยารายวัน (จ-ศ) และวันจ่ายสูงสุด จากประวัติ HOSxP ' + LOOKBACK_DAYS + '/' + PEAK_LOOKBACK_DAYS + ' วันล่าสุด — พบรูปแบบรายวันชัดเจน ' + patterned + ' รายการ, พบวันจ่ายพีคใหม่ ' + peaksFound + ' รายการ จากที่วิเคราะห์ได้ ' + analyzed + ' รายการ' });
-      toast('วิเคราะห์แล้ว — พบรูปแบบรายวันชัดเจน ' + patterned + ' รายการ, พบวันที่จ่ายยาสูงสุดใหม่ ' + peaksFound + ' รายการ (กด "ใช้ค่าแนะนำทั้งหมด" เพื่ออัปเดต par ตามข้อมูลใหม่)');
-    } catch (e) { toastErr(e, 'วิเคราะห์รูปแบบการใช้ยาไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }), [canEditMeds, state.meds, logAudit, toast, toastErr, guardOnce]);
+      logAudit({ type: 'par_updated', note: 'วิเคราะห์รูปแบบการใช้ยารายวัน (จ-ศ) และวันจ่ายสูงสุด จากประวัติ HOSxP ' + LOOKBACK_DAYS + '/' + PEAK_LOOKBACK_DAYS + ' วันล่าสุด — พบรูปแบบรายวันชัดเจน ' + patterned + ' รายการ, พบวันจ่ายพีคใหม่ ' + peaksFound + ' รายการ จากที่วิเคราะห์ได้ ' + analyzed + ' รายการ' + (opts?.silent ? ' (อัตโนมัติหลังตัดยอด HOSxP)' : '') });
+      if (!opts?.silent) toast('วิเคราะห์แล้ว — พบรูปแบบรายวันชัดเจน ' + patterned + ' รายการ, พบวันที่จ่ายยาสูงสุดใหม่ ' + peaksFound + ' รายการ (กด "ใช้ค่าแนะนำทั้งหมด" เพื่ออัปเดต par ตามข้อมูลใหม่)');
+    } catch (e) {
+      if (!opts?.silent) toastErr(e, 'วิเคราะห์รูปแบบการใช้ยาไม่สำเร็จ ลองใหม่อีกครั้ง');
+      else console.error('analyzeWeekdayUsage (auto-trigger after HOSxP reconcile) failed:', e);
+    }
+  }), [canRecomputeUsageStats, state.meds, logAudit, toast, toastErr, guardOnce]);
 
   /** Follow-up to analyzeWeekdayUsage() — ผู้ใช้ถามว่า "มีอะไรตกหล่นบ้าง" หลัง merge รอบแรก แล้ว
    * ขอให้ทำทั้งหมด: "แก้ไข/ยกเลิกรูปแบบที่ตรวจพบเองไม่ได้" — ก่อนหน้านี้ analyzeWeekdayUsage() เอง
@@ -5493,6 +5523,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         + (zeroQty ? ' · ' + zeroQty + ' รายการจำนวน 0 (ไม่ตัดยอด)' : '')
         + ' — บันทึกลง discrepancy log'
       );
+      // Real-world request: "อยากให้รันอัตโนมัติหลักจากแนบไฟล์การใช้ยาจาก hosxp" (ตามด้วย "ให้ admin
+      // และเภสัชกรเป็นคนตัดยอด") — fire-and-forget, AFTER the toast above (never delays the
+      // person's own "เสร็จแล้ว" feedback) and sequential, not parallel (both batch-write the same
+      // `meds` docs; running them one after another avoids two independent batches racing on the
+      // same documents). See recomputeUsageStats()/analyzeWeekdayUsage()'s own doc comments for
+      // why `silent` is safe to fire unconditionally here regardless of who's signed in — their
+      // own `canRecomputeUsageStats` gate (admin or pharm — the two roles who actually perform a
+      // reconcile) covers the permission check; a tech-performed reconcile still just no-ops, same
+      // as always, with the nightly scheduled job still catching it up.
+      if (applied > 0) {
+        void recomputeUsageStats({ silent: true })
+          .then(() => analyzeWeekdayUsage({ silent: true }))
+          .catch((e) => console.error('Auto recompute after HOSxP reconcile failed:', e));
+      }
     } catch (e) {
       // A failure partway through leaves earlier rows in this same loop already committed —
       // same partial-progress behavior as before this change, just now also reachable via a
@@ -5500,7 +5544,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // rows actually landed, worth telling the person rather than implying nothing happened.
       toastErr(e, 'ประมวลผลไม่สำเร็จ' + (applied > 0 ? ' — ตัดยอดไปแล้ว ' + applied + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง'));
     }
-  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpConfirmSingleDay, state.meds, state.txs, userName, logAudit, toast, toastErr, patch, guardOnce, confirmAsync]);
+  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpConfirmSingleDay, state.meds, state.txs, userName, logAudit, toast, toastErr, patch, guardOnce, confirmAsync, recomputeUsageStats, analyzeWeekdayUsage]);
 
   // Real-world request: "ป้องกันการหลุดยาที่มีในระบบแต่ไม่ได้ถูกตัดจำนวนยา และป้องกันการหลุดวันที่
   // ยังไม่ได้แนบไฟล์" — ReconcileScreen's own notDeductedLatestDay only ever checks the single

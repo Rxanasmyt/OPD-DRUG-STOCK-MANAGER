@@ -213,7 +213,27 @@ service cloud.firestore {
                         && (!('lastCountTs' in resource.data) || 'lastCountTs' in request.resource.data)
                         && (!('lastSubCountTs' in resource.data) || 'lastSubCountTs' in request.resource.data)
                         && (!('lastCountTs' in request.resource.data) || request.resource.data.lastCountTs is number)
-                        && (!('lastSubCountTs' in request.resource.data) || request.resource.data.lastSubCountTs is number));
+                        && (!('lastSubCountTs' in request.resource.data) || request.resource.data.lastSubCountTs is number))
+                    // Real-world request: "ให้ admin และเภสัชกรเป็นคนตัดยอด" — commitReconcile()
+                    // (AppContext.tsx) now auto-triggers recomputeUsageStats()/analyzeWeekdayUsage()
+                    // right after a HOSxP reconcile, and a pharmacist routinely performs that
+                    // reconcile, not just an admin. Narrow carve-out, same isPharmOrAdmin() role
+                    // set already used for pendingReceives' approve/reject below — ONLY the derived
+                    // usage-stat fields those 2 functions write (never par/price/name/bin/... —
+                    // those stay admin-only via the isAdmin() branch above), same type checks as
+                    // that branch's own copy of these fields.
+                    || (isPharmOrAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                           'used30', 'usedPrev30', 'weekdayPeakFactor', 'weekdayPeakDay',
+                           'weekdayPeakOccurrences', 'weekdayPattern', 'peakDayQty', 'peakDayDate'
+                         ])
+                        && (!('used30' in request.resource.data) || isNonNegNum(request.resource.data.used30))
+                        && (!('usedPrev30' in request.resource.data) || isNonNegNum(request.resource.data.usedPrev30))
+                        && (!('weekdayPeakFactor' in request.resource.data) || request.resource.data.weekdayPeakFactor is number)
+                        && (!('weekdayPeakDay' in request.resource.data) || request.resource.data.weekdayPeakDay is number)
+                        && (!('weekdayPeakOccurrences' in request.resource.data) || request.resource.data.weekdayPeakOccurrences is number)
+                        && (!('weekdayPattern' in request.resource.data) || request.resource.data.weekdayPattern is list)
+                        && (!('peakDayQty' in request.resource.data) || request.resource.data.peakDayQty is number)
+                        && (!('peakDayDate' in request.resource.data) || request.resource.data.peakDayDate is string));
     }
     // ---- lots: any approved staff can read/write (receiving, FEFO transfer, scrap
     // all touch lots as part of normal day-to-day work, not just pharm/admin). Schema-checked
