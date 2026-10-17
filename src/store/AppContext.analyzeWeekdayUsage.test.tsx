@@ -13,7 +13,9 @@ import { renderWithApp } from '../test-utils/renderWithApp';
 import Toast from '../components/Toast';
 import { signInAs, fireCollection, hasListener, seedCollection, getLastBatchWrites } from '../test-utils/firebaseTestDouble';
 import { asMedId, type MedId } from '../types';
+import { isoDate } from '../utils/format';
 
+const DAY = 24 * 60 * 60 * 1000;
 function bangkokNoon(y: number, m: number, d: number): number {
   return Date.UTC(y, m, d, 12, 0) - 7 * 60 * 60 * 1000;
 }
@@ -268,5 +270,65 @@ describe('clearMedPeakDay — manual override regression', () => {
     // deleteField() resolves to undefined in the test double.
     expect(fields.peakDayQty).toBeUndefined();
     expect(fields.peakDayDate).toBeUndefined();
+  });
+});
+
+// Real-world explanation: "เช้าวันจันทร์จะตัดยอดหน้างานโดยแนบไฟล์ ของวันศุกร์ เสาร์และอาทิตย์ เป็น
+// จำนวน 3 วัน" — before coveredFrom/coveredTo existed, a Monday catch-up's whole combined total
+// landed on dayKey=isoDate(x.ts) (always Monday's own date), making every regularly-dispensed
+// drug look artificially busiest on Mondays even when its REAL per-day usage is perfectly flat.
+// ROLLUP_MED has genuinely flat usage (20/day, every real day including weekends) but is
+// reconciled the way this hospital actually works: Tue reconciles Monday's single day, Wed
+// reconciles Tuesday's, Thu reconciles Wednesday's, Fri reconciles Thursday's (all normal
+// single-day reconciles, coveredFrom === coveredTo === the one real day each covers) — and each
+// Monday reconciles the PRECEDING Fri+Sat+Sun combined (coveredFrom=that Friday, coveredTo=that
+// Sunday, qty = 3× the daily rate). With the fix, Monday's batch spreads its share back onto
+// Friday's own weekday bucket (Sat/Sun stay excluded, same as every other weekend day) — every
+// weekday ends up with the same flat 20/day average, so no weekdayPeakFactor gets set at all.
+const ROLLUP_MED = {
+  id: 'm6', code: 'MED-0006', name: 'Omeprazole 20mg', unit: 'แคปซูล', dosageForm: 'แคปซูล',
+  price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 40, bin: 'A6',
+  ward: 'opd' as const, noSubstock: false, volatility: 1, used30: 300, usedPrev30: 300,
+};
+// w=0..7: a normal single-day reconcile the morning after, covering exactly the ONE real day it
+// names — unaffected by the fix either way (coveredFrom === coveredTo === its own ts date).
+const rollupSingleDayRows = Array.from({ length: 8 }, (_, w) => [
+  { type: 'reconcile_hosxp', name: ROLLUP_MED.name, medId: ROLLUP_MED.id, qty: -20, unit: 'แคปซูล', by: 'u1', ts: TUESDAY(w), coveredFrom: isoDate(MONDAY(w)), coveredTo: isoDate(MONDAY(w)) },
+  { type: 'reconcile_hosxp', name: ROLLUP_MED.name, medId: ROLLUP_MED.id, qty: -20, unit: 'แคปซูล', by: 'u1', ts: WEDNESDAY(w), coveredFrom: isoDate(TUESDAY(w)), coveredTo: isoDate(TUESDAY(w)) },
+  { type: 'reconcile_hosxp', name: ROLLUP_MED.name, medId: ROLLUP_MED.id, qty: -20, unit: 'แคปซูล', by: 'u1', ts: THURSDAY(w), coveredFrom: isoDate(WEDNESDAY(w)), coveredTo: isoDate(WEDNESDAY(w)) },
+  { type: 'reconcile_hosxp', name: ROLLUP_MED.name, medId: ROLLUP_MED.id, qty: -20, unit: 'แคปซูล', by: 'u1', ts: FRIDAY(w), coveredFrom: isoDate(THURSDAY(w)), coveredTo: isoDate(THURSDAY(w)) },
+]).flat();
+// w=1..7 (w=0's catch-up would land on a future Monday beyond the pinned "now" anchor, so it's
+// skipped — still comfortably >= MIN_OCC_PER_WEEKDAY): the following Monday's catch-up, covering
+// THIS week's Fri+Sat+Sun combined (60 = 20×3), tagged with that Monday's own real ts.
+const rollupMondayCatchupRows = Array.from({ length: 7 }, (_, i) => {
+  const w = i + 1;
+  return { type: 'reconcile_hosxp', name: ROLLUP_MED.name, medId: ROLLUP_MED.id, qty: -60, unit: 'แคปซูล', by: 'u1', ts: MONDAY(w - 1), coveredFrom: isoDate(FRIDAY(w)), coveredTo: isoDate(FRIDAY(w) + 2 * DAY) };
+});
+
+describe('analyzeWeekdayUsage — Monday multi-day catch-up regression', () => {
+  it('spreads a Monday catch-up batch back across the real days it covers, instead of making every weekday look like Monday', async () => {
+    vi.setSystemTime(bangkokNoon(2026, 0, 9));
+    const user = userEvent.setup();
+    renderWithApp(<Harness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [ROLLUP_MED]);
+    seedCollection('txs', [...rollupSingleDayRows, ...rollupMondayCatchupRows]);
+
+    await user.click(screen.getByRole('button', { name: 'analyze-weekday' }));
+    await waitFor(() => expect(getLastBatchWrites().length).toBeGreaterThan(0));
+
+    const writes = getLastBatchWrites();
+    const byPath = Object.fromEntries(writes.map((w) => [w.path, w.data]));
+    // Flat real usage every weekday (including Friday's spread share) — no meaningful spike, so
+    // NO weekdayPeakFactor write at all. A pre-fix implementation would have attributed the
+    // whole 60-unit Monday batch to Monday itself, producing a false ×3 "Monday is busiest"
+    // factor here.
+    expect(byPath['meds/m6']).toBeDefined();
+    expect(byPath['meds/m6']!.weekdayPeakFactor).toBeUndefined();
+    // The real worst single day is ~20 (every day's true share) — not 60 (the un-spread Monday
+    // batch total), confirming the peak-day scan also spreads the same way.
+    expect(byPath['meds/m6']!.peakDayQty).toBe(20);
   });
 });

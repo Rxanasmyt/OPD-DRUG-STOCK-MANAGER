@@ -162,13 +162,12 @@ describe('commitTransfer — same-lotNo/different-exp floor-lot collision regres
 });
 
 function ReconcileHarness() {
-  const { state, setHosxpText, processHosxp, setHosxpConfirmSingleDay, commitReconcile } = useApp();
+  const { state, setHosxpText, processHosxp, commitReconcile } = useApp();
   useEffect(() => { setHosxpText('Paracetamol 500mg,7'); }, [setHosxpText]);
-  useEffect(() => { if (state.hosxpRows) setHosxpConfirmSingleDay(true); }, [state.hosxpRows, setHosxpConfirmSingleDay]);
   return (
     <div>
       <button onClick={processHosxp}>process</button>
-      <button onClick={commitReconcile} disabled={!state.hosxpConfirmSingleDay}>commit-reconcile</button>
+      <button onClick={commitReconcile} disabled={!state.hosxpRows}>commit-reconcile</button>
     </div>
   );
 }

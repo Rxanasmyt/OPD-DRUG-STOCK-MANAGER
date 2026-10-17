@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { wardOf } from '../store/selectors';
-import { nf, thDate } from '../utils/format';
+import { wardOf, hosxpMissReasons } from '../store/selectors';
+import { nf, thDate, isoDate } from '../utils/format';
 import type { HosxpMatch, Med, ReconcileGapDay } from '../types';
 import { Badge } from '../components/Badge';
 
@@ -13,8 +13,10 @@ import { Badge } from '../components/Badge';
 // different (admin-triggered, infrequent) purpose.
 const RECONCILE_GAP_LOOKBACK_DAYS = 7;
 
+const DAY = 24 * 60 * 60 * 1000;
+
 export default function ReconcileScreen() {
-  const { state, setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile, fetchReconcileGaps, toast } = useApp();
+  const { state, setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, toast } = useApp();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const medById = (id: string) => state.meds.find((x) => x.id === id);
@@ -41,9 +43,24 @@ export default function ReconcileScreen() {
     });
   })();
 
+  // Real-world request: "ต้องมีรายละเอียดบอกให้ชัดเจนเลยครับว่ายาในแอพตัวใดไม่ได้ถูกตัดจ่าย ต้องมี
+  // เหตุผลกำกับ" — see hosxpMissReasons' own doc comment (selectors.ts) for the full design; runs
+  // on this SAME file, before commit, so there's still something to fix.
+  const missEntries = useMemo(() => hosxpMissReasons(state.meds, state.hosxpRows || []), [state.meds, state.hosxpRows]);
+
   const fuzzyCount = reconcileRows.filter((r) => r.match.kind === 'fuzzy').length;
   const skippedCount = reconcileRows.filter((r) => r.match.kind === 'ambiguous' || r.match.kind === 'none').length;
-  const canCommit = reconcileRows.length > 0 && (fuzzyCount === 0 || state.hosxpConfirmFuzzy) && state.hosxpConfirmSingleDay;
+  // Real-world explanation: "เช้าวันจันทร์จะตัดยอดหน้างานโดยแนบไฟล์ ของวันศุกร์ เสาร์และอาทิตย์ เป็น
+  // จำนวน 3 วัน" — the old single boolean "confirm this covers 1 day" checkbox was factually
+  // wrong every Monday. hosxpCoveredFrom/To now state the real range directly (see their own doc
+  // comment, types.ts) — valid when both are set, from ≤ to, and the range doesn't reach into
+  // today (today's own dispensing isn't in any file yet — see commitReconcile()'s own check).
+  const todayIso = isoDate(Date.now());
+  const coveredValid = !!state.hosxpCoveredFrom && !!state.hosxpCoveredTo && state.hosxpCoveredFrom <= state.hosxpCoveredTo && state.hosxpCoveredTo < todayIso;
+  const daysCovered = coveredValid
+    ? Math.round((new Date(state.hosxpCoveredTo + 'T00:00:00').getTime() - new Date(state.hosxpCoveredFrom + 'T00:00:00').getTime()) / DAY) + 1
+    : 0;
+  const canCommit = reconcileRows.length > 0 && (fuzzyCount === 0 || state.hosxpConfirmFuzzy) && coveredValid;
 
   // "ยาที่หลุดบ่อย" — aggregates commitReconcile()'s own 'hosxp_unmatched' audit entries (see
   // its doc comment, AppContext.tsx) across whatever's in the currently-loaded audit log
@@ -121,7 +138,7 @@ export default function ReconcileScreen() {
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
       <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 12 }}>
-        วิธีหลักในการตัดยอดหน้างาน — ใช้เป็นประจำทุกวัน เร็วกว่าการนับสต็อกจริง แนบไฟล์รายงานการใช้ยาจาก HOSxP (.xls/.xlsx) ของ<b>เมื่อวานวันเดียว</b>โดยตรง หรือวางข้อมูล CSV รูปแบบ "ชื่อยา,จำนวนจ่าย" ในช่องด้านล่าง — ระบบจะตัดยอดหน้างานให้ตรงกับที่จ่ายจริงโดยตรง (ถ้าปั๊มรายงานช่วงมากกว่า 1 วัน จะตัดยอดเกินจริง)
+        วิธีหลักในการตัดยอดหน้างาน — ใช้เป็นประจำทุกวัน เร็วกว่าการนับสต็อกจริง แนบไฟล์รายงานการใช้ยาจาก HOSxP (.xls/.xlsx) ของ<b>เมื่อวาน</b>โดยตรง (ถ้าเป็นเช้าวันจันทร์หลังวันหยุดสุดสัปดาห์ ครอบคลุมศุกร์-เสาร์-อาทิตย์ได้ตามจริง — ระบุช่วงวันที่ด้านล่างให้ตรง) หรือวางข้อมูล CSV รูปแบบ "ชื่อยา,จำนวนจ่าย" ในช่องด้านล่าง — ระบบจะตัดยอดหน้างานให้ตรงกับที่จ่ายจริงโดยตรง
       </div>
       <input
         ref={fileInputRef}
@@ -177,6 +194,31 @@ export default function ReconcileScreen() {
             ))}
           </div>
 
+          {missEntries.length > 0 && (
+            <div className="card" style={{ padding: 13, marginBottom: 12, border: '1px solid var(--border)' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>ยาที่ปกติจ่ายทุกวันแต่ไม่ถูกตัดยอดจากไฟล์นี้ ({missEntries.length} รายการ)</div>
+              <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginBottom: 10 }}>ตรวจสอบก่อนตัดยอด — รายการที่มีเหตุผล "ควรตรวจสอบ"/"ต้องแก้ไข" อาจทำให้จำนวนยาในระบบไม่ตรงกับที่จ่ายจริง</div>
+              <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                {missEntries.map(({ med, reason }) => (
+                  <div key={med.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-soft)', borderRadius: 9, padding: '8px 10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{med.name}</span>
+                      {reason.kind === 'zero_qty' && <Badge flexNone size={10.5} padding="2px 7px" color="var(--green)" bg="var(--green-tint)">ปกติ</Badge>}
+                      {reason.kind === 'not_in_file' && <Badge flexNone size={10.5} padding="2px 7px" color="var(--amber-ink)" bg="var(--amber-bg)">ไม่พบในไฟล์</Badge>}
+                      {reason.kind === 'ambiguous' && <Badge flexNone size={10.5} padding="2px 7px" color="var(--red)" bg="var(--red-bg)">ต้องตรวจสอบ</Badge>}
+                    </div>
+                    <div className="muted" style={{ fontSize: 11, lineHeight: 1.5 }}>
+                      {reason.kind === 'zero_qty' && 'พบในไฟล์ HOSxP แล้ว แต่จำนวนจ่าย = 0 จึงไม่ตัดยอด — ไม่ใช่ปัญหา'}
+                      {reason.kind === 'not_in_file' && 'ไม่พบชื่อยานี้ในไฟล์ HOSxP เลย (แม้แต่ชื่อใกล้เคียง) — ถ้าวันนี้มีจ่ายยาตัวนี้จริง ควรกลับไปตรวจสอบว่าไฟล์ดึงข้อมูลมาครบหรือไม่'}
+                      {reason.kind === 'ambiguous' && reason.wardClash && `พบชื่อ "${reason.fileText}" ในไฟล์ แต่ยานี้มีทั้งชั้น OPD และ IPD ชื่อเดียวกัน — HOSxP บอกไม่ได้ว่าจ่ายจากฝั่งไหน ต้องปรับยอดด้วยมือแยกราย ward`}
+                      {reason.kind === 'ambiguous' && !reason.wardClash && `พบชื่อ "${reason.fileText}" ในไฟล์ แต่ตรงกับยาหลายรายการ (${reason.otherNames.join(', ')}) — ระบบแยกไม่ได้ว่าหมายถึงตัวไหน ต้องปรับยอดด้วยมือ`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {fuzzyCount > 0 && (
             <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', background: 'var(--amber-bg)', border: '1px solid var(--amber)', borderRadius: 10, padding: '11px 12px', marginBottom: 12, cursor: 'pointer' }}>
               <input type="checkbox" checked={state.hosxpConfirmFuzzy} onChange={(e) => setHosxpConfirmFuzzy(e.target.checked)} style={{ marginTop: 2, flex: 'none', width: 17, height: 17 }} />
@@ -184,14 +226,30 @@ export default function ReconcileScreen() {
             </label>
           )}
 
-          {/* Bug fix (real risk): always required, not just for a fuzzy match — this screen
-              assumes exactly 1 day of data every time, and nothing else catches a multi-day
-              file fed in by mistake (e.g. catching up after a missed day) before it silently
-              over-deducts the floor. See commitReconcile()'s doc comment. */}
-          <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', background: 'var(--amber-bg)', border: '1px solid var(--amber)', borderRadius: 10, padding: '11px 12px', marginBottom: 12, cursor: 'pointer' }}>
-            <input type="checkbox" checked={state.hosxpConfirmSingleDay} onChange={(e) => setHosxpConfirmSingleDay(e.target.checked)} style={{ marginTop: 2, flex: 'none', width: 17, height: 17 }} />
-            <span style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--amber-ink)' }}>ยืนยันว่าไฟล์/ข้อมูลนี้ครอบคลุม<b>แค่ 1 วัน</b> (เมื่อวาน) — ถ้าครอบคลุมมากกว่านั้นจะตัดยอดหน้างานเกินจริง</span>
-          </label>
+          {/* Real-world explanation: "เช้าวันจันทร์จะตัดยอดหน้างานโดยแนบไฟล์ ของวันศุกร์ เสาร์และ
+              อาทิตย์ เป็นจำนวน 3 วัน" (บางครั้งมากกว่านั้น) — the old "confirm this covers only 1
+              day" checkbox was factually wrong every Monday. Asking for the real range directly
+              both fixes that AND lets commitReconcile() record it (Tx.coveredFrom/coveredTo) so
+              downstream per-day analysis (analyzeWeekdayUsage, fetchReconcileGaps) can correctly
+              spread a multi-day total back across the real days it represents. Defaults to
+              yesterday-only (see processHosxp/processHosxpFile, AppContext.tsx) — zero extra taps
+              for the normal single-day case; only needs widening backward on a catch-up. */}
+          <div style={{ background: 'var(--amber-bg)', border: '1px solid var(--amber)', borderRadius: 10, padding: '11px 12px', marginBottom: 12 }}>
+            <div style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--amber-ink)', fontWeight: 600, marginBottom: 8 }}>ไฟล์/ข้อมูลนี้ครอบคลุมยอดจ่ายยาวันที่เท่าไรบ้าง?</div>
+            <div className="grid-2" style={{ marginBottom: 6 }}>
+              <label>
+                <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>จากวันที่</span>
+                <input type="date" value={state.hosxpCoveredFrom} max={isoDate(Date.now() - DAY)} onChange={(e) => setHosxpCoveredFrom(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 16, minHeight: 40 }} />
+              </label>
+              <label>
+                <span className="muted" style={{ display: 'block', fontSize: 11, marginBottom: 3 }}>ถึงวันที่</span>
+                <input type="date" value={state.hosxpCoveredTo} max={isoDate(Date.now() - DAY)} onChange={(e) => setHosxpCoveredTo(e.target.value)} style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 8px', fontSize: 16, minHeight: 40 }} />
+              </label>
+            </div>
+            <div style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--amber-ink)' }}>
+              {coveredValid ? 'รวม ' + daysCovered + ' วัน' + (daysCovered > 1 ? ' — เช่น กรณีตัดยอดเช้าวันจันทร์หลังวันหยุดสุดสัปดาห์' : '') : 'ระบุช่วงวันที่ให้ครบ (ถึงวันที่ต้องไม่ใช่วันนี้)'}
+            </div>
+          </div>
 
           <button onClick={commitReconcile} disabled={!canCommit || !!state.busy['reconcile']} className="btn-primary" style={{ width: '100%', padding: 15, borderRadius: 12, fontSize: 15, minHeight: 52, opacity: canCommit && !state.busy['reconcile'] ? 1 : 0.5 }}>
             {state.busy['reconcile'] ? 'กำลังตัดยอด…' : `ตัดยอดหน้างานตามไฟล์นี้ และบันทึก discrepancy log${skippedCount > 0 ? ' (ข้าม ' + skippedCount + ' รายการที่จับคู่ไม่ได้)' : ''}`}

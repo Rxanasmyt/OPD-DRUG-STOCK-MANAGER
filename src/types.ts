@@ -275,6 +275,15 @@ export interface Tx {
   loc?: 'floor' | 'substock';
   from?: string;
   to?: string;
+  // Real-world explanation: "เช้าวันจันทร์จะตัดยอดหน้างานโดยแนบไฟล์ ของวันศุกร์ เสาร์และอาทิตย์ เป็น
+  // จำนวน 3 วัน" — only ever set on a 'reconcile_hosxp' row, carrying the REAL calendar-day span
+  // (ISO, YYYY-MM-DD, inclusive) this reconcile's qty represents, which can differ from `ts` (the
+  // moment the admin actually clicked commit — always "today," even for a Monday catch-up). A
+  // row from before this field existed has neither — every reader treats that as a single day
+  // equal to isoDate(ts), the same assumption this app always made. See
+  // AppState.hosxpCoveredFrom/hosxpCoveredTo's own doc comment for the full "why".
+  coveredFrom?: string;
+  coveredTo?: string;
 }
 
 export interface User {
@@ -756,12 +765,19 @@ export interface AppState {
   hosxpText: string;
   hosxpRows: { name: string; qty: number; match: HosxpMatch }[] | null;
   hosxpConfirmFuzzy: boolean;
-  // Required confirmation gate before committing a daily reconcile — same shape as
-  // hosxpConfirmFuzzy above, for a different risk: this screen assumes the file/pasted text
-  // covers exactly one day (see its own on-screen warning), but nothing actually stops someone
-  // from feeding it a multi-day export by mistake, which would silently over-deduct the floor.
-  // See commitReconcile()/ReconcileScreen.tsx.
-  hosxpConfirmSingleDay: boolean;
+  // Real-world explanation: "เช้าวันจันทร์จะตัดยอดหน้างานโดยแนบไฟล์ ของวันศุกร์ เสาร์และอาทิตย์ เป็น
+  // จำนวน 3 วัน" (บางครั้งมากกว่า 3 วัน ถ้าวันศุกร์ตรงกับวันหยุดนักขัตฤกษ์ด้วย) — a single boolean
+  // "this covers only 1 day" checkbox (the old hosxpConfirmSingleDay) was factually wrong every
+  // Monday, forcing the admin to either lie to proceed or never legitimately confirm. Replaced
+  // with the real date range the file covers (ISO, YYYY-MM-DD) — both default to yesterday for
+  // the common single-day case (see processHosxp/processHosxpFile in AppContext.tsx), widened
+  // backward by the admin for a catch-up. commitReconcile() writes this same range onto every
+  // reconcile_hosxp tx row it creates (Tx.coveredFrom/coveredTo) so downstream per-day analysis
+  // (analyzeWeekdayUsage, fetchReconcileGaps, scripts/recompute-usage-stats.mjs) can correctly
+  // spread a multi-day batch's total back across the real days it represents, instead of
+  // attributing all of it to the one day the admin happened to click the button.
+  hosxpCoveredFrom: string;
+  hosxpCoveredTo: string;
 
   // Import usage totals from a file (a real HOSxP "รายงานการใช้ยา" export, .xls/.xlsx, or a
   // plain "ชื่อยา,จำนวน" CSV) to seed used30 — see suggestPar()/importUsageFile() in
