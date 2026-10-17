@@ -10,18 +10,47 @@
 // a big HOSxP catch-up import), this just means par suggestions never go more than a day stale on
 // their own.
 //
-// Hand-kept in sync with recomputeUsageStats() (src/store/AppContext.tsx) — same dupNames OPD/IPD
-// disambiguation, same 30/60-day bucketing, same "only negative (dispensed) reconcile_hosxp
-// entries count" filter. If that function's logic changes, update here too (same convention every
-// other script in this directory already follows for its in-app counterpart).
+// Real-world request (this round): "อยากให้รันอัตโนมัติ โดยไม่ต้องพึ่งคนกด เนื่องจากบางทีลืมกดทำให้
+// min max par ไม่ปรับตามการใช้ยาจริง" — the SAME problem existed for the OTHER manual button in
+// SettingsScreen, "วิเคราะห์รูปแบบการใช้ยารายวัน/วันจ่ายสูงสุด ↺" (analyzeWeekdayUsage() in
+// AppContext.tsx), which writes Med.weekdayPeakFactor/weekdayPeakDay/weekdayPeakOccurrences/
+// weekdayPattern/peakDayQty/peakDayDate — every multiplier suggestPar() applies on TOP of the
+// flat used30/usedPrev30 rate. This script now runs that SAME aggregation too, right after the
+// one above, reusing the SAME already-fetched meds + reconcile_hosxp tx snapshot instead of
+// issuing a second identical query against the same collection — one extra daily read of the same
+// data for two outputs, not two (matters given this project's own history of Firestore free-tier
+// quota incidents — see CHANGELOG.md's PR #116-121 entries). Hand-kept in sync with
+// analyzeWeekdayUsage() (src/store/AppContext.tsx) — same bangkokWeekday/isoDate Bangkok-anchored
+// date math (src/utils/format.ts), same 91/180-day lookback windows, same confidence thresholds.
+// If either source function's logic changes, update here too (same convention every other script
+// in this directory already follows for its in-app counterpart).
+//
+// Neither half of this script writes an audit-log entry (admin SDK writes bypass the app's
+// logAudit() helper entirely) — same as this script always has for used30/usedPrev30; only the
+// manual in-app buttons log to auditLog, same precedent.
 //
 // Run automatically every day by .github/workflows/recompute-usage-stats.yml. To run locally:
 //   FIREBASE_SERVICE_ACCOUNT_KEY="$(cat serviceAccountKey.json)" node scripts/recompute-usage-stats.mjs
 
 import { initializeApp, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 const DAY = 24 * 60 * 60 * 1000;
+
+// Same fixed-UTC+7-offset trick as src/utils/format.ts's bangkokWeekday()/isoDate() — Thailand has
+// no DST, so this gives the correct Bangkok wall-clock weekday/calendar-day for any real UTC
+// instant regardless of what timezone this script's own host happens to run in (GitHub Actions
+// runners are UTC, but this keeps the two implementations provably equivalent rather than relying
+// on that).
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+function bangkokWeekday(ms) {
+  return new Date(ms + BANGKOK_OFFSET_MS).getUTCDay(); // 0=อาทิตย์..6=เสาร์
+}
+function isoDate(ms) {
+  const shifted = new Date(ms + BANGKOK_OFFSET_MS);
+  const y = shifted.getUTCFullYear(), m = shifted.getUTCMonth() + 1, d = shifted.getUTCDate();
+  return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+}
 
 async function main() {
   const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
@@ -42,7 +71,7 @@ async function main() {
   const meds = medsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
   const now = Date.now();
 
-  // Same OPD/IPD name-twin hazard as the in-app version — aggregating by name alone would sum
+  // Same OPD/IPD name-twin hazard both halves below share — aggregating by name alone would sum
   // both wards' dispensing into one number and write that same (wrong) total onto both copies.
   const dupNames = new Set();
   const seenNames = new Set();
@@ -50,7 +79,11 @@ async function main() {
     if (seenNames.has(m.name)) dupNames.add(m.name);
     seenNames.add(m.name);
   }
+  const targets = meds.filter((m) => m.active);
 
+  // ---------------------------------------------------------------------------------------------
+  // Part 1: flat used30/usedPrev30 (30/60-day totals) — unchanged from before this round.
+  // ---------------------------------------------------------------------------------------------
   const curByName = {};
   const prevByName = {};
   const curById = {};
@@ -72,7 +105,6 @@ async function main() {
     }
   }
 
-  const targets = meds.filter((m) => m.active);
   let batch = db.batch();
   let opsInBatch = 0;
   let written = 0;
@@ -90,12 +122,129 @@ async function main() {
   }
   if (opsInBatch > 0) await batch.commit();
 
+  // ---------------------------------------------------------------------------------------------
+  // Part 2: weekday usage pattern (floor-par weekday-peak multiplier) + single-day peak dispense
+  // clamp — ported from analyzeWeekdayUsage() (src/store/AppContext.tsx). See that function's own
+  // doc comment for the full "why"; kept here only as much comment as explains THIS port, not a
+  // re-derivation of the reasoning that already lives there.
+  // ---------------------------------------------------------------------------------------------
+  const LOOKBACK_DAYS = 91; // ~13 weeks — up to 13 real occurrences of each weekday to average
+  const MIN_OCC_PER_WEEKDAY = 4; // below this, a weekday's own average isn't trustworthy yet
+  const MEANINGFUL_FACTOR = 1.15; // peak-vs-average ratio below this reads as flat/noise
+  const PEAK_LOOKBACK_DAYS = 180; // ~26 weeks — reliably covers at least one quarterly refill cycle
+  const cutoff = now - LOOKBACK_DAYS * DAY;
+  const peakCutoff = now - PEAK_LOOKBACK_DAYS * DAY;
+
+  // key -> [bucket per weekday 0..6] -> Map<isoDate, summed qty that day>
+  const byKeyWeekday = new Map();
+  // key -> Map<isoDate, summed qty that day> over the longer PEAK_LOOKBACK_DAYS window, not split
+  // by weekday — just "how much went out THIS day" per med.
+  const byKeyDay = new Map();
+  for (const d of txSnap.docs) {
+    const x = d.data();
+    if (!x.name || typeof x.qty !== 'number' || x.qty >= 0 || typeof x.ts !== 'number') continue; // dispensed only
+    if (x.ts > now) continue;
+    const wd = bangkokWeekday(x.ts);
+    if (wd === 0 || wd === 6) continue; // this hospital never reconciles on a weekend
+    const key = dupNames.has(x.name) ? (x.medId ? 'id:' + x.medId : null) : 'name:' + x.name;
+    if (!key) continue;
+    const dayKey = isoDate(x.ts);
+    if (x.ts >= peakCutoff) {
+      let dayMap = byKeyDay.get(key);
+      if (!dayMap) { dayMap = new Map(); byKeyDay.set(key, dayMap); }
+      dayMap.set(dayKey, (dayMap.get(dayKey) || 0) + Math.abs(x.qty));
+    }
+    if (x.ts < cutoff) continue;
+    let buckets = byKeyWeekday.get(key);
+    if (!buckets) { buckets = [0, 1, 2, 3, 4, 5, 6].map(() => new Map()); byKeyWeekday.set(key, buckets); }
+    buckets[wd].set(dayKey, (buckets[wd].get(dayKey) || 0) + Math.abs(x.qty));
+  }
+
+  let analyzed = 0;
+  let patterned = 0;
+  let peaksFound = 0;
+  const writes = [];
+  for (const m of targets) {
+    const key = dupNames.has(m.name) ? 'id:' + m.id : 'name:' + m.name;
+    let weekday;
+    let peak;
+
+    const dayMap = byKeyDay.get(key);
+    if (dayMap && dayMap.size > 0) {
+      let peakQty = 0, peakDate = '';
+      for (const [day, qty] of dayMap) { if (qty > peakQty) { peakQty = qty; peakDate = day; } }
+      const roundedPeak = Math.round(peakQty);
+      if (roundedPeak > 0 && (roundedPeak !== m.peakDayQty || peakDate !== m.peakDayDate)) {
+        peak = { qty: roundedPeak, date: peakDate };
+        peaksFound++;
+      }
+    } else if (m.peakDayQty) {
+      // No reconcile_hosxp history at all left within the (longer) peak window — the old peak is
+      // no longer traceable to any real remaining data; clear it rather than let a stale number
+      // linger forever with nothing backing it.
+      peak = 'clear';
+    }
+
+    const buckets = byKeyWeekday.get(key);
+    if (buckets) {
+      const weekdayAvgs = [];
+      for (let wd = 1; wd <= 5; wd++) {
+        const days = buckets[wd];
+        if (days.size < MIN_OCC_PER_WEEKDAY) { weekdayAvgs.length = 0; break; }
+        const sum = Array.from(days.values()).reduce((s, v) => s + v, 0);
+        weekdayAvgs.push({ wd, avg: sum / days.size, occ: days.size });
+      }
+      if (weekdayAvgs.length === 5) { // not enough confirmed history for every weekday otherwise
+        analyzed++;
+        const overallAvg = weekdayAvgs.reduce((s, w) => s + w.avg, 0) / 5;
+        if (overallAvg > 0) {
+          const pattern = weekdayAvgs.map((w) => Math.round((w.avg / overallAvg) * 100) / 100);
+          const peakDay = weekdayAvgs.reduce((a, b) => (b.avg > a.avg ? b : a));
+          const factor = peakDay.avg / overallAvg;
+          if (factor >= MEANINGFUL_FACTOR) {
+            const minOcc = Math.min(...weekdayAvgs.map((w) => w.occ));
+            weekday = { factor: Math.round(factor * 100) / 100, day: peakDay.wd, occ: minOcc, pattern };
+            patterned++;
+          } else if (m.weekdayPeakFactor || m.weekdayPattern) {
+            weekday = 'clear'; // pattern flattened out since the last run
+          }
+        }
+      }
+    }
+
+    if (weekday || peak) writes.push({ id: m.id, weekday, peak });
+  }
+
+  for (let i = 0; i < writes.length; i += 400) {
+    const b = db.batch();
+    writes.slice(i, i + 400).forEach((w) => {
+      const fields = {};
+      if (w.weekday === 'clear') {
+        fields.weekdayPeakFactor = FieldValue.delete(); fields.weekdayPeakDay = FieldValue.delete();
+        fields.weekdayPeakOccurrences = FieldValue.delete(); fields.weekdayPattern = FieldValue.delete();
+      } else if (w.weekday) {
+        fields.weekdayPeakFactor = w.weekday.factor; fields.weekdayPeakDay = w.weekday.day;
+        fields.weekdayPeakOccurrences = w.weekday.occ; fields.weekdayPattern = w.weekday.pattern;
+      }
+      if (w.peak === 'clear') {
+        fields.peakDayQty = FieldValue.delete(); fields.peakDayDate = FieldValue.delete();
+      } else if (w.peak) {
+        fields.peakDayQty = w.peak.qty; fields.peakDayDate = w.peak.date;
+      }
+      b.update(db.collection('meds').doc(w.id), fields);
+    });
+    await b.commit();
+  }
+
   // Same shared meta/settings doc expiryWarnDays/parFloorCoverDays/parSubCoverDays already live
   // in (see AppContext.tsx) — SettingsScreen reads this to warn when the numbers behind every par
-  // suggestion are stale, so it needs updating here too, not just by the in-app manual button.
+  // suggestion are stale. Now covers BOTH halves of this script (used30/usedPrev30 AND the
+  // weekday/peak analysis run right after it in the same job), so the one existing staleness
+  // indicator in SettingsScreen stays accurate for both without needing a second field.
   await db.collection('meta').doc('settings').set({ usageStatsRecomputedAt: now }, { merge: true });
 
   console.log(`✓ Recomputed used30/usedPrev30 for ${written} active med(s) from ${txSnap.size} reconcile_hosxp tx row(s).`);
+  console.log(`✓ Weekday-pattern/peak-day analysis: ${analyzed} med(s) had enough history to analyze, ${patterned} with a meaningful weekday pattern, ${peaksFound} with a new single-day peak.`);
 }
 
 main().catch((err) => {

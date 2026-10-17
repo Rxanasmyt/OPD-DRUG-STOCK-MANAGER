@@ -1,10 +1,17 @@
 name: Recompute Usage Stats
 
-# Daily recompute of every active med's used30/usedPrev30 (the ONLY inputs the whole Min/Max/par
-# substock suggestion reads — see src/store/selectors.ts's suggestPar()) from real HOSxP
-# dispensing history — see scripts/recompute-usage-stats.mjs for exactly how (same aggregation as
-# SettingsScreen's manual "คำนวณสถิติการใช้ใหม่จากประวัติ HOSxP ↺" button) and why this needed to
-# stop depending on someone remembering to click that button.
+# Daily recompute of EVERY input suggestPar() (src/store/selectors.ts) reads for its whole
+# Min/Max/par substock suggestion, from real HOSxP dispensing history — see
+# scripts/recompute-usage-stats.mjs for exactly how. Two halves, run back to back in one job
+# against one shared Firestore read of the same reconcile_hosxp history:
+#   1. used30/usedPrev30 (same aggregation as SettingsScreen's manual "คำนวณสถิติการใช้ใหม่จาก
+#      ประวัติ HOSxP ↺" button)
+#   2. weekday usage pattern + single-day peak-dispense clamp (same aggregation as SettingsScreen's
+#      manual "วิเคราะห์รูปแบบการใช้ยารายวัน/วันจ่ายสูงสุด ↺" button)
+# Real-world request: "อยากให้รันอัตโนมัติ โดยไม่ต้องพึ่งคนกด เนื่องจากบางทีลืมกดทำให้ min max par
+# ไม่ปรับตามการใช้ยาจริง" — both manual buttons still exist (useful right after a big HOSxP
+# catch-up import), this just means no par suggestion input goes stale just because nobody
+# remembered to click something.
 #
 # Runs shortly after stock-drift-check.yml (00:15 Asia/Bangkok) — reuses the same
 # FIREBASE_SERVICE_ACCOUNT_KEY secret every other scheduled script here already uses, nothing

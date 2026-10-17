@@ -320,7 +320,7 @@ export default function SettingsScreen() {
             <button
               onClick={analyzeWeekdayUsage}
               disabled={!!state.busy['analyzeWeekdayUsage']}
-              title="วิเคราะห์รูปแบบการใช้ยารายวันจันทร์-ศุกร์ (91 วันล่าสุด) และวันจ่ายยาสูงสุดในวันเดียว (180 วันล่าสุด) จากประวัติ HOSxP — ยาที่มีวันใช้มากผิดปกติชัดเจน (เช่น ตรงกับวันคลินิกเฉพาะทาง หรือมีเคสสั่งยาคราวละมากๆ) จะได้ par หน้างาน/substock ที่สูงพอรองรับวันนั้นโดยเฉพาะ"
+              title="วิเคราะห์รูปแบบการใช้ยารายวันจันทร์-ศุกร์ (91 วันล่าสุด) และวันจ่ายยาสูงสุดในวันเดียว (180 วันล่าสุด) จากประวัติ HOSxP — ยาที่มีวันใช้มากผิดปกติชัดเจน (เช่น ตรงกับวันคลินิกเฉพาะทาง หรือมีเคสสั่งยาคราวละมากๆ) จะได้ par หน้างาน/substock ที่สูงพอรองรับวันนั้นโดยเฉพาะ — ระบบวิเคราะห์ให้อัตโนมัติทุกวันแล้ว ไม่ต้องกดเองก็ได้ ปุ่มนี้มีไว้สำหรับสั่งวิเคราะห์ทันทีหลังนำเข้าข้อมูล HOSxP ย้อนหลังจำนวนมาก"
               style={{ border: '1px solid var(--ipd)', background: 'var(--bg-card)', color: 'var(--ipd)', padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40, opacity: state.busy['analyzeWeekdayUsage'] ? 0.7 : 1 }}
             >
               {state.busy['analyzeWeekdayUsage'] ? 'กำลังวิเคราะห์…' : 'วิเคราะห์รูปแบบการใช้ยารายวัน/วันจ่ายสูงสุด ↺'}
@@ -351,7 +351,12 @@ export default function SettingsScreen() {
             แค่ไหนแล้ว" — scripts/recompute-usage-stats.mjs now runs this same calculation
             automatically every day (see its own header comment), but staff still need to actually
             SEE that it's current — or notice if the scheduled job ever silently stops running
-            (a missing/expired secret, a billing issue) — not just trust it blindly. */}
+            (a missing/expired secret, a billing issue) — not just trust it blindly.
+            Real-world request (this round): "อยากให้รันอัตโนมัติ โดยไม่ต้องพึ่งคนกด เนื่องจากบางที
+            ลืมกดทำให้ min max par ไม่ปรับตามการใช้ยาจริง" — scripts/recompute-usage-stats.mjs now
+            also runs the weekday-pattern/peak-day analysis (below) in the SAME daily job, writing
+            the SAME usageStatsRecomputedAt timestamp — this one indicator now honestly covers
+            every input suggestPar() reads, not just used30/usedPrev30. */}
         {(() => {
           const at = state.usageStatsRecomputedAt;
           const daysAgo = at ? Math.floor((Date.now() - at) / DAY) : null;
@@ -362,13 +367,13 @@ export default function SettingsScreen() {
           return (
             <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 8, color: veryStale ? 'var(--red)' : stale ? 'var(--amber-ink)' : undefined, fontWeight: stale ? 600 : undefined }}>
               {at
-                ? 'คำนวณสถิติการใช้ยาล่าสุด: ' + thDate(at) + (daysAgo === 0 ? ' (วันนี้)' : ' (' + nf(daysAgo || 0) + ' วันที่แล้ว)') + (stale ? ' — นานกว่าปกติ ตรวจสอบระบบอัตโนมัติ (recompute-usage-stats.yml) หรือกด "คำนวณสถิติการใช้ใหม่" เองด้านบน' : ' — ระบบคำนวณให้อัตโนมัติทุกวันแล้ว')
+                ? 'คำนวณสถิติการใช้ยาล่าสุด (รวมรูปแบบรายวัน/วันจ่ายสูงสุด): ' + thDate(at) + (daysAgo === 0 ? ' (วันนี้)' : ' (' + nf(daysAgo || 0) + ' วันที่แล้ว)') + (stale ? ' — นานกว่าปกติ ตรวจสอบระบบอัตโนมัติ (recompute-usage-stats.yml) หรือกด "คำนวณสถิติการใช้ใหม่" เองด้านบน' : ' — ระบบคำนวณให้อัตโนมัติทุกวันแล้ว ไม่ต้องกดเอง')
                 : 'ยังไม่เคยคำนวณสถิติการใช้ยาเลย — กด "คำนวณสถิติการใช้ใหม่จากประวัติ HOSxP" ด้านบนอย่างน้อย 1 ครั้ง ค่าแนะนำ par ทั้งหมดจะยังไม่แม่นยำจนกว่าจะทำขั้นตอนนี้'}
               {' '}อัตราการใช้คำนวณจากประวัติ "นำเข้าจาก HOSxP" เท่านั้น ถ้ากดตอนที่ยังไม่มีประวัติ HOSxP เลย ค่าจะกลายเป็น 0 ทั้งหมด
             </div>
           );
         })()}
-        <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>"วิเคราะห์รูปแบบการใช้ยารายวัน" ตรวจแยกแต่ละวันจันทร์-ศุกร์จากประวัติ HOSxP 91 วันล่าสุด (ต้องมีข้อมูลอย่างน้อย 4 ครั้งต่อวันถึงจะนับ) — ยาที่พบวันใช้มากผิดปกติชัดเจนจะได้ par หน้างานที่แนะนำสูงขึ้นเฉพาะให้พอรองรับวันนั้น โดยไม่กระทบ par substock (รอบเบิกคลังใหญ่ยาวพอที่จะเกลี่ยยอดในแต่ละวันออกไปเองอยู่แล้ว) — พร้อมกันนี้จะตรวจหาวันที่จ่ายยาสูงสุดในวันเดียวจากประวัติ 180 วันล่าสุดด้วย (เช่น เคสสั่งยา 3 เดือนครั้งเดียว) แล้วทำให้ par หน้างาน/substock ไม่ต่ำกว่าวันที่จ่ายสูงสุดนั้น ป้องกันไม่ให้ต้องเบิกฉุกเฉินซ้ำเมื่อเคสแบบเดียวกันเกิดขึ้นอีก</div>
+        <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5, marginTop: 4 }}>"วิเคราะห์รูปแบบการใช้ยารายวัน" ตรวจแยกแต่ละวันจันทร์-ศุกร์จากประวัติ HOSxP 91 วันล่าสุด (ต้องมีข้อมูลอย่างน้อย 4 ครั้งต่อวันถึงจะนับ) — ยาที่พบวันใช้มากผิดปกติชัดเจนจะได้ par หน้างานที่แนะนำสูงขึ้นเฉพาะให้พอรองรับวันนั้น โดยไม่กระทบ par substock (รอบเบิกคลังใหญ่ยาวพอที่จะเกลี่ยยอดในแต่ละวันออกไปเองอยู่แล้ว) — พร้อมกันนี้จะตรวจหาวันที่จ่ายยาสูงสุดในวันเดียวจากประวัติ 180 วันล่าสุดด้วย (เช่น เคสสั่งยา 3 เดือนครั้งเดียว) แล้วทำให้ par หน้างาน/substock ไม่ต่ำกว่าวันที่จ่ายสูงสุดนั้น ป้องกันไม่ให้ต้องเบิกฉุกเฉินซ้ำเมื่อเคสแบบเดียวกันเกิดขึ้นอีก — ตอนนี้ระบบรันวิเคราะห์นี้ให้อัตโนมัติทุกวันแล้วเช่นกัน ปุ่มด้านบนมีไว้สำหรับสั่งวิเคราะห์ทันทีเท่านั้น</div>
       </div>
 
       {weekdayPatternMeds.length > 0 && (
