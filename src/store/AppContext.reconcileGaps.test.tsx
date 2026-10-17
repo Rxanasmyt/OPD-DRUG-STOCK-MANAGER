@@ -200,6 +200,32 @@ describe('fetchReconcileGaps — weekend skip regression', () => {
   });
 });
 
+// Real-world explanation: "เช้าวันจันทร์จะตัดยอดหน้างานโดยแนบไฟล์ ของวันศุกร์ เสาร์และอาทิตย์ เป็น
+// จำนวน 3 วัน" — a Monday-dated reconcile's coveredFrom/coveredTo reaches back further than its
+// own `ts`. Before this, Friday (not just the weekend) would show as a false 'missing' every
+// single week, since nothing was ever dated with Friday's own ts.
+describe('fetchReconcileGaps — Monday multi-day catch-up regression', () => {
+  it('marks Friday as covered by a Monday tx whose coveredFrom reaches back to it, not just its own ts date', async () => {
+    const user = userEvent.setup();
+    // days=6 from this Thursday anchor reaches: Wed(i1), Tue(i2), Mon(i3), Sun(i4, skipped),
+    // Sat(i5, skipped), Fri(i6).
+    renderWithApp(<GapsHarness days={6} />);
+    await setup([MED_A]);
+    // The ONLY tx in the whole window: dated Monday (ts = NOW - 3*DAY), but covering last
+    // Friday through Sunday combined — exactly the real Fri-Sat-Sun catch-up pattern.
+    seedCollection('txs', [
+      { type: 'reconcile_hosxp', medId: MED_A.id, ts: NOW - 3 * DAY, coveredFrom: isoDay(6), coveredTo: isoDay(4) },
+    ]);
+
+    await user.click(screen.getByRole('button', { name: 'run' }));
+    await waitFor(() => expect(screen.getByTestId('gap-count')).toHaveTextContent('3')); // Wed/Tue/Mon genuinely uncovered
+    expect(screen.queryByTestId('gap-' + isoDay(6))).not.toBeInTheDocument(); // Friday — covered via the Monday tx's range
+    expect(screen.getByTestId('gap-' + isoDay(1))).toHaveTextContent('missing'); // Wed
+    expect(screen.getByTestId('gap-' + isoDay(2))).toHaveTextContent('missing'); // Tue
+    expect(screen.getByTestId('gap-' + isoDay(3))).toHaveTextContent('missing'); // Mon itself — genuinely not covered by this tx
+  });
+});
+
 // Mirrors isoDate()'s own Bangkok-anchored conversion (utils/format.ts) so expected test ids
 // never depend on the host machine's own timezone.
 function isoDay(daysAgo: number): string {

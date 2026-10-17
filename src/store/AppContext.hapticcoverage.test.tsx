@@ -173,12 +173,11 @@ describe('approvePendingReceive — hapticSuccess regression', () => {
 });
 
 function HosxpReconcileHarness() {
-  const { state, setHosxpText, processHosxp, setHosxpConfirmSingleDay, commitReconcile } = useApp();
+  const { state, setHosxpText, processHosxp, commitReconcile } = useApp();
   return (
     <>
       <button onClick={() => setHosxpText('Paracetamol 500mg,5')}>paste</button>
       <button onClick={processHosxp}>process</button>
-      <button onClick={() => setHosxpConfirmSingleDay(true)}>confirm-single-day</button>
       <button onClick={commitReconcile}>commit-reconcile</button>
       <div data-testid="rowCount">{state.hosxpRows?.length ?? 'none'}</div>
     </>
@@ -196,7 +195,6 @@ describe('commitReconcile — hapticSuccess regression', () => {
     await user.click(screen.getByRole('button', { name: 'paste' }));
     await user.click(screen.getByRole('button', { name: 'process' }));
     await waitFor(() => expect(screen.getByTestId('rowCount').textContent).toBe('1'));
-    await user.click(screen.getByRole('button', { name: 'confirm-single-day' }));
 
     await user.click(screen.getByRole('button', { name: 'commit-reconcile' }));
     await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
