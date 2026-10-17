@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { wardOf } from '../store/selectors';
+import { wardOf, hosxpMissReasons } from '../store/selectors';
 import { nf, thDate, isoDate } from '../utils/format';
 import type { HosxpMatch, Med, ReconcileGapDay } from '../types';
 import { Badge } from '../components/Badge';
@@ -42,6 +42,11 @@ export default function ReconcileScreen() {
       return { fileText: r.name, qty: r.qty, match: r.match, med, before, after };
     });
   })();
+
+  // Real-world request: "ต้องมีรายละเอียดบอกให้ชัดเจนเลยครับว่ายาในแอพตัวใดไม่ได้ถูกตัดจ่าย ต้องมี
+  // เหตุผลกำกับ" — see hosxpMissReasons' own doc comment (selectors.ts) for the full design; runs
+  // on this SAME file, before commit, so there's still something to fix.
+  const missEntries = useMemo(() => hosxpMissReasons(state.meds, state.hosxpRows || []), [state.meds, state.hosxpRows]);
 
   const fuzzyCount = reconcileRows.filter((r) => r.match.kind === 'fuzzy').length;
   const skippedCount = reconcileRows.filter((r) => r.match.kind === 'ambiguous' || r.match.kind === 'none').length;
@@ -188,6 +193,31 @@ export default function ReconcileScreen() {
               </div>
             ))}
           </div>
+
+          {missEntries.length > 0 && (
+            <div className="card" style={{ padding: 13, marginBottom: 12, border: '1px solid var(--border)' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>ยาที่ปกติจ่ายทุกวันแต่ไม่ถูกตัดยอดจากไฟล์นี้ ({missEntries.length} รายการ)</div>
+              <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginBottom: 10 }}>ตรวจสอบก่อนตัดยอด — รายการที่มีเหตุผล "ควรตรวจสอบ"/"ต้องแก้ไข" อาจทำให้จำนวนยาในระบบไม่ตรงกับที่จ่ายจริง</div>
+              <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                {missEntries.map(({ med, reason }) => (
+                  <div key={med.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-soft)', borderRadius: 9, padding: '8px 10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{med.name}</span>
+                      {reason.kind === 'zero_qty' && <Badge flexNone size={10.5} padding="2px 7px" color="var(--green)" bg="var(--green-tint)">ปกติ</Badge>}
+                      {reason.kind === 'not_in_file' && <Badge flexNone size={10.5} padding="2px 7px" color="var(--amber-ink)" bg="var(--amber-bg)">ไม่พบในไฟล์</Badge>}
+                      {reason.kind === 'ambiguous' && <Badge flexNone size={10.5} padding="2px 7px" color="var(--red)" bg="var(--red-bg)">ต้องตรวจสอบ</Badge>}
+                    </div>
+                    <div className="muted" style={{ fontSize: 11, lineHeight: 1.5 }}>
+                      {reason.kind === 'zero_qty' && 'พบในไฟล์ HOSxP แล้ว แต่จำนวนจ่าย = 0 จึงไม่ตัดยอด — ไม่ใช่ปัญหา'}
+                      {reason.kind === 'not_in_file' && 'ไม่พบชื่อยานี้ในไฟล์ HOSxP เลย (แม้แต่ชื่อใกล้เคียง) — ถ้าวันนี้มีจ่ายยาตัวนี้จริง ควรกลับไปตรวจสอบว่าไฟล์ดึงข้อมูลมาครบหรือไม่'}
+                      {reason.kind === 'ambiguous' && reason.wardClash && `พบชื่อ "${reason.fileText}" ในไฟล์ แต่ยานี้มีทั้งชั้น OPD และ IPD ชื่อเดียวกัน — HOSxP บอกไม่ได้ว่าจ่ายจากฝั่งไหน ต้องปรับยอดด้วยมือแยกราย ward`}
+                      {reason.kind === 'ambiguous' && !reason.wardClash && `พบชื่อ "${reason.fileText}" ในไฟล์ แต่ตรงกับยาหลายรายการ (${reason.otherNames.join(', ')}) — ระบบแยกไม่ได้ว่าหมายถึงตัวไหน ต้องปรับยอดด้วยมือ`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {fuzzyCount > 0 && (
             <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', background: 'var(--amber-bg)', border: '1px solid var(--amber)', borderRadius: 10, padding: '11px 12px', marginBottom: 12, cursor: 'pointer' }}>
