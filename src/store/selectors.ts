@@ -898,17 +898,36 @@ export function suggestTransferQty(state: AppState, m: Med): number {
   return Math.min(subQty(state, m.id), qty);
 }
 
+// Real-world request: "อยากให้มีระบบตรวจชื่อยาจากใบ hosxp และชื่อยาจากแอพที่แม่นยำมากกว่านี้" — closes
+// the gap between two names that are really the SAME drug but differ only in formatting
+// (doubled/odd whitespace from a pasted Excel cell, a full-width parenthesis/comma some Thai
+// hospital software exports instead of the plain ASCII one, a dosage number typed in Thai
+// digits). Deliberately conservative — this only ever makes two ALREADY-equal-ish strings
+// compare equal; it never does semantic/fuzzy matching that could merge two DIFFERENT drugs
+// together, since a wrong match here means deducting stock from the wrong drug (see
+// matchHosxpMed's own doc comment on why 'ambiguous' is never guessed through).
+function normalizeMedName(raw: string): string {
+  return raw
+    .replace(/[๐-๙]/g, (ch) => String(ch.charCodeAt(0) - 0x0E50)) // Thai digits → Arabic
+    .replace(/[（]/g, '(').replace(/[）]/g, ')') // full-width parens → half-width
+    .replace(/[，]/g, ',') // full-width comma → half-width
+    .replace(/\s+/g, ' ') // any run of whitespace (incl. doubled spaces from a pasted cell) → one space
+    .trim()
+    .toLowerCase();
+}
+
 /**
  * Resolves one HOSxP file row's drug name against the active formulary. Prefers an exact
- * (case-insensitive) name match; only falls back to a substring match when there's exactly
- * one candidate — a substring match against *two or more* drugs (e.g. a file listing
- * "Amoxicillin 250" when both "Amoxicillin 250 mg" and "Amoxicillin 500 mg" exist) is
- * reported as ambiguous rather than silently picking the first one Array.find() happens to
- * hit, since guessing wrong here means deducting stock from the wrong drug.
+ * (case-insensitive, whitespace/punctuation-normalized — see normalizeMedName()) name match;
+ * only falls back to a substring match when there's exactly one candidate — a substring match
+ * against *two or more* drugs (e.g. a file listing "Amoxicillin 250" when both
+ * "Amoxicillin 250 mg" and "Amoxicillin 500 mg" exist) is reported as ambiguous rather than
+ * silently picking the first one Array.find() happens to hit, since guessing wrong here means
+ * deducting stock from the wrong drug.
  */
 export function matchHosxpMed(meds: Med[], rawName: string): HosxpMatch {
   const active = meds.filter((m) => m.active);
-  const n = rawName.trim().toLowerCase();
+  const n = normalizeMedName(rawName);
   if (!n) return { kind: 'none' };
 
   // A name is no longer guaranteed unique across the whole formulary — OPD and IPD versions
@@ -917,17 +936,62 @@ export function matchHosxpMed(meds: Med[], rawName: string): HosxpMatch {
   // in the array, deducting HOSxP-reported dispensing from the wrong ward's shelf every time
   // that drug is reconciled. Treat two-or-more exact matches the same as the fuzzy branch
   // below already does: 'ambiguous', not a silent guess.
-  const exactMatches = active.filter((m) => m.name.trim().toLowerCase() === n);
+  const exactMatches = active.filter((m) => normalizeMedName(m.name) === n);
   if (exactMatches.length === 1) return { kind: 'exact', medId: exactMatches[0].id };
   if (exactMatches.length > 1) return { kind: 'ambiguous', candidateIds: exactMatches.map((m) => m.id) };
 
   const candidates = active.filter((m) => {
-    const mn = m.name.toLowerCase();
+    const mn = normalizeMedName(m.name);
     return mn.indexOf(n) >= 0 || n.indexOf(mn) >= 0;
   });
   if (candidates.length === 1) return { kind: 'fuzzy', medId: candidates[0].id };
   if (candidates.length > 1) return { kind: 'ambiguous', candidateIds: candidates.map((m) => m.id) };
   return { kind: 'none' };
+}
+
+// Real-world request: "ต้องมีรายละเอียดบอกให้ชัดเจนเลยครับว่ายาในแอพตัวใดไม่ได้ถูกตัดจ่าย ต้องมีเหตุผล
+// กำกับ เช่นจำนวนยาที่จ่าย =0 จึงไม่ได้ถูกตัดจำนวน หรือไม่พบชื่อยาในใบ Hosxp หรือสาเหตุอื่นๆ" —
+// notDeductedLatestDay (ReconcileScreen.tsx) already flags WHICH regularly-dispensed meds got no
+// deduction, but only after commit, and only by name — no reason. This runs on the SAME raw rows
+// the match-preview table already has, BEFORE commit, so a pharmacist can actually investigate
+// the real HOSxP export while there's still something to fix. Scoped to active && used30 > 0,
+// same "plenty of genuinely-rare drugs go days without being dispensed" reasoning every other
+// miss-detector in this app already uses (see fetchReconcileGaps' own doc comment).
+export type HosxpMissReason =
+  // Resolved to this med, but the file itself says 0 — correctly NOT a problem; shown so it
+  // reads as "explained," not as a silent gap someone has to go double-check.
+  | { kind: 'zero_qty' }
+  // Nothing in the file — not even a substring — resembles this med's name at all.
+  | { kind: 'not_in_file' }
+  // The file's row named it as a candidate, but normalizeMedName() still found 2+ active meds
+  // it could mean — the common case being the SAME name shared between an OPD and IPD record.
+  | { kind: 'ambiguous'; fileText: string; otherNames: string[]; wardClash: boolean };
+
+export interface HosxpMissEntry {
+  med: Med;
+  reason: HosxpMissReason;
+}
+
+export function hosxpMissReasons(meds: Med[], rows: { name: string; qty: number; match: HosxpMatch }[]): HosxpMissEntry[] {
+  const regularMeds = meds.filter((m) => m.active && m.used30 > 0);
+  const result: HosxpMissEntry[] = [];
+  for (const m of regularMeds) {
+    const resolvedRow = rows.find((r) => (r.match.kind === 'exact' || r.match.kind === 'fuzzy') && r.match.medId === m.id);
+    if (resolvedRow) {
+      if (resolvedRow.qty === 0) result.push({ med: m, reason: { kind: 'zero_qty' } });
+      continue; // qty > 0 and resolved — deducted normally, not a miss at all
+    }
+    const ambiguousRow = rows.find((r) => r.match.kind === 'ambiguous' && r.match.candidateIds.includes(m.id));
+    if (ambiguousRow && ambiguousRow.match.kind === 'ambiguous') {
+      const otherIds = ambiguousRow.match.candidateIds.filter((id) => id !== m.id);
+      const otherNames = otherIds.map((id) => meds.find((x) => x.id === id)?.name).filter((x): x is string => !!x);
+      const wardClash = otherIds.length === 1 && otherNames[0] === m.name;
+      result.push({ med: m, reason: { kind: 'ambiguous', fileText: ambiguousRow.name, otherNames, wardClash } });
+      continue;
+    }
+    result.push({ med: m, reason: { kind: 'not_in_file' } });
+  }
+  return result;
 }
 
 // Real-world request (this round): "การโชว์แสดง min max par ให้โชว์ตัวเลขจริงๆที่คำนวนได้จริง แต่

@@ -93,7 +93,7 @@ function usageImportStorageKey(uid: string): string { return 'opd-usageimport-' 
 // without one.
 type AdjPersisted = { adjType: AppState['adjType']; adjSearch: string; adjMed: string | null; adjQty: string; adjReason: string; adjNote: string };
 type WmPersisted = { wmFromSearch: string; wmFromMed: string | null; wmToSearch: string; wmToMed: string | null; wmQty: string; wmReason: string };
-type HosxpPersisted = { hosxpText: string; hosxpRows: AppState['hosxpRows']; hosxpConfirmFuzzy: boolean; hosxpConfirmSingleDay: boolean };
+type HosxpPersisted = { hosxpText: string; hosxpRows: AppState['hosxpRows']; hosxpConfirmFuzzy: boolean; hosxpCoveredFrom: string; hosxpCoveredTo: string };
 type UsageImportPersisted = { usageDateFrom: string; usageDateTo: string; usageFileName: string | null; usageRows: AppState['usageRows']; usageConfirmFuzzy: boolean };
 function writePersisted<T>(key: string, value: T): void {
   try {
@@ -298,7 +298,7 @@ function freshState(): AppState {
 
     doneKind: null, doneRows: [], toast: null,
 
-    countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpConfirmSingleDay: false,
+    countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '',
 
     usageDateFrom: '', usageDateTo: '', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
 
@@ -645,7 +645,8 @@ export interface AppCtx {
   processHosxp: () => Promise<void>;
   processHosxpFile: (file: File) => void;
   setHosxpConfirmFuzzy: (v: boolean) => void;
-  setHosxpConfirmSingleDay: (v: boolean) => void;
+  setHosxpCoveredFrom: (v: string) => void;
+  setHosxpCoveredTo: (v: string) => void;
   commitReconcile: () => void;
   fetchReconcileGaps: (days: number) => Promise<ReconcileGapDay[]>;
 
@@ -1096,9 +1097,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.myUid, state.wmFromSearch, state.wmFromMed, state.wmToSearch, state.wmToMed, state.wmQty, state.wmReason]);
   useEffect(() => {
     if (!state.myUid) return;
-    const v: HosxpPersisted = { hosxpText: state.hosxpText, hosxpRows: state.hosxpRows, hosxpConfirmFuzzy: state.hosxpConfirmFuzzy, hosxpConfirmSingleDay: state.hosxpConfirmSingleDay };
+    const v: HosxpPersisted = { hosxpText: state.hosxpText, hosxpRows: state.hosxpRows, hosxpConfirmFuzzy: state.hosxpConfirmFuzzy, hosxpCoveredFrom: state.hosxpCoveredFrom, hosxpCoveredTo: state.hosxpCoveredTo };
     writePersisted(hosxpStorageKey(state.myUid), v);
-  }, [state.myUid, state.hosxpText, state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpConfirmSingleDay]);
+  }, [state.myUid, state.hosxpText, state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpCoveredFrom, state.hosxpCoveredTo]);
   useEffect(() => {
     if (!state.myUid) return;
     const v: UsageImportPersisted = { usageDateFrom: state.usageDateFrom, usageDateTo: state.usageDateTo, usageFileName: state.usageFileName, usageRows: state.usageRows, usageConfirmFuzzy: state.usageConfirmFuzzy };
@@ -1801,7 +1802,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
       adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [],
       qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: null, scanConfirmMedId: null, hadOk: {},
-      countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpConfirmSingleDay: false,
+      countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '',
       usageDateFrom: '', usageDateTo: '', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
       labelSelected: {}, medsFocusId: null, substockFocusId: null, doneKind: null, doneRows: [],
     });
@@ -3786,23 +3787,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // weekday-pattern average at all (an infrequent one-off never would).
       const byKeyDay = new Map<string, Map<string, number>>();
       snap.docs.forEach((d) => {
-        const x = d.data() as { name?: string; medId?: string; qty?: number; ts?: number };
+        const x = d.data() as { name?: string; medId?: string; qty?: number; ts?: number; coveredFrom?: string; coveredTo?: string };
         if (!x.name || typeof x.qty !== 'number' || x.qty >= 0 || typeof x.ts !== 'number') return; // dispensed only
         if (x.ts > now) return;
-        const wd = bangkokWeekday(x.ts);
-        if (wd === 0 || wd === 6) return; // this hospital never reconciles on a weekend
         const key = dupNames.has(x.name) ? (x.medId ? 'id:' + x.medId : null) : 'name:' + x.name;
         if (!key) return;
-        const dayKey = isoDate(x.ts);
-        if (x.ts >= peakCutoff) {
-          let dayMap = byKeyDay.get(key);
-          if (!dayMap) { dayMap = new Map<string, number>(); byKeyDay.set(key, dayMap); }
-          dayMap.set(dayKey, (dayMap.get(dayKey) || 0) + Math.abs(x.qty));
+        // Real-world explanation: "เช้าวันจันทร์จะตัดยอดหน้างานโดยแนบไฟล์ ของวันศุกร์ เสาร์และอาทิตย์
+        // เป็นจำนวน 3 วัน" — a batch's qty can represent SEVERAL real calendar days combined, not
+        // just the one `ts` happened to land on (always "today," even for a catch-up). Spread it
+        // evenly across every real day in its covered range (coveredFrom/coveredTo — falls back
+        // to a single day at x.ts for a tx row from before this field existed) so a Monday
+        // catch-up correctly feeds Friday's/Sunday's OWN weekday bucket and daily-peak candidacy,
+        // instead of all landing on "Monday" and making every regularly-dispensed drug look
+        // artificially busiest on Mondays.
+        const fromIso = x.coveredFrom || isoDate(x.ts);
+        const toIso = x.coveredTo || isoDate(x.ts);
+        const fromTs = new Date(fromIso + 'T00:00:00').getTime();
+        const toTs = new Date(toIso + 'T00:00:00').getTime();
+        const daysCovered = Math.max(1, Math.round((toTs - fromTs) / DAY) + 1);
+        const perDayQty = Math.abs(x.qty) / daysCovered;
+        for (let i = 0; i < daysCovered; i++) {
+          const dayTs = fromTs + i * DAY;
+          if (dayTs > now) continue;
+          const wd = bangkokWeekday(dayTs);
+          if (wd === 0 || wd === 6) continue; // this hospital never reconciles on a weekend
+          const dayKey = isoDate(dayTs);
+          if (dayTs >= peakCutoff) {
+            let dayMap = byKeyDay.get(key);
+            if (!dayMap) { dayMap = new Map<string, number>(); byKeyDay.set(key, dayMap); }
+            dayMap.set(dayKey, (dayMap.get(dayKey) || 0) + perDayQty);
+          }
+          if (dayTs < cutoff) continue;
+          let buckets = byKeyWeekday.get(key);
+          if (!buckets) { buckets = [0, 1, 2, 3, 4, 5, 6].map(() => new Map<string, number>()); byKeyWeekday.set(key, buckets); }
+          buckets[wd].set(dayKey, (buckets[wd].get(dayKey) || 0) + perDayQty);
         }
-        if (x.ts < cutoff) return;
-        let buckets = byKeyWeekday.get(key);
-        if (!buckets) { buckets = [0, 1, 2, 3, 4, 5, 6].map(() => new Map<string, number>()); byKeyWeekday.set(key, buckets); }
-        buckets[wd].set(dayKey, (buckets[wd].get(dayKey) || 0) + Math.abs(x.qty));
       });
 
       const targets = state.meds.filter((m) => m.active);
@@ -5353,7 +5372,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ? 'ข้อมูลที่วางดูเหมือนถูกวางซ้ำ 2 รอบ (' + nf(rows.length) + ' แถว) — วางซ้ำโดยไม่ตั้งใจหรือไม่? กด "ตกลง" เพื่อประมวลผลต่อตามที่วางไว้จริง'
         : 'ข้อมูลที่วางมี ' + nf(rows.length) + ' แถว มากกว่าปกติมาก (ยาทั้งฟอร์มูลารีมีประมาณ 580 รายการ) — ตรวจสอบว่าวางถูกไฟล์/ถูกช่วงวันที่ (ควรเป็นวันเดียว) แล้วใช่ไหม?'
     ))) return;
-    patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpConfirmSingleDay: false });
+    // Defaults to yesterday-only (the normal case — zero extra taps most days); the admin widens
+    // hosxpCoveredFrom backward for a catch-up (see its own doc comment, types.ts).
+    const yesterdayIso = isoDate(Date.now() - DAY);
+    patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpCoveredFrom: yesterdayIso, hosxpCoveredTo: yesterdayIso });
   }, [state.hosxpText, state.meds, patch, toast, confirmAsync]);
 
   // Lets the daily floor-deduction workflow attach the actual HOSxP "รายงานการใช้ยา" export
@@ -5387,7 +5409,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       if (!raw.length) { toast('ไม่พบข้อมูลที่อ่านได้ในไฟล์นี้'); return; }
       const rows = raw.map((r) => ({ name: r.name, qty: Math.round(r.qty), match: matchHosxpMed(state.meds, r.name) }));
-      patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpConfirmSingleDay: false, hosxpText: '' });
+      const yesterdayIso = isoDate(Date.now() - DAY);
+      patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpCoveredFrom: yesterdayIso, hosxpCoveredTo: yesterdayIso, hosxpText: '' });
       // Bug fix (silent data loss): a malformed line (no comma, empty/unparseable qty cell) used
       // to be dropped with zero trace — nothing here distinguished "this file had exactly N
       // rows" from "this file had more, and some were silently unreadable". Only worth
@@ -5401,20 +5424,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.meds, patch, toast]);
 
   const setHosxpConfirmFuzzy = useCallback((v: boolean) => patch({ hosxpConfirmFuzzy: v }), [patch]);
-  const setHosxpConfirmSingleDay = useCallback((v: boolean) => patch({ hosxpConfirmSingleDay: v }), [patch]);
+  const setHosxpCoveredFrom = useCallback((v: string) => patch({ hosxpCoveredFrom: v }), [patch]);
+  const setHosxpCoveredTo = useCallback((v: string) => patch({ hosxpCoveredTo: v }), [patch]);
 
   const commitReconcile = useCallback(guardOnce('reconcile', async () => {
     const rows = state.hosxpRows || [];
     const meds = state.meds;
     const hasFuzzy = rows.some((r) => r.match.kind === 'fuzzy');
     if (hasFuzzy && !state.hosxpConfirmFuzzy) { toast('กรุณายืนยันว่าตรวจสอบรายการที่จับคู่แบบไม่ตรงชื่อเป๊ะแล้ว ก่อนตัดยอด'); return; }
-    // Bug fix (real risk): this screen exists specifically for a file covering ONE day — the
-    // on-screen instructions already say so, but nothing actually stopped someone from feeding
-    // it a multi-day export (e.g. catching up after a missed day) and silently over-deducting
-    // the floor by however many extra days it covered. A required, explicit confirmation
-    // (same shape as the fuzzy-match one above) is the only real backstop possible here —
-    // there's no date column in the parsed data to check automatically.
-    if (!state.hosxpConfirmSingleDay) { toast('กรุณายืนยันว่าไฟล์/ข้อมูลนี้ครอบคลุมแค่ 1 วันก่อนตัดยอด'); return; }
+    // Real-world explanation: "เช้าวันจันทร์จะตัดยอดหน้างานโดยแนบไฟล์ ของวันศุกร์ เสาร์และอาทิตย์
+    // เป็นจำนวน 3 วัน" (บางครั้งมากกว่านั้น) — a plain "confirm this covers only 1 day" checkbox
+    // used to be factually wrong every Monday. The admin now states the real covered range
+    // directly (hosxpCoveredFrom/To — see their own doc comment, types.ts); validated here the
+    // same way nothing else in this flow has a date column to check automatically.
+    if (!state.hosxpCoveredFrom || !state.hosxpCoveredTo) { toast('ระบุช่วงวันที่ที่ไฟล์/ข้อมูลนี้ครอบคลุมก่อนตัดยอด'); return; }
+    const coveredFromTs = new Date(state.hosxpCoveredFrom + 'T00:00:00').getTime();
+    const coveredToTs = new Date(state.hosxpCoveredTo + 'T00:00:00').getTime();
+    if (!(coveredFromTs <= coveredToTs)) { toast('วันที่เริ่มต้องไม่เกินวันที่สิ้นสุดของช่วงที่ครอบคลุม'); return; }
+    if (state.hosxpCoveredTo >= isoDate(Date.now())) { toast('ช่วงวันที่ต้องไม่รวมวันนี้ — ใส่แค่เมื่อวานหรือก่อนหน้านั้น (ของวันนี้ยังไม่ควรมีไฟล์มาตัดยอด)'); return; }
     // Bug fix (double-run risk): `reconciledToday` (lastReconcileDateIso, selectors.ts) already
     // existed, but was only ever surfaced passively — a HomeScreen tile someone has to go look
     // at separately, never an active warning at the one moment it actually matters: right
@@ -5494,6 +5521,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               reason: 'นำเข้าจากไฟล์ HOSxP',
               note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP' + (r.match.kind === 'fuzzy' ? ' (จับคู่ชื่อแบบไม่ตรงเป๊ะ — ยืนยันโดยผู้ใช้แล้ว)' : ''),
               loc: 'floor', by: userName(), ts: Date.now(),
+              // The real dispensing period this qty represents (e.g. Fri-Sun on a Monday
+              // catch-up), separate from `ts` above (when the admin actually clicked commit —
+              // always "today"). See Tx.coveredFrom/coveredTo's own doc comment (types.ts).
+              coveredFrom: state.hosxpCoveredFrom, coveredTo: state.hosxpCoveredTo,
             } satisfies Omit<import('../types').Tx, 'id'>);
           });
           applied++;
@@ -5511,7 +5542,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (skippedNames.length) {
         await logAudit({ type: 'hosxp_unmatched', note: 'จับคู่ไม่ได้ ' + skippedNames.length + ' รายการจากไฟล์ HOSxP\n' + skippedNames.join(' | ') });
       }
-      patch({ hosxpRows: null, hosxpText: '', hosxpConfirmFuzzy: false, hosxpConfirmSingleDay: false });
+      patch({ hosxpRows: null, hosxpText: '', hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '' });
       // Rows with qty <= 0 were previously silently dropped from this summary entirely —
       // applied + skipped could undercount rows.length with no explanation, which reads as
       // a miscount when a pharmacist checks the math. Named separately from "จับคู่ไม่ได้"
@@ -5544,7 +5575,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // rows actually landed, worth telling the person rather than implying nothing happened.
       toastErr(e, 'ประมวลผลไม่สำเร็จ' + (applied > 0 ? ' — ตัดยอดไปแล้ว ' + applied + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง'));
     }
-  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpConfirmSingleDay, state.meds, state.txs, userName, logAudit, toast, toastErr, patch, guardOnce, confirmAsync, recomputeUsageStats, analyzeWeekdayUsage]);
+  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpCoveredFrom, state.hosxpCoveredTo, state.meds, state.txs, userName, logAudit, toast, toastErr, patch, guardOnce, confirmAsync, recomputeUsageStats, analyzeWeekdayUsage]);
 
   // Real-world request: "ป้องกันการหลุดยาที่มีในระบบแต่ไม่ได้ถูกตัดจำนวนยา และป้องกันการหลุดวันที่
   // ยังไม่ได้แนบไฟล์" — ReconcileScreen's own notDeductedLatestDay only ever checks the single
@@ -5557,6 +5588,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // moves every day — active && used30 > 0 — got no deduction that day, same risk
   // notDeductedLatestDay already names, just checked across the whole window instead of only the
   // latest day).
+  //
+  // Real-world explanation: "วันเสาร์อาทิตย์ที่เป็นวันหยุดราชการ...โดยปกติจะไม่มีการตัดยอด ถ้า Admin
+  // ไม่ได้อยู่เวรเสาร์อาทิตย์...จะตัดยอดอีกทีเช้าวันจันทร์" — this hospital routinely has NO HOSxP
+  // reconcile at all on Sat/Sun (same assumption analyzeWeekdayUsage()/scripts/recompute-usage-
+  // stats.mjs already make — "this hospital never reconciles on a weekend"), so every weekend day
+  // used to show up here as a false 'missing' flag, every single week, with no way to ever clear
+  // (the 7-day window always contains 2 of them) — permanent noise drowning out a genuine weekday
+  // gap, and the all-clear message below could never actually show. Skips Sun(0)/Sat(6) entirely
+  // from this scan, same as that existing precedent — a weekend day that DOES happen to carry a
+  // real reconcile (an on-duty admin that particular weekend) still isn't penalized either way,
+  // since it's simply never looked at here, not forced into either bucket.
   //
   // Deliberately queries Firestore directly (queryTxsByDateRange) rather than reading
   // state.txs — that's the realtime cache capped to the 300 most-recent rows across ALL tx
@@ -5572,18 +5614,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const snap = await withTimeout(getDocs(queryTxsByDateRange(from, Date.now())));
     const deductedByDay = new Map<string, Set<string>>();
     for (const d of snap.docs) {
-      const x = d.data() as { type: string; medId?: string; ts: number };
+      const x = d.data() as { type: string; medId?: string; ts: number; coveredFrom?: string; coveredTo?: string };
       if (x.type !== 'reconcile_hosxp' || !x.medId) continue;
-      const dIso = isoDate(x.ts);
-      const set = deductedByDay.get(dIso) || new Set<string>();
-      set.add(x.medId);
-      deductedByDay.set(dIso, set);
+      // Real-world explanation: "เช้าวันจันทร์จะตัดยอดหน้างานโดยแนบไฟล์ ของวันศุกร์ เสาร์และอาทิตย์
+      // เป็นจำนวน 3 วัน" — mark EVERY real day this tx's covered range spans as deducted for this
+      // med, not just isoDate(x.ts) (always "today," even for a catch-up) — otherwise Friday
+      // would show as a false 'missing'/'partial' gap every single week despite genuinely being
+      // covered by Monday's combined file. Falls back to a single day at x.ts for a tx row from
+      // before coveredFrom/coveredTo existed.
+      const fromIso = x.coveredFrom || isoDate(x.ts);
+      const toIso = x.coveredTo || isoDate(x.ts);
+      const fromTs = new Date(fromIso + 'T00:00:00').getTime();
+      const toTs = new Date(toIso + 'T00:00:00').getTime();
+      const daysCovered = Math.max(1, Math.round((toTs - fromTs) / DAY) + 1);
+      for (let i = 0; i < daysCovered; i++) {
+        const dIso = isoDate(fromTs + i * DAY);
+        const set = deductedByDay.get(dIso) || new Set<string>();
+        set.add(x.medId);
+        deductedByDay.set(dIso, set);
+      }
     }
     const regularMeds = state.meds.filter((m) => m.active && m.used30 > 0);
     const result: ReconcileGapDay[] = [];
     for (let i = 1; i <= days; i++) {
-      const dateIso = isoDate(Date.now() - i * DAY);
+      const ts = Date.now() - i * DAY;
+      const dateIso = isoDate(ts);
       if (dateIso === todayIso) continue;
+      const wd = bangkokWeekday(ts);
+      if (wd === 0 || wd === 6) continue; // Sun/Sat — this hospital never reconciles on a weekend
       const deducted = deductedByDay.get(dateIso);
       if (!deducted) {
         result.push({ dateIso, kind: 'missing' });
@@ -6059,7 +6117,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, autoRouteAll, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, scanMedCountTsIssues, repairMedCountTsIssues, setMedsFocusId,
     goSubstockCardFor, setSubstockFocusId,
     fetchSubstockLedger, fetchFloorLedger, fetchStockAsOf, exportStockAsOfCsv, fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
-    setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpConfirmSingleDay, commitReconcile, fetchReconcileGaps,
+    setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     confirmScanAndNext, confirmScanAndStop, cancelScanConfirm,

@@ -8,7 +8,7 @@ import {
   categoryOf, categoryStats, parAnomaliesFor, packStep, isOnStockHold, routeOf, effectiveRouteOf,
   topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes,
   discrepancyByCategory, repeatAdrReturns, frequentFloorRefills,
-  monthlyDaySplits, boxBreakdownLabel, halfOfMaxRounded, isNewerVersionAvailable,
+  monthlyDaySplits, boxBreakdownLabel, halfOfMaxRounded, isNewerVersionAvailable, hosxpMissReasons,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
 import { DAY } from '../utils/format';
@@ -1080,6 +1080,90 @@ describe('matchHosxpMed', () => {
 
   it('empty input is never a match', () => {
     expect(matchHosxpMed(meds, '   ')).toEqual({ kind: 'none' });
+  });
+
+  // Real-world request: "อยากให้มีระบบตรวจชื่อยาจากใบ hosxp และชื่อยาจากแอพที่แม่นยำมากกว่านี้" —
+  // normalizeMedName() (selectors.ts, not exported — exercised only through matchHosxpMed here)
+  // closes real formatting-only gaps a pasted Excel cell or a different export tool can
+  // introduce, without ever fuzzy-matching two actually-different drugs together.
+  it('normalizes doubled/odd whitespace from a pasted cell before comparing', () => {
+    expect(matchHosxpMed(meds, '  Amoxicillin   250  mg ')).toEqual({ kind: 'exact', medId: '1' });
+  });
+
+  it('normalizes a full-width parenthesis/comma (a common Thai hospital export artifact)', () => {
+    const withParens = [med({ id: '6', name: 'Insulin (Novorapid) 100u', used30: 1 })];
+    expect(matchHosxpMed(withParens, 'Insulin （Novorapid） 100u')).toEqual({ kind: 'exact', medId: '6' });
+  });
+
+  it('normalizes a Thai-digit dosage number to its Arabic equivalent', () => {
+    const thaiDigit = [med({ id: '7', name: 'Paracetamol ๕๐๐mg', used30: 1 })];
+    expect(matchHosxpMed(thaiDigit, 'Paracetamol 500mg')).toEqual({ kind: 'exact', medId: '7' });
+  });
+});
+
+// Real-world request: "ต้องมีรายละเอียดบอกให้ชัดเจนเลยครับว่ายาในแอพตัวใดไม่ได้ถูกตัดจ่าย ต้องมีเหตุผล
+// กำกับ เช่นจำนวนยาที่จ่าย =0 จึงไม่ได้ถูกตัดจำนวน หรือไม่พบชื่อยาในใบ Hosxp หรือสาเหตุอื่นๆ"
+describe('hosxpMissReasons', () => {
+  const REGULAR_A = med({ id: 'a', name: 'Paracetamol 500mg', used30: 300 });
+  const REGULAR_B = med({ id: 'b', name: 'Amoxicillin 250mg', used30: 200 });
+  const WARD_OPD = med({ id: 'c', name: 'Insulin NPH', used30: 50, ward: 'opd' });
+  const WARD_IPD = med({ id: 'd', name: 'Insulin NPH', used30: 50, ward: 'ipd' });
+  const RARE = med({ id: 'e', name: 'Rare Drug', used30: 0 }); // never flagged — see its own reasoning
+
+  it('explains a resolved row with qty=0 as "zero_qty" (not a real problem)', () => {
+    const rows = [{ name: 'Paracetamol 500mg', qty: 0, match: { kind: 'exact' as const, medId: 'a' } }];
+    const result = hosxpMissReasons([REGULAR_A], rows);
+    expect(result).toEqual([{ med: REGULAR_A, reason: { kind: 'zero_qty' } }]);
+  });
+
+  it('does not flag a med that WAS resolved with a real qty — that is a normal, successful deduction', () => {
+    const rows = [{ name: 'Paracetamol 500mg', qty: 10, match: { kind: 'exact' as const, medId: 'a' } }];
+    expect(hosxpMissReasons([REGULAR_A], rows)).toEqual([]);
+  });
+
+  it('flags a regularly-dispensed med with nothing resembling its name anywhere in the file as "not_in_file"', () => {
+    const rows = [{ name: 'Some Other Drug', qty: 5, match: { kind: 'none' as const } }];
+    const result = hosxpMissReasons([REGULAR_A], rows);
+    expect(result).toEqual([{ med: REGULAR_A, reason: { kind: 'not_in_file' } }]);
+  });
+
+  it('never flags a genuinely-rare med (used30 === 0), even with nothing in the file for it', () => {
+    const rows = [{ name: 'Some Other Drug', qty: 5, match: { kind: 'none' as const } }];
+    expect(hosxpMissReasons([RARE], rows)).toEqual([]);
+  });
+
+  it('flags the OPD/IPD same-name collision specifically as a ward clash', () => {
+    const rows = [{ name: 'Insulin NPH', qty: 8, match: { kind: 'ambiguous' as const, candidateIds: ['c', 'd'] } }];
+    const result = hosxpMissReasons([WARD_OPD, WARD_IPD], rows);
+    expect(result).toEqual([
+      { med: WARD_OPD, reason: { kind: 'ambiguous', fileText: 'Insulin NPH', otherNames: ['Insulin NPH'], wardClash: true } },
+      { med: WARD_IPD, reason: { kind: 'ambiguous', fileText: 'Insulin NPH', otherNames: ['Insulin NPH'], wardClash: true } },
+    ]);
+  });
+
+  it('flags a genuine multi-drug name clash (not an OPD/IPD pair) with the other candidate names named', () => {
+    const similarA = med({ id: 'x', name: 'Metformin 500mg', used30: 100 });
+    const similarB = med({ id: 'y', name: 'Metformin 850mg', used30: 100 });
+    const rows = [{ name: 'Metformin', qty: 12, match: { kind: 'ambiguous' as const, candidateIds: ['x', 'y'] } }];
+    const result = hosxpMissReasons([similarA, similarB], rows);
+    expect(result).toEqual([
+      { med: similarA, reason: { kind: 'ambiguous', fileText: 'Metformin', otherNames: ['Metformin 850mg'], wardClash: false } },
+      { med: similarB, reason: { kind: 'ambiguous', fileText: 'Metformin', otherNames: ['Metformin 500mg'], wardClash: false } },
+    ]);
+  });
+
+  it('classifies every regularly-dispensed med independently across a realistic mixed file', () => {
+    const rows = [
+      { name: 'Paracetamol 500mg', qty: 10, match: { kind: 'exact' as const, medId: 'a' } }, // deducted fine
+      { name: 'Amoxicillin 250mg', qty: 0, match: { kind: 'exact' as const, medId: 'b' } }, // zero_qty
+      // Insulin NPH never appears in this file at all → ward meds both read 'not_in_file'
+    ];
+    const result = hosxpMissReasons([REGULAR_A, REGULAR_B, WARD_OPD, WARD_IPD, RARE], rows);
+    expect(result).toEqual([
+      { med: REGULAR_B, reason: { kind: 'zero_qty' } },
+      { med: WARD_OPD, reason: { kind: 'not_in_file' } },
+      { med: WARD_IPD, reason: { kind: 'not_in_file' } },
+    ]);
   });
 });
 

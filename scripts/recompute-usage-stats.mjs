@@ -144,20 +144,36 @@ async function main() {
     const x = d.data();
     if (!x.name || typeof x.qty !== 'number' || x.qty >= 0 || typeof x.ts !== 'number') continue; // dispensed only
     if (x.ts > now) continue;
-    const wd = bangkokWeekday(x.ts);
-    if (wd === 0 || wd === 6) continue; // this hospital never reconciles on a weekend
     const key = dupNames.has(x.name) ? (x.medId ? 'id:' + x.medId : null) : 'name:' + x.name;
     if (!key) continue;
-    const dayKey = isoDate(x.ts);
-    if (x.ts >= peakCutoff) {
-      let dayMap = byKeyDay.get(key);
-      if (!dayMap) { dayMap = new Map(); byKeyDay.set(key, dayMap); }
-      dayMap.set(dayKey, (dayMap.get(dayKey) || 0) + Math.abs(x.qty));
+    // Real-world explanation: "เช้าวันจันทร์จะตัดยอดหน้างานโดยแนบไฟล์ ของวันศุกร์ เสาร์และอาทิตย์
+    // เป็นจำนวน 3 วัน" — a batch's qty can represent SEVERAL real calendar days combined, not just
+    // the one `ts` happened to land on (always "today," even for a catch-up). Spread it evenly
+    // across every real day in its covered range (coveredFrom/coveredTo — falls back to a single
+    // day at x.ts for a tx row from before this field existed), mirroring analyzeWeekdayUsage()
+    // (src/store/AppContext.tsx) exactly.
+    const fromIso = x.coveredFrom || isoDate(x.ts);
+    const toIso = x.coveredTo || isoDate(x.ts);
+    const fromTs = new Date(fromIso + 'T00:00:00').getTime();
+    const toTs = new Date(toIso + 'T00:00:00').getTime();
+    const daysCovered = Math.max(1, Math.round((toTs - fromTs) / DAY) + 1);
+    const perDayQty = Math.abs(x.qty) / daysCovered;
+    for (let i = 0; i < daysCovered; i++) {
+      const dayTs = fromTs + i * DAY;
+      if (dayTs > now) continue;
+      const wd = bangkokWeekday(dayTs);
+      if (wd === 0 || wd === 6) continue; // this hospital never reconciles on a weekend
+      const dayKey = isoDate(dayTs);
+      if (dayTs >= peakCutoff) {
+        let dayMap = byKeyDay.get(key);
+        if (!dayMap) { dayMap = new Map(); byKeyDay.set(key, dayMap); }
+        dayMap.set(dayKey, (dayMap.get(dayKey) || 0) + perDayQty);
+      }
+      if (dayTs < cutoff) continue;
+      let buckets = byKeyWeekday.get(key);
+      if (!buckets) { buckets = [0, 1, 2, 3, 4, 5, 6].map(() => new Map()); byKeyWeekday.set(key, buckets); }
+      buckets[wd].set(dayKey, (buckets[wd].get(dayKey) || 0) + perDayQty);
     }
-    if (x.ts < cutoff) continue;
-    let buckets = byKeyWeekday.get(key);
-    if (!buckets) { buckets = [0, 1, 2, 3, 4, 5, 6].map(() => new Map()); byKeyWeekday.set(key, buckets); }
-    buckets[wd].set(dayKey, (buckets[wd].get(dayKey) || 0) + Math.abs(x.qty));
   }
 
   let analyzed = 0;

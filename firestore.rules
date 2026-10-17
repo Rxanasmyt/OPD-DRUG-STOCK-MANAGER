@@ -342,12 +342,18 @@ service cloud.firestore {
       // the entry can't be edited/deleted after (see allow update/delete below), but it could be
       // planted. myProfile().name is exactly what every real write already sends (see
       // AppContext.tsx's userName() == myProfile?.name), so no legitimate write is affected.
+      // coveredFrom/coveredTo added for commitReconcile()'s real covered-date-range tracking
+      // (see Tx.coveredFrom/coveredTo's own doc comment, types.ts) — only ever set on a
+      // reconcile_hosxp row, but not worth a narrower per-type check here (this rule never
+      // branches on `type`, same as every other field in this hasOnly() set).
       allow create: if isActive()
-                    && request.resource.data.keys().hasOnly(['type', 'name', 'medId', 'qty', 'unit', 'by', 'ts', 'reason', 'note', 'loc', 'from', 'to'])
+                    && request.resource.data.keys().hasOnly(['type', 'name', 'medId', 'qty', 'unit', 'by', 'ts', 'reason', 'note', 'loc', 'from', 'to', 'coveredFrom', 'coveredTo'])
                     && request.resource.data.type is string
                     && request.resource.data.qty is number
                     && request.resource.data.by == myProfile().name
-                    && request.resource.data.ts is number;
+                    && request.resource.data.ts is number
+                    && (!('coveredFrom' in request.resource.data) || request.resource.data.coveredFrom is string)
+                    && (!('coveredTo' in request.resource.data) || request.resource.data.coveredTo is string);
       allow update: if false;
       // Admin-only exception for resetAllStockLedgers() (AppContext.tsx) — the go-live
       // "start the system over" action that wipes the substock card ledger/report/usage-rate
