@@ -916,14 +916,21 @@ function normalizeMedName(raw: string): string {
     .toLowerCase();
 }
 
+// A med matches a normalized file name either by its own `name` or by one of its admin-
+// registered `hosxpAliases` (see Med.hosxpAliases's own doc comment) — same normalize-then-
+// compare rule either way, just one more string allowed to count as "this drug."
+function medNameCandidates(m: Med): string[] {
+  return [m.name, ...(m.hosxpAliases || [])];
+}
+
 /**
  * Resolves one HOSxP file row's drug name against the active formulary. Prefers an exact
- * (case-insensitive, whitespace/punctuation-normalized — see normalizeMedName()) name match;
- * only falls back to a substring match when there's exactly one candidate — a substring match
- * against *two or more* drugs (e.g. a file listing "Amoxicillin 250" when both
- * "Amoxicillin 250 mg" and "Amoxicillin 500 mg" exist) is reported as ambiguous rather than
- * silently picking the first one Array.find() happens to hit, since guessing wrong here means
- * deducting stock from the wrong drug.
+ * (case-insensitive, whitespace/punctuation-normalized — see normalizeMedName()) name match
+ * against a med's `name` OR any of its `hosxpAliases`; only falls back to a substring match
+ * when there's exactly one candidate — a substring match against *two or more* drugs (e.g. a
+ * file listing "Amoxicillin 250" when both "Amoxicillin 250 mg" and "Amoxicillin 500 mg" exist)
+ * is reported as ambiguous rather than silently picking the first one Array.find() happens to
+ * hit, since guessing wrong here means deducting stock from the wrong drug.
  */
 export function matchHosxpMed(meds: Med[], rawName: string): HosxpMatch {
   const active = meds.filter((m) => m.active);
@@ -936,14 +943,14 @@ export function matchHosxpMed(meds: Med[], rawName: string): HosxpMatch {
   // in the array, deducting HOSxP-reported dispensing from the wrong ward's shelf every time
   // that drug is reconciled. Treat two-or-more exact matches the same as the fuzzy branch
   // below already does: 'ambiguous', not a silent guess.
-  const exactMatches = active.filter((m) => normalizeMedName(m.name) === n);
+  const exactMatches = active.filter((m) => medNameCandidates(m).some((c) => normalizeMedName(c) === n));
   if (exactMatches.length === 1) return { kind: 'exact', medId: exactMatches[0].id };
   if (exactMatches.length > 1) return { kind: 'ambiguous', candidateIds: exactMatches.map((m) => m.id) };
 
-  const candidates = active.filter((m) => {
-    const mn = normalizeMedName(m.name);
-    return mn.indexOf(n) >= 0 || n.indexOf(mn) >= 0;
-  });
+  const candidates = active.filter((m) => medNameCandidates(m).some((c) => {
+    const cn = normalizeMedName(c);
+    return cn.indexOf(n) >= 0 || n.indexOf(cn) >= 0;
+  }));
   if (candidates.length === 1) return { kind: 'fuzzy', medId: candidates[0].id };
   if (candidates.length > 1) return { kind: 'ambiguous', candidateIds: candidates.map((m) => m.id) };
   return { kind: 'none' };

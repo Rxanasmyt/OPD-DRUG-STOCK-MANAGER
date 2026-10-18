@@ -15,6 +15,14 @@ const RECONCILE_GAP_LOOKBACK_DAYS = 7;
 
 const DAY = 24 * 60 * 60 * 1000;
 
+// Shared with the retrospective "ฝั่งแอพ" panel below — same label/color convention as the
+// live pre-commit miss-reasons panel (hosxpMissReasons' own render below), minus 'zero_qty'
+// (never persisted to the audit log — see commitReconcile's own comment on why, AppContext.tsx).
+const MISS_REASON_BADGE: Record<'not_in_file' | 'ambiguous', { label: string; color: string; bg: string }> = {
+  not_in_file: { label: 'ไม่พบในไฟล์', color: 'var(--amber-ink)', bg: 'var(--amber-bg)' },
+  ambiguous: { label: 'ต้องตรวจสอบ', color: 'var(--red)', bg: 'var(--red-bg)' },
+};
+
 export default function ReconcileScreen() {
   const { state, setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, toast } = useApp();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -79,6 +87,31 @@ export default function ReconcileScreen() {
       }
     }
     return Array.from(counts.entries()).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.count - a.count || b.lastTs - a.lastTs).slice(0, 10);
+  }, [state.authLog]);
+
+  // The OTHER direction from unmatchedFreq above — a med THIS APP carries that regularly
+  // dispenses but kept getting no deduction, WITH the specific reason, aggregated across
+  // recent commitReconcile() runs' own 'hosxp_miss_reasons' audit entries (see that function's
+  // doc comment, AppContext.tsx, for the exact note format this parses). Only exists from the
+  // moment that logging shipped onward — a run from before it existed simply isn't in this
+  // count, same "audit log is the only history, nothing retroactive" limit every other
+  // audit-derived view in this app already has.
+  const missReasonFreq = useMemo(() => {
+    const counts = new Map<string, { name: string; reason: 'not_in_file' | 'ambiguous'; count: number; lastTs: number }>();
+    for (const e of state.authLog) {
+      if (e.type !== 'hosxp_miss_reasons') continue;
+      const entries = (e.note.split('\n')[1] || '').split(' | ').map((s) => s.trim()).filter(Boolean);
+      for (const entry of entries) {
+        const m = /^\[(not_in_file|ambiguous)\]\s*(.+)$/.exec(entry);
+        if (!m) continue;
+        const reason = m[1] as 'not_in_file' | 'ambiguous';
+        const name = m[2];
+        const key = reason + '::' + name;
+        const cur = counts.get(key);
+        if (cur) { cur.count++; if (e.ts > cur.lastTs) cur.lastTs = e.ts; } else counts.set(key, { name, reason, count: 1, lastTs: e.ts });
+      }
+    }
+    return Array.from(counts.values()).sort((a, b) => b.count - a.count || b.lastTs - a.lastTs).slice(0, 10);
   }, [state.authLog]);
 
   // Real-world request: "ตรวจสอบว่าไหนที่ยังไม่ถูกตัดจำนวนยาที่ใช้ เนื่องจากอาจเกิดจากความผิดพลาด
@@ -297,32 +330,69 @@ export default function ReconcileScreen() {
         </div>
       )}
 
-      {unmatchedFreq.length > 0 && (
+      {/* Real-world request: "รวมแผง 'ยาที่หลุดบ่อย' (ฝั่งไฟล์) กับแผงใหม่ (ฝั่งยาในแอพ) ให้ดูคู่กัน" —
+          these are two genuinely different failure directions (a name IN the file this app
+          can't resolve to any med, vs. a med in this app's own formulary that never shows up
+          deducted at all), so they stay two separate lists with their own explanations rather
+          than one merged algorithm — but grouped under one heading, stacked right next to each
+          other, so a pharmacist cross-checking "ยาที่หลุดบ่อย" sees both at a glance instead of
+          having to remember a second, disconnected panel exists further down the screen. */}
+      {(unmatchedFreq.length > 0 || missReasonFreq.length > 0) && (
         <div style={{ marginTop: 18 }}>
-          <div className="muted" style={{ fontSize: 12, fontWeight: 600, margin: '0 2px 8px' }}>ยาที่หลุดบ่อย (จับคู่ไม่ได้จากไฟล์ HOSxP)</div>
-          <div className="card stagger" style={{ overflow: 'hidden' }}>
-            {unmatchedFreq.map((u, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 13px', borderBottom: i < unmatchedFreq.length - 1 ? '1px solid var(--border-soft)' : 0 }}>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.3 }}>{u.name}</span>
-                <Badge flexNone size={11} padding="2px 8px" color="var(--red)" bg="var(--red-bg)">{u.count} ครั้ง</Badge>
-                <span className="muted" style={{ flex: 'none', fontSize: 11 }}>ล่าสุด {thDate(u.lastTs)}</span>
+          <div className="muted" style={{ fontSize: 12.5, fontWeight: 700, margin: '0 2px 10px' }}>ยาที่หลุดบ่อย (ย้อนหลัง)</div>
+
+          {unmatchedFreq.length > 0 && (
+            <div style={{ marginBottom: missReasonFreq.length > 0 ? 16 : 0 }}>
+              <div className="muted" style={{ fontSize: 11.5, fontWeight: 600, margin: '0 2px 6px' }}>ฝั่งไฟล์ — ชื่อในไฟล์ HOSxP ที่จับคู่กับยาในแอพไม่ได้</div>
+              <div className="card stagger" style={{ overflow: 'hidden' }}>
+                {unmatchedFreq.map((u, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 13px', borderBottom: i < unmatchedFreq.length - 1 ? '1px solid var(--border-soft)' : 0 }}>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.3 }}>{u.name}</span>
+                    <Badge flexNone size={11} padding="2px 8px" color="var(--red)" bg="var(--red-bg)">{u.count} ครั้ง</Badge>
+                    <span className="muted" style={{ flex: 'none', fontSize: 11 }}>ล่าสุด {thDate(u.lastTs)}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          {/* Real-world clarification: the HOSxP export naturally lists more drugs than this
-              app carries at all (drugs this hospital never stocks, or carried once but cut
-              from the formulary since) — a name showing up here over and over is very often
-              exactly that, not a mistake needing a fix. Said plainly so this list doesn't read
-              as N alarms every morning; see notDeductedLatestDay below for the panel that
-              actually catches a real missed deduction (checked from this app's own med list,
-              not the file's). */}
-          <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 6 }}>
-            ส่วนใหญ่เป็นเรื่องปกติ — ไฟล์ HOSxP มียามากกว่าที่ รพ. นี้มีจริงในระบบ (ยาที่ไม่มีใช้ที่ รพ.
-            หรือยาที่เคยมีแต่ตัดออกจากบัญชีไปแล้ว) ชื่อพวกนี้จึง "จับคู่ไม่ได้" โดยธรรมชาติ ไม่ต้องแก้ไข
-            อะไร — เช็คเฉพาะตัวที่รู้อยู่แล้วว่า รพ. มีใช้จริง ถ้าชื่อนั้นสะกดไม่ตรงกับในไฟล์ ลองแก้ชื่อยา
-            ในระบบ (หน้าจัดการรายการยา) ให้ตรงกัน — ถ้าอยากรู้ว่ายาที่ รพ. มีจริงตัวไหนน่าจะยังไม่ถูกตัด
-            ยอด ดูหัวข้อถัดไปด้านล่างแทน
-          </div>
+              {/* Real-world clarification: the HOSxP export naturally lists more drugs than this
+                  app carries at all (drugs this hospital never stocks, or carried once but cut
+                  from the formulary since) — a name showing up here over and over is very often
+                  exactly that, not a mistake needing a fix. Said plainly so this list doesn't
+                  read as N alarms every morning; see the ฝั่งแอพ panel below (or
+                  notDeductedLatestDay further down) for the panel that actually catches a real
+                  missed deduction (checked from this app's own med list, not the file's). */}
+              <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 6 }}>
+                ส่วนใหญ่เป็นเรื่องปกติ — ไฟล์ HOSxP มียามากกว่าที่ รพ. นี้มีจริงในระบบ (ยาที่ไม่มีใช้ที่ รพ.
+                หรือยาที่เคยมีแต่ตัดออกจากบัญชีไปแล้ว) ชื่อพวกนี้จึง "จับคู่ไม่ได้" โดยธรรมชาติ ไม่ต้องแก้ไข
+                อะไร — เช็คเฉพาะตัวที่รู้อยู่แล้วว่า รพ. มีใช้จริง ถ้าชื่อนั้นสะกดไม่ตรงกับในไฟล์ ลองแก้ชื่อยา
+                ในระบบ (หน้าจัดการรายการยา) ให้ตรงกัน หรือเพิ่มเป็น "ชื่อที่ไฟล์ HOSxP อาจใช้เรียกยานี้"
+                ในฟอร์มแก้ไขยาก็ได้
+              </div>
+            </div>
+          )}
+
+          {missReasonFreq.length > 0 && (
+            <div>
+              <div className="muted" style={{ fontSize: 11.5, fontWeight: 600, margin: '0 2px 6px' }}>ฝั่งแอพ — ยาในแอพที่ไม่ถูกตัดยอดบ่อย พร้อมเหตุผล</div>
+              <div className="card stagger" style={{ overflow: 'hidden' }}>
+                {missReasonFreq.map((u, i) => {
+                  const badge = MISS_REASON_BADGE[u.reason];
+                  return (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 13px', borderBottom: i < missReasonFreq.length - 1 ? '1px solid var(--border-soft)' : 0 }}>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.3 }}>{u.name}</span>
+                      <Badge flexNone size={10.5} padding="2px 7px" color={badge.color} bg={badge.bg}>{badge.label}</Badge>
+                      <Badge flexNone size={11} padding="2px 8px" color="var(--red)" bg="var(--red-bg)">{u.count} ครั้ง</Badge>
+                      <span className="muted" style={{ flex: 'none', fontSize: 11 }}>ล่าสุด {thDate(u.lastTs)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 6 }}>
+                ยานี้มาจากประวัติการตัดยอดจริง (ไม่ใช่แค่ไฟล์ล่าสุด) — ตัวที่ขึ้น "ต้องตรวจสอบ" ซ้ำๆ มักเป็น
+                ยาชื่อเดียวกันระหว่าง OPD/IPD ที่จับคู่ไม่ได้ว่าเป็นฝั่งไหน ส่วนตัวที่ขึ้น "ไม่พบในไฟล์" ซ้ำๆ
+                ควรลองเช็คชื่อในไฟล์ HOSxP จริงกับชื่อในแอพอีกครั้ง
+              </div>
+            </div>
+          )}
         </div>
       )}
 

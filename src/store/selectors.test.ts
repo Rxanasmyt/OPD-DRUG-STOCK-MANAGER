@@ -1099,6 +1099,29 @@ describe('matchHosxpMed', () => {
     const thaiDigit = [med({ id: '7', name: 'Paracetamol ๕๐๐mg', used30: 1 })];
     expect(matchHosxpMed(thaiDigit, 'Paracetamol 500mg')).toEqual({ kind: 'exact', medId: '7' });
   });
+
+  // Real-world request (follow-up): "มีอะไรที่ต้องพัฒนาอีกครับเพื่อแอพแม่นยำเรื่องชื่อยา" — an admin-
+  // registered hosxpAliases entry (Med.hosxpAliases) matches with exactly the same normalize-
+  // then-compare rule as `name` itself — still exact, never fuzzy.
+  it('matches a file name against a registered hosxpAliases entry, not just the med\'s own name', () => {
+    const withAlias = [med({ id: '8', name: 'Paracetamol 500mg', used30: 1, hosxpAliases: ['PCM 500'] })];
+    expect(matchHosxpMed(withAlias, 'PCM 500')).toEqual({ kind: 'exact', medId: '8' });
+    // The real name still matches too — registering an alias never breaks the original name.
+    expect(matchHosxpMed(withAlias, 'Paracetamol 500mg')).toEqual({ kind: 'exact', medId: '8' });
+  });
+
+  it('treats a file name matching two different meds\' aliases/names as ambiguous, never guessed', () => {
+    const clashing = [
+      med({ id: '9', name: 'Metformin 500mg', used30: 1, hosxpAliases: ['MET 500'] }),
+      med({ id: '10', name: 'MET 500', used30: 1 }),
+    ];
+    expect(matchHosxpMed(clashing, 'MET 500')).toEqual({ kind: 'ambiguous', candidateIds: ['9', '10'] });
+  });
+
+  it('a substring match against an alias still only resolves when there is exactly one candidate', () => {
+    const withAlias = [med({ id: '11', name: 'Amoxicillin 250 mg', used30: 1, hosxpAliases: ['AMOX 250'] })];
+    expect(matchHosxpMed(withAlias, 'AMOX')).toEqual({ kind: 'fuzzy', medId: '11' });
+  });
 });
 
 // Real-world request: "ต้องมีรายละเอียดบอกให้ชัดเจนเลยครับว่ายาในแอพตัวใดไม่ได้ถูกตัดจ่าย ต้องมีเหตุผล
