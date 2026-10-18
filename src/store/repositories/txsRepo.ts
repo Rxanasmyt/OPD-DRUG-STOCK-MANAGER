@@ -49,12 +49,6 @@ export function queryTxsSince(sinceMs: number): Query {
   return query(txsCollection(), where('ts', '>=', sinceMs));
 }
 
-/** Every reconcile_hosxp txs doc — recomputeUsageStats()/analyzeWeekdayUsage() each mine this
- * for real per-dispense history (the only tx type with a real per-day HOSxP date). */
-export function fetchReconcileHosxpTxs() {
-  return getDocs(query(txsCollection(), where('type', '==', 'reconcile_hosxp')));
-}
-
 /** Every txs doc that exists — resetAllStockLedgers()'s own pre-delete snapshot + bulk delete
  * needs the full collection. */
 export function fetchAllTxs() {
@@ -69,7 +63,12 @@ export function fetchTxsByName(name: string) {
 }
 
 /** Every txs doc logged strictly after `dateMs` — fetchStockAsOf()'s own point-in-time
- * reconstruction walks the ledger backward from this set. */
+ * reconstruction walks the ledger backward from this set. Also reused by recomputeUsageStats()/
+ * analyzeWeekdayUsage() (AppContext.tsx) to bound their own HOSxP-history scan to a fixed
+ * lookback window instead of the unbounded, ever-growing fetchReconcileHosxpTxs() this repo used
+ * to export for exactly that — a single-field `ts`-range filter needs no composite index, where
+ * combining it with `where('type','==','reconcile_hosxp')` would; both callers filter `type`
+ * back out client-side instead (see their own comments). */
 export function fetchTxsAfter(dateMs: number) {
   return getDocs(query(txsCollection(), where('ts', '>', dateMs)));
 }

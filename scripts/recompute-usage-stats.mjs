@@ -64,12 +64,25 @@ async function main() {
 
   console.log(`Recomputing usage stats (project "${serviceAccount.project_id}")...`);
 
+  const now = Date.now();
+  // Bug fix (Firestore read volume): this used to query `where('type', '==', 'reconcile_hosxp')`
+  // alone — every reconcile_hosxp tx this hospital has EVER logged, unbounded, growing by
+  // roughly one row per active med per day forever, even though neither Part 1 (60-day bucket)
+  // nor Part 2 (180-day peak window, the longer of its own two lookbacks — PEAK_LOOKBACK_DAYS
+  // below) ever uses anything older than that. Bounding the query itself by `ts` instead (same
+  // single-field range filter Firestore serves with no new composite index — combining it with
+  // the `type` equality filter above would need one) cuts this script's one daily read down to
+  // a fixed ~180-day window instead of this hospital's whole multi-year history. `type` is
+  // filtered back out client-side below in both loops, restoring exactly what the removed
+  // server-side filter used to guarantee. Mirrors the identical fix in recomputeUsageStats()/
+  // analyzeWeekdayUsage() (src/store/AppContext.tsx) — kept in sync per this file's own header
+  // comment's convention.
+  const PEAK_LOOKBACK_DAYS_FOR_QUERY = 181; // the longer of Part 2's two windows (180) + 1-day pad
   const [medsSnap, txSnap] = await Promise.all([
     db.collection('meds').get(),
-    db.collection('txs').where('type', '==', 'reconcile_hosxp').get(),
+    db.collection('txs').where('ts', '>=', now - PEAK_LOOKBACK_DAYS_FOR_QUERY * DAY).get(),
   ]);
   const meds = medsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  const now = Date.now();
 
   // Same OPD/IPD name-twin hazard both halves below share — aggregating by name alone would sum
   // both wards' dispensing into one number and write that same (wrong) total onto both copies.
@@ -90,6 +103,9 @@ async function main() {
   const prevById = {};
   for (const d of txSnap.docs) {
     const x = d.data();
+    // txSnap is now `ts`-range-bounded but type-UNfiltered (see the comment at its own fetch
+    // above) — every other tx type in this window must be excluded here, same as Part 2 below.
+    if (x.type !== 'reconcile_hosxp') continue;
     if (!x.name || typeof x.qty !== 'number' || x.qty >= 0 || typeof x.ts !== 'number') continue; // only dispensed (negative) entries
     const ageDays = (now - x.ts) / DAY;
     if (ageDays < 0) continue;
@@ -142,6 +158,8 @@ async function main() {
   const byKeyDay = new Map();
   for (const d of txSnap.docs) {
     const x = d.data();
+    // Same type-filter restoration as Part 1 above.
+    if (x.type !== 'reconcile_hosxp') continue;
     if (!x.name || typeof x.qty !== 'number' || x.qty >= 0 || typeof x.ts !== 'number') continue; // dispensed only
     if (x.ts > now) continue;
     const key = dupNames.has(x.name) ? (x.medId ? 'id:' + x.medId : null) : 'name:' + x.name;
@@ -259,7 +277,11 @@ async function main() {
   // indicator in SettingsScreen stays accurate for both without needing a second field.
   await db.collection('meta').doc('settings').set({ usageStatsRecomputedAt: now }, { merge: true });
 
-  console.log(`✓ Recomputed used30/usedPrev30 for ${written} active med(s) from ${txSnap.size} reconcile_hosxp tx row(s).`);
+  // txSnap.size now counts every tx TYPE in the query's date window (see its own fetch comment
+  // above) — no longer a meaningful "how much reconcile_hosxp history did this use" number on
+  // its own, so count just the reconcile_hosxp rows for this log line instead.
+  const reconcileRowCount = txSnap.docs.reduce((n, d) => n + (d.data().type === 'reconcile_hosxp' ? 1 : 0), 0);
+  console.log(`✓ Recomputed used30/usedPrev30 for ${written} active med(s) from ${reconcileRowCount} reconcile_hosxp tx row(s).`);
   console.log(`✓ Weekday-pattern/peak-day analysis: ${analyzed} med(s) had enough history to analyze, ${patterned} with a meaningful weekday pattern, ${peaksFound} with a new single-day peak.`);
 }
 

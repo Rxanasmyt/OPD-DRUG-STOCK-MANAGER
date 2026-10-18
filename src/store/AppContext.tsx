@@ -24,7 +24,7 @@ import { settingsRef, subscribeSettings, medSeqRef } from './repositories/metaRe
 import { floorLotRef, subscribeFloorLots, fetchAllFloorLots, fetchFloorLotsByMedId } from './repositories/floorLotsRepo';
 import { userRef, usersCollection, queryAdminUsers } from './repositories/usersRepo';
 import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetchLotsByMedIds } from './repositories/lotsRepo';
-import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchReconcileHosxpTxs, fetchAllTxs, fetchTxsByName, fetchTxsAfter, queryTxsByDateRange } from './repositories/txsRepo';
+import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchAllTxs, fetchTxsByName, fetchTxsAfter, queryTxsByDateRange } from './repositories/txsRepo';
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
 import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons } from './selectors';
@@ -3674,8 +3674,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!canRecomputeUsageStats) return;
     if (!opts?.silent) toast('กำลังคำนวณสถิติการใช้ยาใหม่จากประวัติ HOSxP…');
     try {
-      const snap = await withTimeout(fetchReconcileHosxpTxs());
       const now = Date.now();
+      // Bug fix (Firestore read volume): this used to call fetchReconcileHosxpTxs() — EVERY
+      // reconcile_hosxp tx this hospital has EVER logged, unbounded, growing by roughly one row
+      // per active med per day forever — even though everything below only ever keeps a row
+      // whose ageDays <= 60 (bucket 0 otherwise). That was tolerable back when this only ran
+      // from a manual admin button; it no longer is now that commitReconcile() auto-triggers
+      // this on every single HOSxP reconcile (see this function's own "opts.silent" doc comment
+      // above) — a daily routine action was re-reading the med's entire multi-year dispensing
+      // history to use 60 days of it. fetchTxsAfter() bounds the QUERY itself to the same
+      // window (+1 day pad for timezone-boundary safety, same convention fetchReconcileGaps
+      // already uses) — same single-field `ts`-range filter Firestore can serve with no new
+      // composite index, same tradeoff fetchReconcileGaps already accepts (every tx TYPE within
+      // the window, not just reconcile_hosxp — filtered back out below, same as that function's
+      // own client-side `type` check would need). No change to the computed result: every row
+      // this used to discard via its own 60-day bucket check is now never even fetched.
+      const snap = await withTimeout(fetchTxsAfter(now - 61 * DAY));
       // Same OPD/IPD name-twin hazard as fetchSubstockLedger/matchHosxpMed — aggregating by
       // name alone would sum both wards' dispensing into one number and then write that same
       // (wrong) total onto BOTH the OPD and IPD copy, silently poisoning "แนะนำ par" for both.
@@ -3691,7 +3705,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const curById: Record<string, number> = {};
       const prevById: Record<string, number> = {};
       snap.docs.forEach((d) => {
-        const x = d.data() as { name?: string; medId?: string; qty?: number; ts?: number };
+        const x = d.data() as { type?: string; name?: string; medId?: string; qty?: number; ts?: number };
+        // fetchTxsAfter() no longer filters by type server-side (see this function's own
+        // comment above on why) — every other tx type (transfer/receive/adjust/count/...) in
+        // this window must be excluded here instead, restoring exactly what the removed
+        // server-side `where('type','==','reconcile_hosxp')` used to guarantee.
+        if (x.type !== 'reconcile_hosxp') return;
         if (!x.name || typeof x.qty !== 'number' || x.qty >= 0 || typeof x.ts !== 'number') return; // only dispensed (negative) entries
         const ageDays = (now - x.ts) / DAY;
         if (ageDays < 0) return;
@@ -3769,10 +3788,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const PEAK_LOOKBACK_DAYS = 180; // ~26 weeks — reliably covers at least one quarterly refill cycle
     if (!opts?.silent) toast('กำลังวิเคราะห์รูปแบบการใช้ยารายวันและวันจ่ายสูงสุด…');
     try {
-      const snap = await withTimeout(fetchReconcileHosxpTxs());
       const now = Date.now();
       const cutoff = now - LOOKBACK_DAYS * DAY;
       const peakCutoff = now - PEAK_LOOKBACK_DAYS * DAY;
+      // Bug fix (Firestore read volume): same fix as recomputeUsageStats' own identical comment
+      // just above — fetchReconcileHosxpTxs() read this hospital's ENTIRE reconcile_hosxp
+      // history, unbounded, every time this ran, even though nothing below ever uses a row
+      // older than peakCutoff (the longer of this function's own two lookback windows).
+      // fetchTxsAfter() bounds the query itself to that same window (+1 day pad) instead —
+      // same tradeoff fetchReconcileGaps already accepts (every tx type in range, filtered
+      // back to reconcile_hosxp client-side below, since the query can no longer do it
+      // server-side without a new composite index). No change to the computed result.
+      const snap = await withTimeout(fetchTxsAfter(peakCutoff - DAY));
       // Same OPD/IPD name-twin hazard as recomputeUsageStats above — see its own comment.
       const dupNames = new Set<string>();
       const seenNames = new Set<string>();
@@ -3788,7 +3815,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // weekday-pattern average at all (an infrequent one-off never would).
       const byKeyDay = new Map<string, Map<string, number>>();
       snap.docs.forEach((d) => {
-        const x = d.data() as { name?: string; medId?: string; qty?: number; ts?: number; coveredFrom?: string; coveredTo?: string };
+        const x = d.data() as { type?: string; name?: string; medId?: string; qty?: number; ts?: number; coveredFrom?: string; coveredTo?: string };
+        // fetchTxsAfter() no longer filters by type server-side — see this function's own
+        // comment above on why — so every other tx type in this window must be excluded here
+        // instead, restoring exactly what the removed server-side type filter used to guarantee.
+        if (x.type !== 'reconcile_hosxp') return;
         if (!x.name || typeof x.qty !== 'number' || x.qty >= 0 || typeof x.ts !== 'number') return; // dispensed only
         if (x.ts > now) return;
         const key = dupNames.has(x.name) ? (x.medId ? 'id:' + x.medId : null) : 'name:' + x.name;
@@ -5632,9 +5663,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // types (see fetchExecTxsThisMonth's own comment on this exact cap), and a single busy
   // reconcile day alone can be 50-150+ rows; relying on it here could make a week-old gap
   // invisible long before this function's own lookback window even started. Bounded to
-  // `days` + a 1-day pad (not an unbounded fetchReconcileHosxpTxs() full-history scan like
-  // recomputeUsageStats/analyzeWeekdayUsage use) — this runs every time ReconcileScreen mounts,
-  // not just on an explicit admin action, so it stays cheap by design.
+  // `days` + a 1-day pad, same `ts`-range-bounded-but-type-unfiltered shape recomputeUsageStats/
+  // analyzeWeekdayUsage now also use (see those functions' own comments) — this runs every time
+  // ReconcileScreen mounts, not just on an explicit admin action, so it stays cheap by design.
   const fetchReconcileGaps = useCallback(async (days: number): Promise<ReconcileGapDay[]> => {
     const todayIso = isoDate(Date.now());
     const from = Date.now() - (days + 1) * DAY;

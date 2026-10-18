@@ -212,6 +212,40 @@ describe('analyzeWeekdayUsage — peak single-day usage regression', () => {
   });
 });
 
+// Regression test for a read-volume fix: analyzeWeekdayUsage() used to query Firestore with
+// `where('type','==','reconcile_hosxp')` — the server itself excluded every other tx type.
+// Bounding the query by `ts` range instead (fetchTxsAfter(), see this function's own "Bug fix
+// (Firestore read volume)" comment, AppContext.tsx) means the query can no longer filter by
+// type server-side, so a client-side `if (x.type !== 'reconcile_hosxp') return;` check has to
+// do that job now instead. Locks in that a large non-reconcile tx in the SAME window (a normal
+// transfer/receive/adjust, all of which are now fetched too) never leaks into the peak-day or
+// weekday-pattern numbers.
+describe('analyzeWeekdayUsage — tx-type filtering regression', () => {
+  it('ignores a non-reconcile_hosxp tx row even with a large qty in the same lookback window', async () => {
+    vi.setSystemTime(bangkokNoon(2026, 0, 9));
+    const user = userEvent.setup();
+    renderWithApp(<Harness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [BURST_MED]);
+    seedCollection('txs', [
+      ...burstRows,
+      // A transfer_to_floor row for the SAME med, same window, with a qty far larger than the
+      // real 270-unit reconcile peak — if the client-side type guard were missing, this would
+      // wrongly become the new peakDayQty/peakDayDate instead of the real HOSxP figure.
+      { type: 'transfer_to_floor', name: BURST_MED.name, medId: BURST_MED.id, qty: -9999, unit: 'เม็ด', by: 'u1', ts: MONDAY(1) },
+    ]);
+
+    await user.click(screen.getByRole('button', { name: 'analyze-weekday' }));
+    await waitFor(() => expect(getLastBatchWrites().length).toBeGreaterThan(0));
+
+    const [write] = getLastBatchWrites();
+    expect(write.path).toBe('meds/m5');
+    expect(write.data!.peakDayQty).toBe(270); // the real reconcile_hosxp figure, not 9999
+    expect(write.data!.peakDayDate).toBe('2025-09-29');
+  });
+});
+
 // Follow-up request: "แก้ไข/ยกเลิกรูปแบบที่ตรวจพบเองไม่ได้" — before this, a wrongly-detected
 // pattern could only ever clear itself automatically once new data flattened it out on a LATER
 // analyzeWeekdayUsage() run; there was no way for an admin to clear one by hand immediately.
