@@ -48,6 +48,31 @@ export interface Med {
   bin: string;
   used30: number;
   usedPrev30: number;
+  // Real-world report: a screenshot of ReconcileScreen's "ตรวจสอบความครบถ้วนของการตัดยอด" panel
+  // showing 100+ "ตัดไม่ครบ" items a day, almost all emergency/ICU injectables (Adenosine,
+  // Amiodarone, Dopamine, Magnesium Sulfate, KCl, ...) — followed by "พัฒนาระบบนำเข้า hosxp ให้
+  // แม่นยำที่สุด...เพื่อที่จะได้รู้ว่ายาตัวไหนที่มีการตัดจ่ายยาจริง แต่ยังไม่มีชื่อยาในแอพ หรือยาตัวตัวไหน
+  // ที่มีชื่อในแอพ แต่ไม่สามารถตัดจ่ายได้เกิดจากอะไร". Root cause: every "is this med regularly
+  // dispensed, so NOT seeing a deduction for it today is worth flagging" check in the app used
+  // to be the crude `used30 > 0` — true for ANY med with even one real dispense in the last 30
+  // days, which is also true of a drug genuinely kept in stock for a rare emergency (stocked
+  // for a refer-back case from รพ.ยะลา, say) that might only move once or twice a month. Those
+  // real but sporadic drugs dominated the "ตัดไม่ครบ" list every single day, drowning out the
+  // handful of GENUINE name-mismatch problems the whole panel exists to surface.
+  //
+  // dispenseDays30 is a real FREQUENCY signal instead of a quantity one: the count of distinct
+  // real calendar days within the last 30 that this med actually got a reconcile_hosxp
+  // deduction (a multi-day Monday-catch-up batch counts each of its real covered days
+  // separately, same "spread across real days" convention weekdayPattern/peakDayQty already
+  // use — see their own doc comments). Computed by recomputeUsageStats() (AppContext.tsx) and
+  // scripts/recompute-usage-stats.mjs in the SAME pass that already computes used30/usedPrev30
+  // (no extra read). isRegularlyDispensed() (selectors.ts) is the one place this gets turned
+  // into a yes/no "expect this to move today" verdict — always read through that, never this
+  // field directly, so every detector (fetchReconcileGaps/notDeductedLatestDay/
+  // hosxpMissReasons) stays consistent and the threshold only ever needs tuning in one place.
+  // Optional — undefined until the first recompute run after this field shipped; readers treat
+  // that the same as "not yet classified" (see isRegularlyDispensed()'s own fallback).
+  dispenseDays30?: number;
   volatility: number;
   // Optional in truth even though every current write path (addMed, seed.ts) sets it — a
   // hand-edited Firestore doc or a future import path could still omit it, and CountScreen

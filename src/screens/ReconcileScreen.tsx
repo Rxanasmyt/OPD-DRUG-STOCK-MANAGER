@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { wardOf, hosxpMissReasons } from '../store/selectors';
+import { wardOf, hosxpMissReasons, isRegularlyDispensed } from '../store/selectors';
 import { nf, thDate, isoDate } from '../utils/format';
-import type { HosxpMatch, Med, ReconcileGapDay } from '../types';
+import type { HosxpMatch, Med, MedId, ReconcileGapDay } from '../types';
 import { Badge } from '../components/Badge';
 
 // Real-world request: "ป้องกันการหลุดยาที่มีในระบบแต่ไม่ได้ถูกตัดจำนวนยา และป้องกันการหลุดวันที่
@@ -24,7 +24,15 @@ const MISS_REASON_BADGE: Record<'not_in_file' | 'ambiguous', { label: string; co
 };
 
 export default function ReconcileScreen() {
-  const { state, setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, toast } = useApp();
+  const { state, setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, toast, go, setMedsFocusId } = useApp();
+
+  // Real-world request: "เพื่อนำไปสู่การแก้ไขปัญหายาที่อาจจะยังมีปัญหาครับ"/"สามารถเชื่อมโยงปัญหานั่น
+  // ไปแก้ปัญหาจริงได้" — a miss-reasons row used to just explain what's wrong with no way to act
+  // on it from here; this jumps straight to that med's own edit form in หน้าจัดการรายการยา (where
+  // the "ชื่อที่ไฟล์ HOSxP อาจใช้เรียกยานี้" alias field and the real name itself both live),
+  // reusing the exact same medsFocusId mechanism the QR-scan "ดูข้อมูลยา" flow already uses —
+  // see MedsScreen.tsx's own "A QR scan...lands here with medsFocusId set" comment.
+  const goFixMed = (medId: MedId) => { setMedsFocusId(medId); go('meds'); };
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const medById = (id: string) => state.meds.find((x) => x.id === id);
@@ -137,8 +145,11 @@ export default function ReconcileScreen() {
     for (const t of state.txs) {
       if (t.type === 'reconcile_hosxp' && t.medId && new Date(t.ts).toDateString() === latestDayKey) deductedIds.add(t.medId);
     }
+    // isRegularlyDispensed() (selectors.ts), not the old plain `used30 > 0` — see its own doc
+    // comment on why: a drug kept for rare emergency use was flooding this exact panel with
+    // false positives.
     const missing = state.meds
-      .filter((m) => m.active && m.used30 > 0 && !deductedIds.has(m.id))
+      .filter((m) => m.active && isRegularlyDispensed(m) && !deductedIds.has(m.id))
       .sort((a, b) => b.used30 - a.used30);
     return { dayLabel: thDate(latestTs), missing };
   }, [state.txs, state.meds]);
@@ -246,6 +257,15 @@ export default function ReconcileScreen() {
                       {reason.kind === 'ambiguous' && reason.wardClash && `พบชื่อ "${reason.fileText}" ในไฟล์ แต่ยานี้มีทั้งชั้น OPD และ IPD ชื่อเดียวกัน — HOSxP บอกไม่ได้ว่าจ่ายจากฝั่งไหน ต้องปรับยอดด้วยมือแยกราย ward`}
                       {reason.kind === 'ambiguous' && !reason.wardClash && `พบชื่อ "${reason.fileText}" ในไฟล์ แต่ตรงกับยาหลายรายการ (${reason.otherNames.join(', ')}) — ระบบแยกไม่ได้ว่าหมายถึงตัวไหน ต้องปรับยอดด้วยมือ`}
                     </div>
+                    {reason.kind === 'not_in_file' && (
+                      <button
+                        type="button"
+                        onClick={() => goFixMed(med.id)}
+                        style={{ marginTop: 6, fontSize: 11, fontWeight: 600, color: 'var(--green)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                      >
+                        แก้ไขชื่อยา/เพิ่มชื่อ HOSxP ที่รู้จัก →
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -376,12 +396,28 @@ export default function ReconcileScreen() {
               <div className="card stagger" style={{ overflow: 'hidden' }}>
                 {missReasonFreq.map((u, i) => {
                   const badge = MISS_REASON_BADGE[u.reason];
+                  // The audit log only ever stored the med's NAME (see commitReconcile's own
+                  // note format, AppContext.tsx) — resolve it back to a live, active med to
+                  // link the fix action. A stale entry (med renamed/deactivated since) simply
+                  // gets no button rather than a dead/wrong link.
+                  const liveMed = u.reason === 'not_in_file' ? state.meds.find((m) => m.active && m.name === u.name) : undefined;
                   return (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 13px', borderBottom: i < missReasonFreq.length - 1 ? '1px solid var(--border-soft)' : 0 }}>
-                      <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.3 }}>{u.name}</span>
-                      <Badge flexNone size={10.5} padding="2px 7px" color={badge.color} bg={badge.bg}>{badge.label}</Badge>
-                      <Badge flexNone size={11} padding="2px 8px" color="var(--red)" bg="var(--red-bg)">{u.count} ครั้ง</Badge>
-                      <span className="muted" style={{ flex: 'none', fontSize: 11 }}>ล่าสุด {thDate(u.lastTs)}</span>
+                    <div key={i} style={{ padding: '9px 13px', borderBottom: i < missReasonFreq.length - 1 ? '1px solid var(--border-soft)' : 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.3 }}>{u.name}</span>
+                        <Badge flexNone size={10.5} padding="2px 7px" color={badge.color} bg={badge.bg}>{badge.label}</Badge>
+                        <Badge flexNone size={11} padding="2px 8px" color="var(--red)" bg="var(--red-bg)">{u.count} ครั้ง</Badge>
+                        <span className="muted" style={{ flex: 'none', fontSize: 11 }}>ล่าสุด {thDate(u.lastTs)}</span>
+                      </div>
+                      {liveMed && (
+                        <button
+                          type="button"
+                          onClick={() => goFixMed(liveMed.id)}
+                          style={{ marginTop: 4, fontSize: 11, fontWeight: 600, color: 'var(--green)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                        >
+                          แก้ไขชื่อยา/เพิ่มชื่อ HOSxP ที่รู้จัก →
+                        </button>
+                      )}
                     </div>
                   );
                 })}

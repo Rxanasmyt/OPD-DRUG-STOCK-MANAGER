@@ -979,8 +979,37 @@ export interface HosxpMissEntry {
   reason: HosxpMissReason;
 }
 
+// Real-world report: a screenshot of 100+ "ตัดไม่ครบ" items a day, almost all sporadically-used
+// emergency/ICU injectables — see Med.dispenseDays30's own doc comment (types.ts) for the full
+// story. The plain `used30 > 0` bar every "should this have been deducted today" detector used
+// to share was true for ANY med with even one dispense in the last 30 days, which drowned out
+// genuine name-mismatch problems under a flood of real-but-rare drugs. This is the ONE place
+// that turns the raw dispenseDays30 count into a yes/no verdict — every detector in this app
+// (hosxpMissReasons below, fetchReconcileGaps/notDeductedLatestDay in AppContext.tsx/
+// ReconcileScreen.tsx) reads through this instead of checking used30 or dispenseDays30 directly,
+// so the threshold only ever needs tuning here.
+//
+// REGULAR_DAYS_THRESHOLD = 10: 30 calendar days hold roughly 21-22 real business days at this
+// hospital (it never reconciles weekends — see fetchReconcileGaps' own doc comment). Requiring
+// at least 10 of them is "moved on about half the recent business days or more" — comfortably
+// excludes a drug kept in stock for the occasional refer-back case from รพ.ยะลา (maybe 1-3 real
+// dispenses a month) while still catching a genuine daily staple whose HOSxP name just stopped
+// matching.
+//
+// Falls back to the OLD `used30 > 0` bar only when dispenseDays30 is still undefined — a med
+// that predates this field, or hasn't had a recomputeUsageStats() run since it shipped. Since
+// that function now runs automatically after every single HOSxP reconcile (same-day, every
+// day), this fallback is self-correcting within about a day for any med with real reconcile
+// history; it's deliberately the noisier OLD behavior rather than "never flag anything" during
+// that short window, so a genuinely new problem is never silently invisible while this settles.
+const REGULAR_DAYS_THRESHOLD = 10;
+export function isRegularlyDispensed(m: Med): boolean {
+  if (typeof m.dispenseDays30 === 'number') return m.dispenseDays30 >= REGULAR_DAYS_THRESHOLD;
+  return m.used30 > 0;
+}
+
 export function hosxpMissReasons(meds: Med[], rows: { name: string; qty: number; match: HosxpMatch }[]): HosxpMissEntry[] {
-  const regularMeds = meds.filter((m) => m.active && m.used30 > 0);
+  const regularMeds = meds.filter((m) => m.active && isRegularlyDispensed(m));
   const result: HosxpMissEntry[] = [];
   for (const m of regularMeds) {
     const resolvedRow = rows.find((r) => (r.match.kind === 'exact' || r.match.kind === 'fuzzy') && r.match.medId === m.id);

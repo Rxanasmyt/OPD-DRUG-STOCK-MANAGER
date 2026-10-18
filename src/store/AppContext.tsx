@@ -27,7 +27,7 @@ import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetch
 import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchAllTxs, fetchTxsByName, fetchTxsAfter, queryTxsByDateRange } from './repositories/txsRepo';
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
 import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, isRegularlyDispensed } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -3704,8 +3704,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const prevByName: Record<string, number> = {};
       const curById: Record<string, number> = {};
       const prevById: Record<string, number> = {};
+      // Real-world report: a screenshot of 100+ "ตัดไม่ครบ" false positives a day, almost all
+      // sporadically-used emergency/ICU injectables — see Med.dispenseDays30's own doc comment
+      // (types.ts) and isRegularlyDispensed()'s (selectors.ts) for the full story. Tracks the
+      // DISTINCT real calendar days (not raw tx count) within the last 30 that each med got a
+      // reconcile_hosxp deduction — a frequency signal, separate from used30's quantity sum —
+      // spreading a multi-day covered batch across its real days, same convention
+      // analyzeWeekdayUsage() already uses for its own weekday/peak-day maps.
+      const curDaysByName: Record<string, Set<string>> = {};
+      const curDaysById: Record<string, Set<string>> = {};
       snap.docs.forEach((d) => {
-        const x = d.data() as { type?: string; name?: string; medId?: string; qty?: number; ts?: number };
+        const x = d.data() as { type?: string; name?: string; medId?: string; qty?: number; ts?: number; coveredFrom?: string; coveredTo?: string };
         // fetchTxsAfter() no longer filters by type server-side (see this function's own
         // comment above on why) — every other tx type (transfer/receive/adjust/count/...) in
         // this window must be excluded here instead, restoring exactly what the removed
@@ -3724,6 +3733,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const map = bucket === 30 ? curByName : prevByName;
           map[x.name] = (map[x.name] || 0) + Math.abs(x.qty);
         }
+        if (bucket !== 30) return; // dispenseDays30 only ever covers the current 30-day bucket
+        const fromIso = x.coveredFrom || isoDate(x.ts);
+        const toIso = x.coveredTo || isoDate(x.ts);
+        const fromTs = new Date(fromIso + 'T00:00:00').getTime();
+        const toTs = new Date(toIso + 'T00:00:00').getTime();
+        const daysCovered = Math.max(1, Math.round((toTs - fromTs) / DAY) + 1);
+        for (let i = 0; i < daysCovered; i++) {
+          const dayTs = fromTs + i * DAY;
+          if (dayTs > now) continue;
+          const dIso = isoDate(dayTs);
+          if (dupNames.has(x.name)) {
+            if (!x.medId) continue;
+            (curDaysById[x.medId] ??= new Set<string>()).add(dIso);
+          } else {
+            (curDaysByName[x.name] ??= new Set<string>()).add(dIso);
+          }
+        }
       });
       const targets = state.meds.filter((m) => m.active);
       for (let i = 0; i < targets.length; i += 400) {
@@ -3731,7 +3757,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         targets.slice(i, i + 400).forEach((m) => {
           const used30 = dupNames.has(m.name) ? (curById[m.id] || 0) : (curByName[m.name] || 0);
           const usedPrev30 = dupNames.has(m.name) ? (prevById[m.id] || 0) : (prevByName[m.name] || 0);
-          batch.update(medRef(m.id), { used30: Math.round(used30), usedPrev30: Math.round(usedPrev30) });
+          const dispenseDays30 = dupNames.has(m.name) ? (curDaysById[m.id]?.size || 0) : (curDaysByName[m.name]?.size || 0);
+          batch.update(medRef(m.id), { used30: Math.round(used30), usedPrev30: Math.round(usedPrev30), dispenseDays30 });
         });
         await withTimeout(batch.commit());
       }
@@ -5692,7 +5719,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         deductedByDay.set(dIso, set);
       }
     }
-    const regularMeds = state.meds.filter((m) => m.active && m.used30 > 0);
+    // isRegularlyDispensed() (selectors.ts) — not the old plain `used30 > 0` — see its own doc
+    // comment for why: a drug genuinely kept for rare emergency use (refer-back cases from
+    // รพ.ยะลา, say) has used30 > 0 from one real dispense a month but was never actually
+    // "expected to move today," and used to flood this exact panel with 100+ false positives a
+    // day, burying the genuine name-mismatch problems it exists to surface.
+    const regularMeds = state.meds.filter((m) => m.active && isRegularlyDispensed(m));
     const result: ReconcileGapDay[] = [];
     for (let i = 1; i <= days; i++) {
       const ts = Date.now() - i * DAY;

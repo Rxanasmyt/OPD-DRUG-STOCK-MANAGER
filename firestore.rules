@@ -177,7 +177,8 @@ service cloud.firestore {
                               'category', 'packSize', 'route', 'active', 'mergedInto',
                               'outOfStockSince', 'outOfStockReason', 'outOfStockExpectedReturn',
                               'weekdayPeakFactor', 'weekdayPeakDay', 'weekdayPeakOccurrences',
-                              'weekdayPattern', 'peakDayQty', 'peakDayDate', 'hosxpAliases'
+                              'weekdayPattern', 'peakDayQty', 'peakDayDate', 'hosxpAliases',
+                              'dispenseDays30'
                             ])
                          && (!('name' in request.resource.data) || request.resource.data.name is string)
                          && (!('unit' in request.resource.data) || request.resource.data.unit is string)
@@ -212,7 +213,8 @@ service cloud.firestore {
                          && (!('weekdayPattern' in request.resource.data) || request.resource.data.weekdayPattern is list)
                          && (!('peakDayQty' in request.resource.data) || request.resource.data.peakDayQty is number)
                          && (!('peakDayDate' in request.resource.data) || request.resource.data.peakDayDate is string)
-                         && (!('hosxpAliases' in request.resource.data) || request.resource.data.hosxpAliases is list))
+                         && (!('hosxpAliases' in request.resource.data) || request.resource.data.hosxpAliases is list)
+                         && (!('dispenseDays30' in request.resource.data) || isNonNegNum(request.resource.data.dispenseDays30)))
                     || (isActive() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['floor', 'lastCountTs', 'lastSubCountTs'])
                         && isNonNegNum(request.resource.data.floor)
                         && (!('lastCountTs' in resource.data) || 'lastCountTs' in request.resource.data)
@@ -228,11 +230,12 @@ service cloud.firestore {
                     // those stay admin-only via the isAdmin() branch above), same type checks as
                     // that branch's own copy of these fields.
                     || (isPharmOrAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                           'used30', 'usedPrev30', 'weekdayPeakFactor', 'weekdayPeakDay',
+                           'used30', 'usedPrev30', 'dispenseDays30', 'weekdayPeakFactor', 'weekdayPeakDay',
                            'weekdayPeakOccurrences', 'weekdayPattern', 'peakDayQty', 'peakDayDate'
                          ])
                         && (!('used30' in request.resource.data) || isNonNegNum(request.resource.data.used30))
                         && (!('usedPrev30' in request.resource.data) || isNonNegNum(request.resource.data.usedPrev30))
+                        && (!('dispenseDays30' in request.resource.data) || isNonNegNum(request.resource.data.dispenseDays30))
                         && (!('weekdayPeakFactor' in request.resource.data) || request.resource.data.weekdayPeakFactor is number)
                         && (!('weekdayPeakDay' in request.resource.data) || request.resource.data.weekdayPeakDay is number)
                         && (!('weekdayPeakOccurrences' in request.resource.data) || request.resource.data.weekdayPeakOccurrences is number)
