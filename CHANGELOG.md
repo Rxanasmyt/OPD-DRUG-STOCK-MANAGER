@@ -7,6 +7,17 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.196.0] - 2026-10-18
+
+### Fixed
+- **[แก้ปัญหาความปลอดภัย/ความเป็นส่วนตัวที่เพิ่งพบ: backup Firestore รายวันเคยหลุดสู่สาธารณะทุกวัน — ย้ายไปเก็บที่ repo private แยกต่างหาก]**
+  - ระหว่างต่อยอด incremental backup (ตามที่ผู้ใช้งานเลือก "สร้าง incremental backup จริงจัง — แก้ถาวร ใช้เวลามากกว่า") ตรวจพบโดยระบบ (ไม่ใช่ผู้ใช้งานรายงาน) ว่า repo นี้เป็น **public** — ซึ่งหมายความว่า `firestore-backup.yml` ที่อัป backup ทั้งฐานข้อมูล (meds/lots/users/txs/auditLog ฯลฯ) เป็น GitHub Actions artifact ทุกวันมาตลอด **ใครก็ได้ที่มี GitHub account ฟรีสามารถดาวน์โหลดไปอ่านได้ ไม่ต้องขอสิทธิ์อะไรเลย** เพราะ artifact ของ public repo ไม่มีการตรวจสิทธิ์เพิ่มจาก repo เอง — เป็นปัญหาที่ร้ายแรงกว่าเรื่อง Firestore quota ที่กำลังแก้อยู่เดิมมาก
+  - พิจารณาแล้วว่าเปลี่ยน repo หลักเป็น private เลยไม่ได้ เพราะเว็บแอปที่ใช้งานจริงโฮสต์อยู่บน **GitHub Pages** ซึ่งต้องใช้ GitHub plan แบบเสียเงิน (Pro/Team/Enterprise) ถึงจะเปิด Pages ให้ public ได้ต่อเมื่อ repo เป็น private — account ที่ใช้อยู่เป็น GitHub Free จะทำให้เว็บแอปเข้าไม่ได้ทันที (404) ถ้าเปลี่ยน repo หลักเป็น private
+  - **แก้**: ย้ายข้อมูล backup ทั้งหมดไปเก็บที่ **repo private แยกต่างหาก** (`OPD-DRUG-STOCK-MANAGER-backups`) แทนการอัปเป็น artifact ของ repo หลัก — repo หลักยังเป็น public เหมือนเดิม (GitHub Pages ใช้งานได้ต่อตามปกติ ไม่กระทบผู้ใช้งานจริงเลย) ส่วน repo backup ใหม่เป็น private ล้วน ไม่มีใครเข้าถึงได้นอกจากเจ้าของ — ใช้ fine-grained personal access token ที่จำกัดสิทธิ์ไว้เฉพาะ repo backup นี้เท่านั้น (เก็บเป็น secret `BACKUP_REPO_TOKEN` ในฝั่ง repo หลัก) ให้ workflow ของ repo หลัก push เข้าไปได้
+  - รวมเข้ากับงาน incremental backup ที่ทำไปพร้อมกัน: `scripts/backup-firestore.mjs` เพิ่ม flag `--state-dir=`/`--out-dir=` ให้เขียนทั้ง cursor state ของ `txs`/`auditLog` (อ่านแบบ incremental แทนอ่านทั้งคอลเลกชันทุกวัน — ลดต้นทุน read ที่โตขึ้นเรื่อยๆตามอายุระบบ) และไฟล์ backup สุดท้าย ลงไปที่ checkout ของ repo backup ตรงๆ แทนที่ repo หลัก
+  - **⚠️ ต้องทำเองก่อนใช้งานได้จริง (ขั้นตอนอยู่ใน `.github/workflows/firestore-backup.yml` ส่วนหัวไฟล์ด้วย)**: 1) สร้าง repo private ใหม่ชื่อ `OPD-DRUG-STOCK-MANAGER-backups` (หรือชื่ออื่นที่ต้องการ) 2) สร้าง fine-grained personal access token จำกัดสิทธิ์เฉพาะ repo นั้น (Contents: Read and write) 3) เพิ่ม secret `BACKUP_REPO_TOKEN` = token นั้น ใน repo หลัก (Settings → Secrets and variables → Actions) 4) เพิ่ม repository variable `BACKUP_REPO` = `<owner>/<ชื่อ repo backup>` จนกว่าจะทำครบ workflow นี้จะ fail ทุกรอบ (error ชัดเจนจากขั้นตอน checkout backup repo) — ไม่กระทบแอปที่ใช้งานจริงแต่อย่างใด
+  - ไม่มีการเปลี่ยนแปลงใน `src/` เลย — แก้เฉพาะ `scripts/backup-firestore.mjs` และ `.github/workflows/firestore-backup.yml` — `tsc -b --force`/`vitest run` (645 เทสต์ผ่านทั้งหมด — ไม่กระทบเพราะไม่แตะโค้ดแอพ)/`npm run build` ผ่านหมด
+
 ## [3.195.0] - 2026-10-18
 
 ### Fixed

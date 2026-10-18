@@ -2,22 +2,32 @@
 // Firestore backup script — dumps every top-level collection this app uses to a single JSON
 // file. This is the free-tier (Spark plan) alternative to Firestore's built-in Scheduled
 // Backups feature, which requires the Blaze billing plan. Reads only — never writes anything
-// back to Firestore. The read cost is trivial (a handful of reads per collection per run) and
-// stays well inside Spark's free 50,000-reads/day quota for an app this size.
+// back to Firestore.
 //
 // Run automatically every day by .github/workflows/firestore-backup.yml (see that file for the
-// one-time GitHub secret setup). To run locally instead:
+// one-time GitHub secret setup, and its own comment on the separate private repo this script
+// reads/writes via --state-dir/--out-dir). To run locally instead:
 //   FIREBASE_SERVICE_ACCOUNT_KEY="$(cat serviceAccountKey.json)" node scripts/backup-firestore.mjs
 //
-// Output: backups/firestore-backup-<UTC timestamp>.json — one JSON object keyed by collection
-// name, each value an array of `{ id, ...fields }`. Firestore Timestamp fields are serialized
-// to ISO 8601 strings so the file is plain, portable JSON (no Firestore-specific types).
+// Output: <outDir>/firestore-backup-<UTC timestamp>.json (outDir defaults to 'backups', see
+// --out-dir= below) — one JSON object keyed by collection name, each value an array of
+// `{ id, ...fields }`. Firestore Timestamp fields are serialized to ISO 8601 strings so the file
+// is plain, portable JSON (no Firestore-specific types). This file is always a COMPLETE,
+// self-sufficient snapshot of every collection — restore-firestore.mjs needs no awareness of how
+// it was produced, incrementally or not.
+//
+// Flags (both optional, both unset = old full-backup-into-this-repo behavior):
+//   --state-dir=<path>  directory the incremental cursor state for txs/auditLog lives in/is
+//                        written to across runs. Without it, every run is a full read of those
+//                        two collections too (same as before this flag existed).
+//   --out-dir=<path>    directory the final backup JSON file is written into. Defaults to
+//                        'backups' (relative to cwd).
 //
 // To restore a file this script produced, see scripts/restore-firestore.mjs.
 
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
-import { writeFile, mkdir, appendFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, appendFile } from 'node:fs/promises';
 
 // Every top-level collection this app reads/writes — see firestore.rules for the same list.
 // Bug fix: 'dailyMetrics' (one doc/day, written by collect-daily-metrics.mjs, read by the
@@ -30,7 +40,36 @@ import { writeFile, mkdir, appendFile } from 'node:fs/promises';
 // snapshotBeforeDelete(), the last-resort recovery layer resetAllStockLedgers()/
 // resetAllQuantities() write before wiping data) was missing from this list, meaning the one
 // safety net a go-live reset relies on wasn't in the daily backup either.
-const COLLECTIONS = ['meds', 'lots', 'txs', 'auditLog', 'users', 'usernames', 'pendingReceives', 'meta', 'dailyMetrics', '_preResetSnapshots'];
+const FULL_COLLECTIONS = ['meds', 'lots', 'users', 'usernames', 'pendingReceives', 'meta', 'dailyMetrics', '_preResetSnapshots'];
+
+// Bug fix (Firestore quota incident, real-world report: "วันนี้ก็ถึง limit firestore...แก้ยังไงดี
+// ครับปัญหาซ้ำซาก" — follow-up after the intraday-metrics.yml cadence fix): Google Cloud's own
+// Query Insights showed a plain, unfiltered `/txs` collection read as the single largest and
+// still-GROWING read cost in the whole project — this script's full daily `.get()` on `txs`
+// (and `auditLog`, same shape). Both collections are genuinely append-only (firestore.rules:
+// `allow update: if false` on txs, `allow update, delete: if false` on auditLog — nothing in the
+// app ever edits or removes a row once written), which makes them the one case where reading
+// "only what changed since last time" is both SAFE (no in-place edits to miss) and valuable (the
+// read cost otherwise grows forever with this hospital's lifetime transaction history, unlike
+// every other collection here which stays roughly bounded in size). See loadIncrementalState()/
+// the main incremental-merge loop below for how; see firestore-backup.yml's own comment for
+// where the merged state actually lives across runs (a separate, private backup repo — this
+// script itself has no opinion on that, it just reads/writes whatever directory --state-dir
+// points at).
+const INCREMENTAL_COLLECTIONS = ['txs', 'auditLog'];
+
+// A deliberately generous overlap re-read window, not a tight cutoff: `ts` is a CLIENT-set
+// timestamp (Date.now() at write time — see firestore.rules' txs/auditLog create rules), not a
+// server-assigned one, so it's only ever approximately monotonic with real write order. A device
+// with a clock running a few minutes (or, worst case, hours) behind could write a row whose `ts`
+// lands BEFORE rows this script already considers "seen" — a plain `where('ts', '>', lastTs)`
+// would silently and PERMANENTLY miss that row (it can never satisfy a strictly-increasing cutoff
+// in any future run either). Re-reading the last 6 hours of every run instead of just "since last
+// run" costs a handful of extra reads (one hospital's worth of transactions in 6h, not its whole
+// history) in exchange for closing that gap for any realistic clock skew — rows re-read this way
+// simply overwrite their own already-identical entry in the merge below (txs/auditLog rows never
+// change after creation, so this is always a no-op in practice, just a safety margin).
+const INCREMENTAL_OVERLAP_MS = 6 * 60 * 60 * 1000;
 
 function serialize(value) {
   if (value instanceof Timestamp) return value.toDate().toISOString();
@@ -41,6 +80,24 @@ function serialize(value) {
   return value;
 }
 
+// Reads this collection's PREVIOUSLY merged state (every row this script has ever seen for it,
+// as of the last run that had a --state-dir to persist into) — or an empty array when there is
+// none yet (no --state-dir given, the directory/file doesn't exist yet, or it's unreadable/
+// corrupt). An empty result isn't an error case to special-case further down: it just means the
+// incremental query below computes lastTs=0, i.e. "read everything" — the exact same one-time
+// full read this script always did, correctly establishing the baseline a real --state-dir can
+// then build on for every run after.
+async function loadIncrementalState(stateDir, name) {
+  if (!stateDir) return [];
+  try {
+    const raw = await readFile(`${stateDir}/${name}.json`, 'utf8');
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
 async function main() {
   const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (!keyJson) {
@@ -49,25 +106,51 @@ async function main() {
     );
     process.exit(1);
   }
+  const stateDirArg = process.argv.find((a) => a.startsWith('--state-dir='));
+  const stateDir = stateDirArg ? stateDirArg.slice('--state-dir='.length) : null;
+  // Lets firestore-backup.yml write the final backup file straight into the checked-out
+  // private backup repo's working tree (see that workflow for why: backups/txs/auditLog now
+  // live there, not as a public-repo Actions artifact — see this file's own header comment).
+  // Defaults to 'backups' (this repo) so a local/manual run behaves exactly as before.
+  const outDirArg = process.argv.find((a) => a.startsWith('--out-dir='));
+  const outDir = outDirArg ? outDirArg.slice('--out-dir='.length) : 'backups';
 
   const serviceAccount = JSON.parse(keyJson);
   initializeApp({ credential: cert(serviceAccount) });
   const db = getFirestore();
 
-  console.log(`Backing up ${COLLECTIONS.length} collections from project "${serviceAccount.project_id}"...`);
+  const allNames = [...FULL_COLLECTIONS, ...INCREMENTAL_COLLECTIONS];
+  console.log(`Backing up ${allNames.length} collections from project "${serviceAccount.project_id}"${stateDir ? ' (incremental state: ' + stateDir + ')' : ' (no --state-dir — every run will be a full read)'}...`);
 
   const out = {};
   let totalDocs = 0;
-  for (const name of COLLECTIONS) {
+  for (const name of FULL_COLLECTIONS) {
     const snap = await db.collection(name).get();
     out[name] = snap.docs.map((d) => ({ id: d.id, ...serialize(d.data()) }));
     totalDocs += out[name].length;
-    console.log(`  ${name}: ${out[name].length} docs`);
+    console.log(`  ${name}: ${out[name].length} docs (full read)`);
+  }
+
+  for (const name of INCREMENTAL_COLLECTIONS) {
+    const existing = await loadIncrementalState(stateDir, name);
+    const lastTs = existing.reduce((max, row) => (typeof row.ts === 'number' && row.ts > max ? row.ts : max), 0);
+    const cutoff = Math.max(0, lastTs - INCREMENTAL_OVERLAP_MS);
+    const snap = await db.collection(name).where('ts', '>=', cutoff).get();
+    const byId = new Map(existing.map((row) => [row.id, row]));
+    for (const d of snap.docs) byId.set(d.id, { id: d.id, ...serialize(d.data()) });
+    const merged = Array.from(byId.values());
+    out[name] = merged;
+    totalDocs += merged.length;
+    console.log(`  ${name}: ${merged.length} docs total (${snap.size} read this run${stateDir ? ', incremental' : ', full — pass --state-dir to make this incremental'})`);
+    if (stateDir) {
+      await mkdir(stateDir, { recursive: true });
+      await writeFile(`${stateDir}/${name}.json`, JSON.stringify(merged), 'utf8');
+    }
   }
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  await mkdir('backups', { recursive: true });
-  const file = `backups/firestore-backup-${stamp}.json`;
+  await mkdir(outDir, { recursive: true });
+  const file = `${outDir}/firestore-backup-${stamp}.json`;
   await writeFile(file, JSON.stringify(out, null, 2), 'utf8');
   console.log(`\nWrote ${file} (${totalDocs} docs total).`);
 
