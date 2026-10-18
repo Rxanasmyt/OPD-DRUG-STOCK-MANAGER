@@ -122,9 +122,15 @@ async function main() {
   // unfiltered, including every lot long since dispensed/scrapped down to qty 0, which `lots`
   // never deletes. The only use below (subByMed) already discards qty<=0 rows implicitly (adding
   // 0 changes nothing), so this costs nothing functionally — but this script runs via
-  // hourly-metrics.yml (every hour, 24x/day) PLUS daily-metrics.yml, so reading the full dead-lot
-  // backlog here, 25 times a day, every day, was likely the single largest contributor to the
-  // project exceeding its free Firestore quota — bigger than anything a live client session does.
+  // intraday-metrics.yml (originally hourly, 24x/day) PLUS daily-metrics.yml, so reading the full
+  // dead-lot backlog here, every single run, every day, was likely the single largest contributor
+  // to the project exceeding its free Firestore quota — bigger than anything a live client
+  // session does. `meds`/`lots` here are still read in FULL every run even after that fix and
+  // intraday-metrics.yml's later cadence cuts (24→16→3 runs/day — see that workflow's own doc
+  // comment for the most recent round, a direct real-world report of hitting quota again) —
+  // genuinely needed for this script's own job (a fresh total-stock-value/par-anomaly snapshot
+  // needs every active med/lot's CURRENT state, not a partial one), so cutting the run FREQUENCY
+  // was the lever actually pulled, not the per-run read shape of these two queries.
   const [medsSnap, lotsSnap, settingsSnap] = await Promise.all([
     db.collection('meds').get(),
     db.collection('lots').where('qty', '>', 0).get(),
@@ -250,26 +256,41 @@ async function main() {
   // Bug fix (Firestore quota incident, same round as the lots fix above — pendingReceives is
   // another collection `status` never prunes: a request sits here forever once resolved, same
   // as a spent `lots` doc). This used to read the ENTIRE collection — every pending, approved,
-  // AND rejected request ever submitted — every single run (25x/day via hourly-metrics.yml). Of
-  // the 3 real statuses (PendingReceive['status'], types.ts), a 'rejected' request is never read
-  // below at all, so excluding it at the query level (instead of after downloading it) costs
-  // nothing. Still can't push the resolvedTs date-range into the 'approved' query itself without
-  // a composite index this project doesn't have configured (same constraint the auditLog query
-  // above was already written to avoid) — that half still scans every approved request ever
-  // resolved, just no longer every rejected one too.
+  // AND rejected request ever submitted — every single run (16-25x/day via what's now
+  // intraday-metrics.yml). Of the 3 real statuses (PendingReceive['status'], types.ts), a
+  // 'rejected' request is never read below at all, so excluding it at the query level (instead of
+  // after downloading it) costs nothing.
+  //
+  // Bug fix (Firestore quota incident, follow-up — real-world report: "วันนี้ก็ถึง limit firestore
+  // ทั้งที่ไม่ได้มีการเติมยาเยอะเลย"): the 'approved' half used to scan EVERY approved request ever
+  // resolved, unbounded — a collection that only ever grows, never shrinks, so this got steadily
+  // more expensive every month regardless of real stock-fill activity on any given day. Now
+  // bounded by `resolvedTs` directly in the query (the exact same day-range filter this script
+  // already applies client-side to `txs`/`auditLog` above), reading only the handful of requests
+  // actually resolved on the one target day instead of the whole collection's history.
+  //
+  // REQUIRES a one-time Firestore composite index: pendingReceives, fields `status` (Ascending) +
+  // `resolvedTs` (Ascending) — create it at Firebase Console → Firestore Database → Indexes →
+  // Composite → Add index (or just run this script/workflow once un-indexed; the resulting error
+  // in the GitHub Actions log includes a direct "create this index" link). Until that index
+  // exists, this specific query fails and the whole run errors out (same loud "the scheduled
+  // workflow failed, GitHub emails the repo owner" behavior stock-drift-check.yml already relies
+  // on) — intentional, so a missing index is never silently guessed around.
   const [pendingSnap, approvedSnap] = await Promise.all([
     db.collection('pendingReceives').where('status', '==', 'pending').get(),
-    db.collection('pendingReceives').where('status', '==', 'approved').get(),
+    db.collection('pendingReceives').where('status', '==', 'approved')
+      .where('resolvedTs', '>=', dayStart).where('resolvedTs', '<', dayEnd).get(),
   ]);
   // receivePendingBacklog: current backlog count, not date-scoped — see the file header's
   // "Bug fix (doc accuracy)" note. A pending request has no resolved-date to filter on, so this
   // can only ever reflect "right now", same caveat as the คงคลัง stock-snapshot section.
   const receivePendingBacklog = pendingSnap.size;
   let leadTimeSumHours = 0, receiveApprovedCount = 0;
+  // The day-range filter is now in the query itself (see its own comment above) — only a
+  // malformed doc (no real resolvedTs) needs skipping here.
   for (const d of approvedSnap.docs) {
     const p = d.data();
     if (typeof p.resolvedTs !== 'number') continue;
-    if (p.resolvedTs < dayStart || p.resolvedTs >= dayEnd) continue; // resolved ON this target day
     leadTimeSumHours += (p.resolvedTs - p.ts) / (60 * 60 * 1000);
     receiveApprovedCount++;
   }
