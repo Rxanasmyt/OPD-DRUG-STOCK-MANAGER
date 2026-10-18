@@ -27,7 +27,7 @@ import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetch
 import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchAllTxs, fetchTxsByName, fetchTxsAfter, queryTxsByDateRange } from './repositories/txsRepo';
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
 import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, isRegularlyDispensed } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, isRegularlyDispensed, percentile } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -3887,11 +3887,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       let analyzed = 0;
       let patterned = 0;
       let peaksFound = 0;
-      const writes: { id: string; weekday?: { factor: number; day: number; occ: number; pattern: number[] } | 'clear' | undefined; peak?: { qty: number; date: string } | 'clear' | undefined }[] = [];
+      const writes: { id: string; weekday?: { factor: number; day: number; occ: number; pattern: number[] } | 'clear' | undefined; peak?: { qty: number; date: string; p90: number } | 'clear' | undefined }[] = [];
       for (const m of targets) {
         const key = dupNames.has(m.name) ? 'id:' + m.id : 'name:' + m.name;
         let weekday: { factor: number; day: number; occ: number; pattern: number[] } | 'clear' | undefined;
-        let peak: { qty: number; date: string } | 'clear' | undefined;
+        let peak: { qty: number; date: string; p90: number } | 'clear' | undefined;
 
         // Peak single-day dispense — decoupled from the weekday-pattern confidence gate below
         // (MIN_OCC_PER_WEEKDAY per weekday) on purpose: the whole point of this signal is to
@@ -3902,14 +3902,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           let peakQty = 0; let peakDate = '';
           for (const [day, qty] of dayMap) { if (qty > peakQty) { peakQty = qty; peakDate = day; } }
           const roundedPeak = Math.round(peakQty);
-          if (roundedPeak > 0 && (roundedPeak !== m.peakDayQty || peakDate !== m.peakDayDate)) {
-            peak = { qty: roundedPeak, date: peakDate };
+          // Real-world report (METFORMIN - PL 500 mg.): see Med.peakDayP90Qty's own doc comment
+          // (types.ts) and suggestPar()'s (selectors.ts) — the 90th percentile of this SAME
+          // dayMap's values, so a single anomalous day no longer single-handedly dictates Max/Min.
+          const p90Qty = Math.round(percentile(Array.from(dayMap.values()), 0.9));
+          if (roundedPeak > 0 && (roundedPeak !== m.peakDayQty || peakDate !== m.peakDayDate || p90Qty !== m.peakDayP90Qty)) {
+            peak = { qty: roundedPeak, date: peakDate, p90: p90Qty };
             peaksFound++;
           }
-        } else if (m.peakDayQty) {
+        } else if (m.peakDayQty || m.peakDayP90Qty) {
           // No reconcile_hosxp history at all left within the (longer) peak window — the old
-          // peak is no longer traceable to any real remaining data; clear it rather than let a
-          // stale number linger forever with nothing backing it.
+          // peak is no longer traceable to any real remaining data; clear it (both figures)
+          // rather than let a stale number linger forever with nothing backing it.
           peak = 'clear';
         }
 
@@ -3966,9 +3970,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             fields.weekdayPeakFactor = w.weekday.factor; fields.weekdayPeakDay = w.weekday.day; fields.weekdayPeakOccurrences = w.weekday.occ; fields.weekdayPattern = w.weekday.pattern;
           }
           if (w.peak === 'clear') {
-            fields.peakDayQty = deleteField(); fields.peakDayDate = deleteField();
+            fields.peakDayQty = deleteField(); fields.peakDayDate = deleteField(); fields.peakDayP90Qty = deleteField();
           } else if (w.peak) {
-            fields.peakDayQty = w.peak.qty; fields.peakDayDate = w.peak.date;
+            fields.peakDayQty = w.peak.qty; fields.peakDayDate = w.peak.date; fields.peakDayP90Qty = w.peak.p90;
           }
           batch.update(medRef(w.id), fields);
         });
@@ -4016,10 +4020,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!canEditMeds) return;
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
-    const prev = { peakDayQty: m.peakDayQty, peakDayDate: m.peakDayDate };
-    setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, peakDayQty: undefined, peakDayDate: undefined } : x)) }));
+    const prev = { peakDayQty: m.peakDayQty, peakDayDate: m.peakDayDate, peakDayP90Qty: m.peakDayP90Qty };
+    // Bug fix (real-world report, METFORMIN - PL 500 mg.): clears peakDayP90Qty alongside the
+    // raw peakDayQty/peakDayDate now — both are derived from the SAME per-day history, so
+    // leaving the percentile figure behind after an admin explicitly says "this peak doesn't
+    // count" (a one-time data-entry spike, say) would keep it quietly influencing Max/Min via
+    // suggestPar()'s own peakBasis read (selectors.ts) with no visible trace left anywhere in
+    // this screen of why.
+    setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, peakDayQty: undefined, peakDayDate: undefined, peakDayP90Qty: undefined } : x)) }));
     try {
-      await withTimeout(updateDoc(medRef(medId), { peakDayQty: deleteField(), peakDayDate: deleteField() }));
+      await withTimeout(updateDoc(medRef(medId), { peakDayQty: deleteField(), peakDayDate: deleteField(), peakDayP90Qty: deleteField() }));
       logAudit({ type: 'par_updated', note: 'ล้างค่าวันจ่ายยาสูงสุดของ ' + m.name + ' ด้วยตนเอง' });
     } catch (e) {
       console.error(e);

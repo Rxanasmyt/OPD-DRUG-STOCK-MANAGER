@@ -9,7 +9,7 @@ import {
   topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes,
   discrepancyByCategory, repeatAdrReturns, frequentFloorRefills,
   monthlyDaySplits, boxBreakdownLabel, halfOfMaxRounded, isNewerVersionAvailable, hosxpMissReasons,
-  isRegularlyDispensed,
+  isRegularlyDispensed, percentile,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
 import { DAY } from '../utils/format';
@@ -1034,6 +1034,75 @@ describe('suggestPar', () => {
       const noPeakField = suggestPar(med({ used30: 10, volatility: 1, peakDayQty: undefined }), 3, 21);
       expect(withPeak).toEqual(noPeakField);
     });
+
+    // Real-world report (follow-up): METFORMIN - PL 500 mg. — a single 11,514-unit day against
+    // every other real day under 700 drove Max/Min to roundStep(11514)/roundStep(11514/2)
+    // (11,600/5,800), completely swamping the admin's intended 4-day shelf coverage. Fix:
+    // suggestPar() now clamps off peakDayP90Qty (the 90th percentile of real per-day history —
+    // see percentile()'s own tests below) instead of the raw single-day peakDayQty, whenever
+    // analyzeWeekdayUsage() has computed one.
+    describe('peakDayP90Qty fallback precedence (bug fix — METFORMIN - PL 500 mg. single-outlier-day report)', () => {
+      it('clamps off peakDayP90Qty, not the raw peakDayQty, when both are present', () => {
+        const out = suggestPar(med({ used30: 10, volatility: 1, peakDayQty: 11514, peakDayP90Qty: 600 }), 4, 21);
+        expect(out!.floor).toBe(roundStep(600));
+        expect(out!.floor).toBeLessThan(roundStep(11514));
+      });
+
+      it('falls back to the raw peakDayQty when peakDayP90Qty has not been computed yet (self-healing transition)', () => {
+        const withP90 = suggestPar(med({ used30: 10, volatility: 1, peakDayQty: 270, peakDayP90Qty: 270 }), 3, 21);
+        const noP90Yet = suggestPar(med({ used30: 10, volatility: 1, peakDayQty: 270, peakDayP90Qty: undefined }), 3, 21);
+        expect(noP90Yet).toEqual(withP90);
+      });
+
+      it('a peakDayP90Qty of 0 (every real day was 0 except the recorded peak) clamps to no extra floor at all', () => {
+        const out = suggestPar(med({ used30: 10, volatility: 1, peakDayQty: 11514, peakDayP90Qty: 0 }), 3, 21);
+        const averageBasedFloor = roundStep((10 / WEEKDAYS_PER_30_DAYS) * 3);
+        expect(out!.floor).toBe(averageBasedFloor);
+      });
+    });
+  });
+});
+
+describe('percentile — nearest-rank 90th percentile (METFORMIN - PL 500 mg. single-outlier-day fix)', () => {
+  it('returns 0 for an empty sample', () => {
+    expect(percentile([], 0.9)).toBe(0);
+  });
+
+  it('returns the single value for a sample of one, regardless of p', () => {
+    expect(percentile([42], 0.9)).toBe(42);
+    expect(percentile([42], 0.1)).toBe(42);
+  });
+
+  it('always returns a value that actually occurred in the sample (no interpolation)', () => {
+    const values = [10, 20, 30, 999];
+    const p90 = percentile(values, 0.9);
+    expect(values).toContain(p90);
+  });
+
+  it('excludes a single extreme outlier out of ~20 normal days, matching the real METFORMIN report', () => {
+    // 24 real days at 100-650 units plus one 11,514-unit outlier day — same shape as the
+    // reported case (peakDayQty 11514 vs. every other real day under 700).
+    const normalDays = [100, 150, 200, 220, 250, 280, 300, 320, 350, 380, 400, 420, 450, 470, 500, 520, 540, 560, 580, 600, 610, 630, 640, 650];
+    const p90 = percentile([...normalDays, 11514], 0.9);
+    expect(p90).toBeLessThan(700); // the outlier never leaks into the result
+    expect(normalDays).toContain(p90);
+  });
+
+  it('nearest-rank: p=0.9 over 10 sorted values picks the 9th-ranked (index 8)', () => {
+    const values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    expect(percentile(values, 0.9)).toBe(9);
+  });
+
+  it('is order-independent — unsorted input gives the same result as pre-sorted input', () => {
+    const sorted = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const shuffled = [7, 2, 9, 4, 10, 1, 6, 3, 8, 5];
+    expect(percentile(shuffled, 0.9)).toBe(percentile(sorted, 0.9));
+  });
+
+  it('p=1 returns the maximum; p=0 returns the minimum', () => {
+    const values = [5, 1, 9, 3, 7];
+    expect(percentile(values, 1)).toBe(9);
+    expect(percentile(values, 0)).toBe(1);
   });
 });
 

@@ -227,15 +227,38 @@ export interface Med {
   // calendar day to blow straight through a par sized off the smoothed 30-day average alone.
   // peakDayQty is the single highest real one-day reconcile_hosxp total seen for this drug within
   // the lookback window (see analyzeWeekdayUsage() in AppContext.tsx — same scan, longer window).
-  // suggestPar() (selectors.ts) clamps both floor and sub par to never size BELOW this, so the
-  // exact same real-world case showing up again never forces an emergency central-warehouse pull
-  // (เบิกฉุกเฉิน) a second time.
+  //
+  // Real-world report (follow-up): a concrete case (METFORMIN - PL 500 mg.) where a single
+  // 11,514-เม็ด day — ~17x every other real day for that drug (all under 700) — drove Max/Min
+  // straight to roundStep(11,514)=11,600 / roundStep(11,514÷2)=5,800, completely overriding the
+  // admin's own intended ~4-day shelf coverage. suggestPar() (selectors.ts) no longer clamps off
+  // this raw field directly — see peakDayP90Qty below, which it reads instead — but peakDayQty/
+  // peakDayDate themselves are kept exactly as before (the honest "worst single day we've ever
+  // actually recorded, and when") purely for admin awareness: SettingsScreen's peak-day insight
+  // panel still shows them, still flags when this raw figure would exceed the med's current Max,
+  // so a real recurring emergency-sized risk is never silently hidden — it just no longer
+  // silently resizes Max/Min on its own the moment a single anomalous day appears.
   peakDayQty?: number | undefined;
   // The real calendar date (ISO, YYYY-MM-DD) peakDayQty above came from — shown alongside the
   // bare number so an admin reviewing it can judge plausibility (a genuinely huge one-time refill
   // vs. a suspicious data-entry spike) instead of taking it on faith, same reasoning as
   // weekdayPeakDay.
   peakDayDate?: string | undefined;
+  // Real-world follow-up to peakDayQty above: a SINGLE unusually large day (a data-entry spike,
+  // or a genuine but non-recurring bulk refill) used to become the par-sizing clamp outright via
+  // peakDayQty — for a drug whose ordinary days are otherwise nowhere close, that one outlier
+  // dominated Max/Min completely, overriding the admin's own intended shelf-coverage days. This
+  // is the 90th percentile of every real per-day reconcile_hosxp total within the same
+  // PEAK_LOOKBACK_DAYS window peakDayQty uses (see analyzeWeekdayUsage(), AppContext.tsx, and
+  // percentile() in selectors.ts for the exact nearest-rank calculation) — with the ~20-25 real
+  // dispense days a typical drug has in that window, the 90th percentile naturally excludes the
+  // single most extreme day (only ~2-3 days ever sit above it) while still tracking a genuinely
+  // elevated level if SEVERAL days were actually that busy, not just one. suggestPar() clamps
+  // floor/sub par to this instead of the raw peakDayQty now; falls back to peakDayQty itself
+  // when this hasn't been computed yet (a med that predates this field, or hasn't had
+  // analyzeWeekdayUsage() run since it shipped — self-corrects within about a day, same
+  // "noisier-but-never-invisible" transition every other field like this in this app uses).
+  peakDayP90Qty?: number | undefined;
   // Real-world request: "อยากให้มีระบบตรวจชื่อยาจากใบ hosxp และชื่อยาจากแอพที่แม่นยำมากกว่านี้" —
   // matchHosxpMed() (selectors.ts) is deliberately conservative (exact match after whitespace/
   // punctuation normalization, or a single-candidate substring fallback — never fuzzy/semantic

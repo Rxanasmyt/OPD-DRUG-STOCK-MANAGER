@@ -1042,6 +1042,24 @@ export function hosxpMissReasons(meds: Med[], rows: { name: string; qty: number;
 // AppContext.tsx) is what rounds up to whole boxes. That still guarantees a fill never falls short
 // of the real target (suggestTransferQty always ceils now — see its own comment), it just no
 // longer inflates the target ITSELF to a box multiple before that rounding even happens.
+// Real-world report: METFORMIN - PL 500 mg. — a single 11,514-เม็ด day (~17x every other real
+// day on record for that drug, all under 700) drove its Max straight to roundStep(11,514) via
+// the old peakDayQty clamp below, completely overriding the admin's own ~4-day shelf-coverage
+// intent. Nearest-rank percentile: sort ascending, pick the value at index
+// ceil(p × n) − 1 (clamped into range) — plain, no interpolation, so the result is always one of
+// the REAL recorded values (never a number that was never actually dispensed). With the ~20-25
+// real dispense days a typical drug has in analyzeWeekdayUsage()'s 180-day peak window, p=0.9
+// naturally excludes only the single most extreme day or two while staying fully responsive to
+// several genuinely elevated days (a real recurring risk, not a one-off) — see Med.peakDayP90Qty's
+// own doc comment (types.ts) for the full story and why this replaced a raw single-day max as
+// suggestPar()'s own clamp input below.
+export function percentile(values: number[], p: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1));
+  return sorted[idx];
+}
+
 export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number): { floor: number; sub: number; min: number } | null {
   if (!(m.used30 > 0)) return null; // ไม่มีสถิติการใช้จริง ห้ามแนะนำ par (roundStep(0) จะได้ 1 เสมอ ทำให้ค่าแนะนำผิดเพี้ยน)
   const daily = parSuggestionDailyRate(m);
@@ -1070,14 +1088,23 @@ export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number)
   const criticalityFactor = m.had ? 1.5 : 1;
   // Real-world request: "ยาบางตัว min max par ไม่เหมาะสม...จำนวนยาในการใช้ 1 ครั้ง เยอะกว่าค่า min
   // max ปัจจุบันอย่างมาก" (เช่น phenytoin สั่ง 3 เดือน 270 เม็ดใน 1 เคส) — every multiplier above is
-  // still just scaling an AVERAGED daily rate, which a single large one-off dispense (infrequent
+  // still just scaling an AVERAGED daily rate, which a genuinely large one-off dispense (infrequent
   // enough to barely move a 30-day average) can blow straight through no matter how it's scaled.
-  // peakDayQty (Med, see its own doc comment) is the real worst single calendar day actually
-  // seen for this drug — clamping floor/sub par to never size below it means the exact same case
-  // showing up again is already covered, not a repeat emergency central-warehouse pull.
+  //
+  // Bug fix (real-world report, METFORMIN - PL 500 mg.): this used to clamp straight to the raw
+  // peakDayQty — the single highest real day ever recorded, no matter how anomalous. For a drug
+  // whose ordinary days are otherwise nowhere close (one 11,514-เม็ด day vs. every other real day
+  // under 700), that ONE day dictated Max/Min entirely, completely overriding the admin's own
+  // intended shelf-coverage days. peakDayP90Qty (Med, see its own doc comment and percentile()
+  // just above) is a 90th-percentile figure over the same real per-day history instead — still a
+  // real recorded value, still protects against a genuinely elevated/recurring demand level, but
+  // no longer gets dictated by one single anomalous day. Falls back to the raw peakDayQty only
+  // when p90 hasn't been computed yet for this med (same self-healing transition every field like
+  // this uses elsewhere in this app).
   const avgFloor = roundStep(daily * floorDays * m.volatility * weekdayFactor * criticalityFactor);
   const avgSub = roundStep(daily * subCoverDays * m.volatility);
-  const peakFloor = m.peakDayQty ? roundStep(m.peakDayQty) : 0;
+  const peakBasis = m.peakDayP90Qty ?? m.peakDayQty;
+  const peakFloor = peakBasis ? roundStep(peakBasis) : 0;
   const floor = Math.max(avgFloor, peakFloor);
   const sub = Math.max(avgSub, peakFloor);
   // Real-world request: "Min ควรอิงอัตราการใช้จริงเหมือน Max ไม่ใช่สัดส่วนคงที่ของ Max" — floorMinOf()

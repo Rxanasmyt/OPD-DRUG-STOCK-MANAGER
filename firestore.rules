@@ -177,8 +177,8 @@ service cloud.firestore {
                               'category', 'packSize', 'route', 'active', 'mergedInto',
                               'outOfStockSince', 'outOfStockReason', 'outOfStockExpectedReturn',
                               'weekdayPeakFactor', 'weekdayPeakDay', 'weekdayPeakOccurrences',
-                              'weekdayPattern', 'peakDayQty', 'peakDayDate', 'hosxpAliases',
-                              'dispenseDays30'
+                              'weekdayPattern', 'peakDayQty', 'peakDayDate', 'peakDayP90Qty',
+                              'hosxpAliases', 'dispenseDays30'
                             ])
                          && (!('name' in request.resource.data) || request.resource.data.name is string)
                          && (!('unit' in request.resource.data) || request.resource.data.unit is string)
@@ -213,6 +213,7 @@ service cloud.firestore {
                          && (!('weekdayPattern' in request.resource.data) || request.resource.data.weekdayPattern is list)
                          && (!('peakDayQty' in request.resource.data) || request.resource.data.peakDayQty is number)
                          && (!('peakDayDate' in request.resource.data) || request.resource.data.peakDayDate is string)
+                         && (!('peakDayP90Qty' in request.resource.data) || isNonNegNum(request.resource.data.peakDayP90Qty))
                          && (!('hosxpAliases' in request.resource.data) || request.resource.data.hosxpAliases is list)
                          && (!('dispenseDays30' in request.resource.data) || isNonNegNum(request.resource.data.dispenseDays30)))
                     || (isActive() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['floor', 'lastCountTs', 'lastSubCountTs'])
@@ -231,7 +232,8 @@ service cloud.firestore {
                     // that branch's own copy of these fields.
                     || (isPharmOrAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                            'used30', 'usedPrev30', 'dispenseDays30', 'weekdayPeakFactor', 'weekdayPeakDay',
-                           'weekdayPeakOccurrences', 'weekdayPattern', 'peakDayQty', 'peakDayDate'
+                           'weekdayPeakOccurrences', 'weekdayPattern', 'peakDayQty', 'peakDayDate',
+                           'peakDayP90Qty'
                          ])
                         && (!('used30' in request.resource.data) || isNonNegNum(request.resource.data.used30))
                         && (!('usedPrev30' in request.resource.data) || isNonNegNum(request.resource.data.usedPrev30))
@@ -241,7 +243,8 @@ service cloud.firestore {
                         && (!('weekdayPeakOccurrences' in request.resource.data) || request.resource.data.weekdayPeakOccurrences is number)
                         && (!('weekdayPattern' in request.resource.data) || request.resource.data.weekdayPattern is list)
                         && (!('peakDayQty' in request.resource.data) || request.resource.data.peakDayQty is number)
-                        && (!('peakDayDate' in request.resource.data) || request.resource.data.peakDayDate is string));
+                        && (!('peakDayDate' in request.resource.data) || request.resource.data.peakDayDate is string)
+                        && (!('peakDayP90Qty' in request.resource.data) || isNonNegNum(request.resource.data.peakDayP90Qty)));
     }
     // ---- lots: any approved staff can read/write (receiving, FEFO transfer, scrap
     // all touch lots as part of normal day-to-day work, not just pharm/admin). Schema-checked

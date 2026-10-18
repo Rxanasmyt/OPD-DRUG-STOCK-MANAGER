@@ -52,6 +52,18 @@ function isoDate(ms) {
   return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
 }
 
+// Mirrors percentile() in src/store/selectors.ts exactly — see its own doc comment for the full
+// "why" (a real-world report: METFORMIN - PL 500 mg., a single 11,514-เม็ด day driving Max
+// straight to roundStep(11,514) via the old raw-peak clamp). Nearest-rank: sort ascending, pick
+// the value at index ceil(p × n) − 1 (clamped into range) — always one of the real recorded
+// values, never an interpolated number that was never actually dispensed.
+function percentile(values, p) {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1));
+  return sorted[idx];
+}
+
 async function main() {
   const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (!keyJson) {
@@ -238,14 +250,17 @@ async function main() {
       let peakQty = 0, peakDate = '';
       for (const [day, qty] of dayMap) { if (qty > peakQty) { peakQty = qty; peakDate = day; } }
       const roundedPeak = Math.round(peakQty);
-      if (roundedPeak > 0 && (roundedPeak !== m.peakDayQty || peakDate !== m.peakDayDate)) {
-        peak = { qty: roundedPeak, date: peakDate };
+      // Real-world report (METFORMIN - PL 500 mg.): see percentile()'s own comment above and
+      // Med.peakDayP90Qty's (src/types.ts) — the 90th percentile of this SAME dayMap's values.
+      const p90Qty = Math.round(percentile(Array.from(dayMap.values()), 0.9));
+      if (roundedPeak > 0 && (roundedPeak !== m.peakDayQty || peakDate !== m.peakDayDate || p90Qty !== m.peakDayP90Qty)) {
+        peak = { qty: roundedPeak, date: peakDate, p90: p90Qty };
         peaksFound++;
       }
-    } else if (m.peakDayQty) {
+    } else if (m.peakDayQty || m.peakDayP90Qty) {
       // No reconcile_hosxp history at all left within the (longer) peak window — the old peak is
-      // no longer traceable to any real remaining data; clear it rather than let a stale number
-      // linger forever with nothing backing it.
+      // no longer traceable to any real remaining data; clear it (both figures) rather than let
+      // a stale number linger forever with nothing backing it.
       peak = 'clear';
     }
 
@@ -291,9 +306,9 @@ async function main() {
         fields.weekdayPeakOccurrences = w.weekday.occ; fields.weekdayPattern = w.weekday.pattern;
       }
       if (w.peak === 'clear') {
-        fields.peakDayQty = FieldValue.delete(); fields.peakDayDate = FieldValue.delete();
+        fields.peakDayQty = FieldValue.delete(); fields.peakDayDate = FieldValue.delete(); fields.peakDayP90Qty = FieldValue.delete();
       } else if (w.peak) {
-        fields.peakDayQty = w.peak.qty; fields.peakDayDate = w.peak.date;
+        fields.peakDayQty = w.peak.qty; fields.peakDayDate = w.peak.date; fields.peakDayP90Qty = w.peak.p90;
       }
       b.update(db.collection('meds').doc(w.id), fields);
     });
