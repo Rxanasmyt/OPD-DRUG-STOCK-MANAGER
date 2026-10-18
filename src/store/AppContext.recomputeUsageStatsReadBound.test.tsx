@@ -50,3 +50,57 @@ describe('recomputeUsageStats — tx-type filtering regression', () => {
     expect(write.data!.used30).toBe(20); // 10 + 10 reconcile_hosxp only, never +500
   });
 });
+
+// Real-world report: a screenshot of ReconcileScreen's gap-detector showing 100+ "ตัดไม่ครบ"
+// false positives a day, almost all emergency/ICU injectables with real but sporadic usage —
+// see Med.dispenseDays30's own doc comment (types.ts) for the full story. This locks in that
+// recomputeUsageStats() actually computes the new field correctly: a FREQUENCY count (distinct
+// real calendar days), not a repeat of the quantity sum used30 already tracks.
+describe('recomputeUsageStats — dispenseDays30 computation regression', () => {
+  const DAY = 86400000;
+
+  it('counts distinct calendar days, not raw tx count — two txs on the same day count once', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<Harness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    seedCollection('txs', [
+      { type: 'reconcile_hosxp', name: MED.name, medId: MED.id, qty: -5, unit: 'เม็ด', by: 'u1', ts: Date.now() - 1 * DAY },
+      // A second, separate reconcile row landing the SAME real day (e.g. two package-size rows
+      // for the same drug) — must still count as only 1 distinct day.
+      { type: 'reconcile_hosxp', name: MED.name, medId: MED.id, qty: -3, unit: 'เม็ด', by: 'u1', ts: Date.now() - 1 * DAY + 1000 },
+      { type: 'reconcile_hosxp', name: MED.name, medId: MED.id, qty: -5, unit: 'เม็ด', by: 'u1', ts: Date.now() - 2 * DAY },
+    ]);
+
+    await user.click(screen.getByRole('button', { name: 'recompute' }));
+    await waitFor(() => expect(getLastBatchWrites().length).toBeGreaterThan(0));
+
+    const [write] = getLastBatchWrites();
+    expect(write.data!.dispenseDays30).toBe(2); // 2 distinct days, not 3 raw tx rows
+  });
+
+  it('spreads a multi-day covered batch (Monday catch-up) across its own real days, not just one', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<Harness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    const { isoDate } = await import('../utils/format');
+    const mondayTs = Date.now() - 1 * DAY;
+    seedCollection('txs', [
+      // One combined tx logged "today" (ts) but covering 3 real days (Fri-Sat-Sun) — must count
+      // as 3 distinct days, not 1 (the day it happened to be committed on).
+      {
+        type: 'reconcile_hosxp', name: MED.name, medId: MED.id, qty: -30, unit: 'เม็ด', by: 'u1', ts: mondayTs,
+        coveredFrom: isoDate(mondayTs - 2 * DAY), coveredTo: isoDate(mondayTs),
+      },
+    ]);
+
+    await user.click(screen.getByRole('button', { name: 'recompute' }));
+    await waitFor(() => expect(getLastBatchWrites().length).toBeGreaterThan(0));
+
+    const [write] = getLastBatchWrites();
+    expect(write.data!.dispenseDays30).toBe(3);
+  });
+});

@@ -132,6 +132,27 @@ describe('fetchReconcileGaps — missed-day and per-day leak detection regressio
     expect(screen.getByTestId('gap-' + isoDay(1))).not.toHaveTextContent(MED_RARE.id);
   });
 
+  // Real-world report: a screenshot of this exact panel showing 100+ "ตัดไม่ครบ" items a day,
+  // almost all emergency/ICU injectables (Adenosine, Amiodarone, Dopamine, ...) kept in stock
+  // for rare cases (a refer-back case from รพ.ยะลา, say) rather than genuinely daily drugs —
+  // see Med.dispenseDays30's own doc comment (types.ts) and isRegularlyDispensed()'s
+  // (selectors.ts) for the full fix.
+  it('never flags a med with real quantity but low day-frequency (dispenseDays30) as a "partial" leak — the exact false-positive case reported', async () => {
+    const user = userEvent.setup();
+    const emergencyDrug = { ...MED_B, id: 'm4', name: 'Adenosine 3 mg/ml Vial', used30: 30, dispenseDays30: 2 };
+    renderWithApp(<GapsHarness days={1} />);
+    await setup([MED_A, emergencyDrug]);
+    // Yesterday: only MED_A got a reconcile_hosxp tx — the emergency drug did not, same as most
+    // days of the month for a real sporadic-use drug.
+    seedCollection('txs', [
+      { type: 'reconcile_hosxp', medId: MED_A.id, ts: NOW - 1 * DAY },
+    ]);
+
+    await user.click(screen.getByRole('button', { name: 'run' }));
+    await waitFor(() => expect(screen.getByTestId('gap-count')).toHaveTextContent('0'));
+    expect(screen.queryByTestId('gap-' + isoDay(1))).not.toBeInTheDocument();
+  });
+
   it('excludes today itself from the scan even with zero reconcile_hosxp tx today', async () => {
     const user = userEvent.setup();
     renderWithApp(<GapsHarness days={1} />);

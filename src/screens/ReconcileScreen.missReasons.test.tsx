@@ -49,6 +49,10 @@ function Harness({ pastedText }: { pastedText: string }) {
   return (
     <>
       <button onClick={() => void processHosxp()}>process</button>
+      {/* Exposes the two pieces of nav state the "แก้ไขชื่อยา..." fix-it link is supposed to set
+          — see ReconcileScreen.tsx's own goFixMed() — without needing to mount the real
+          MedsScreen just to observe where it would land. */}
+      <div data-testid="nav-state">{state.screen}:{state.medsFocusId ?? 'none'}</div>
       <ReconcileScreen />
     </>
   );
@@ -99,5 +103,25 @@ describe('ReconcileScreen — miss-reasons panel regression', () => {
 
     await screen.findByRole('button', { name: /ตัดยอดหน้างานตามไฟล์นี้/ });
     expect(screen.queryByText(/ยาที่ปกติจ่ายทุกวันแต่ไม่ถูกตัดยอด/)).not.toBeInTheDocument();
+  });
+
+  // Real-world request: "สามารถเชื่อมโยงปัญหานั่นไปแก้ปัญหาจริงได้" — a "not_in_file" row (a
+  // real, mechanical fix: rename/add a HOSxP alias) gets a direct link straight into that med's
+  // own edit form, reusing the same medsFocusId mechanism the QR-scan flow already uses.
+  it('the "แก้ไขชื่อยา..." link on a not_in_file row jumps straight to that med\'s edit form', async () => {
+    const user = await setup('SomeOtherDrug,5', [MED_A]);
+
+    await screen.findByText(/ยาที่ปกติจ่ายทุกวันแต่ไม่ถูกตัดยอดจากไฟล์นี้ \(1 รายการ\)/);
+    expect(screen.getByTestId('nav-state')).not.toHaveTextContent('meds:' + MED_A.id);
+    await user.click(screen.getByRole('button', { name: /แก้ไขชื่อยา\/เพิ่มชื่อ HOSxP ที่รู้จัก/ }));
+    expect(screen.getByTestId('nav-state')).toHaveTextContent('meds:' + MED_A.id);
+  });
+
+  it('shows no fix-it link on an ambiguous (OPD/IPD clash) row — not a single-med fix', async () => {
+    await setup('Insulin NPH,8', [MED_OPD, MED_IPD]);
+
+    const heading = await screen.findByText('ยาที่ปกติจ่ายทุกวันแต่ไม่ถูกตัดยอดจากไฟล์นี้ (2 รายการ)');
+    const panel = heading.closest('.card') as HTMLElement;
+    expect(within(panel).queryByRole('button', { name: /แก้ไขชื่อยา/ })).not.toBeInTheDocument();
   });
 });

@@ -95,12 +95,22 @@ async function main() {
   const targets = meds.filter((m) => m.active);
 
   // ---------------------------------------------------------------------------------------------
-  // Part 1: flat used30/usedPrev30 (30/60-day totals) — unchanged from before this round.
+  // Part 1: flat used30/usedPrev30 (30/60-day totals), plus dispenseDays30 (this round — see
+  // Med.dispenseDays30's own doc comment, src/types.ts, for the full "why": a real-world report
+  // of 100+ false-positive "ตัดไม่ครบ" items a day, almost all sporadically-used emergency/ICU
+  // drugs that the old plain `used30 > 0` bar wrongly treated as "expected every day"). Tracks
+  // the DISTINCT real calendar days (not raw tx count) each med got a reconcile_hosxp deduction
+  // within the current 30-day bucket, spreading a multi-day covered batch across its real days
+  // — same convention Part 2's weekday/peak-day maps below already use. Mirrors
+  // recomputeUsageStats()'s identical fix (src/store/AppContext.tsx) — kept in sync per this
+  // file's own header comment's convention.
   // ---------------------------------------------------------------------------------------------
   const curByName = {};
   const prevByName = {};
   const curById = {};
   const prevById = {};
+  const curDaysByName = {};
+  const curDaysById = {};
   for (const d of txSnap.docs) {
     const x = d.data();
     // txSnap is now `ts`-range-bounded but type-UNfiltered (see the comment at its own fetch
@@ -119,6 +129,25 @@ async function main() {
       const map = bucket === 30 ? curByName : prevByName;
       map[x.name] = (map[x.name] || 0) + Math.abs(x.qty);
     }
+    if (bucket !== 30) continue; // dispenseDays30 only ever covers the current 30-day bucket
+    const fromIso = x.coveredFrom || isoDate(x.ts);
+    const toIso = x.coveredTo || isoDate(x.ts);
+    const fromTs = new Date(fromIso + 'T00:00:00').getTime();
+    const toTs = new Date(toIso + 'T00:00:00').getTime();
+    const daysCovered = Math.max(1, Math.round((toTs - fromTs) / DAY) + 1);
+    for (let i = 0; i < daysCovered; i++) {
+      const dayTs = fromTs + i * DAY;
+      if (dayTs > now) continue;
+      const dIso = isoDate(dayTs);
+      if (dupNames.has(x.name)) {
+        if (!x.medId) continue;
+        if (!curDaysById[x.medId]) curDaysById[x.medId] = new Set();
+        curDaysById[x.medId].add(dIso);
+      } else {
+        if (!curDaysByName[x.name]) curDaysByName[x.name] = new Set();
+        curDaysByName[x.name].add(dIso);
+      }
+    }
   }
 
   let batch = db.batch();
@@ -127,7 +156,8 @@ async function main() {
   for (const m of targets) {
     const used30 = dupNames.has(m.name) ? (curById[m.id] || 0) : (curByName[m.name] || 0);
     const usedPrev30 = dupNames.has(m.name) ? (prevById[m.id] || 0) : (prevByName[m.name] || 0);
-    batch.update(db.collection('meds').doc(m.id), { used30: Math.round(used30), usedPrev30: Math.round(usedPrev30) });
+    const dispenseDays30 = dupNames.has(m.name) ? (curDaysById[m.id]?.size || 0) : (curDaysByName[m.name]?.size || 0);
+    batch.update(db.collection('meds').doc(m.id), { used30: Math.round(used30), usedPrev30: Math.round(usedPrev30), dispenseDays30 });
     opsInBatch++;
     written++;
     if (opsInBatch >= 400) {

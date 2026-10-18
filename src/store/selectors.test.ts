@@ -9,6 +9,7 @@ import {
   topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes,
   discrepancyByCategory, repeatAdrReturns, frequentFloorRefills,
   monthlyDaySplits, boxBreakdownLabel, halfOfMaxRounded, isNewerVersionAvailable, hosxpMissReasons,
+  isRegularlyDispensed,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
 import { DAY } from '../utils/format';
@@ -1124,6 +1125,30 @@ describe('matchHosxpMed', () => {
   });
 });
 
+// Real-world report: a screenshot of ReconcileScreen's gap-detector showing 100+ "ตัดไม่ครบ"
+// items a day, almost all emergency/ICU injectables (Adenosine, Amiodarone, Dopamine, Magnesium
+// Sulfate, KCl, ...) kept in stock for rare cases (e.g. a refer-back case from รพ.ยะลา) rather
+// than genuinely daily drugs — see Med.dispenseDays30's own doc comment (types.ts) for the full
+// story.
+describe('isRegularlyDispensed', () => {
+  it('treats a med with dispenseDays30 at or above the threshold as regular', () => {
+    expect(isRegularlyDispensed(med({ dispenseDays30: 10, used30: 1 }))).toBe(true);
+    expect(isRegularlyDispensed(med({ dispenseDays30: 22, used30: 1 }))).toBe(true);
+  });
+
+  it('treats a med with real quantity but low day-frequency as NOT regular — the exact false-positive case reported', () => {
+    // A real emergency drug: a single big dispense this month (used30 > 0), but only moved on
+    // 2 distinct real days — nowhere near "expected to move today."
+    expect(isRegularlyDispensed(med({ dispenseDays30: 2, used30: 300 }))).toBe(false);
+    expect(isRegularlyDispensed(med({ dispenseDays30: 0, used30: 5 }))).toBe(false);
+  });
+
+  it('falls back to the old used30 > 0 bar only when dispenseDays30 has never been computed', () => {
+    expect(isRegularlyDispensed(med({ used30: 5 }))).toBe(true); // dispenseDays30 undefined
+    expect(isRegularlyDispensed(med({ used30: 0 }))).toBe(false);
+  });
+});
+
 // Real-world request: "ต้องมีรายละเอียดบอกให้ชัดเจนเลยครับว่ายาในแอพตัวใดไม่ได้ถูกตัดจ่าย ต้องมีเหตุผล
 // กำกับ เช่นจำนวนยาที่จ่าย =0 จึงไม่ได้ถูกตัดจำนวน หรือไม่พบชื่อยาในใบ Hosxp หรือสาเหตุอื่นๆ"
 describe('hosxpMissReasons', () => {
@@ -1153,6 +1178,14 @@ describe('hosxpMissReasons', () => {
   it('never flags a genuinely-rare med (used30 === 0), even with nothing in the file for it', () => {
     const rows = [{ name: 'Some Other Drug', qty: 5, match: { kind: 'none' as const } }];
     expect(hosxpMissReasons([RARE], rows)).toEqual([]);
+  });
+
+  // Real-world report: 100+ false-positive "ตัดไม่ครบ" items a day, almost all emergency/ICU
+  // injectables with real but sporadic usage (used30 > 0 from one big order, not daily moves).
+  it('never flags a med with real quantity but low day-frequency (dispenseDays30) — the exact false-positive case reported', () => {
+    const emergencyDrug = med({ id: 'f', name: 'Adenosine 3 mg/ml Vial', used30: 30, dispenseDays30: 2 });
+    const rows = [{ name: 'Some Other Drug', qty: 5, match: { kind: 'none' as const } }];
+    expect(hosxpMissReasons([emergencyDrug], rows)).toEqual([]);
   });
 
   it('flags the OPD/IPD same-name collision specifically as a ward clash', () => {
