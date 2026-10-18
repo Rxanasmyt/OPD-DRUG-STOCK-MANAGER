@@ -211,6 +211,20 @@ export interface Med {
   // vs. a suspicious data-entry spike) instead of taking it on faith, same reasoning as
   // weekdayPeakDay.
   peakDayDate?: string | undefined;
+  // Real-world request: "อยากให้มีระบบตรวจชื่อยาจากใบ hosxp และชื่อยาจากแอพที่แม่นยำมากกว่านี้" —
+  // matchHosxpMed() (selectors.ts) is deliberately conservative (exact match after whitespace/
+  // punctuation normalization, or a single-candidate substring fallback — never fuzzy/semantic
+  // guessing, since a wrong match deducts stock from the wrong drug). When a med's real HOSxP
+  // export spelling is a genuine, recurring variant that normalization alone can't bridge (an
+  // abbreviation like "PCM" for "Paracetamol", a dosage form HOSxP always appends that this
+  // app's own name doesn't carry), the only fix used to be renaming the med itself — which loses
+  // whatever display name this app's own staff actually prefer. This lets an admin register a
+  // known HOSxP spelling once (MedsScreen's "แก้ไขข้อมูลยา" form), matched with EXACTLY the same
+  // normalize-then-compare rule as the med's own `name` — still zero fuzzy logic, same safety
+  // bar, just one more string allowed to count as "this drug." Optional — every med has none
+  // until an admin adds one; matchHosxpMed() treats a missing/empty list exactly as before this
+  // field existed.
+  hosxpAliases?: string[] | undefined;
 }
 
 export interface Lot {
@@ -313,6 +327,17 @@ export type AuditType =
   // aggregates these across recent runs so a name that keeps failing to match stays visible
   // instead of being a fresh, easy-to-miss surprise every single day.
   | 'hosxp_unmatched'
+  // Logged once per commitReconcile() run that found any hosxpMissReasons() entry (selectors.ts)
+  // — the OTHER direction from hosxp_unmatched above: a med this app carries that regularly
+  // dispenses but got no deduction from THIS file, with the specific reason (zero_qty/
+  // not_in_file/ambiguous). hosxpMissReasons only ever runs live, pre-commit, against the
+  // currently-loaded file — without this, that reasoning vanished the moment the file was
+  // committed, leaving no way to tell later whether a given med keeps genuinely falling
+  // through for the SAME reason every time (worth fixing) or just had an unlucky one-off.
+  // ReconcileScreen's own retrospective panel aggregates these across recent runs the same
+  // way it already does for hosxp_unmatched. See commitReconcile()'s own write site for the
+  // exact note format.
+  | 'hosxp_miss_reasons'
   // Logged once by resetAllStockLedgers() (AppContext.tsx) — the admin-only, typed-confirmation
   // "start the system over" action that permanently deletes every tx document (the substock
   // card ledger, report/turnover stats, usage-rate history for par suggestions) without

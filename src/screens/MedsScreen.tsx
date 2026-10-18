@@ -143,6 +143,8 @@ interface MedFormValues {
   // ยากิน/ยาฉีด/ฯลฯ — ดู data/routes.ts สำหรับรายการเต็ม และ Med.route's own doc comment
   // สำหรับเหตุผลที่แยกจาก category.
   route: '' | RouteType;
+  // ชื่อที่ไฟล์ HOSxP อาจใช้เรียกยานี้ — หนึ่งชื่อต่อบรรทัด ดู Med.hosxpAliases's own doc comment
+  hosxpAliases: string;
 }
 
 function blankForm(): MedFormValues {
@@ -150,7 +152,7 @@ function blankForm(): MedFormValues {
   // one-day-dose pulls straight off the OPD shelf), so a brand-new med should start there and
   // let someone opt OUT (untick "เลิกใช้ร่วมกัน") for the minority that genuinely need separate
   // stock, rather than opting in every single time.
-  return { name: '', dosageForm: '', unit: '', price: '', had: false, fridge: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: true, binIpd: '', binSub: '', category: '', packSize: '', route: '' };
+  return { name: '', dosageForm: '', unit: '', price: '', had: false, fridge: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: true, binIpd: '', binSub: '', category: '', packSize: '', route: '', hosxpAliases: '' };
 }
 
 function formFromMed(m: Med): MedFormValues {
@@ -160,7 +162,24 @@ function formFromMed(m: Med): MedFormValues {
     ward: wardOf(m), noSubstock: !!m.noSubstock, volatility: m.volatility.toFixed(2),
     shared: isSharedMed(m), binIpd: m.binIpd || '', binSub: m.binSub || '', category: m.category || '',
     packSize: m.packSize ? String(m.packSize) : '', route: m.route || '',
+    hosxpAliases: (m.hosxpAliases || []).join('\n'),
   };
+}
+
+// Shared by both addMed/updateMedFull onSubmit call sites below — splits the textarea's
+// one-name-per-line text into a clean, deduped list, dropping anything blank or identical to
+// the med's own name (that's already covered by the plain `name` match, no need to carry it
+// twice).
+function parseHosxpAliases(raw: string, name: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of raw.split('\n')) {
+    const t = line.trim();
+    if (!t || t === name.trim() || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
 }
 
 /**
@@ -463,7 +482,7 @@ export default function MedsScreen() {
             // toast as the only feedback while every field just typed (name, dosage form,
             // price, bins, par levels, ...) was already gone, forcing a full re-entry to retry.
             // Now only closes once addMed actually confirms success.
-            const ok = await addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined, route: v.route || undefined });
+            const ok = await addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined, route: v.route || undefined, hosxpAliases: parseHosxpAliases(v.hosxpAliases, v.name) });
             if (ok) setAddOpen(false);
           }}
         />
@@ -782,7 +801,7 @@ export default function MedsScreen() {
                 // to close the sheet right after firing updateMedFull regardless of outcome, so
                 // a failure (network error, permission check) lost every edited field with only
                 // a toast to show for it. Now only closes once the save actually confirms success.
-                const ok = await updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined, route: v.route || undefined }, editBaselineRef.current);
+                const ok = await updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined, route: v.route || undefined, hosxpAliases: parseHosxpAliases(v.hosxpAliases, v.name) }, editBaselineRef.current);
                 if (ok) setEditingId(null);
               }}
               // ยาชื่อเดียวกันที่แยกรายการไว้คนละ ward (คนละ Firestore doc ตามหลักการออกแบบ
@@ -932,6 +951,32 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
             ระบบแนะนำ: {routeLabel(suggestedRoute)} — แตะเพื่อใช้
           </button>
         )}
+      </div>
+      {/* Real-world request: "อยากให้มีระบบตรวจชื่อยาจากใบ hosxp และชื่อยาจากแอพที่แม่นยำมากกว่านี้" —
+          see Med.hosxpAliases's own doc comment for why this exists and why it's still exact-match
+          only (no fuzzy guessing). Free text, one name per line — matchHosxpMed() normalizes each
+          the same way it normalizes `name` itself. */}
+      <div style={{ marginBottom: 9 }}>
+        <label style={{ display: 'block' }}>
+          <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>
+            ชื่อที่ไฟล์ HOSxP อาจใช้เรียกยานี้ (ถ้ามี)
+          </span>
+          <textarea
+            value={v.hosxpAliases}
+            onChange={(e) => set('hosxpAliases', e.target.value)}
+            rows={2}
+            placeholder={'หนึ่งชื่อต่อบรรทัด เช่น\nPCM 500\nParacet 500mg'}
+            style={{ ...inputStyle, resize: 'vertical' as const }}
+          />
+        </label>
+        {/* Outside the <label> on purpose — nested inside it, this trailing explanation would
+            become PART of the field's accessible name (getByLabelText computes a label's
+            accessible name from ALL its text content, not just the leading span), silently
+            breaking every test/screen-reader lookup keyed on the short label text above. */}
+        <span className="muted" style={{ display: 'block', fontSize: 10.5, marginTop: 3, lineHeight: 1.4 }}>
+          ใช้เมื่อไฟล์ HOSxP เขียนชื่อยานี้ไม่ตรงกับชื่อในแอพแบบที่แก้ซ้ำๆ ทุกครั้ง — ยังต้องตรงกันเป๊ะ
+          (ไม่สนตัวพิมพ์เล็ก/ใหญ่และช่องว่าง) ไม่ใช่การเดาแบบคลุมเครือ
+        </span>
       </div>
       <div className="grid-2" style={{ marginBottom: 9 }}>
         <label>

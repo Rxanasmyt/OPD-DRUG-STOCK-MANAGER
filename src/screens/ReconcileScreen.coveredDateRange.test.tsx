@@ -12,11 +12,19 @@ import ReconcileScreen from './ReconcileScreen';
 import { useApp } from '../store/AppContext';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import { signInAs, fireCollection, hasListener, getLastTransactionWrites } from '../test-utils/firebaseTestDouble';
+import { isoDate } from '../utils/format';
 
 const DAY = 24 * 60 * 60 * 1000;
+// Bug fix (test flakiness): a hand-rolled plain-Date calendar day here used to disagree with
+// the app's own Bangkok-local isoDate() (utils/format.ts) for roughly 7 hours every day — any
+// run between ~17:00 and 23:59 UTC (00:00-06:59 Bangkok the next calendar day) saw the app
+// default "yesterday" to a day this test's own helper didn't expect, failing with no connection
+// at all to anything this suite actually changed. Reusing the app's real isoDate() closes that
+// gap — same function the component itself calls, so there's no second definition of "today"
+// to drift apart, same convention every other date-dependent test file already follows (see
+// ReportScreen.*.test.tsx).
 function isoDay(daysAgo: number): string {
-  const d = new Date(Date.now() - daysAgo * DAY);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return isoDate(Date.now() - daysAgo * DAY);
 }
 
 const MED = {

@@ -27,7 +27,7 @@ import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetch
 import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchReconcileHosxpTxs, fetchAllTxs, fetchTxsByName, fetchTxsAfter, queryTxsByDateRange } from './repositories/txsRepo';
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
 import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -162,6 +162,7 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
   receive_from_central: 'รับเข้า substock', receive_pending: 'รับเข้า (รออนุมัติ)', receive_rejected: 'ปฏิเสธคำขอรับเข้า', transfer_to_floor: 'เติมหน้างาน',
   adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP',
   hosxp_unmatched: 'ยาที่จับคู่ไม่ได้จาก HOSxP',
+  hosxp_miss_reasons: 'ยาที่ไม่ถูกตัดยอดจาก HOSxP (พร้อมเหตุผล)',
   ward_move_out: 'ย้ายชั้นวาง (ต้นทาง)', ward_move_in: 'ย้ายชั้นวาง (ปลายทาง)',
   stock_drift_detected: 'ตรวจพบความเพี้ยนของยอดคงคลัง (ตรวจสอบอัตโนมัติ)',
   med_data_repair: 'ซ่อมแซมข้อมูลวันที่นับสต็อกที่เสีย',
@@ -543,7 +544,7 @@ export interface AppCtx {
   // med" form used to close (discarding every field just typed) right after firing this,
   // regardless of outcome, since it had no way to tell a failure apart from a success without
   // awaiting a real signal back.
-  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number | undefined; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined }) => Promise<boolean | undefined>;
+  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number | undefined; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined }) => Promise<boolean | undefined>;
   // Bug fix (flow friction): same shape as addMed above — MedsScreen's edit-med sheet used to
   // close (discarding every edited field) right after firing this, regardless of outcome.
   // `baseline`: the med record as it looked when the edit form was first opened (frozen by the
@@ -552,7 +553,7 @@ export interface AppCtx {
   // catch). Pass null when there's no meaningful baseline to compare against (there shouldn't
   // be a legitimate caller of updateMedFull without one, but it's optional rather than required
   // so a future caller can't be forced to fabricate one).
-  updateMedFull: (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined }, baseline: Med | null) => Promise<boolean | undefined>;
+  updateMedFull: (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined }, baseline: Med | null) => Promise<boolean | undefined>;
   /** Merges an existing OPD/IPD ward-pair (same name, one 'opd' one 'ipd' record) into a
    * single pooled record — see Med.binIpd. Survives as the OPD-ward record with the IPD
    * record's bin code carried over as `binIpd`; floor/used30/usedPrev30 are summed (not
@@ -3998,7 +3999,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [canEditMeds, logAudit, toast, toastErr]);
 
   // ---------- meds (formulary) management ----------
-  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number | undefined; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined }): Promise<boolean> => {
+  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number | undefined; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined }): Promise<boolean> => {
     if (!canEditMeds) return false;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
@@ -4091,6 +4092,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ...(input.category ? { category: input.category } : {}),
           ...(input.packSize && input.packSize > 1 ? { packSize: Math.round(input.packSize) } : {}),
           ...(input.route ? { route: input.route } : {}),
+          ...(input.hosxpAliases && input.hosxpAliases.length ? { hosxpAliases: input.hosxpAliases } : {}),
         });
         return { code: c, id: newMed.id };
       });
@@ -4120,9 +4122,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     bin: 'ชั้นวาง', binSub: 'ชั้นวาง substock', parSub: 'par substock', parFloor: 'par หน้างาน',
     floorMin: 'Min หน้างาน', ward: 'ward', noSubstock: 'ไม่มี substock', volatility: 'volatility',
     shared: 'ใช้ยอดร่วมกัน', binIpd: 'ชั้นวาง IPD', category: 'หมวดยา', packSize: 'ขนาดแพ็ค',
-    route: 'ประเภทการให้ยา',
+    route: 'ประเภทการให้ยา', hosxpAliases: 'ชื่อ HOSxP ที่รู้จัก',
   };
-  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined }, baseline: Med | null): Promise<boolean> => {
+  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined }, baseline: Med | null): Promise<boolean> => {
     if (!canEditMeds) return false;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
@@ -4144,7 +4146,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!liveSnap.exists()) { toast('ยานี้ถูกลบออกจากระบบไปแล้ว — บันทึกไม่ได้'); return false; }
       const live = liveSnap.data() as Record<string, unknown>;
       const baselineRec = baseline as unknown as Record<string, unknown>;
-      const changedFields = Object.keys(MED_FIELD_LABEL).filter((k) => (live[k] ?? null) !== (baselineRec[k] ?? null));
+      // JSON.stringify (not a bare !==) since hosxpAliases is an array — two freshly-read
+      // arrays with the same contents are never === by reference, which would otherwise flag
+      // every single save as a "lost update" even when nothing about this field actually changed.
+      const changedFields = Object.keys(MED_FIELD_LABEL).filter((k) => JSON.stringify(live[k] ?? null) !== JSON.stringify(baselineRec[k] ?? null));
       if (changedFields.length && !(await confirmAsync(
         'มีคนอื่นแก้ไข ' + changedFields.map((k) => MED_FIELD_LABEL[k]).join(', ') + ' ของ "' + (typeof live.name === 'string' ? live.name : name)
         + '" ไปแล้วตั้งแต่เปิดฟอร์มนี้ — บันทึกต่อจะเขียนทับค่าที่คนอื่นแก้ไว้ด้วยค่าที่กรอกในฟอร์มนี้ทั้งหมด\n\n'
@@ -4187,6 +4192,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       category: input.category ? input.category : deleteField(),
       packSize: input.packSize && input.packSize > 1 ? Math.round(input.packSize) : deleteField(),
       route: input.route ? input.route : deleteField(),
+      hosxpAliases: input.hosxpAliases && input.hosxpAliases.length ? input.hosxpAliases : deleteField(),
     };
     try {
       await withTimeout(updateDoc(medRef(medId), patch));
@@ -5541,6 +5547,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // the aggregator can split it back out reliably.
       if (skippedNames.length) {
         await logAudit({ type: 'hosxp_unmatched', note: 'จับคู่ไม่ได้ ' + skippedNames.length + ' รายการจากไฟล์ HOSxP\n' + skippedNames.join(' | ') });
+      }
+      // Real-world request: "มีอะไรที่ต้องพัฒนาอีกครับเพื่อแอพแม่นยำเรื่องชื่อยา เพื่อไม่ให้หลุดยาใน
+      // รพ.ที่มีในแอพ" — hosxpMissReasons() (selectors.ts) only ever runs live, pre-commit, against
+      // whatever's still in state.hosxpRows — once this commit clears that below, the specific
+      // REASON a med fell through (zero_qty/not_in_file/ambiguous) was gone for good, leaving only
+      // a bare name in ReconcileScreen's "ยาที่หลุดบ่อย" panel (and only for a row that WAS in the
+      // file but failed to match — the opposite direction from this). One audit entry per run,
+      // same "aggregate across recent runs" convention as hosxp_unmatched just above, so a med
+      // that keeps falling through for the SAME reason every time stays visible instead of being
+      // a fresh surprise each morning. zero_qty is deliberately excluded — it's already correctly
+      // explained as "not a problem" (the file resolved it, qty was just really 0), so persisting
+      // it would just add noise to a panel meant to surface things worth actually fixing. Format:
+      // a count line, then '[reasonKind] med name' entries joined by ' | ' (same separator
+      // convention as hosxp_unmatched — a real drug name can contain a comma, never a ']').
+      const missEntries = hosxpMissReasons(meds, rows).filter((e) => e.reason.kind !== 'zero_qty');
+      if (missEntries.length) {
+        await logAudit({
+          type: 'hosxp_miss_reasons',
+          note: 'ยาที่ปกติจ่ายแต่ไม่ถูกตัดยอดจากไฟล์นี้ ' + missEntries.length + ' รายการ\n'
+            + missEntries.map((e) => '[' + e.reason.kind + '] ' + e.med.name).join(' | '),
+        });
       }
       patch({ hosxpRows: null, hosxpText: '', hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '' });
       // Rows with qty <= 0 were previously silently dropped from this summary entirely —
