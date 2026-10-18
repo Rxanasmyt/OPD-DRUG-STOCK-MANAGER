@@ -1,20 +1,44 @@
 name: Firestore Backup
 
-# Daily export of every Firestore collection to a downloadable Actions artifact — the free-tier
-# (Spark plan) alternative to Firestore's built-in Scheduled Backups feature, which requires the
-# Blaze billing plan. See scripts/backup-firestore.mjs for what gets backed up and how, and
-# scripts/restore-firestore.mjs for how to restore one of these files back into Firestore.
+# Daily export of every Firestore collection — the free-tier (Spark plan) alternative to
+# Firestore's built-in Scheduled Backups feature, which requires the Blaze billing plan. See
+# scripts/backup-firestore.mjs for what gets backed up and how, and scripts/restore-firestore.mjs
+# for how to restore one of these files back into Firestore.
 #
-# One-time setup (do this once, in this repo's GitHub settings):
+# Bug fix (security/privacy incident, system analysis — this repo is PUBLIC so GitHub Pages can
+# keep serving the live app for free; GitHub Pages on a private repo needs a paid GitHub plan):
+# this workflow used to upload the full daily backup — meds/lots/users/txs/auditLog, i.e. the
+# ENTIRE hospital database — as a GitHub Actions artifact via actions/upload-artifact@v4. For a
+# public repo, Actions artifacts are downloadable by ANYONE with a free GitHub account, no
+# authorization check at all — this had been quietly exposing real patient-adjacent pharmacy
+# stock/transaction data to the public internet every day. Fixed by pushing the backup files (and
+# the incremental-backup cursor state for txs/auditLog — see backup-firestore.mjs's own comment)
+# into a SEPARATE, PRIVATE repo instead of an artifact on this public one. This repo's own content
+# never changes — no backup data is ever committed here.
+#
+# One-time setup (do this once, in GitHub's settings — two repos involved):
 #   1. Firebase Console → project opd-drug-stock → ⚙️ Project settings → Service accounts
 #      → "Generate new private key" — downloads a serviceAccountKey.json file.
 #   2. This repo → Settings → Secrets and variables → Actions → New repository secret
 #      → name it FIREBASE_SERVICE_ACCOUNT_KEY → paste the ENTIRE contents of that JSON file.
-#   3. Delete the downloaded file from your computer once it's pasted in — treat it like a
-#      password (it grants full read/write access to the Firestore database).
+#      → Delete the downloaded file from your computer once it's pasted in — treat it like a
+#        password (it grants full read/write access to the Firestore database).
+#   3. Create a separate PRIVATE repo to hold backup data (e.g. <owner>/OPD-DRUG-STOCK-MANAGER-
+#      backups) — this repo's own visibility stays public, only the backup repo is private.
+#   4. On github.com → Settings (top-right profile menu, not the repo's) → Developer settings →
+#      Personal access tokens → Fine-grained tokens → Generate new token. Repository access:
+#      "Only select repositories" → pick the backup repo only. Permissions → Repository
+#      permissions → Contents: Read and write. Generate, copy the token.
+#   5. This repo → Settings → Secrets and variables → Actions → New repository secret
+#      → name it BACKUP_REPO_TOKEN → paste the token from step 4. Delete it from your clipboard/
+#      notes once saved — it's a password scoped to just the backup repo.
+#   6. This repo → Settings → Secrets and variables → Actions → New repository variable
+#      → name it BACKUP_REPO → value <owner>/<backup-repo-name> (e.g.
+#      Rxanasmyt/OPD-DRUG-STOCK-MANAGER-backups).
 #
-# Until that secret exists, this workflow will fail every run with a clear "env var is not set"
-# error (see the script) rather than silently doing nothing.
+# Until FIREBASE_SERVICE_ACCOUNT_KEY exists, this workflow fails every run with a clear "env var
+# is not set" error (see the script) rather than silently doing nothing. Until BACKUP_REPO_TOKEN/
+# BACKUP_REPO exist, the "checkout backup repo" step below fails clearly instead.
 
 on:
   schedule:
@@ -35,8 +59,18 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # The private backup repo — holds yesterday's (and every previous day's) incremental-backup
+      # cursor state for txs/auditLog, plus every backup file this workflow has ever produced.
+      # Checked out with a fine-grained PAT scoped to ONLY this one repo (see this file's header
+      # comment, step 4) so actions/checkout's own credential helper can push back to it later —
+      # the default GITHUB_TOKEN only has permission on the repo the workflow itself runs in.
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.BACKUP_REPO }}
+          token: ${{ secrets.BACKUP_REPO_TOKEN }}
+          path: backup-repo
       - id: backup
-        run: node scripts/backup-firestore.mjs
+        run: node scripts/backup-firestore.mjs --state-dir=backup-repo/state --out-dir=backup-repo/backups
         env:
           FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
       # Proves the file this run just produced can actually be restored — not just that it was
@@ -54,16 +88,13 @@ jobs:
       - run: node scripts/restore-firestore.mjs "${{ steps.backup.outputs.file }}"
         env:
           FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: firestore-backup-${{ github.run_id }}
-          path: backups/*.json
-          # Real-world gap (system analysis, not a direct user request): 14 days meant a
-          # corruption or bad admin action discovered more than 2 weeks later had NO recovery
-          # path at all — for a hospital system of record, that's a real risk, not just a nice-
-          # to-have. 90 is the maximum GitHub Actions allows on the free (public-repo) tier —
-          # raising it further would need a paid plan's longer artifact retention, or pushing
-          # backups to genuinely separate off-site storage (S3/GCS/etc.), which needs its own
-          # secret this repo doesn't have configured. 90 days with zero new infra/secrets is the
-          # best available improvement within what's already set up.
-          retention-days: 90
+      # Commits and pushes today's backup file + the refreshed incremental-cursor state into the
+      # private backup repo. This repo (the public one) never gets backup data committed to it.
+      - name: Commit and push to backup repo
+        working-directory: backup-repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && echo "Nothing new to commit." || git commit -m "Firestore backup $(date -u +%Y-%m-%dT%H-%M-%SZ)"
+          git push
