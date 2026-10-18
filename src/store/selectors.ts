@@ -1108,7 +1108,27 @@ const STOCKOUT_FEEDBACK_FACTOR = 1.3;
 
 export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number): { floor: number; sub: number; min: number } | null {
   if (!(m.used30 > 0)) return null; // ไม่มีสถิติการใช้จริง ห้ามแนะนำ par (roundStep(0) จะได้ 1 เสมอ ทำให้ค่าแนะนำผิดเพี้ยน)
-  const daily = parSuggestionDailyRate(m);
+  const rawDaily = parSuggestionDailyRate(m);
+  // Bug fix (real-world report, follow-up — METFORMIN - PL 500 mg. AGAIN, same drug): the
+  // peakDayP90Qty clamp above only ever protects the PEAK-day component of Max (peakFloor). It
+  // does nothing for the AVERAGED-rate component (avgFloor below) — and that average comes
+  // straight from used30/usedPrev30, which are raw 30/60-day SUMS with no outlier protection of
+  // their own. If the same huge one-off dispense that used to dominate peakFloor directly also
+  // happened to land within the last 30-60 days (not just the longer 180-day peak window), it's
+  // STILL baked into used30 — inflating `daily` itself, which then inflates avgFloor/avgSub/
+  // rawMin independently of the peak-clamp fix, reproducing the exact "Max in the tens of
+  // thousands" symptom the whole fix was supposed to prevent. Caught because a user reported Max
+  // back at ~11,900 even though the med's own p90 figure (SettingsScreen's peak-day panel) was
+  // correctly low (hundreds) — proving the AVERAGE component, not the peak clamp, was the culprit.
+  //
+  // Fix: the 90th-percentile real single-day amount (peakDayP90Qty) is already a ceiling on what
+  // a NORMAL busy day looks like — an averaged daily RATE mathematically can't exceed it unless
+  // an extreme outlier beyond that ceiling is still contaminating the raw used30 sum. Capping
+  // `daily` there removes that contamination from every multiplier below at once, not just the
+  // peak clamp — while the exported parSuggestionDailyRate() (the "~N หน่วย/วัน" badge elsewhere)
+  // deliberately stays UNCAPPED, since that badge's whole job is showing the honest recent rate,
+  // not the par-sizing-safe one.
+  const daily = m.peakDayP90Qty != null ? Math.min(rawDaily, m.peakDayP90Qty) : rawDaily;
   // Bug fix: a med with no substock stage (usesSubstock() false — see Med.noSubstock) skips
   // straight from the central-warehouse to the OPD/IPD shelf; its shelf stock has to survive
   // the full ~2-week central-warehouse refill cycle (subCoverDays) on its own, not the short

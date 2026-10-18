@@ -3906,7 +3906,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // itself returns 0 below that, which would read as a false "perfectly stable" rather than
           // "not enough data yet" — left unset instead so suggestPar() keeps falling back to the
           // admin's own typed volatility until there's real variance to measure against).
-          const cvVal = dayMap.size >= 2 ? Math.round(coefficientOfVariation(Array.from(dayMap.values())) * 1000) / 1000 : undefined;
+          //
+          // Bug fix (real-world report, follow-up): a real one-off outlier day (METFORMIN again)
+          // used to blow usageCv itself way up — a single extreme value dominates both the mean
+          // AND the variance of a raw series, so the "variability" this was meant to capture was
+          // really just "how far the one outlier sits from everything else," not how erratic this
+          // drug's NORMAL dispensing actually is. That inflated effectiveVolatility in suggestPar()
+          // on top of the SAME outlier already (separately) inflating used30/avgFloor — the two
+          // bugs compounded each other. Winsorize at p90Qty (the same real single-day ceiling the
+          // peak clamp itself uses) before computing CV: every value above that real "busy but
+          // normal" ceiling gets capped down to it first, so one extreme day can no longer drag
+          // the whole figure up on its own, while real day-to-day variation BELOW that ceiling
+          // still comes through untouched.
+          const winsorized = Array.from(dayMap.values()).map((v) => Math.min(v, p90Qty));
+          const cvVal = dayMap.size >= 2 ? Math.round(coefficientOfVariation(winsorized) * 1000) / 1000 : undefined;
           if (roundedPeak > 0 && (roundedPeak !== m.peakDayQty || peakDate !== m.peakDayDate || p90Qty !== m.peakDayP90Qty || cvVal !== m.usageCv)) {
             peak = { qty: roundedPeak, date: peakDate, p90: p90Qty, ...(cvVal !== undefined ? { cv: cvVal } : {}) };
             peaksFound++;
