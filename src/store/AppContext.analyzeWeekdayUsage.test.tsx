@@ -198,8 +198,9 @@ describe('analyzeWeekdayUsage — peak single-day usage regression', () => {
     renderWithApp(<><Harness /><Toast /></>);
     await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
-    // Already carries the exact same peak this run would find — nothing new to write.
-    fireCollection('meds', [{ ...BURST_MED, peakDayQty: 270, peakDayDate: '2025-09-29' }]);
+    // Already carries the exact same peak this run would find — nothing new to write. Single
+    // real day in the fixture, so its own 90th-percentile is that same 270 figure too.
+    fireCollection('meds', [{ ...BURST_MED, peakDayQty: 270, peakDayDate: '2025-09-29', peakDayP90Qty: 270 }]);
     seedCollection('txs', burstRows);
 
     await user.click(screen.getByRole('button', { name: 'analyze-weekday' }));
@@ -209,6 +210,47 @@ describe('analyzeWeekdayUsage — peak single-day usage regression', () => {
     // one. Either way, the real assertion is the same: nothing gets written.
     await screen.findByText(/ยังไม่มียาตัวไหนมีประวัติ HOSxP ต่อเนื่องพอจะวิเคราะห์/);
     expect(getLastBatchWrites().length).toBe(0);
+  });
+
+  // Real-world report (follow-up): METFORMIN - PL 500 mg. — one 11,514-unit day against ~24
+  // other real days all under 700 drove suggestPar()'s Max/Min clamp to that single outlier,
+  // swamping the admin's intended shelf coverage. This replicates that exact shape (same
+  // proportions) and proves peakDayP90Qty lands nowhere near the outlier while peakDayQty (kept
+  // for admin-facing awareness — see Med.peakDayQty's own doc comment) still records it exactly.
+  it('computes peakDayP90Qty far below a single extreme outlier day, replicating the METFORMIN - PL 500 mg. report', async () => {
+    vi.setSystemTime(bangkokNoon(2026, 0, 9));
+    const user = userEvent.setup();
+    renderWithApp(<Harness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    const OUTLIER_MED = {
+      id: 'm9', code: 'MED-0009', name: 'Metformin PL 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+      price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 40, bin: 'A9',
+      ward: 'opd' as const, noSubstock: false, volatility: 1, used30: 300, usedPrev30: 300,
+    };
+    // 24 normal real days (100-650 units, within the 91-day window) plus one 11,514-unit
+    // outlier day further back (still inside the 180-day peak window) — same shape as the
+    // real report.
+    const normalQtys = [100, 150, 200, 220, 250, 280, 300, 320, 350, 380, 400, 420, 450, 470, 500, 520, 540, 560, 580, 600, 610, 630, 640, 650];
+    const normalRows = normalQtys.map((qty, w) => ({
+      type: 'reconcile_hosxp', name: OUTLIER_MED.name, medId: OUTLIER_MED.id, qty: -qty, unit: 'เม็ด', by: 'u1', ts: MONDAY(w),
+    }));
+    // w=24 -> ~172 days back: inside the 180-day peak window, but outside the 91-day
+    // weekday-pattern window (same placement BURST_MED's own single day above uses).
+    const outlierRow = {
+      type: 'reconcile_hosxp', name: OUTLIER_MED.name, medId: OUTLIER_MED.id, qty: -11514, unit: 'เม็ด', by: 'u1', ts: MONDAY(24),
+    };
+    fireCollection('meds', [OUTLIER_MED]);
+    seedCollection('txs', [...normalRows, outlierRow]);
+
+    await user.click(screen.getByRole('button', { name: 'analyze-weekday' }));
+    await waitFor(() => expect(getLastBatchWrites().length).toBeGreaterThan(0));
+
+    const [write] = getLastBatchWrites();
+    expect(write.path).toBe('meds/m9');
+    expect(write.data!.peakDayQty).toBe(11514); // raw worst-day figure, kept for awareness
+    expect(write.data!.peakDayP90Qty as number).toBeLessThan(700); // the outlier never leaks in
+    expect(normalQtys).toContain(write.data!.peakDayP90Qty);
   });
 });
 
@@ -289,7 +331,7 @@ describe('clearMedPeakDay — manual override regression', () => {
     renderWithApp(<ClearPeakHarness medId={asMedId(BURST_MED.id)} />);
     await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
-    fireCollection('meds', [{ ...BURST_MED, peakDayQty: 270, peakDayDate: '2025-09-29' }]);
+    fireCollection('meds', [{ ...BURST_MED, peakDayQty: 270, peakDayDate: '2025-09-29', peakDayP90Qty: 270 }]);
 
     const callsBefore = vi.mocked(updateDoc).mock.calls.length;
     await user.click(screen.getByRole('button', { name: 'clear-peak' }));
@@ -300,10 +342,15 @@ describe('clearMedPeakDay — manual override regression', () => {
     // test's own one.
     const [, data] = vi.mocked(updateDoc).mock.calls[vi.mocked(updateDoc).mock.calls.length - 1];
     const fields = data as unknown as Record<string, unknown>;
-    expect(Object.keys(fields).sort()).toEqual(['peakDayDate', 'peakDayQty'].sort());
+    // Bug fix (real-world report, METFORMIN - PL 500 mg.): peakDayP90Qty clears alongside the
+    // raw peakDayQty/peakDayDate — all 3 derive from the same per-day history, so leaving the
+    // percentile figure behind would keep quietly influencing suggestPar() after an admin
+    // explicitly dismissed the peak.
+    expect(Object.keys(fields).sort()).toEqual(['peakDayDate', 'peakDayP90Qty', 'peakDayQty'].sort());
     // deleteField() resolves to undefined in the test double.
     expect(fields.peakDayQty).toBeUndefined();
     expect(fields.peakDayDate).toBeUndefined();
+    expect(fields.peakDayP90Qty).toBeUndefined();
   });
 });
 

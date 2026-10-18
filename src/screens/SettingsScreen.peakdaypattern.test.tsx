@@ -16,7 +16,7 @@ const BURST_MED = {
   id: 'm1', code: 'MED-0001', name: 'Phenytoin 100mg', unit: 'เม็ด', dosageForm: 'เม็ด',
   price: 1, had: false, active: true, parSub: 50, parFloor: 20, floor: 10, bin: 'A1',
   noSubstock: false, used30: 10, usedPrev30: 10, volatility: 1,
-  peakDayQty: 270, peakDayDate: '2025-09-29',
+  peakDayQty: 270, peakDayDate: '2025-09-29', peakDayP90Qty: 40,
 };
 const PLAIN_MED = {
   id: 'm2', code: 'MED-0002', name: 'Amoxicillin 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
@@ -37,7 +37,8 @@ describe('SettingsScreen — peak-single-day insight regression', () => {
     // elsewhere on this screen (e.g. a par anomaly card), which isn't what this test is about.
     const panel = heading.closest('.card') as HTMLElement;
     expect(within(panel).getByText(BURST_MED.name)).toBeInTheDocument();
-    expect(within(panel).getByText('270 เม็ด')).toBeInTheDocument();
+    expect(within(panel).getByText('จ่ายสูงสุด 1 วัน 270 เม็ด')).toBeInTheDocument();
+    expect(within(panel).getByText(/ใช้คำนวณ Max จริง \(เปอร์เซ็นไทล์ 90\): 40 เม็ด/)).toBeInTheDocument();
     expect(within(panel).getByText(/เกิน Max ปัจจุบัน \(20 เม็ด\)/)).toBeInTheDocument();
     // The plain med (no peak recorded) never shows up in this specific panel.
     expect(within(panel).queryByText(PLAIN_MED.name)).not.toBeInTheDocument();
@@ -57,6 +58,7 @@ describe('SettingsScreen — peak-single-day insight regression', () => {
     await waitFor(() => expect(vi.mocked(updateDoc).mock.calls.length).toBeGreaterThan(0));
     const [, data] = vi.mocked(updateDoc).mock.calls[vi.mocked(updateDoc).mock.calls.length - 1];
     expect((data as unknown as Record<string, unknown>).peakDayQty).toBeUndefined();
+    expect((data as unknown as Record<string, unknown>).peakDayP90Qty).toBeUndefined();
   });
 
   it('hides the panel entirely when no med has a recorded peak yet', async () => {

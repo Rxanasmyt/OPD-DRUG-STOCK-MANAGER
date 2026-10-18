@@ -444,7 +444,7 @@ export default function SettingsScreen() {
             🚨 ยาที่มีวันจ่ายยาสูงสุดในวันเดียวสูงผิดปกติ ({peakDayMeds.length} รายการ{peakDayExceedsMaxCount > 0 ? `, ${peakDayExceedsMaxCount} รายการเกิน Max ปัจจุบัน` : ''})
           </div>
           <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginBottom: 10 }}>
-            จากการวิเคราะห์ประวัติ HOSxP 180 วันล่าสุด — เป็นวันที่มีการจ่ายยาตัวนี้มากที่สุดในวันเดียว (เช่น เคสสั่งยาคราวละมากๆ) ค่าแนะนำ par หน้างาน/substock ของรายการเหล่านี้จะไม่ต่ำกว่าตัวเลขนี้แล้ว — กด "ใช้ค่าแนะนำทั้งหมด" ด้านบนเพื่อให้มีผลจริง
+            จากการวิเคราะห์ประวัติ HOSxP 180 วันล่าสุด — "จ่ายสูงสุด 1 วัน" ด้านล่างคือวันที่มีการจ่ายยาตัวนี้มากที่สุดในวันเดียว (เช่น เคสสั่งยาคราวละมากๆ) แสดงไว้เพื่อให้ทราบ แต่ค่าแนะนำ Max (par) ไม่ได้ใช้ตัวเลขนี้ตรงๆอีกต่อไป — ใช้ "เปอร์เซ็นไทล์ 90" แทน (ตัวเลขที่สูงแต่ยังเกิดขึ้นจริงบ่อยพอจะนับเป็นรูปแบบ ไม่ใช่วันผิดปกติเพียงวันเดียว) เพื่อไม่ให้วันจ่ายสูงผิดปกติเพียงวันเดียวดึง Max ขึ้นสูงเกินจริง ถ้าเภสัชกรเห็นว่าความเสี่ยงแบบนี้จะเกิดขึ้นอีก ควรปรับ Max เองเพิ่มเติม
           </div>
           <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 7 }}>
             {peakDayMeds.slice(0, 30).map((m) => {
@@ -453,11 +453,12 @@ export default function SettingsScreen() {
                 <div key={m.id} style={{ background: 'var(--bg-card)', borderRadius: 9, padding: '8px 10px', border: '1px solid var(--border)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                     <span style={{ fontSize: 12.5, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{m.name}</span>
-                    <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: exceedsMax ? 'var(--red)' : 'var(--amber-ink)' }}>{nf(m.peakDayQty || 0)} {m.unit}</span>
+                    <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: exceedsMax ? 'var(--red)' : 'var(--amber-ink)' }}>จ่ายสูงสุด 1 วัน {nf(m.peakDayQty || 0)} {m.unit}</span>
                   </div>
                   <div className="muted" style={{ fontSize: 11, lineHeight: 1.5 }}>
                     จ่ายสูงสุดวันที่ {m.peakDayDate ? thDate(new Date(m.peakDayDate + 'T00:00:00').getTime()) : '-'}
-                    {exceedsMax && <span style={{ color: 'var(--red)', fontWeight: 600 }}> — เกิน Max ปัจจุบัน ({nf(m.parFloor)} {m.unit})</span>}
+                    {m.peakDayP90Qty != null && <> · ใช้คำนวณ Max จริง (เปอร์เซ็นไทล์ 90): {nf(m.peakDayP90Qty)} {m.unit}</>}
+                    {exceedsMax && <span style={{ color: 'var(--red)', fontWeight: 600 }}> — จ่ายสูงสุด 1 วันนี้เกิน Max ปัจจุบัน ({nf(m.parFloor)} {m.unit})</span>}
                   </div>
                   {/* Same immediate-clear escape hatch as the weekday-pattern card's "✕ ล้าง
                       รูปแบบนี้" — a genuinely one-time event (data-entry error, a med being
