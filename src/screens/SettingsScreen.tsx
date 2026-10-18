@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { suggestPar, halfOfMaxRounded, floorMinOf, parAnomalies, usageAnomalies } from '../store/selectors';
+import { suggestPar, halfOfMaxRounded, floorMinOf, parAnomalies, usageAnomalies, effectiveSubCoverDays } from '../store/selectors';
 import { nf, digitsOnly, parseIntSafe, isoDate, fiscalYearStartIso, thDate, DAY } from '../utils/format';
 import { notificationsSupported } from '../utils/notify';
 import { StatusDot } from '../components/Badge';
@@ -44,10 +44,17 @@ export default function SettingsScreen() {
     || (subDraft !== '' && parseIntSafe(subDraft) !== state.parSubCoverDays);
   const idleDirty = idleDraft !== '' && parseIntSafe(idleDraft) !== state.idleLogoutMinutes;
 
+  // Real-world request (follow-up): "ให้จำนวนยาที่เบิกจากคลังมีจำนวนตามความเหมาะสม...ไม่น้อยเกินไป" —
+  // see GlobalSettings.effectiveLeadTimeDays' own doc comment (types.ts). Every suggestPar()/
+  // parAnomalies() call below uses this instead of the raw state.parSubCoverDays, so a real,
+  // currently-measured central-warehouse lead time can never be silently undersized against by a
+  // possibly-stale admin-typed setting.
+  const effSubCoverDays = effectiveSubCoverDays(state.parSubCoverDays, state.effectiveLeadTimeDays);
+
   const suggestDiff = useMemo(() => meds.filter((m) => {
-    const s = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
+    const s = suggestPar(m, state.parFloorCoverDays, effSubCoverDays);
     return !!s && (s.sub !== m.parSub || s.floor !== m.parFloor);
-  }), [meds, state.parFloorCoverDays, state.parSubCoverDays]);
+  }), [meds, state.parFloorCoverDays, effSubCoverDays]);
   const suggestDiffCount = suggestDiff.length;
   // Real-world request: "ทำข้อ...3 แบบดีที่สุด" (ตรวจสอบความแม่นยำของตัวเลขแนะนำ par) — suggestPar()
   // bases its whole calculation purely on the most recent 30-day window (used30), with no check
@@ -65,16 +72,16 @@ export default function SettingsScreen() {
   // pattern as minHalfDiffCount above, but against suggestPar()'s own data-driven Min (real usage
   // rate × half the cover-days Max represents) instead of a flat 50%-of-Max ratio.
   const minSuggestedDiffCount = useMemo(() => meds.filter((m) => {
-    const s = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
+    const s = suggestPar(m, state.parFloorCoverDays, effSubCoverDays);
     return !!s && s.min !== floorMinOf(m);
-  }).length, [meds, state.parFloorCoverDays, state.parSubCoverDays]);
+  }).length, [meds, state.parFloorCoverDays, effSubCoverDays]);
 
   // Real-world request: Min/Max/par substock are hand-typed numbers — an extra/missing zero,
   // or Min and Max swapped, is a genuinely easy typo to make and easy to miss just glancing at
   // a long meds list. This flags the internal-contradiction cases (always wrong, no judgment
   // call — see parAnomaliesFor()'s own doc comment) as errors, and a par that's wildly out of
   // line with the drug's own real usage rate as a softer "worth a look" review.
-  const anomalies = useMemo(() => parAnomalies(meds, state.parFloorCoverDays, state.parSubCoverDays), [meds, state.parFloorCoverDays, state.parSubCoverDays]);
+  const anomalies = useMemo(() => parAnomalies(meds, state.parFloorCoverDays, effSubCoverDays), [meds, state.parFloorCoverDays, effSubCoverDays]);
   const anomalyErrors = useMemo(() => anomalies.filter((a) => a.severity === 'error'), [anomalies]);
   const anomalyReviews = useMemo(() => anomalies.filter((a) => a.severity === 'review'), [anomalies]);
 
@@ -252,6 +259,16 @@ export default function SettingsScreen() {
             สัปดาห์) — ไม่งั้นวันที่ของมาช้า substock อาจหมดพอดีโดยไม่มีกันชนเหลือเลย ปกติแนะนำ ~28
             วัน (รอบเบิกที่ยาวสุด + เผื่อดีเลย์ 1 สัปดาห์) */}
         <div style={{ fontSize: 11.5, lineHeight: 1.6, marginBottom: 4, color: 'var(--muted)' }}>💡 par substock สำรอง ควรตั้งให้ครอบคลุมรอบเบิกจากคลังใหญ่จริง (สูงสุด ~2-3 สัปดาห์) บวกเผื่อดีเลย์กรณีบริษัทยาไม่มาส่ง (~1 สัปดาห์) — แนะนำ ~28 วัน</div>
+        {/* Real-world request (follow-up): "ให้จำนวนยาที่เบิกจากคลังมีจำนวนตามความเหมาะสม...ไม่น้อย
+            เกินไป" — see GlobalSettings.effectiveLeadTimeDays' own doc comment (types.ts). Shown
+            only when it would actually matter (real lead time exceeds the typed setting), so an
+            admin understands WHY the suggested par might be larger than parSubCoverDays alone
+            would predict, instead of it silently happening with no visible trace anywhere. */}
+        {state.effectiveLeadTimeDays != null && state.effectiveLeadTimeDays > state.parSubCoverDays && (
+          <div style={{ fontSize: 11.5, lineHeight: 1.6, marginBottom: 4, background: 'var(--amber-bg)', color: 'var(--amber-ink)', borderRadius: 10, padding: '9px 11px' }}>
+            ⚠️ เวลารอรับยาจากคลังใหญ่จริง (จากข้อมูล receiveLeadTime) เฉลี่ย ~{state.effectiveLeadTimeDays} วัน — นานกว่าค่า par substock สำรองที่ตั้งไว้ ({state.parSubCoverDays} วัน) ระบบจะใช้ {state.effectiveLeadTimeDays} วันในการคำนวณค่าแนะนำ par จริง เพื่อไม่ให้ประเมินต่ำกว่าความเป็นจริง — ปรับค่าด้านล่างขึ้นถ้าต้องการให้ตรงกัน
+          </div>
+        )}
         {/* par หน้างานสำรอง ต้องครอบคลุมช่วงวันศุกร์-จันทร์ (เติมหน้างานทุกวันทำการ แต่ไม่เติม
             เสาร์-อาทิตย์) ที่เติมวันศุกร์ต้องอยู่ได้ถึงวันจันทร์ = ช่องว่างจริง 3 วัน + เผื่ออีก 1 วัน
             สำหรับความผันผวน/กำลังคนน้อยที่บางวันอาจเติมไม่ครบทุกตัว */}

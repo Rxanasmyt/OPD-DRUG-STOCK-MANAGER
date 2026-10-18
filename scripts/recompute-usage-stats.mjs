@@ -64,6 +64,18 @@ function percentile(values, p) {
   return sorted[idx];
 }
 
+// Mirrors coefficientOfVariation() in src/store/selectors.ts exactly — see Med.usageCv's own doc
+// comment (src/types.ts) for the full "why" (replacing a hand-typed volatility guess with a real
+// population coefficient of variation computed from actual per-day dispense history).
+function coefficientOfVariation(values) {
+  const n = values.length;
+  if (n < 2) return 0;
+  const mean = values.reduce((a, b) => a + b, 0) / n;
+  if (!(mean > 0)) return 0;
+  const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / n;
+  return Math.sqrt(variance) / mean;
+}
+
 async function main() {
   const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (!keyJson) {
@@ -253,14 +265,17 @@ async function main() {
       // Real-world report (METFORMIN - PL 500 mg.): see percentile()'s own comment above and
       // Med.peakDayP90Qty's (src/types.ts) — the 90th percentile of this SAME dayMap's values.
       const p90Qty = Math.round(percentile(Array.from(dayMap.values()), 0.9));
-      if (roundedPeak > 0 && (roundedPeak !== m.peakDayQty || peakDate !== m.peakDayDate || p90Qty !== m.peakDayP90Qty)) {
-        peak = { qty: roundedPeak, date: peakDate, p90: p90Qty };
+      // Mirrors AppContext.tsx's analyzeWeekdayUsage() exactly — see Med.usageCv's own doc
+      // comment (src/types.ts). Same dayMap as p90Qty above; needs ≥2 real days to mean anything.
+      const cvVal = dayMap.size >= 2 ? Math.round(coefficientOfVariation(Array.from(dayMap.values())) * 1000) / 1000 : undefined;
+      if (roundedPeak > 0 && (roundedPeak !== m.peakDayQty || peakDate !== m.peakDayDate || p90Qty !== m.peakDayP90Qty || cvVal !== m.usageCv)) {
+        peak = { qty: roundedPeak, date: peakDate, p90: p90Qty, cv: cvVal };
         peaksFound++;
       }
-    } else if (m.peakDayQty || m.peakDayP90Qty) {
-      // No reconcile_hosxp history at all left within the (longer) peak window — the old peak is
-      // no longer traceable to any real remaining data; clear it (both figures) rather than let
-      // a stale number linger forever with nothing backing it.
+    } else if (m.peakDayQty || m.peakDayP90Qty || m.usageCv != null) {
+      // No reconcile_hosxp history at all left within the (longer) peak window — the old
+      // peak/variability figures are no longer traceable to any real remaining data; clear them
+      // all rather than let stale numbers linger forever with nothing backing them.
       peak = 'clear';
     }
 
@@ -306,21 +321,73 @@ async function main() {
         fields.weekdayPeakOccurrences = w.weekday.occ; fields.weekdayPattern = w.weekday.pattern;
       }
       if (w.peak === 'clear') {
-        fields.peakDayQty = FieldValue.delete(); fields.peakDayDate = FieldValue.delete(); fields.peakDayP90Qty = FieldValue.delete();
+        fields.peakDayQty = FieldValue.delete(); fields.peakDayDate = FieldValue.delete(); fields.peakDayP90Qty = FieldValue.delete(); fields.usageCv = FieldValue.delete();
       } else if (w.peak) {
         fields.peakDayQty = w.peak.qty; fields.peakDayDate = w.peak.date; fields.peakDayP90Qty = w.peak.p90;
+        if (w.peak.cv !== undefined) fields.usageCv = w.peak.cv;
       }
       b.update(db.collection('meds').doc(w.id), fields);
     });
     await b.commit();
   }
 
+  // ---------------------------------------------------------------------------------------------
+  // Part 3: real-world ground-truth feedback — recentStockoutDays30 (Med) + effectiveLeadTimeDays
+  // (meta/settings). See both fields' own doc comments (src/types.ts) for the full "why": every
+  // signal above is still a FORECAST; this is the opposite — what actually happened. Deliberately
+  // NOT ported into the client's analyzeWeekdayUsage() — `dailyMetrics` itself only ever updates
+  // once a day (collect-daily-metrics.mjs), so recomputing this more often than once a day (this
+  // script's own schedule) would just re-read the same rows for no new information. One bounded
+  // 30-day query — same window ReportScreen's stability tab already fetches for its own
+  // recurringStockouts()/leadTimeTrend() insight cards (src/store/selectors.ts) — feeds both
+  // outputs.
+  // ---------------------------------------------------------------------------------------------
+  const STOCKOUT_WINDOW_DAYS = 30;
+  const STOCKOUT_FEEDBACK_MIN_DAYS = 3; // mirrors suggestPar()'s own threshold (selectors.ts)
+  const dailyMetricsSnap = await db.collection('dailyMetrics')
+    .where('date', '>=', isoDate(now - STOCKOUT_WINDOW_DAYS * DAY))
+    .get();
+  const stockoutDayCounts = {};
+  let leadTimeHoursTotal = 0;
+  let leadTimeApprovedTotal = 0;
+  dailyMetricsSnap.docs.forEach((d) => {
+    const row = d.data();
+    for (const medId of row.stockoutMedIds || []) stockoutDayCounts[medId] = (stockoutDayCounts[medId] || 0) + 1;
+    const approved = row.receiveApprovedCount || 0;
+    if (approved > 0 && typeof row.receiveLeadTimeAvgHours === 'number') {
+      leadTimeHoursTotal += row.receiveLeadTimeAvgHours * approved;
+      leadTimeApprovedTotal += approved;
+    }
+  });
+
+  let stockoutWrites = 0;
+  for (let i = 0; i < targets.length; i += 400) {
+    const b = db.batch();
+    let any = false;
+    targets.slice(i, i + 400).forEach((m) => {
+      const dayCount = stockoutDayCounts[m.id] || 0;
+      const nextVal = dayCount >= STOCKOUT_FEEDBACK_MIN_DAYS ? dayCount : undefined;
+      if (nextVal === m.recentStockoutDays30) return; // unchanged — skip the write
+      b.update(db.collection('meds').doc(m.id), { recentStockoutDays30: nextVal === undefined ? FieldValue.delete() : nextVal });
+      any = true;
+      stockoutWrites++;
+    });
+    if (any) await b.commit();
+  }
+
+  // ceil (not round) — a real lead time of e.g. 4.2 days must never round DOWN to a subCoverDays
+  // floor that's shorter than what was actually observed.
+  const effectiveLeadTimeDays = leadTimeApprovedTotal > 0 ? Math.ceil(leadTimeHoursTotal / leadTimeApprovedTotal / 24) : null;
+
   // Same shared meta/settings doc expiryWarnDays/parFloorCoverDays/parSubCoverDays already live
   // in (see AppContext.tsx) — SettingsScreen reads this to warn when the numbers behind every par
   // suggestion are stale. Now covers BOTH halves of this script (used30/usedPrev30 AND the
   // weekday/peak analysis run right after it in the same job), so the one existing staleness
   // indicator in SettingsScreen stays accurate for both without needing a second field.
-  await db.collection('meta').doc('settings').set({ usageStatsRecomputedAt: now }, { merge: true });
+  await db.collection('meta').doc('settings').set(
+    { usageStatsRecomputedAt: now, ...(effectiveLeadTimeDays !== null ? { effectiveLeadTimeDays } : { effectiveLeadTimeDays: FieldValue.delete() }) },
+    { merge: true },
+  );
 
   // txSnap.size now counts every tx TYPE in the query's date window (see its own fetch comment
   // above) — no longer a meaningful "how much reconcile_hosxp history did this use" number on
@@ -328,6 +395,7 @@ async function main() {
   const reconcileRowCount = txSnap.docs.reduce((n, d) => n + (d.data().type === 'reconcile_hosxp' ? 1 : 0), 0);
   console.log(`✓ Recomputed used30/usedPrev30 for ${written} active med(s) from ${reconcileRowCount} reconcile_hosxp tx row(s).`);
   console.log(`✓ Weekday-pattern/peak-day analysis: ${analyzed} med(s) had enough history to analyze, ${patterned} with a meaningful weekday pattern, ${peaksFound} with a new single-day peak.`);
+  console.log(`✓ Ground-truth feedback: ${stockoutWrites} med(s) had a recentStockoutDays30 change from ${dailyMetricsSnap.size} dailyMetrics row(s); effectiveLeadTimeDays = ${effectiveLeadTimeDays ?? '(no sample)'}.`);
 }
 
 main().catch((err) => {
