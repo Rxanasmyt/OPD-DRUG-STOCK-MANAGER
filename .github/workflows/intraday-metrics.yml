@@ -1,0 +1,45 @@
+name: Intraday KPI Metrics (today, periodic)
+
+# Real-world request: "ส่วนเรื่อง KPI ทั้งหมดให้เก็บข้อมูลอัตโนมัติแบบเรียลไทม์" — the existing
+# daily-metrics.yml only finalizes YESTERDAY once, shortly after midnight, so today's own numbers
+# never show up in dailyMetrics until the following midnight. This re-runs collect-daily-metrics.mjs
+# for TODAY (Asia/Bangkok) a few times throughout the day, overwriting that same day's doc each
+# time (the script already writes with .set(), keyed by date — see its own "Idempotent" comment),
+# so the "📅 ตัวชี้วัดย้อนหลัง" report tab can show an updated view of today while the day is still
+# in progress. daily-metrics.yml still runs once at midnight to produce the FINAL, stable snapshot
+# of the day that just ended — this workflow never touches a past day.
+#
+# Bug fix (Firestore quota incident, 2026-10-16): this used to fire all 24 hours of the day,
+# narrowed first to 06:00-21:00 Asia/Bangkok (16 runs/day) — see this file's git history for that
+# round. Still too expensive: collect-daily-metrics.mjs reads the ENTIRE `meds` collection (585
+# real formulary rows) plus every `lots` row with qty>0 (comparable or larger) on EVERY run, no
+# matter how little actually changed — a FIXED background cost unrelated to real stock-fill
+# volume that day. 16 runs/day of that was still likely the single largest contributor to this
+# project's free-tier Firestore quota, independent of real usage.
+#
+# Bug fix (Firestore quota incident, follow-up — real-world report: "วันนี้ก็ถึง limit firestore
+# ทั้งที่ไม่ได้มีการเติมยาเยอะเลย"): cut further, from 16 runs/day down to 3 — 08:00/13:00/18:00
+# Asia/Bangkok (morning/midday/evening), explicitly accepting less-than-hourly freshness as the
+# tradeoff for a ~80% cut in this workflow's own daily read cost. Renamed from hourly-metrics.yml
+# to intraday-metrics.yml since "hourly" no longer describes the real cadence.
+on:
+  schedule:
+    - cron: '0 1,6,11 * * *' # 08:00, 13:00, 18:00 Asia/Bangkok (01:00, 06:00, 11:00 UTC)
+  workflow_dispatch: {}
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Compute today's date (Asia/Bangkok, fixed UTC+7)
+        id: today
+        run: echo "date=$(date -u -d '+7 hours' +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+      - run: node scripts/collect-daily-metrics.mjs --date=${{ steps.today.outputs.date }}
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
