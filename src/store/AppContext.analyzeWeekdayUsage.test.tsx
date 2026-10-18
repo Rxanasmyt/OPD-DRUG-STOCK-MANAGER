@@ -14,6 +14,7 @@ import Toast from '../components/Toast';
 import { signInAs, fireCollection, hasListener, seedCollection, getLastBatchWrites } from '../test-utils/firebaseTestDouble';
 import { asMedId, type MedId } from '../types';
 import { isoDate } from '../utils/format';
+import { coefficientOfVariation } from './selectors';
 
 const DAY = 24 * 60 * 60 * 1000;
 function bangkokNoon(y: number, m: number, d: number): number {
@@ -251,6 +252,12 @@ describe('analyzeWeekdayUsage — peak single-day usage regression', () => {
     expect(write.data!.peakDayQty).toBe(11514); // raw worst-day figure, kept for awareness
     expect(write.data!.peakDayP90Qty as number).toBeLessThan(700); // the outlier never leaks in
     expect(normalQtys).toContain(write.data!.peakDayP90Qty);
+    // Real-world request (follow-up): "แทนที่ volatility (พิมพ์มือ) ด้วยค่าคำนวณจากความแปรปรวนจริง" —
+    // see Med.usageCv's own doc comment (types.ts). Computed from the SAME per-day values as
+    // peakDayP90Qty above (25 real days, including the outlier) — a real, nonzero coefficient of
+    // variation given how spread out those 25 days genuinely are.
+    expect(write.data!.usageCv as number).toBe(Math.round(coefficientOfVariation([...normalQtys, 11514]) * 1000) / 1000);
+    expect(write.data!.usageCv as number).toBeGreaterThan(0);
   });
 });
 

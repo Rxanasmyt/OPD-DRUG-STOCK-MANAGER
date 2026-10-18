@@ -9,7 +9,7 @@ import {
   topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes,
   discrepancyByCategory, repeatAdrReturns, frequentFloorRefills,
   monthlyDaySplits, boxBreakdownLabel, halfOfMaxRounded, isNewerVersionAvailable, hosxpMissReasons,
-  isRegularlyDispensed, percentile,
+  isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
 import { DAY } from '../utils/format';
@@ -1119,6 +1119,128 @@ describe('roundStep — box-aware rounding', () => {
     expect(roundStep(40)).toBe(40);
     expect(roundStep(40, 1)).toBe(40);
     expect(roundStep(640)).toBe(700);
+  });
+});
+
+// Real-world request (follow-up): "ให้มีการคำนวนที่แม่นยำ คาดการณ์ได้ดีที่สุด เพื่อไม่ให้ต้องเบิกยา
+// ฉุกเฉินจากคลังบ่อย และจำนวนยาที่เบิกจากคลังมีจำนวนตามความเหมาะสม...ไม่น้อยเกินไป" — the 4-part
+// accuracy improvement: (1) a data-driven volatility floor from usageCv instead of trusting a
+// manual guess alone, (2) real ground-truth stockout feedback, (3) a lumpy/intermittent-demand
+// fix for Min, (4) a real observed lead-time floor for substock cover days.
+describe('clampVolatility', () => {
+  it('clamps into [1, 3], rounded to 2 decimals', () => {
+    expect(clampVolatility(0.5)).toBe(1);
+    expect(clampVolatility(1.234)).toBe(1.23);
+    expect(clampVolatility(5)).toBe(3);
+  });
+
+  it('falls back to 1 for a non-finite or non-positive input', () => {
+    expect(clampVolatility(0)).toBe(1);
+    expect(clampVolatility(-2)).toBe(1);
+    expect(clampVolatility(NaN)).toBe(1);
+    expect(clampVolatility(Infinity)).toBe(1);
+  });
+});
+
+describe('coefficientOfVariation', () => {
+  it('returns 0 for fewer than 2 values', () => {
+    expect(coefficientOfVariation([])).toBe(0);
+    expect(coefficientOfVariation([100])).toBe(0);
+  });
+
+  it('returns 0 for a perfectly flat series (no real variance)', () => {
+    expect(coefficientOfVariation([50, 50, 50, 50])).toBe(0);
+  });
+
+  it('computes stdev/mean for a genuinely variable series', () => {
+    // mean = 100, population variance = (50^2 × 4)/4 = 2500, stdev = sqrt(2500) = 50, cv = 0.5
+    const values = [50, 150, 50, 150];
+    expect(coefficientOfVariation(values)).toBeCloseTo(0.5, 5);
+  });
+
+  it('returns 0 rather than dividing by zero when every value is 0', () => {
+    expect(coefficientOfVariation([0, 0, 0])).toBe(0);
+  });
+});
+
+describe('effectiveSubCoverDays', () => {
+  it('takes whichever of parSubCoverDays or effectiveLeadTimeDays is higher', () => {
+    expect(effectiveSubCoverDays(28, 35)).toBe(35);
+    expect(effectiveSubCoverDays(28, 10)).toBe(28);
+  });
+
+  it('falls back to parSubCoverDays alone when effectiveLeadTimeDays is null/undefined', () => {
+    expect(effectiveSubCoverDays(28, null)).toBe(28);
+    expect(effectiveSubCoverDays(28, undefined)).toBe(28);
+  });
+});
+
+describe('suggestPar — usageCv volatility floor (bug fix — real-data-driven margin replacing a manual guess alone)', () => {
+  it('raises Max when usageCv implies more real variability than the admin typed volatility', () => {
+    const daily = 300 / WEEKDAYS_PER_30_DAYS;
+    const base = suggestPar(med({ used30: 300, volatility: 1 }), 3, 21);
+    // usageCv of 1.0 maps to clampVolatility(1 + 1) = 2 — double the admin's typed 1.0.
+    const withCv = suggestPar(med({ used30: 300, volatility: 1, usageCv: 1 }), 3, 21);
+    expect(base!.floor).toBe(roundStep(daily * 3 * 1));
+    expect(withCv!.floor).toBe(roundStep(daily * 3 * 2));
+    expect(withCv!.floor).toBeGreaterThan(base!.floor);
+  });
+
+  it('never lets usageCv shrink Max below what the admin\'s own higher typed volatility already gives', () => {
+    const daily = 300 / WEEKDAYS_PER_30_DAYS;
+    // Admin explicitly set 2.5 for a known future risk; usageCv (1+0.1=1.1) would suggest less.
+    const out = suggestPar(med({ used30: 300, volatility: 2.5, usageCv: 0.1 }), 3, 21);
+    expect(out!.floor).toBe(roundStep(daily * 3 * 2.5));
+  });
+
+  it('leaves Max unaffected for a med with no usageCv computed yet', () => {
+    const withCv = suggestPar(med({ used30: 300, volatility: 1, usageCv: undefined }), 3, 21);
+    const noCv = suggestPar(med({ used30: 300, volatility: 1 }), 3, 21);
+    expect(withCv).toEqual(noCv);
+  });
+});
+
+// Real-world request (follow-up): "ไม่ให้ต้องเบิกยาฉุกเฉินจากคลังบ่อย" — recentStockoutDays30 is
+// real ground truth (this drug's floor stock actually ran dry for real), not a forecast; see its
+// own doc comment (types.ts) and suggestPar()'s own comment for the exact threshold/factor.
+describe('suggestPar — recentStockoutDays30 ground-truth feedback boost', () => {
+  it('boosts both floor and sub once the real recurring-stockout threshold (3 days) is met', () => {
+    const daily = 300 / WEEKDAYS_PER_30_DAYS;
+    const base = suggestPar(med({ used30: 300, volatility: 1 }), 3, 21);
+    const boosted = suggestPar(med({ used30: 300, volatility: 1, recentStockoutDays30: 3 }), 3, 21);
+    expect(boosted!.floor).toBe(roundStep(daily * 3 * 1 * 1.3));
+    expect(boosted!.sub).toBe(roundStep(daily * 21 * 1 * 1.3));
+    expect(boosted!.floor).toBeGreaterThan(base!.floor);
+    expect(boosted!.sub).toBeGreaterThan(base!.sub);
+  });
+
+  it('does not boost below the threshold (1-2 real stockout days)', () => {
+    const base = suggestPar(med({ used30: 300, volatility: 1 }), 3, 21);
+    const notYet = suggestPar(med({ used30: 300, volatility: 1, recentStockoutDays30: 2 }), 3, 21);
+    expect(notYet).toEqual(base);
+  });
+});
+
+// Real-world request (follow-up): "ช่วมผมจัดการออกมาให้ดูดีและถูกต้องที่สุด" (originally re: p90, same
+// principle extended here) — a drug whose Max comes from the PEAK clamp (lumpy/intermittent
+// demand — e.g. the METFORMIN/phenytoin cases) must not get a Min sized off the tiny averaged
+// rate, which would trigger a reorder far too late for exactly that drug.
+describe('suggestPar — lumpy/intermittent-demand Min fix (peak-driven Max sizes Min off itself, not the averaged rate)', () => {
+  it('sizes Min off half the peak-driven Max for a lumpy-demand drug, not the tiny averaged rawMin', () => {
+    // Low steady baseline (phenytoin-like: 10/day) with a real one-off burst far above it.
+    const out = suggestPar(med({ used30: 10, volatility: 1, peakDayQty: 270 }), 3, 21);
+    expect(out!.floor).toBe(roundStep(270)); // peak-driven
+    expect(out!.min).toBe(halfOfMaxRounded(out!.floor));
+    // Proves the OLD averaged-rate-based rawMin would have been far smaller (the bug this fixes).
+    const oldRawMin = roundStep((10 / WEEKDAYS_PER_30_DAYS) * (3 / 2));
+    expect(out!.min).toBeGreaterThan(oldRawMin);
+  });
+
+  it('leaves Min exactly as before for a regular-demand drug (peak never exceeds the average)', () => {
+    const daily = 1000 / WEEKDAYS_PER_30_DAYS;
+    const out = suggestPar(med({ used30: 1000, volatility: 1, peakDayQty: 5 }), 3, 21);
+    const rawMin = roundStep(daily * (3 / 2));
+    expect(out!.min).toBe(rawMin); // unaffected — identical to the pre-fix formula
   });
 });
 

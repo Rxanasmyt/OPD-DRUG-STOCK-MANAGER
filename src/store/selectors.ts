@@ -1060,6 +1060,52 @@ export function percentile(values: number[], p: number): number {
   return sorted[idx];
 }
 
+/** `volatility` is the hidden safety-margin multiplier `suggestPar()` applies on top of the
+ * plain daily-usage × cover-days math — previously a fixed 1.1 for every newly-added med and a
+ * random 1.05–1.40 for the original seeded formulary, with no UI to see or change it, so a
+ * suggested par could never be reproduced by hand. User-editable since; keep it inside a sane
+ * range regardless of what gets typed in — 1.0 (no buffer) to 3.0 (a very erratic-demand drug)
+ * covers every real case, and never let it collapse to 0 or negative (which would zero out or
+ * invert the suggestion). Also reused as-is on the auto-computed floor derived from usageCv (see
+ * its own doc comment, types.ts) — same valid range, same reasoning, one function instead of two
+ * copies drifting apart. Moved here from AppContext.tsx (where it stayed a bare unexported
+ * helper for addMed/updateMedFull's own sanitizing) so suggestPar() itself can use the exact same
+ * clamp on the data-driven floor without duplicating it. */
+export function clampVolatility(v: number): number {
+  if (!isFinite(v) || v <= 0) return 1;
+  return Math.round(Math.min(3, Math.max(1, v)) * 100) / 100;
+}
+
+// Real-world request (follow-up): "แทนที่ volatility (พิมพ์มือ) ด้วยค่าคำนวณจากความแปรปรวนจริง" —
+// population coefficient of variation (stdev ÷ mean) of a real set of per-day dispensed
+// quantities. 0 for fewer than 2 values (no real variance to measure) or a non-positive mean
+// (shouldn't occur for real dispense quantities, but never divide by ≤0). See Med.usageCv's own
+// doc comment (types.ts) for how this feeds suggestPar()'s volatility floor below.
+export function coefficientOfVariation(values: number[]): number {
+  const n = values.length;
+  if (n < 2) return 0;
+  const mean = values.reduce((a, b) => a + b, 0) / n;
+  if (!(mean > 0)) return 0;
+  const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / n;
+  return Math.sqrt(variance) / mean;
+}
+
+// Real-world request (follow-up): "ให้จำนวนยาที่เบิกจากคลังมีจำนวนตามความเหมาะสม...ไม่น้อยเกินไป" —
+// see GlobalSettings.effectiveLeadTimeDays's own doc comment (types.ts) for the full story. Every
+// suggestPar() call site should use THIS instead of reading parSubCoverDays off state/settings
+// directly, so an admin's possibly-stale manual setting can never quietly undersize substock par
+// against a real, currently-measured central-warehouse lead time — one function instead of each
+// call site repeating its own Math.max.
+export function effectiveSubCoverDays(parSubCoverDays: number, effectiveLeadTimeDays: number | null | undefined): number {
+  return Math.max(parSubCoverDays, effectiveLeadTimeDays || 0);
+}
+
+// Matches ReportScreen's own recurringStockouts() default minDays — 3+ separate real days within
+// the last 30 is treated as a genuine recurring pattern, not one unlucky day. See
+// Med.recentStockoutDays30's own doc comment (types.ts) and suggestPar()'s own use below.
+const STOCKOUT_FEEDBACK_MIN_DAYS = 3;
+const STOCKOUT_FEEDBACK_FACTOR = 1.3;
+
 export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number): { floor: number; sub: number; min: number } | null {
   if (!(m.used30 > 0)) return null; // ไม่มีสถิติการใช้จริง ห้ามแนะนำ par (roundStep(0) จะได้ 1 เสมอ ทำให้ค่าแนะนำผิดเพี้ยน)
   const daily = parSuggestionDailyRate(m);
@@ -1086,6 +1132,27 @@ export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number)
   // extra margin to whatever volatility someone happened to type in by hand). Floor only, same
   // reasoning as weekdayFactor — substock's long cycle already carries enough slack on its own.
   const criticalityFactor = m.had ? 1.5 : 1;
+  // Real-world request (follow-up): "แทนที่ volatility (พิมพ์มือ) ด้วยค่าคำนวณจากความแปรปรวนจริง" —
+  // m.volatility alone is still whatever an admin happened to type (clampVolatility()'s own doc
+  // comment) — nothing stops it from sitting at the default 1.0 for a drug whose real dispensing
+  // is actually quite erratic, just because nobody's gotten around to tuning it. usageCv (Med, see
+  // its own doc comment) is the REAL coefficient of variation of this drug's actual per-day
+  // amounts; mapped onto the same [1, 3] range m.volatility already uses (1 + cv, clamped) and
+  // taken as a FLOOR under whatever the admin typed — never lets a stale/optimistic manual number
+  // undercut what the real history says, but a deliberately higher manual value for a known
+  // future risk (no history could show that yet) always still wins.
+  const autoVolatilityFloor = m.usageCv != null ? clampVolatility(1 + m.usageCv) : 1;
+  const effectiveVolatility = Math.max(m.volatility, autoVolatilityFloor);
+  // Real-world request (follow-up): "ไม่ให้ต้องเบิกยาฉุกเฉินจากคลังบ่อย" — every factor above is
+  // still a FORECAST; recentStockoutDays30 (Med, see its own doc comment) is real GROUND TRUTH
+  // that a forecast already failed — this drug's floor stock actually ran dry for real, repeatedly,
+  // no matter what any formula said was "enough" at the time. STOCKOUT_FEEDBACK_MIN_DAYS matches
+  // ReportScreen's own recurringStockouts() threshold (3+ real days = a genuine recurring pattern,
+  // not one unlucky day) — once crossed, boost BOTH floor and sub (a drug that keeps running out
+  // despite a "sufficient" par might be undersized at either stage, and there's no way to tell
+  // which from this signal alone, so the safer response raises both). Applied on top of (not
+  // instead of) every other factor — real evidence always gets the final say.
+  const stockoutBoost = (m.recentStockoutDays30 ?? 0) >= STOCKOUT_FEEDBACK_MIN_DAYS ? STOCKOUT_FEEDBACK_FACTOR : 1;
   // Real-world request: "ยาบางตัว min max par ไม่เหมาะสม...จำนวนยาในการใช้ 1 ครั้ง เยอะกว่าค่า min
   // max ปัจจุบันอย่างมาก" (เช่น phenytoin สั่ง 3 เดือน 270 เม็ดใน 1 เคส) — every multiplier above is
   // still just scaling an AVERAGED daily rate, which a genuinely large one-off dispense (infrequent
@@ -1101,8 +1168,8 @@ export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number)
   // no longer gets dictated by one single anomalous day. Falls back to the raw peakDayQty only
   // when p90 hasn't been computed yet for this med (same self-healing transition every field like
   // this uses elsewhere in this app).
-  const avgFloor = roundStep(daily * floorDays * m.volatility * weekdayFactor * criticalityFactor);
-  const avgSub = roundStep(daily * subCoverDays * m.volatility);
+  const avgFloor = roundStep(daily * floorDays * effectiveVolatility * weekdayFactor * criticalityFactor * stockoutBoost);
+  const avgSub = roundStep(daily * subCoverDays * effectiveVolatility * stockoutBoost);
   const peakBasis = m.peakDayP90Qty ?? m.peakDayQty;
   const peakFloor = peakBasis ? roundStep(peakBasis) : 0;
   const floor = Math.max(avgFloor, peakFloor);
@@ -1115,12 +1182,25 @@ export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number)
   // weekday/criticality factors), just over HALF the days-of-cover Max represents — a reorder
   // point partway through the refill cycle, the same spirit the old 50%-of-Max fallback had, but
   // now driven by this drug's actual demand instead of a blind fraction of an unrelated number.
+  //
+  // Bug fix (follow-up — intermittent/lumpy-demand drugs, e.g. the METFORMIN/phenytoin cases):
+  // rawMin below is always built off the same AVERAGED daily rate as avgFloor, just half the
+  // days — for a drug whose Max actually comes from the peak clamp (peakFloor > avgFloor, i.e. a
+  // drug that dispenses in rare large one-off events rather than a steady trickle), that averaged
+  // rate is tiny almost by definition, so rawMin would trigger a reorder FAR too late for exactly
+  // the drug most at risk of a sudden large case. When the peak clamp is what's actually driving
+  // Max, size Min off that real Max itself instead (half of it, via halfOfMaxRounded — the same
+  // "big one-off risk, not a steady trickle" framing the Max clamp itself already uses), not off a
+  // near-zero averaged rate that was never representative of this drug's real demand shape.
+  // Unaffected for every regular-demand drug (peakFloor <= avgFloor) — identical to before.
+  //
   // Never allowed to land at or above the Max computed above (roundStep's box/magnitude rounding
   // could otherwise coincidentally round both to the same number for a low-use boxed drug) — falls
   // back to the same halfOfMaxRounded() default the rest of the app already uses in that case,
   // which is always strictly below a positive Max.
-  const rawMin = roundStep(daily * (floorDays / 2) * m.volatility * weekdayFactor * criticalityFactor);
-  const min = rawMin < floor ? rawMin : halfOfMaxRounded(floor);
+  const rawMin = roundStep(daily * (floorDays / 2) * effectiveVolatility * weekdayFactor * criticalityFactor);
+  const minBasis = peakFloor > avgFloor ? halfOfMaxRounded(floor) : rawMin;
+  const min = minBasis < floor ? minBasis : halfOfMaxRounded(floor);
   return { floor, sub, min };
 }
 

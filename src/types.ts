@@ -259,6 +259,41 @@ export interface Med {
   // analyzeWeekdayUsage() run since it shipped — self-corrects within about a day, same
   // "noisier-but-never-invisible" transition every other field like this in this app uses).
   peakDayP90Qty?: number | undefined;
+  // Real-world request (follow-up): "แทนที่ volatility (พิมพ์มือ) ด้วยค่าคำนวณจากความแปรปรวนจริง" —
+  // `volatility` above has always been a number an admin TYPES by hand (clampVolatility()'s own
+  // doc comment, AppContext.tsx/selectors.ts), with nothing but their own impression of "how
+  // erratic is this drug" behind it. usageCv is the real coefficient of variation (population
+  // stdev ÷ mean) of this drug's actual per-day reconcile_hosxp quantities within the SAME
+  // PEAK_LOOKBACK_DAYS window peakDayP90Qty uses (same per-day map, analyzeWeekdayUsage() in
+  // AppContext.tsx — no extra read), computed only once at least 2 real dispense days are on
+  // record (a single day gives no variance at all, not a true zero). suggestPar() (selectors.ts)
+  // derives a MINIMUM volatility floor from this real figure and takes whichever of that or the
+  // admin's own typed `volatility` is HIGHER — never lets a stale/optimistic manual guess undercut
+  // what the actual dispensing history says this drug really does, while still letting an admin
+  // deliberately raise it further for a known future risk no history could show yet (an expected
+  // outbreak, a new ward opening). Optional — undefined until the first analyzeWeekdayUsage() run
+  // after this field shipped, or for a drug with under 2 real dispense days on record; `volatility`
+  // alone (unchanged) governs in either case, same "noisier-but-never-invisible" self-healing
+  // transition every field like this in this app uses.
+  usageCv?: number | undefined;
+  // Real-world request (follow-up): "ไม่ให้ต้องเบิกยาฉุกเฉินจากคลังบ่อย" — every signal suggestPar()
+  // reads elsewhere is a FORECAST (an estimate of what demand will probably look like); this one
+  // is the opposite — real, already-happened GROUND TRUTH that a forecast was wrong. Counts how
+  // many of the last 30 real calendar days this med's floor stock actually ran out (its medId
+  // showed up in that day's `DailyMetrics.stockoutMedIds` — see collect-daily-metrics.mjs/
+  // types.ts), independent of whatever Max/Min suggestPar() would have recommended at the time.
+  // Written ONLY by scripts/recompute-usage-stats.mjs (reads the `dailyMetrics` collection, a
+  // small bounded 30-day query the cron script already runs once a day — same window
+  // ReportScreen's stability tab already fetches for recurringStockouts(), so this reuses an
+  // existing read pattern rather than adding a new one to the per-reconcile client path).
+  // Deliberately NOT computed by the client's analyzeWeekdayUsage() — dailyMetrics itself only
+  // ever updates once a day, so recomputing this more often than that would just re-read the same
+  // rows for no new information. suggestPar() applies an extra safety-margin boost once this
+  // crosses a real-recurrence threshold (see its own comment) — a drug that keeps running out for
+  // real, no matter how "sufficient" the forecast said it was, is evidence no formula should be
+  // allowed to argue with. Optional — unset (or cleared back to undefined) whenever a med has had
+  // no real floor stockout in the last 30 days.
+  recentStockoutDays30?: number | undefined;
   // Real-world request: "อยากให้มีระบบตรวจชื่อยาจากใบ hosxp และชื่อยาจากแอพที่แม่นยำมากกว่านี้" —
   // matchHosxpMed() (selectors.ts) is deliberately conservative (exact match after whitespace/
   // punctuation normalization, or a single-candidate substring fallback — never fuzzy/semantic
@@ -907,6 +942,24 @@ export interface AppState {
   // scripts/recompute-usage-stats.mjs job, whichever ran last. null means neither has ever run.
   // SettingsScreen uses this to warn when the numbers behind every par suggestion are stale.
   usageStatsRecomputedAt: number | null;
+  // Real-world request (follow-up): "ให้จำนวนยาที่เบิกจากคลังมีจำนวนตามความเหมาะสม...ไม่น้อยเกินไป"
+  // — parSubCoverDays above is a number an admin types once and rarely revisits; if the REAL
+  // central-warehouse requisition lead time runs longer than that (staffing changes, a busier
+  // season), every substock par suggestPar() sizes off it quietly undersizes against reality
+  // until someone happens to notice and retype the setting. This is the real observed lead time —
+  // a weighted average of `DailyMetrics.receiveLeadTimeAvgHours` (÷24, rounded up to whole days)
+  // over the SAME bounded last-30-real-days `dailyMetrics` window Med.recentStockoutDays30's own
+  // doc comment describes (one query, two derived outputs), written ONLY by
+  // scripts/recompute-usage-stats.mjs. effectiveSubCoverDays() (selectors.ts) takes whichever of this or the admin's
+  // own typed parSubCoverDays is HIGHER wherever suggestPar() gets called — never silently lets
+  // the admin's possibly-stale number undersize against a real, currently-measured lead time, but
+  // never overrides it either when the admin's own number is already the more conservative one.
+  // null — unset until the first run after this field shipped, or whenever there's no real
+  // receiveApprovedCount sample in the window to average (a new/quiet install); either case falls
+  // back to parSubCoverDays alone, unchanged from before this field existed. Not optional (unlike
+  // most Med fields like this) — same "always present, null means not yet computed" shape
+  // usageStatsRecomputedAt right above already uses for this exact state slice.
+  effectiveLeadTimeDays: number | null;
 
   // In-app replacement for window.confirm() — see confirmAsync()/ConfirmDialog.tsx. The
   // browser's native confirm() is unreliable inside some Android WebView/PWA/in-app-browser

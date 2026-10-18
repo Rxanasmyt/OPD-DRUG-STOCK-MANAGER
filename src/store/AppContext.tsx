@@ -27,7 +27,7 @@ import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetch
 import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchAllTxs, fetchTxsByName, fetchTxsAfter, queryTxsByDateRange } from './repositories/txsRepo';
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
 import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, isRegularlyDispensed, percentile } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays } from './selectors';
 import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -127,18 +127,6 @@ function readPersisted<T>(key: string): T | null {
 function genLotCode(medCode: string | undefined, medId: MedId, lotRefId: string): string {
   const base = (medCode || medId).toUpperCase().replace(/[^A-Z0-9]/g, '');
   return 'LOT-' + base + '-' + lotRefId.slice(-6).toUpperCase();
-}
-
-/** `volatility` is the hidden safety-margin multiplier `suggestPar()` applies on top of the
- * plain daily-usage × cover-days math (see selectors.ts) — previously a fixed 1.1 for every
- * newly-added med and a random 1.05–1.40 for the original seeded formulary, with no UI to see
- * or change it, so a suggested par could never be reproduced by hand. Now user-editable; keep
- * it inside a sane range regardless of what gets typed in — 1.0 (no buffer) to 3.0 (a very
- * erratic-demand drug) covers every real case, and never let it collapse to 0 or negative
- * (which would zero out or invert the suggestion). */
-function clampVolatility(v: number): number {
-  if (!isFinite(v) || v <= 0) return 1;
-  return Math.round(Math.min(3, Math.max(1, v)) * 100) / 100;
 }
 
 // Bug fix (usability): bin/binIpd/binSub text is never itself encoded into a QR — the
@@ -329,7 +317,7 @@ function freshState(): AppState {
     // always managing every single weekday top-up (see the "เร่งด่วนวันนี้" fill mode above —
     // deferring a merely-below-Min item a day or two is the whole point of that feature, so Max
     // needs enough room to absorb that without the shelf actually running dry).
-    expiryWarnDays: 90, parFloorCoverDays: 4, parSubCoverDays: 28, usageStatsRecomputedAt: null,
+    expiryWarnDays: 90, parFloorCoverDays: 4, parSubCoverDays: 28, usageStatsRecomputedAt: null, effectiveLeadTimeDays: null,
     idleLogoutMinutes: 30,
     // Real-world request: "ยา HAD ไม่ต้องยืนยันสแกนก่อนครับ ตอนนี้ป้ายชั้นวางยายังไม่ได้ทำ" —
     // TConfirmScreen's high-alert re-scan step (hadPending/startHadScan) needs a physical QR
@@ -1444,7 +1432,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // already has sane defaults, so a snapshot with no data simply leaves them as-is.
       subscribeSettings((snap) => {
         if (!snap.exists()) return;
-        const d = snap.data() as Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; idleLogoutMinutes: number; requireHadScan: boolean; usageStatsRecomputedAt: number; latestVersion: string }>;
+        const d = snap.data() as Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; idleLogoutMinutes: number; requireHadScan: boolean; usageStatsRecomputedAt: number; latestVersion: string; effectiveLeadTimeDays: number }>;
         patch((st) => ({
           expiryWarnDays: typeof d.expiryWarnDays === 'number' ? d.expiryWarnDays : st.expiryWarnDays,
           parFloorCoverDays: typeof d.parFloorCoverDays === 'number' ? d.parFloorCoverDays : st.parFloorCoverDays,
@@ -1457,6 +1445,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // either has ever run at all (never defaults to "now" — that would hide genuinely never
           // having been computed).
           usageStatsRecomputedAt: typeof d.usageStatsRecomputedAt === 'number' ? d.usageStatsRecomputedAt : st.usageStatsRecomputedAt,
+          // Real-world request (follow-up): "ให้จำนวนยาที่เบิกจากคลังมีจำนวนตามความเหมาะสม...ไม่น้อย
+          // เกินไป" — see GlobalSettings.effectiveLeadTimeDays' own doc comment (types.ts). Written
+          // ONLY by scripts/recompute-usage-stats.mjs — never by this app directly.
+          effectiveLeadTimeDays: typeof d.effectiveLeadTimeDays === 'number' ? d.effectiveLeadTimeDays : st.effectiveLeadTimeDays,
         }));
         // Real-world request: "อยากให้เมื่อมีการ merge เข้า main แล้ว อยากให้มีการอัพเดตเวอชั่นที่
         // รวดเร็ว ตอนนี้ต้องรอนานกว่าจะขึ้นป็อปอัพให้อัพเดต" — the service worker's own update
@@ -3390,7 +3382,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!canEditMeds) return;
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return;
-    const sug = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
+    const sug = suggestPar(m, state.parFloorCoverDays, effectiveSubCoverDays(state.parSubCoverDays, state.effectiveLeadTimeDays));
     if (!sug) { toast(m.name + ' ยังไม่มีสถิติการใช้ ไม่สามารถแนะนำ par ได้'); return; }
     try {
       // Bug fix (data integrity): this wrote the new parFloor (Max) alone, with no check
@@ -3417,13 +3409,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         adjustedAt: Date.now(), adjustedBy: userName(),
       } satisfies ParAdjustmentRecord).catch((e) => console.error(e)); // best-effort — never block the real par write on this
     } catch (e) { toastErr(e, 'ปรับ par ไม่สำเร็จ'); }
-  }, [canEditMeds, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast, toastErr, userName]);
+  }, [canEditMeds, state.meds, state.parFloorCoverDays, state.parSubCoverDays, state.effectiveLeadTimeDays, logAudit, toast, toastErr, userName]);
 
   const applyAllSuggested = useCallback(guardOnce('applyAllSuggested', async () => {
     if (!canEditMeds) return;
+    const effSub = effectiveSubCoverDays(state.parSubCoverDays, state.effectiveLeadTimeDays);
     const targets = state.meds.filter((m) => {
       if (!m.active) return false;
-      const s = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
+      const s = suggestPar(m, state.parFloorCoverDays, effSub);
       return !!s && (s.sub !== m.parSub || s.floor !== m.parFloor);
     });
     try {
@@ -3433,7 +3426,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       for (let i = 0; i < targets.length; i += 200) {
         const batch = writeBatch(db);
         targets.slice(i, i + 200).forEach((m) => {
-          const sug = suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays);
+          const sug = suggestPar(m, state.parFloorCoverDays, effSub);
           if (!sug) return; // ไม่มีสถิติการใช้ ข้าม ห้ามเขียนทับ par เดิม
           // Bug fix (data integrity): same gap as applyOnePar above, applied per-row here too —
           // a bulk apply across the whole formulary is exactly where a Max shrinking below an
@@ -3457,7 +3450,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'par_updated', note: 'ใช้ค่า par แนะนำจากสถิติทั้งหมด (' + targets.length + ' รายการเปลี่ยนแปลง)' });
       toast('ปรับ par ตามค่าแนะนำแล้ว ' + targets.length + ' รายการ');
     } catch (e) { toastErr(e, 'ปรับ par ไม่สำเร็จ'); }
-  }), [canEditMeds, state.meds, state.parFloorCoverDays, state.parSubCoverDays, logAudit, toast, toastErr, guardOnce, userName]);
+  }), [canEditMeds, state.meds, state.parFloorCoverDays, state.parSubCoverDays, state.effectiveLeadTimeDays, logAudit, toast, toastErr, guardOnce, userName]);
 
   // Real-world request: "ปรับยาหน้างานทั้งหมดในแอพ min เป็น 50% ของ max" — a one-time bulk
   // normalization that writes floorMin EXPLICITLY onto every active med, not just the default-
@@ -3499,8 +3492,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // rather than guessing.
   const setAllMinSuggested = useCallback(guardOnce('setAllMinSuggested', async () => {
     if (!canEditMeds) return;
+    const effSub = effectiveSubCoverDays(state.parSubCoverDays, state.effectiveLeadTimeDays);
     const targets = state.meds
-      .map((m) => ({ m, sug: m.active ? suggestPar(m, state.parFloorCoverDays, state.parSubCoverDays) : null }))
+      .map((m) => ({ m, sug: m.active ? suggestPar(m, state.parFloorCoverDays, effSub) : null }))
       .filter((x): x is { m: Med; sug: NonNullable<ReturnType<typeof suggestPar>> } => !!x.sug && x.sug.min !== floorMinOf(x.m));
     if (!targets.length) { toast('ยาทุกตัวที่มีสถิติการใช้ มี Min ตรงกับค่าแนะนำจากอัตราการใช้จริงอยู่แล้ว'); return; }
     if (!(await confirmAsync(
@@ -3520,7 +3514,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logAudit({ type: 'par_updated', note: 'ตั้งค่า Min ยาทุกตัวตามอัตราการใช้จริง (' + nf(targets.length) + ' รายการเปลี่ยนแปลง)' });
       toast('ตั้งค่า Min ตามอัตราการใช้จริงแล้ว ' + nf(targets.length) + ' รายการ');
     } catch (e) { toastErr(e, 'ตั้งค่า Min ไม่สำเร็จ'); }
-  }), [canEditMeds, state.meds, state.parFloorCoverDays, state.parSubCoverDays, confirmAsync, logAudit, toast, toastErr, guardOnce]);
+  }), [canEditMeds, state.meds, state.parFloorCoverDays, state.parSubCoverDays, state.effectiveLeadTimeDays, confirmAsync, logAudit, toast, toastErr, guardOnce]);
 
   const debouncedParWrite = useCallback((medId: MedId, field: 'parSub' | 'parFloor', val: number) => {
     const key = 'par:' + medId + field;
@@ -3887,11 +3881,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       let analyzed = 0;
       let patterned = 0;
       let peaksFound = 0;
-      const writes: { id: string; weekday?: { factor: number; day: number; occ: number; pattern: number[] } | 'clear' | undefined; peak?: { qty: number; date: string; p90: number } | 'clear' | undefined }[] = [];
+      const writes: { id: string; weekday?: { factor: number; day: number; occ: number; pattern: number[] } | 'clear' | undefined; peak?: { qty: number; date: string; p90: number; cv?: number } | 'clear' | undefined }[] = [];
       for (const m of targets) {
         const key = dupNames.has(m.name) ? 'id:' + m.id : 'name:' + m.name;
         let weekday: { factor: number; day: number; occ: number; pattern: number[] } | 'clear' | undefined;
-        let peak: { qty: number; date: string; p90: number } | 'clear' | undefined;
+        let peak: { qty: number; date: string; p90: number; cv?: number } | 'clear' | undefined;
 
         // Peak single-day dispense — decoupled from the weekday-pattern confidence gate below
         // (MIN_OCC_PER_WEEKDAY per weekday) on purpose: the whole point of this signal is to
@@ -3906,14 +3900,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // (types.ts) and suggestPar()'s (selectors.ts) — the 90th percentile of this SAME
           // dayMap's values, so a single anomalous day no longer single-handedly dictates Max/Min.
           const p90Qty = Math.round(percentile(Array.from(dayMap.values()), 0.9));
-          if (roundedPeak > 0 && (roundedPeak !== m.peakDayQty || peakDate !== m.peakDayDate || p90Qty !== m.peakDayP90Qty)) {
-            peak = { qty: roundedPeak, date: peakDate, p90: p90Qty };
+          // Real-world request (follow-up): "แทนที่ volatility (พิมพ์มือ) ด้วยค่าคำนวณจากความแปรปรวน
+          // จริง" — see Med.usageCv's own doc comment (types.ts). Same dayMap as p90Qty just above
+          // (no extra read); needs at least 2 real days to mean anything (coefficientOfVariation()
+          // itself returns 0 below that, which would read as a false "perfectly stable" rather than
+          // "not enough data yet" — left unset instead so suggestPar() keeps falling back to the
+          // admin's own typed volatility until there's real variance to measure against).
+          const cvVal = dayMap.size >= 2 ? Math.round(coefficientOfVariation(Array.from(dayMap.values())) * 1000) / 1000 : undefined;
+          if (roundedPeak > 0 && (roundedPeak !== m.peakDayQty || peakDate !== m.peakDayDate || p90Qty !== m.peakDayP90Qty || cvVal !== m.usageCv)) {
+            peak = { qty: roundedPeak, date: peakDate, p90: p90Qty, ...(cvVal !== undefined ? { cv: cvVal } : {}) };
             peaksFound++;
           }
-        } else if (m.peakDayQty || m.peakDayP90Qty) {
+        } else if (m.peakDayQty || m.peakDayP90Qty || m.usageCv != null) {
           // No reconcile_hosxp history at all left within the (longer) peak window — the old
-          // peak is no longer traceable to any real remaining data; clear it (both figures)
-          // rather than let a stale number linger forever with nothing backing it.
+          // peak/variability figures are no longer traceable to any real remaining data; clear
+          // them all rather than let stale numbers linger forever with nothing backing them.
           peak = 'clear';
         }
 
@@ -3970,9 +3971,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             fields.weekdayPeakFactor = w.weekday.factor; fields.weekdayPeakDay = w.weekday.day; fields.weekdayPeakOccurrences = w.weekday.occ; fields.weekdayPattern = w.weekday.pattern;
           }
           if (w.peak === 'clear') {
-            fields.peakDayQty = deleteField(); fields.peakDayDate = deleteField(); fields.peakDayP90Qty = deleteField();
+            fields.peakDayQty = deleteField(); fields.peakDayDate = deleteField(); fields.peakDayP90Qty = deleteField(); fields.usageCv = deleteField();
           } else if (w.peak) {
             fields.peakDayQty = w.peak.qty; fields.peakDayDate = w.peak.date; fields.peakDayP90Qty = w.peak.p90;
+            if (w.peak.cv !== undefined) fields.usageCv = w.peak.cv;
           }
           batch.update(medRef(w.id), fields);
         });
