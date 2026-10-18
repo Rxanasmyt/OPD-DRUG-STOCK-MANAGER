@@ -254,9 +254,14 @@ describe('analyzeWeekdayUsage — peak single-day usage regression', () => {
     expect(normalQtys).toContain(write.data!.peakDayP90Qty);
     // Real-world request (follow-up): "แทนที่ volatility (พิมพ์มือ) ด้วยค่าคำนวณจากความแปรปรวนจริง" —
     // see Med.usageCv's own doc comment (types.ts). Computed from the SAME per-day values as
-    // peakDayP90Qty above (25 real days, including the outlier) — a real, nonzero coefficient of
-    // variation given how spread out those 25 days genuinely are.
-    expect(write.data!.usageCv as number).toBe(Math.round(coefficientOfVariation([...normalQtys, 11514]) * 1000) / 1000);
+    // peakDayP90Qty above, winsorized at that same p90 figure first (bug fix, second real-world
+    // report on this same drug: an unwinsorized CV let the one outlier day dominate both the mean
+    // AND the variance, inflating usageCv far beyond what this drug's real day-to-day variation
+    // justifies) — still a real, nonzero coefficient of variation given how spread out the 24
+    // normal days themselves genuinely are, just no longer blown up by the 25th (outlier) one.
+    const p90 = write.data!.peakDayP90Qty as number;
+    const winsorized = [...normalQtys, 11514].map((v) => Math.min(v, p90));
+    expect(write.data!.usageCv as number).toBe(Math.round(coefficientOfVariation(winsorized) * 1000) / 1000);
     expect(write.data!.usageCv as number).toBeGreaterThan(0);
   });
 });

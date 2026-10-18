@@ -266,8 +266,12 @@ async function main() {
       // Med.peakDayP90Qty's (src/types.ts) — the 90th percentile of this SAME dayMap's values.
       const p90Qty = Math.round(percentile(Array.from(dayMap.values()), 0.9));
       // Mirrors AppContext.tsx's analyzeWeekdayUsage() exactly — see Med.usageCv's own doc
-      // comment (src/types.ts). Same dayMap as p90Qty above; needs ≥2 real days to mean anything.
-      const cvVal = dayMap.size >= 2 ? Math.round(coefficientOfVariation(Array.from(dayMap.values())) * 1000) / 1000 : undefined;
+      // comment (src/types.ts) and that function's own comment on winsorizing at p90Qty (bug fix,
+      // real-world report follow-up: a single outlier day used to inflate usageCv itself, which
+      // then inflated suggestPar()'s effectiveVolatility on top of the same outlier already
+      // inflating used30/avgFloor separately). Needs ≥2 real days to mean anything.
+      const winsorized = Array.from(dayMap.values()).map((v) => Math.min(v, p90Qty));
+      const cvVal = dayMap.size >= 2 ? Math.round(coefficientOfVariation(winsorized) * 1000) / 1000 : undefined;
       if (roundedPeak > 0 && (roundedPeak !== m.peakDayQty || peakDate !== m.peakDayDate || p90Qty !== m.peakDayP90Qty || cvVal !== m.usageCv)) {
         peak = { qty: roundedPeak, date: peakDate, p90: p90Qty, cv: cvVal };
         peaksFound++;

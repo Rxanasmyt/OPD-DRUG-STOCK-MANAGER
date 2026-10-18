@@ -1055,9 +1055,49 @@ describe('suggestPar', () => {
       });
 
       it('a peakDayP90Qty of 0 (every real day was 0 except the recorded peak) clamps to no extra floor at all', () => {
+        // Bug fix (follow-up — daily-rate capping below): with no real "normal" day at all
+        // within the peak window (p90 = 0), the averaged daily rate itself is now ALSO capped
+        // at 0 (see suggestPar()'s own comment on capping `daily` at peakDayP90Qty) — there's
+        // no evidenced normal demand to size an average off of, same as the peak clamp itself
+        // correctly contributing nothing here. roundStep's own "never actually 0" floor is all
+        // that's left, on both sides.
         const out = suggestPar(med({ used30: 10, volatility: 1, peakDayQty: 11514, peakDayP90Qty: 0 }), 3, 21);
-        const averageBasedFloor = roundStep((10 / WEEKDAYS_PER_30_DAYS) * 3);
-        expect(out!.floor).toBe(averageBasedFloor);
+        expect(out!.floor).toBe(1);
+      });
+    });
+
+    // Real-world report (SECOND follow-up, same drug — METFORMIN - PL 500 mg.): the p90 clamp
+    // above only protects the PEAK-day component of Max (peakFloor). A user reported Max back
+    // at ~11,900 even though the med's own p90 figure (SettingsScreen's peak-day panel) was
+    // correctly low — proving the AVERAGED-rate component (avgFloor, driven by used30/
+    // usedPrev30 — raw 30/60-day SUMS with no outlier protection of their own) was still
+    // getting inflated by the same huge one-off dispense, whenever it also happened to land
+    // within that shorter 30-60 day window, completely independent of the peak-clamp fix.
+    describe('daily-rate capping at peakDayP90Qty (bug fix — METFORMIN - PL 500 mg., second report: the AVERAGE component was still contaminated)', () => {
+      it('caps the averaged daily rate at peakDayP90Qty when the raw rate would exceed it', () => {
+        // used30 contaminated by the same outlier landing within the last 30 days — raw daily
+        // rate works out far above any real "normal busy day" (peakDayP90Qty).
+        const contaminated = suggestPar(med({ used30: 19714, volatility: 1, peakDayQty: 11514, peakDayP90Qty: 650 }), 4, 21);
+        const clean = suggestPar(med({ used30: 19714, volatility: 1, peakDayQty: 650, peakDayP90Qty: 650 }), 4, 21);
+        // Both cases cap to the exact same, reasonable Max — the contamination is fully removed.
+        expect(contaminated).toEqual(clean);
+        expect(contaminated!.floor).toBe(roundStep(650 * 4));
+      });
+
+      it('never caps the average below the real p90 ceiling when the raw daily rate is already under it', () => {
+        // daily (~501/day) sits comfortably under peakDayP90Qty (600) — nothing to cap. Picked
+        // small enough that peakFloor itself (roundStep(600)=600) doesn't dominate Max via the
+        // separate pre-existing peak clamp, isolating this test to the capping logic alone.
+        const daily = 10000 / WEEKDAYS_PER_30_DAYS;
+        const out = suggestPar(med({ used30: 10000, volatility: 1, peakDayP90Qty: 600 }), 4, 21);
+        expect(out!.floor).toBe(roundStep(daily * 4));
+        expect(out!.floor).toBeGreaterThan(roundStep(600)); // avgFloor, not peakFloor, is what drove it
+      });
+
+      it('leaves the daily rate completely uncapped for a med with no peakDayP90Qty computed yet', () => {
+        const withCap = suggestPar(med({ used30: 300, volatility: 1 }), 3, 21);
+        const noCapField = suggestPar(med({ used30: 300, volatility: 1, peakDayP90Qty: undefined }), 3, 21);
+        expect(withCap).toEqual(noCapField);
       });
     });
   });
