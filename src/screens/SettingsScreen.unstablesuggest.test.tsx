@@ -38,9 +38,13 @@ const UNSTABLE_BUT_NOT_CHANGING = {
   id: 'm3', code: 'MED-0003', name: 'Ventolin inhaler', unit: 'ขวด', dosageForm: 'พ่น',
   price: 1, had: false, active: true,
   // suggestPar() blends used30/usedPrev30 70/30 when a real prior-month baseline exists (see its
-  // own comment) — blended = 1000*0.7 + 100*0.3 = 730, daily = 730/WEEKDAYS_PER_30_DAYS ≈ 36.59 ->
-  // floor = roundStep(36.59*4) = 150, sub = roundStep(36.59*28) = 1100.
-  parSub: 1100, parFloor: 150, floor: 50, bin: 'A3',
+  // own comment) — blended = 1000*0.7 + 100*0.3 = 730.
+  // floor still uses the weekday-only rate: daily = 730/WEEKDAYS_PER_30_DAYS ≈ 36.59 ->
+  // floor = roundStep(36.59*4) = 150.
+  // Bug fix (real-world report, METFORMIN - PL 500 mg., THIRD follow-up): sub now converts back
+  // to a true calendar-day average first (see suggestPar()'s own comment on dailyCalendar) ->
+  // dailyCal = 730/30 ≈ 24.33 -> sub = roundStep(24.33*28) = 700 (not the old weekday-rate 1100).
+  parSub: 700, parFloor: 150, floor: 50, bin: 'A3',
   noSubstock: false, used30: 1000, usedPrev30: 100, volatility: 1,
 };
 

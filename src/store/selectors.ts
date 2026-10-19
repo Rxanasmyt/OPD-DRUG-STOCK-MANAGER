@@ -1201,7 +1201,25 @@ export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number)
   // when p90 hasn't been computed yet for this med (same self-healing transition every field like
   // this uses elsewhere in this app).
   const avgFloor = roundStep(daily * floorDays * effectiveVolatility * weekdayFactor * criticalityFactor * stockoutBoost);
-  const avgSub = roundStep(daily * subCoverDays * effectiveVolatility * stockoutBoost);
+  // Real-world report (METFORMIN - PL 500 mg., AGAIN): "par substock ดูเยอะเกินความจำเป็นมั้ยครับ
+  // อัตราการใช้เฉลี่ย 994.9เม็ด/วัน ถ้า25วัน ก็ 24872.5 เองครับ รู้สึกว่าเลขไม่สมเหตุสมผล" — confirmed
+  // the live SUGGESTED sub par (not just a stale stored one) really did land near 2.3x that naive
+  // figure. `daily` above is WEEKDAYS_PER_30_DAYS-adjusted (see dailyUsageRate()'s own doc
+  // comment) — a deliberately inflated "rate on an actual dispensing day", so a SHORT floor
+  // refill window (a few days) can't get caught out landing entirely on busy weekdays. That's
+  // exactly the same "long cycle already absorbs a single weekday's spike on its own" territory
+  // weekdayFactor/criticalityFactor are already floor-only for (see their own comments above) —
+  // but the weekday-only `daily` rate itself still fed straight into avgSub, over substock's much
+  // longer multi-week cover window where real weekends/holidays genuinely fall inside that span
+  // and consume near-zero. Multiplying a weekday-only rate by a CALENDAR day count overstated
+  // real total consumption over that span by roughly 30/WEEKDAYS_PER_30_DAYS (~1.5x) — on top of
+  // (not instead of) every real risk signal below (volatility/stockout boost/peak-day floor),
+  // compounding into a substock par several times its real calendar need for a high-volume drug.
+  // Converts back to a true calendar-day average before scaling by subCoverDays; every other
+  // signal (peak-day floor, volatility, stockout boost) is untouched — those are real risk
+  // signals, not a day-unit mismatch.
+  const dailyCalendar = daily * (WEEKDAYS_PER_30_DAYS / 30);
+  const avgSub = roundStep(dailyCalendar * subCoverDays * effectiveVolatility * stockoutBoost);
   const peakBasis = m.peakDayP90Qty ?? m.peakDayQty;
   const peakFloor = peakBasis ? roundStep(peakBasis) : 0;
   const floor = Math.max(avgFloor, peakFloor);
