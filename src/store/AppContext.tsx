@@ -2084,17 +2084,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // groups correctly from day one too, not just once someone manually confirms every drug.
         //
         // Real-world request: "ไม่มีจำนวนยาใน substock...อยากให้จำนวนที่แสดงโชว์จำนวนเป็นกล่องเป็น
-        // หลัก แล้วเขียนกำกับว่า กี่กล่อง กี่เม็ด" — reuses the exact Par/คงเหลือ/boxes columns
-        // printWarehouseRequestList already built (PickListRow.par/curBalance/boxes — see their
-        // own doc comments), with the SAME substock-focused meaning there: par is substock's own
-        // target (m.parSub), curBalance is substock's CURRENT balance (subQty) — what's actually
-        // available to pick qty FROM, which is exactly what was missing here. boxes is whatever
-        // whole boxes qty covers (Math.floor, since unlike the warehouse sheet's own qty — always
-        // rounded up to a clean box multiple — suggestTransferQty()'s result can land mid-box;
-        // the precise remainder still shows in boxNote above, e.g. "หยิบ 1x30 + 17 เม็ด", so
-        // nothing here loses that exactness, it's additive).
-        const par = m.parSub;
-        const curBalance = subQty(state, m.id);
+        // หลัก แล้วเขียนกำกับว่า กี่กล่อง กี่เม็ด" — first reused printWarehouseRequestList's exact
+        // Par/คงเหลือ/boxes columns with the substock-focused meaning (par = substock's own
+        // target, curBalance = substock's current balance).
+        //
+        // Real-world follow-up: "อาจจะไม่ต้อง มี par substock แต่ต้องมี min max ของชั้นวางยา...ขอดู
+        // ทั้ง 3 ค่า (Min, Max, คงเหลือปัจจุบัน) ครบที่สุด แต่ต้องเพิ่มคอลัมน์ใหม่อีก 1 คอลัมน์...
+        // แต่ปรับให้อ่านง่ายเหมาะสม" — this sheet is about the FLOOR shelf (items below floor Min,
+        // filled toward floor Max), so its own Min/Max/current is the more directly relevant
+        // context than substock's, which only ever told the reader "is there enough to pick FROM"
+        // (still covered separately via pickBin above). Packs all 3 numbers into the same 2
+        // columns without a genuinely new one: `par` (a string here — see its own doc comment in
+        // print.ts) carries "Min / Max" together, `curBalance` carries the floor's current qty —
+        // exactly why this row is on the list in the first place (below Min), displayed alongside
+        // where it's headed.
+        const par = nf(floorMinOf(m)) + ' / ' + nf(m.parFloor);
+        const curBalance = m.floor;
         const boxes = m.packSize && m.packSize > 1 ? Math.floor(qty / m.packSize) : 0;
         return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note, pickBin: m.binSub || undefined, route: effectiveRouteOf(m), par, curBalance, boxes };
       })
@@ -2109,7 +2114,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       since: thDate(m.outOfStockSince as number),
       expectedReturn: m.outOfStockExpectedReturn ? thDate(m.outOfStockExpectedReturn) : undefined,
     }));
-    const ok = printPickListSheet(rows, 'ใบเติมหน้างานประจำวัน', 'รายการยาที่มีปริมาณต่ำกว่าจุดสั่งเติมขั้นต่ำ (Min) ประจำวันที่จัดพิมพ์เอกสาร', undefined, { printedBy: userName() }, undefined, heldRows);
+    // par's label overridden to "Min / Max" to match the string this sheet's own rows now pack
+    // into it (floor's own Min/Max, not a plain number) — see the rows' own `par` comment above.
+    const colLabels = { bin: 'ชั้น', qty: 'จำนวนที่ต้องหยิบ', pickBin: 'หยิบจาก (substock)', par: 'Min / Max' };
+    const ok = printPickListSheet(rows, 'ใบเติมหน้างานประจำวัน', 'รายการยาที่มีปริมาณต่ำกว่าจุดสั่งเติมขั้นต่ำ (Min) ประจำวันที่จัดพิมพ์เอกสาร', colLabels, { printedBy: userName() }, undefined, heldRows);
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state, toast, userName]);
 
