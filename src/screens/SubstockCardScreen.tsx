@@ -80,9 +80,21 @@ export default function SubstockCardScreen() {
   const [medId, setMedId] = useState<MedId | null>(null);
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<LedgerRow[] | null>(null);
-  // ปีงบประมาณที่กำลังดู — 'all' ดูทุกปีที่มีข้อมูล (บัตรกระดาษเดิมต้องเปลี่ยนแผ่นทุกปีงบประมาณ,
-  // แต่ที่นี่เก็บได้ไม่จำกัดปีแล้วสลับดูย้อนหลังได้ทันทีโดยไม่ต้องโหลดใหม่ — คำนวณคงเหลือสะสม
-  // จากประวัติทั้งหมดเสมอ ไม่ว่าจะกรองปีไหนอยู่ ยอดคงเหลือในแต่ละแถวจึงถูกต้องเสมอ)
+  // Bug fix (Firestore quota incident — see AppContext.tsx's LEDGER_RECENT_DAYS comment for the
+  // full story): opening a card now fetches only the last ~13 months by default ('recent') —
+  // 'full' is an explicit, user-requested load of the med's entire history, triggered by the
+  // "โหลดประวัติทั้งหมด" button below. Reset to 'recent' on every openCard/switchSide; "all
+  // years" below means "every year in whatever's currently loaded," not "every year this med
+  // has ever had activity," unless ledgerMode is 'full'.
+  const [ledgerMode, setLedgerMode] = useState<'recent' | 'full'>('recent');
+  // Mirrors ledgerMode for the live-refetch effect below (a plain ref, not state, so that effect
+  // doesn't need ledgerMode in its own dependency array — it only ever needs the CURRENT mode at
+  // the moment a new relevant tx arrives, same pattern as loadReqId/seenTxTs below).
+  const ledgerModeRef = useRef<'recent' | 'full'>('recent');
+  // ปีงบประมาณที่กำลังดู — 'all' ดูทุกปีที่มีข้อมูลใน ledgerMode ปัจจุบัน (บัตรกระดาษเดิมต้อง
+  // เปลี่ยนแผ่นทุกปีงบประมาณ, แต่ที่นี่สลับดูย้อนหลังได้ทันทีโดยไม่ต้องโหลดใหม่ ภายในขอบเขตที่
+  // โหลดมาแล้ว — คำนวณคงเหลือสะสมจากประวัติที่โหลดมาเสมอ ไม่ว่าจะกรองปีไหนอยู่ ยอดคงเหลือในแต่ละ
+  // แถวจึงถูกต้องเสมอ)
   const [year, setYear] = useState<number | 'all'>('all');
   // Real-world request: "ยาหน้างาน ไม่มีประวัติว่าแต่ละวันถูกตัดยอดไปเท่าไร คงเหลือเท่าไร" — a
   // med WITH a substock stage used to only ever show its substock ledger here; fetchFloorLedger
@@ -135,13 +147,15 @@ export default function SubstockCardScreen() {
   // Shared by openCard (first open) and switchSide (flipping substock ⇄ หน้างาน on an
   // already-open card) — identical fetch/stale-response-guard/fiscal-year-default logic either
   // way, just parameterized on which side to pull.
-  const loadLedger = async (id: MedId, side: 'sub' | 'floor') => {
+  const loadLedger = async (id: MedId, side: 'sub' | 'floor', mode: 'recent' | 'full' = 'recent') => {
     const reqId = ++loadReqId.current;
     setLoading(true);
     setRows(null);
     setYear('all');
+    setLedgerMode(mode);
+    ledgerModeRef.current = mode;
     try {
-      const ledger = await (side === 'sub' ? fetchSubstockLedger(id) : fetchFloorLedger(id));
+      const ledger = await (side === 'sub' ? fetchSubstockLedger(id, mode) : fetchFloorLedger(id, mode));
       if (loadReqId.current !== reqId) return; // a newer openCard()/switchSide()/live-refetch has since superseded this
       setRows(ledger);
       // Bug fix (false mismatch): baseline the "already covered by this fetch" marker off the
@@ -177,6 +191,15 @@ export default function SubstockCardScreen() {
   // viewSide's own doc comment. A noSubstock med has only one side (openCard forces 'floor'
   // and the toggle button never renders for it — see canToggle below), so this never fires
   // for one in practice.
+  // Explicit "โหลดประวัติทั้งหมด" action — the only thing that switches ledgerMode to 'full'.
+  // Re-fetches the currently-open med/side from the very first row instead of the default
+  // ~13-month window — see AppContext.tsx's LEDGER_RECENT_DAYS comment for why this costs real
+  // reads and is opt-in rather than automatic, and why only this mode's mismatch check means
+  // anything (below).
+  const loadFullHistory = () => {
+    if (!medId) return;
+    loadLedger(medId, viewSide, 'full');
+  };
   const switchSide = (side: 'sub' | 'floor') => {
     if (!medId || side === viewSide) return;
     setViewSide(side);
@@ -190,8 +213,10 @@ export default function SubstockCardScreen() {
   }, [rows]);
 
   // Rows to actually render/print/export — the running balance on each row was already
-  // computed over the FULL history in fetchSubstockLedger, so filtering down to one fiscal
-  // year here for display never has to touch that math again.
+  // computed in fetchSubstockLedger (over the full history in 'full' mode, or anchored backward
+  // from the live value within the loaded window in 'recent' mode — either way correct for every
+  // row actually present), so filtering down to one fiscal year here for display never has to
+  // touch that math again.
   const viewRows = useMemo(() => {
     if (!rows) return null;
     return year === 'all' ? rows : rows.filter((r) => fiscalYear(r.ts) === year);
@@ -276,7 +301,10 @@ export default function SubstockCardScreen() {
     if (latestRelevantTxTs <= seenTxTs.current) return;
     seenTxTs.current = latestRelevantTxTs;
     const reqId = ++loadReqId.current;
-    (hasSub ? fetchSubstockLedger(medId) : fetchFloorLedger(medId))
+    // Refetches in whichever mode is CURRENTLY displayed (ledgerModeRef, not the 'recent'
+    // default) — a new tx landing while someone has an explicit "โหลดประวัติทั้งหมด" view open
+    // must not silently narrow it back down to the last ~13 months.
+    (hasSub ? fetchSubstockLedger(medId, ledgerModeRef.current) : fetchFloorLedger(medId, ledgerModeRef.current))
       .then((ledger) => { if (loadReqId.current === reqId) setRows(ledger); })
       .catch((e) => console.error(e));
   }, [latestRelevantTxTs, medId, med, hasSub, fetchSubstockLedger, fetchFloorLedger]);
@@ -297,7 +325,14 @@ export default function SubstockCardScreen() {
   // always agree — if they don't, something in the tx history is incomplete or a lot was
   // touched outside the normal receive/transfer/scrap paths. Surface the mismatch rather
   // than silently showing two different numbers.
-  const mismatch = rows && rows.length > 0 && liveBalance !== lastLedgerBalance;
+  //
+  // Bug fix (Firestore quota incident — see AppContext.tsx's LEDGER_RECENT_DAYS comment): only
+  // meaningful in 'full' mode. 'recent' mode's own last-row balance is anchored BACKWARD from
+  // liveBalance by construction (AppContext.tsx), so it would always read as "matching" even
+  // when something upstream is genuinely wrong — a false reassurance, not a weaker check. Gating
+  // this on ledgerMode keeps it exactly as strict as before; it just now only runs when someone
+  // has actually loaded the full history to check against.
+  const mismatch = ledgerMode === 'full' && rows && rows.length > 0 && liveBalance !== lastLedgerBalance;
   // Same drug on both OPD and IPD shelves (same name, separate records — see wardOf) means
   // the ledger only trusts tx rows explicitly tagged with this med's id, so anything logged
   // before that tagging existed won't appear here even though it's the right drug's history.
@@ -445,6 +480,24 @@ export default function SubstockCardScreen() {
                   style={{ flex: 1, border: '1px solid ' + (!hasSub ? 'var(--amber-ink)' : 'rgba(42,31,10,.3)'), background: !hasSub ? 'rgba(255,255,255,.6)' : 'transparent', color: '#2a1f0a', fontWeight: !hasSub ? 800 : 600, padding: '7px 10px', borderRadius: 9, fontSize: 12.5 }}
                 >
                   หน้างาน
+                </button>
+              </div>
+            )}
+            {/* Bug fix (Firestore quota incident — see AppContext.tsx's LEDGER_RECENT_DAYS
+                comment): the card now loads only ~13 months of history by default, not this
+                med's entire past — this row makes that scope visible and offers the explicit
+                opt-in to see further back (also the only thing that re-enables the มียอดไม่ตรง
+                mismatch check below, since that needs the full history to mean anything). */}
+            {ledgerMode === 'recent' && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '6px 14px', background: 'var(--amber-bg)', borderTop: '1px solid var(--amber-border)' }}>
+                <span style={{ fontSize: 11.5, color: '#6b4e0a' }}>แสดงประวัติย้อนหลัง ~13 เดือนล่าสุด</span>
+                <button
+                  onClick={loadFullHistory}
+                  disabled={loading}
+                  className="press-spring"
+                  style={{ border: '1px solid rgba(42,31,10,.3)', background: 'rgba(255,255,255,.5)', color: '#2a1f0a', padding: '4px 9px', borderRadius: 8, fontSize: 11.5, fontWeight: 700, opacity: loading ? 0.6 : 1 }}
+                >
+                  โหลดประวัติทั้งหมด
                 </button>
               </div>
             )}

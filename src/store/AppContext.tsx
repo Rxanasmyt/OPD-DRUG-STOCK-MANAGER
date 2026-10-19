@@ -24,7 +24,7 @@ import { settingsRef, subscribeSettings, medSeqRef } from './repositories/metaRe
 import { floorLotRef, subscribeFloorLots, fetchAllFloorLots, fetchFloorLotsByMedId } from './repositories/floorLotsRepo';
 import { userRef, usersCollection, queryAdminUsers } from './repositories/usersRepo';
 import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetchLotsByMedIds } from './repositories/lotsRepo';
-import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchAllTxs, fetchTxsByName, fetchTxsAfter, queryTxsByDateRange } from './repositories/txsRepo';
+import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchAllTxs, fetchTxsByName, fetchTxsByNameSince, fetchTxsAfter, queryTxsByDateRange } from './repositories/txsRepo';
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
 import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays } from './selectors';
@@ -590,8 +590,14 @@ export interface AppCtx {
   setSubstockFocusId: (id: MedId | null) => void;
 
   // count
-  fetchSubstockLedger: (medId: MedId) => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
-  fetchFloorLedger: (medId: MedId) => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
+  /** mode: 'recent' (default) bounds the read to the last LEDGER_RECENT_DAYS, with each row's
+   * balance anchored backward from the live value — see fetchSubstockLedger's own doc comment
+   * (below) for why that's both cheaper AND at least as accurate for recent rows. 'full' is the
+   * original unbounded behavior (forward-summed from zero), reserved for an explicit "load full
+   * history" action — that's also the only mode a mismatch check against the live balance means
+   * anything for (see SubstockCardScreen.tsx's own mismatch calc). */
+  fetchSubstockLedger: (medId: MedId, mode?: 'recent' | 'full') => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
+  fetchFloorLedger: (medId: MedId, mode?: 'recent' | 'full') => Promise<{ ts: number; type: string; qty: number; note: string; by: string; balance: number }[]>;
   /** dateMs: reconstructed stock as of that instant — see fetchStockAsOf's own doc comment for
    * the backward-from-live-value method and its accuracy caveat. */
   fetchStockAsOf: (dateMs: number) => Promise<{ medId: MedId; medName: string; unit: string; category: string; floor: number; sub: number; value: number }[]>;
@@ -4890,9 +4896,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // loc:'substock'; a *floor* count also logs type:'count' but tagged loc:'floor', so the
   // loc check below is what keeps the two from bleeding into each other's ledger). Fetched
   // fresh each time (not the capped live 300) so the running balance is correct back to this
-  // med's very first substock transaction, however long ago that was.
+  // med's very first substock transaction, however long ago that was — true in 'full' mode
+  // (LEDGER_RECENT_DAYS's own comment below), the only mode that still forward-sums from zero.
   const SUBSTOCK_LEDGER_TYPES = new Set(['receive_from_central', 'transfer_to_floor', 'expired', 'count']);
-  const fetchSubstockLedger = useCallback(async (medId: MedId) => {
+  // Bug fix (Firestore quota incident, real-world report: "ถึง limit อีกแล้ว" — Firestore Usage
+  // showed 114K reads/day, 228% over the free-tier cap, while this hospital hadn't changed how
+  // it uses the app at all): opening ANY med's stock card used to always fetch that med's ENTIRE
+  // transaction history (fetchTxsByName — no date bound at all), every single time, however many
+  // years of receive/transfer/count rows had piled up. Checking a few long-running, high-
+  // turnover drugs' cards in a day — an entirely ordinary workflow, not a rare admin action —
+  // could alone cost tens of thousands of reads. Bounding the DEFAULT ('recent') fetch to the
+  // last LEDGER_RECENT_DAYS, with each row's balance anchored BACKWARD from the live value (the
+  // same technique fetchStockAsOf already uses and its own doc comment argues is actually MORE
+  // accurate for recent dates than forward-summing from an assumed zero baseline at the dawn of
+  // time — error only ever accumulates from the gap between the window and now, never from
+  // however far back history goes) keeps every number shown exactly as correct for the common
+  // case, at a fraction of the read cost. The one thing this can't do: a window that doesn't
+  // reach all the way back can't PROVE the books tie out against a trusted zero baseline — the
+  // bounded mode's own last-row balance equals the live value BY CONSTRUCTION, so comparing them
+  // would always "pass" even when something real is wrong. 'full' mode (SubstockCardScreen's own
+  // explicit "โหลดประวัติทั้งหมด" action) keeps the exact original unbounded, forward-summed-
+  // from-zero behavior for exactly this reason — it's the only mode the mismatch check
+  // (SubstockCardScreen's own `mismatch`) is meaningful for, and the only one still wired to it.
+  const LEDGER_RECENT_DAYS = 400; // ~13 months — current fiscal year plus a full prior one, comfortably
+  const fetchSubstockLedger = useCallback(async (medId: MedId, mode: 'recent' | 'full' = 'recent') => {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return [];
     // Bug fix: a noSubstock med (liquids/inhalers/sprays — see usesSubstock()) never has a
@@ -4929,7 +4956,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // for its warning banner, though it only needs the boolean, not this id set.)
     const mergedFromIds = new Set(state.meds.filter((x) => x.id !== m.id && x.name === m.name && x.mergedInto === m.id).map((x) => x.id));
     const hasNameTwin = state.meds.some((x) => x.id !== m.id && x.name === m.name && !mergedFromIds.has(x.id));
-    const snap = await withTimeout(fetchTxsByName(m.name));
+    const snap = await withTimeout(mode === 'full' ? fetchTxsByName(m.name) : fetchTxsByNameSince(m.name, Date.now() - LEDGER_RECENT_DAYS * DAY));
     const rows = snap.docs
       .map((d) => d.data() as { type: string; ts: number; qty: number; note?: string; by: string; loc?: string; medId?: string })
       // Bug-guard: 'count' is logged for BOTH floor counts (loc:'floor', commitCount) and
@@ -4941,9 +4968,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .filter((x) => !hasNameTwin || x.medId === m.id || (x.medId != null && mergedFromIds.has(asMedId(x.medId))))
       .map((x) => ({ ts: x.ts, type: x.type, qty: x.type === 'transfer_to_floor' ? -Math.abs(x.qty) : x.qty, note: x.note || '', by: x.by }))
       .sort((a, b) => a.ts - b.ts);
-    let bal = 0;
-    return rows.map((r) => { bal += r.qty; return { ...r, balance: bal }; });
-  }, [state.meds]);
+    if (mode === 'full') {
+      let bal = 0;
+      return rows.map((r) => { bal += r.qty; return { ...r, balance: bal }; });
+    }
+    // 'recent' mode: anchor backward from the live value — see LEDGER_RECENT_DAYS' own comment
+    // above for why this is both cheaper and (for a window this recent) at least as accurate.
+    const out: ({ ts: number; type: string; qty: number; note: string; by: string; balance: number })[] = new Array(rows.length);
+    let bal = subQty(state, m.id);
+    for (let i = rows.length - 1; i >= 0; i--) { out[i] = { ...rows[i], balance: bal }; bal -= rows[i].qty; }
+    return out;
+  }, [state.meds, state.lots]);
 
   // Real-world request: a noSubstock med (liquid/inhaler/spray/injectable — see usesSubstock())
   // has no substock ledger to show (fetchSubstockLedger above returns empty for one), but staff
@@ -4954,14 +4989,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // floor-inflow/outflow reading — unlike transfer_to_floor's flip in the substock ledger (an
   // outflow there), it's the same number read as an INFLOW here, so no sign massaging needed.
   const FLOOR_LEDGER_TYPES = new Set(['receive_from_central', 'transfer_to_floor', 'reconcile_hosxp', 'adjust', 'return', 'damaged', 'ward_move_in', 'ward_move_out', 'count']);
-  const fetchFloorLedger = useCallback(async (medId: MedId) => {
+  const fetchFloorLedger = useCallback(async (medId: MedId, mode: 'recent' | 'full' = 'recent') => {
     const m = state.meds.find((x) => x.id === medId);
     if (!m) return [];
     // Same OPD/IPD name-twin hazard, and same mergedInto refinement, as fetchSubstockLedger
-    // above — see its own comment for the full reasoning.
+    // above — see its own comment for the full reasoning. Same 'recent'-vs-'full' cost/
+    // correctness tradeoff too — see LEDGER_RECENT_DAYS' own comment above fetchSubstockLedger.
     const mergedFromIds = new Set(state.meds.filter((x) => x.id !== m.id && x.name === m.name && x.mergedInto === m.id).map((x) => x.id));
     const hasNameTwin = state.meds.some((x) => x.id !== m.id && x.name === m.name && !mergedFromIds.has(x.id));
-    const snap = await withTimeout(fetchTxsByName(m.name));
+    const snap = await withTimeout(mode === 'full' ? fetchTxsByName(m.name) : fetchTxsByNameSince(m.name, Date.now() - LEDGER_RECENT_DAYS * DAY));
     const rows = snap.docs
       .map((d) => d.data() as { type: string; ts: number; qty: number; note?: string; by: string; loc?: string; to?: string; medId?: string })
       // receive_from_central needs its own guard unlike the rest: a med WITH substock has this
@@ -4972,8 +5008,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .filter((x) => !hasNameTwin || x.medId === m.id || (x.medId != null && mergedFromIds.has(asMedId(x.medId))))
       .map((x) => ({ ts: x.ts, type: x.type, qty: x.qty, note: x.note || '', by: x.by }))
       .sort((a, b) => a.ts - b.ts);
-    let bal = 0;
-    return rows.map((r) => { bal += r.qty; return { ...r, balance: bal }; });
+    if (mode === 'full') {
+      let bal = 0;
+      return rows.map((r) => { bal += r.qty; return { ...r, balance: bal }; });
+    }
+    // 'recent' mode: anchor backward from the live value (med.floor) — see LEDGER_RECENT_DAYS'
+    // own comment above fetchSubstockLedger for why.
+    const out: ({ ts: number; type: string; qty: number; note: string; by: string; balance: number })[] = new Array(rows.length);
+    let bal = m.floor;
+    for (let i = rows.length - 1; i >= 0; i--) { out[i] = { ...rows[i], balance: bal }; bal -= rows[i].qty; }
+    return out;
   }, [state.meds]);
 
   // Real-world request: "ดูยอดคงคลังย้อนหลังได้เสมอ เหมือน HOSxP" — Firestore only ever holds
