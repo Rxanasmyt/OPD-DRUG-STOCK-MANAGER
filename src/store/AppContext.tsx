@@ -335,6 +335,7 @@ function freshState(): AppState {
     updateAvailable: false,
     checkingUpdate: false,
     idleWarnVisible: false,
+    dataSyncPaused: false,
     busy: {},
   } as AppState;
 }
@@ -1341,7 +1342,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ---------- live data: only once approved ----------
   useEffect(() => {
-    if (state.authStatus !== 'signedIn') return;
+    // Real-world request: "ลดการอ่านข้อมูลตอนที่ยังไม่ได้ใช้งานแอพ" — state.dataSyncPaused (see its
+    // own doc comment, types.ts, and the dedicated pause/resume effect below) tears every listener
+    // in this effect down while the device is signed in but genuinely not being looked at right
+    // now, and this effect re-runs (re-subscribing everything) the instant it flips back.
+    if (state.authStatus !== 'signedIn' || state.dataSyncPaused) return;
     // Every listener here used to have no error callback — a permission-denied (e.g. rules
     // edited without redeploying the app) or a persistent-cache fault would fail the
     // subscription silently, with nothing on screen ever explaining why data stopped
@@ -1487,7 +1492,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }, onErr('users')));
     }
     return () => { window.clearTimeout(stallTimer); unsubs.forEach((u) => u()); };
-  }, [state.authStatus, myProfile?.role, patch, toast]);
+  }, [state.authStatus, state.dataSyncPaused, myProfile?.role, patch, toast]);
 
   // Audit log — screen-scoped live listener (see the "Bug fix (Firestore quota incident)" comment
   // just above where this used to live, in the always-on bundle). state.authLog is read in
@@ -1499,7 +1504,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // (firebase.ts) means a repeat visit within the same session typically has this instantly from
   // cache anyway, same as any other collection here.
   useEffect(() => {
-    if (state.authStatus !== 'signedIn') return;
+    if (state.authStatus !== 'signedIn' || state.dataSyncPaused) return;
     if (state.screen !== 'reconcile' && state.screen !== 'admin') return;
     const unsub = subscribeRecentAuditLog((snap) => {
       const authLog = snap.docs.map((d) => {
@@ -1512,7 +1517,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast('เชื่อมต่อข้อมูลบางส่วนไม่สำเร็จ — ลองโหลดหน้าใหม่ ถ้ายังไม่หายให้แจ้งผู้ดูแลระบบ');
     });
     return unsub;
-  }, [state.authStatus, state.screen, patch, toast]);
+  }, [state.authStatus, state.dataSyncPaused, state.screen, patch, toast]);
 
   // Checks real lot data for anything near/past expiry and, if the person opted in and granted
   // OS permission, shows a local notification — at most once a day (see maybeNotifyExpiring's
@@ -1824,18 +1829,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const idleFiredRef = useRef(false);
   useEffect(() => {
     if (state.authStatus !== 'signedIn') return;
-    const bump = () => { lastActivityRef.current = Date.now(); idleFiredRef.current = false; };
+    const bump = () => {
+      lastActivityRef.current = Date.now();
+      idleFiredRef.current = false;
+      // Real-world request: "ลดการอ่านข้อมูลตอนที่ยังไม่ได้ใช้งานแอพ" — any real activity resumes
+      // live data sync the instant it happens (not waiting for the next 15s poll that pauses it
+      // — see IDLE_PAUSE_MS below), the same immediacy this ref already gives the idle-logout
+      // warning dismissal.
+      patch((st) => (st.dataSyncPaused ? { dataSyncPaused: false } : st));
+    };
     bump(); // signing in itself counts — otherwise a slow first paint could already look "idle"
     const EVENTS: (keyof DocumentEventMap)[] = ['pointerdown', 'keydown', 'touchstart', 'wheel'];
     EVENTS.forEach((ev) => document.addEventListener(ev, bump, { passive: true }));
     return () => EVENTS.forEach((ev) => document.removeEventListener(ev, bump));
-  }, [state.authStatus]);
+  }, [state.authStatus, patch]);
   // Checked on a plain interval rather than one setTimeout rescheduled on every activity event
   // — re-registering a timer on every click/keystroke/scroll tick (far more frequent than this
   // 15s check) would be pure waste for a threshold measured in minutes. The 1-minute warning
   // (IdleLogoutWarning.tsx's "ยังอยู่" button, same non-silent/always-dismissible pattern as
   // UpdateBanner) always has an exactly 60s window before the real logout fires, regardless of
   // idleLogoutMinutes — warnAtMs is just logoutAtMs minus that fixed 60s.
+  // Real-world request: "ลดการอ่านข้อมูลตอนที่ยังไม่ได้ใช้งานแอพ" — IDLE_PAUSE_MS is this same
+  // 15s poll's second job (see checkIdle below): pause live data sync (state.dataSyncPaused)
+  // once genuinely idle but still VISIBLE, well short of logoutAtMs — a backgrounded/hidden tab
+  // is instead owned by the dedicated visibilitychange effect further below, on its own shorter
+  // grace period (hidden means definitely not being looked at; no need to wait).
+  const IDLE_PAUSE_MS = 3 * 60 * 1000; // well short of idleLogoutMinutes' own 5-minute floor
   useEffect(() => {
     if (state.authStatus !== 'signedIn') { patch((st) => (st.idleWarnVisible ? { idleWarnVisible: false } : st)); return; }
     const logoutAtMs = Math.max(5, state.idleLogoutMinutes) * 60 * 1000;
@@ -1852,6 +1871,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const shouldWarn = idleMs >= warnAtMs;
         patch((st) => (st.idleWarnVisible === shouldWarn ? st : { idleWarnVisible: shouldWarn }));
       }
+      // Every onSnapshot listener in the live-data effect above (meds/lots/floorLots/txs/
+      // pendingReceives/settings/users) stays fully subscribed — and bills a Firestore read for
+      // every OTHER device's write it gets pushed — for this device's entire idle window even
+      // while nobody is actually looking at this tab. Reattaching once real activity resumes
+      // (bump() above) costs comparatively little thanks to persistentLocalCache (firebase.ts) —
+      // the SDK resumes from its local cache/resume token instead of re-reading the whole result
+      // set — so pausing here is close to a pure win, not a tradeoff.
+      if (document.visibilityState !== 'hidden' && idleMs >= IDLE_PAUSE_MS) {
+        patch((st) => (st.dataSyncPaused ? st : { dataSyncPaused: true }));
+      }
     };
     const intervalId = setInterval(checkIdle, 15000);
     return () => clearInterval(intervalId);
@@ -1861,6 +1890,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     idleFiredRef.current = false;
     patch({ idleWarnVisible: false });
   }, [patch]);
+
+  // ---------- pause live data sync while the tab is backgrounded/hidden ----------
+  // Real-world request: "ลดการอ่านข้อมูลตอนที่ยังไม่ได้ใช้งานแอพ" — the other two scenarios
+  // reported are covered elsewhere: visible-but-untouched by IDLE_PAUSE_MS above, and (already
+  // true before this — see the live-data effect's own `authStatus !== 'signedIn'` guard) before
+  // ever signing in at all. A hidden tab means definitely not being looked at, so this uses a
+  // much shorter grace period than the idle-visible case — just long enough that a quick alt-tab
+  // doesn't thrash the listeners. Resuming is instant the moment the tab is visible again; see
+  // state.dataSyncPaused's own doc comment (types.ts) for why reattaching is cheap.
+  const HIDDEN_PAUSE_MS = 60 * 1000;
+  useEffect(() => {
+    if (state.authStatus !== 'signedIn') return;
+    let hiddenTimer: number | undefined;
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenTimer = window.setTimeout(() => {
+          patch((st) => (st.dataSyncPaused ? st : { dataSyncPaused: true }));
+        }, HIDDEN_PAUSE_MS);
+      } else {
+        if (hiddenTimer != null) { window.clearTimeout(hiddenTimer); hiddenTimer = undefined; }
+        patch((st) => (st.dataSyncPaused ? { dataSyncPaused: false } : st));
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (hiddenTimer != null) window.clearTimeout(hiddenTimer);
+    };
+  }, [state.authStatus, patch]);
 
   // Bug fix: this was the only bulk-write action in the app neither wrapped in guardOnce nor
   // backed by a state.busy[...] flag — every other bulk button (MedsScreen/SettingsScreen)

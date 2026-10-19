@@ -990,6 +990,17 @@ export interface AppState {
   // activity — click/key/scroll) clears it and restarts the idle clock from zero.
   idleWarnVisible: boolean;
 
+  // Real-world request: "ลดการอ่านข้อมูลตอนที่ยังไม่ได้ใช้งานแอพ" — true while the device is signed
+  // in but genuinely not being looked at right now (tab backgrounded/hidden, or left open on
+  // screen with no real interaction for a few minutes — see the dataSyncPaused effect in
+  // AppContext.tsx). The live-data effect (meds/lots/floorLots/txs/pendingReceives/settings/
+  // users) tears its onSnapshot listeners down while this is true and re-subscribes the instant
+  // it flips back — every OTHER device's write pushed to a listener bills a Firestore read, and
+  // nobody benefits from those reads while this device isn't actually displaying them. Distinct
+  // from (and always flips back to false well before) idleWarnVisible/the eventual full
+  // idleLogoutMinutes auto-logout above — this never signs anyone out, it only pauses sync.
+  dataSyncPaused: boolean;
+
   // Reactive mirror of guardOnce()'s internal busy-key tracking (AppContext.tsx) — guardOnce
   // itself already prevents a double-tap from running the same commit action twice, but
   // nothing made that busy state visible on screen, so a real Firestore round trip (a slow
