@@ -57,9 +57,28 @@ export function fetchAllTxs() {
 
 /** Every txs doc logged against one med's name — fetchSubstockLedger()/fetchFloorLedger() each
  * build their own running-balance ledger from this (matched by name, not medId, since this
- * collection predates medId on every tx row — see their own OPD/IPD name-twin comments). */
+ * collection predates medId on every tx row — see their own OPD/IPD name-twin comments). Only
+ * their own 'full' mode (an explicit "load full history" action) uses this unbounded form —
+ * their default 'recent' mode uses fetchTxsByNameSince below instead. */
 export function fetchTxsByName(name: string) {
   return getDocs(query(txsCollection(), where('name', '==', name)));
+}
+
+/** Every txs doc logged against one med's name, at or after `sinceMs` — the bounded counterpart
+ * to fetchTxsByName above. Needs a composite index (txs: name Ascending + ts Ascending) — same
+ * one-time Firebase Console step as every other compound query this app added after its first
+ * (see firestore-backup.yml/collect-daily-metrics.mjs's own comments on the pendingReceives one);
+ * until it's created, Firestore's own error includes a direct "create this index" link. Bug fix
+ * (Firestore quota incident, real-world report: "ถึง limit อีกแล้ว" — Firestore Usage showed
+ * 114K reads/day, 228% over the free-tier cap — root-caused to fetchTxsByName's full, ever-
+ * growing per-med history being re-read on every single SubstockCardScreen open, the single most
+ * routine action in the app): fetchSubstockLedger()/fetchFloorLedger()'s default 'recent' mode
+ * uses this instead, bounding the common case to the last ~13 months (LEDGER_RECENT_DAYS in
+ * AppContext.tsx) regardless of how many years of history a long-running, high-turnover med has
+ * accumulated — a medication filled daily for years can carry thousands of rows, all re-read in
+ * full every time anyone just glances at its card. */
+export function fetchTxsByNameSince(name: string, sinceMs: number) {
+  return getDocs(query(txsCollection(), where('name', '==', name), where('ts', '>=', sinceMs)));
 }
 
 /** Every txs doc logged strictly after `dateMs` — fetchStockAsOf()'s own point-in-time

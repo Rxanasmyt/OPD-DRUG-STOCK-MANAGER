@@ -49,7 +49,13 @@ async function openCard() {
   await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
   await waitFor(() => expect(hasListener('meds')).toBe(true));
   fireCollection('meds', [MED]);
-  fireCollection('lots', []);
+  // Bug fix (Firestore quota incident — see AppContext.tsx's LEDGER_RECENT_DAYS comment): the
+  // default ledger fetch now anchors each row's balance BACKWARD from the live lots balance
+  // instead of forward-summing from an assumed zero — this fixture needs a real lot (qty 120,
+  // matching TXS' own net total: +100+50-30) for that anchor to reproduce the same 100/150/120
+  // sequence the old zero-anchored math happened to produce from empty lots. A real stock card
+  // always has lots consistent with its own tx history; this fixture just never modeled that.
+  fireCollection('lots', [{ id: 'l1', medId: 'm1', qty: 120, lotNo: 'L1', exp: now + 365 * 86400000 }]);
   seedCollection('txs', TXS);
 
   await user.type(screen.getByPlaceholderText('ค้นหาชื่อยา'), 'Amoxicillin');
