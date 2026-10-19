@@ -894,17 +894,23 @@ describe('suggestPar', () => {
   it('scales floor/sub par by cover days and volatility', () => {
     // daily = 30 / WEEKDAYS_PER_30_DAYS ≈ 1.504 — not the naive used30/30 = 1 (see dailyUsageRate()).
     const daily = 30 / WEEKDAYS_PER_30_DAYS;
+    // Bug fix (real-world report, METFORMIN - PL 500 mg.): sub par converts `daily` back to a
+    // true calendar-day average (dailyCal) before scaling by subCoverDays — see suggestPar()'s
+    // own comment on avgSub. For this fixture (no usedPrev30) that's just used30/30.
+    const dailyCal = 30 / 30;
     const out = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
-    expect(out).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21), min: roundStep(daily * (3 / 2)) });
+    expect(out).toEqual({ floor: roundStep(daily * 3), sub: roundStep(dailyCal * 21), min: roundStep(daily * (3 / 2)) });
   });
 
   it('sizes a no-substock med\'s floor par off subCoverDays, not floorCoverDays — it has no substock buffer to absorb the wait for the next central-warehouse refill', () => {
     const daily = 30 / WEEKDAYS_PER_30_DAYS;
+    const dailyCal = 30 / 30;
     const withSubstock = suggestPar(med({ used30: 30, volatility: 1, noSubstock: false }), 3, 21);
     const noSubstock = suggestPar(med({ used30: 30, volatility: 1, noSubstock: true }), 3, 21);
-    expect(withSubstock).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21), min: roundStep(daily * (3 / 2)) });
-    // Same subCoverDays basis drives both floor and sub once there's no substock stage.
-    expect(noSubstock).toEqual({ floor: roundStep(daily * 21), sub: roundStep(daily * 21), min: roundStep(daily * (21 / 2)) });
+    expect(withSubstock).toEqual({ floor: roundStep(daily * 3), sub: roundStep(dailyCal * 21), min: roundStep(daily * (3 / 2)) });
+    // Floor still uses the weekday-only rate even in the no-substock case (it's still a shelf
+    // refilled directly, same floor-par reasoning as always) — only sub converts to calendar.
+    expect(noSubstock).toEqual({ floor: roundStep(daily * 21), sub: roundStep(dailyCal * 21), min: roundStep(daily * (21 / 2)) });
   });
 
   // Regression for a real request: "การใช้ยาแต่ละวันในคลินิกที่แตกต่างกัน ยาที่ใช้ในแต่ละวันก็จะ
@@ -913,17 +919,19 @@ describe('suggestPar', () => {
   // to substock par (its much longer ~2-week cycle already absorbs a single weekday's spike).
   it('scales ONLY floor par (never substock par) by weekdayPeakFactor when a real weekday pattern was detected', () => {
     const daily = 30 / WEEKDAYS_PER_30_DAYS;
+    const dailyCal = 30 / 30;
     const flat = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
     const withPattern = suggestPar(med({ used30: 30, volatility: 1, weekdayPeakFactor: 2 }), 3, 21);
-    expect(withPattern).toEqual({ floor: roundStep(daily * 3 * 2), sub: roundStep(daily * 21), min: roundStep(daily * (3 / 2) * 2) });
+    expect(withPattern).toEqual({ floor: roundStep(daily * 3 * 2), sub: roundStep(dailyCal * 21), min: roundStep(daily * (3 / 2) * 2) });
     expect(withPattern!.sub).toBe(flat!.sub); // substock par completely unaffected
     expect(withPattern!.floor).toBeGreaterThan(flat!.floor); // floor par scaled up
   });
 
   it('defaults weekdayPeakFactor to 1 (no change at all) for a med analyzeWeekdayUsage hasn\'t run for yet', () => {
     const daily = 30 / WEEKDAYS_PER_30_DAYS;
+    const dailyCal = 30 / 30;
     const out = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
-    expect(out).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21), min: roundStep(daily * (3 / 2)) });
+    expect(out).toEqual({ floor: roundStep(daily * 3), sub: roundStep(dailyCal * 21), min: roundStep(daily * (3 / 2)) });
   });
 
   // Real-world request (this round): "การโชว์แสดง min max par ให้โชว์ตัวเลขจริงๆที่คำนวนได้จริง แต่
@@ -938,7 +946,8 @@ describe('suggestPar', () => {
     const noPackSize = suggestPar(med({ used30: 30, volatility: 1 }), 3, 21);
     expect(boxed).toEqual(noPackSize);
     const daily = 30 / WEEKDAYS_PER_30_DAYS;
-    expect(noPackSize).toEqual({ floor: roundStep(daily * 3), sub: roundStep(daily * 21), min: roundStep(daily * (3 / 2)) });
+    const dailyCal = 30 / 30;
+    expect(noPackSize).toEqual({ floor: roundStep(daily * 3), sub: roundStep(dailyCal * 21), min: roundStep(daily * (3 / 2)) });
   });
 
   // Real-world request: "วิเคราะห์ Min Max...ให้เหมาะกับการใช้งานหน้างานจริง" item 1 — Min used to
@@ -1113,6 +1122,28 @@ describe('suggestPar', () => {
   });
 });
 
+// Real-world report (METFORMIN - PL 500 mg., THIRD follow-up): "par substock ดูเยอะเกินความจำเป็น
+// มั้ยครับ อัตราการใช้เฉลี่ย 994.9เม็ด/วัน ถ้า25วัน ก็ 24872.5 เองครับ รู้สึกว่าเลขไม่สมเหตุสมผลครับ" —
+// confirmed the live suggested sub par (not a stale stored one) really did land near 2.3x that
+// naive calendar estimate. Root cause: avgSub multiplied the WEEKDAY-only daily rate by a
+// CALENDAR day count (see suggestPar()'s own comment on dailyCalendar) — about a 1.5x overcount
+// on its own, on top of whatever real volatility/stockout-boost signals also applied.
+describe('suggestPar — substock par converts the weekday-only rate back to calendar-day average (bug fix — METFORMIN - PL 500 mg., THIRD follow-up)', () => {
+  it('sizes sub off the real calendar-day average, noticeably lower than the weekday-only rate would give', () => {
+    const out = suggestPar(med({ used30: 19850, volatility: 1 }), 4, 28);
+    const oldFormulaSub = roundStep((19850 / WEEKDAYS_PER_30_DAYS) * 28); // what avgSub used to compute
+    const dailyCal = 19850 / 30;
+    expect(out!.sub).toBe(roundStep(dailyCal * 28));
+    expect(out!.sub).toBeLessThan(oldFormulaSub);
+  });
+
+  it('leaves floor par on the weekday-only rate, unchanged — only sub converts to calendar', () => {
+    const out = suggestPar(med({ used30: 19850, volatility: 1 }), 4, 28);
+    const daily = 19850 / WEEKDAYS_PER_30_DAYS;
+    expect(out!.floor).toBe(roundStep(daily * 4));
+  });
+});
+
 describe('percentile — nearest-rank 90th percentile (METFORMIN - PL 500 mg. single-outlier-day fix)', () => {
   it('returns 0 for an empty sample', () => {
     expect(percentile([], 0.9)).toBe(0);
@@ -1256,10 +1287,11 @@ describe('suggestPar — usageCv volatility floor (bug fix — real-data-driven 
 describe('suggestPar — recentStockoutDays30 ground-truth feedback boost', () => {
   it('boosts both floor and sub once the real recurring-stockout threshold (3 days) is met', () => {
     const daily = 300 / WEEKDAYS_PER_30_DAYS;
+    const dailyCal = 300 / 30;
     const base = suggestPar(med({ used30: 300, volatility: 1 }), 3, 21);
     const boosted = suggestPar(med({ used30: 300, volatility: 1, recentStockoutDays30: 3 }), 3, 21);
     expect(boosted!.floor).toBe(roundStep(daily * 3 * 1 * 1.3));
-    expect(boosted!.sub).toBe(roundStep(daily * 21 * 1 * 1.3));
+    expect(boosted!.sub).toBe(roundStep(dailyCal * 21 * 1 * 1.3));
     expect(boosted!.floor).toBeGreaterThan(base!.floor);
     expect(boosted!.sub).toBeGreaterThan(base!.sub);
   });
