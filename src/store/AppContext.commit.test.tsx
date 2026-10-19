@@ -1607,6 +1607,9 @@ describe('printTodayReplenishList — substock pick-location regression', () => 
     // was headed (bin, the floor shelf), never where to physically go pick it from.
     expect(row?.pickBin).toBe(REPL_MED.binSub);
     expect(row?.bin).toBe(REPL_MED.bin);
+    // Real-world follow-up: "ช่วยเพิ่มว่ายาใน substock ก่อนจะหยิบมีคงเหลือเท่าไร เพื่อเป็นการเช็ค
+    // substock ไปในตัว" — the substock balance at pickBin, not just its location.
+    expect(row?.pickBinQty).toBe(REPL_LOT.qty);
   });
 
   // Regression for a real request: "ใบเติมหน้างานประจำ และใบเบิกจากคลังให้แยกประเภทยากิน ยาฉีด

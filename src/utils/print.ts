@@ -320,6 +320,13 @@ export interface PickListRow {
   // a column for it only appears on sheets whose rows actually set it (see printPickListSheet
   // below), so the cart-based ใบจัดยาเติมชั้น (which never sets this) keeps its current layout.
   pickBin?: string | undefined;
+  // Real-world request: "ช่วยเพิ่มว่ายาใน substock ก่อนจะหยิบมีคงเหลือเท่าไร เพื่อเป็นการเช็ค
+  // substock ไปในตัว" — the pick-from shelf code alone didn't say whether there's actually
+  // enough there; this prints as a small secondary line under `pickBin` (same primary/secondary
+  // two-line pattern `boxes`' own qty cell already uses), so checking substock happens for free
+  // while reading the sheet, not as a separate step. Optional and additive, same as `pickBin`
+  // itself — only meaningful when `pickBin` is also set.
+  pickBinQty?: number | undefined;
   // Real-world request: "ใบเติมหน้างานประจำ และใบเบิกจากคลังให้แยกประเภทยากิน ยาฉีดด้วยครับ" — same
   // reasoning as TransferScreen's own on-screen route grouping (walking between the oral shelf
   // and the locked injectable cabinet with one unsorted sheet is real, physical confusion).
@@ -416,7 +423,7 @@ export function printPickListSheet(
   const rowHtml = (r: PickListRow, i: number) => `<tr>
       <td class="n">${i + 1}</td>
       <td class="bin">${escapeHtml(r.bin || '—')}</td>
-      ${showPickBin ? `<td class="pickbin">${escapeHtml(r.pickBin || '—')}</td>` : ''}
+      ${showPickBin ? `<td class="pickbin">${escapeHtml(r.pickBin || '—')}${r.pickBinQty != null ? `<div class="pickbinsub">${r.pickBinQty.toLocaleString('en-US')} ${escapeHtml(r.unit)}</div>` : ''}</td>` : ''}
       <td class="name">${escapeHtml(r.name)}${r.note ? `<div class="note">หมายเหตุ: ${escapeHtml(r.note)}</div>` : ''}</td>
       ${showParCols ? `<td class="par">${r.par != null ? (typeof r.par === 'number' ? r.par.toLocaleString('en-US') : escapeHtml(r.par)) : '—'}</td><td class="curbal">${r.curBalance != null ? r.curBalance.toLocaleString('en-US') : '—'}</td>` : ''}
       ${qtyCell(r)}
@@ -513,8 +520,14 @@ export function printPickListSheet(
      wins via source order) so a group header never gets mistaken for a data row at a glance. */
   table.rows tr.grouphead td { background: #e4efe9; color: #17552f; font-weight: 700; font-size: 10pt; padding: 1.8mm 2.5mm; border: 0.6pt solid #9fb8b8; }
   .n { width: 7mm; color: #667; text-align: center; }
-  .bin { width: 22mm; font-weight: 700; white-space: nowrap; }
-  .pickbin { width: 22mm; font-weight: 700; white-space: nowrap; color: #245a59; }
+  /* Real-world request: "คอลัมน์ชั้นวางยา และหยิบจาก substock สามารถทำให้แคบกว่านี้ได้...ส่วน
+     รายการความกว้างคอลัมน์ให้เพิ่มพื้นที่หน่อย" — bin/shelf codes (nowrap) rarely need the room
+     this originally gave them; trimmed so the drug-name column (no fixed width of its own —
+     auto table layout gives it whatever's left) gets more of the page back. An outlier long
+     code still just grows its own column (nowrap never clips), same as before. */
+  .bin { width: 14mm; font-weight: 700; white-space: nowrap; }
+  .pickbin { width: 16mm; font-weight: 700; white-space: nowrap; color: #245a59; }
+  .pickbinsub { font-size: 7.5pt; color: #667; font-weight: 400; margin-top: 0.3mm; white-space: normal; }
   .qty { width: 26mm; font-weight: 700; text-align: right; }
   .check { width: 10mm; text-align: center; font-size: 12pt; }
   .note { font-size: 8pt; color: #a15c00; font-weight: 600; margin-top: 0.5mm; }

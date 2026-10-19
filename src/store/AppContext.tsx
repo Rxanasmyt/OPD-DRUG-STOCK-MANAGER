@@ -2092,16 +2092,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // ทั้ง 3 ค่า (Min, Max, คงเหลือปัจจุบัน) ครบที่สุด แต่ต้องเพิ่มคอลัมน์ใหม่อีก 1 คอลัมน์...
         // แต่ปรับให้อ่านง่ายเหมาะสม" — this sheet is about the FLOOR shelf (items below floor Min,
         // filled toward floor Max), so its own Min/Max/current is the more directly relevant
-        // context than substock's, which only ever told the reader "is there enough to pick FROM"
-        // (still covered separately via pickBin above). Packs all 3 numbers into the same 2
-        // columns without a genuinely new one: `par` (a string here — see its own doc comment in
-        // print.ts) carries "Min / Max" together, `curBalance` carries the floor's current qty —
-        // exactly why this row is on the list in the first place (below Min), displayed alongside
-        // where it's headed.
+        // context than substock's own par/current. Packs all 3 numbers into the same 2 columns
+        // without a genuinely new one: `par` (a string here — see its own doc comment in print.ts)
+        // carries "Min / Max" together, `curBalance` carries the floor's current qty — exactly
+        // why this row is on the list in the first place (below Min), displayed alongside where
+        // it's headed.
+        //
+        // Real-world follow-up (2): "ช่วยเพิ่มว่ายาใน substock ก่อนจะหยิบมีคงเหลือเท่าไร เพื่อเป็น
+        // การเช็ค substock ไปในตัว" — the pick-from shelf code (pickBin) alone didn't say whether
+        // there's actually enough THERE to cover `qty`; pickBinQty prints as a small secondary
+        // line under it (print.ts), so checking substock happens for free while reading the
+        // sheet, not a separate lookup.
         const par = nf(floorMinOf(m)) + ' / ' + nf(m.parFloor);
         const curBalance = m.floor;
         const boxes = m.packSize && m.packSize > 1 ? Math.floor(qty / m.packSize) : 0;
-        return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note, pickBin: m.binSub || undefined, route: effectiveRouteOf(m), par, curBalance, boxes };
+        return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note, pickBin: m.binSub || undefined, pickBinQty: subQty(state, m.id), route: effectiveRouteOf(m), par, curBalance, boxes };
       })
       .filter((r) => r.qty > 0);
     // Only bail out with the old "nothing available to transfer" toast when there's truly

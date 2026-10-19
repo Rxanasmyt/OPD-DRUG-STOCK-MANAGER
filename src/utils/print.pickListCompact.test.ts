@@ -59,6 +59,28 @@ describe('printPickListSheet — compact-layout regression', () => {
   });
 });
 
+// Real-world request: "ช่วยเพิ่มว่ายาใน substock ก่อนจะหยิบมีคงเหลือเท่าไร เพื่อเป็นการเช็ค substock
+// ไปในตัว" — pickBinQty prints as a small secondary line under the pick-from bin code, same
+// primary/secondary two-line pattern the qty cell's own box/unit split already uses.
+describe('printPickListSheet — pick-from substock balance regression', () => {
+  it('prints pickBinQty as a secondary line under the pick-from bin code', () => {
+    const { getHtml } = captureWrittenHtml();
+    printPickListSheet(
+      [{ bin: 'B2', name: 'Cefazolin 1g', qty: 10, unit: 'Vial', pickBin: 'S20', pickBinQty: 450 }],
+      'ใบเติมหน้างานประจำวัน', 'ทดสอบ',
+    );
+    const html = getHtml();
+    expect(html).toContain('<td class="pickbin">S20<div class="pickbinsub">450 Vial</div></td>');
+  });
+
+  it('shows no secondary line when a row sets pickBin but not pickBinQty', () => {
+    const { getHtml } = captureWrittenHtml();
+    printPickListSheet(ROWS, 'ใบเติมหน้างานประจำวัน', 'ทดสอบ'); // ROWS' pickBin row never sets pickBinQty
+    const html = getHtml();
+    expect(html).not.toContain('class="pickbinsub"');
+  });
+});
+
 // Regression test for a real request: "ใบเติมหน้างานประจำ และใบเบิกจากคลังให้แยกประเภทยากิน ยาฉีด
 // ด้วยครับ" — printPickListSheet now groups by route the same way TransferScreen's own screen
 // list already does, but ONLY when the caller's rows actually set `route` (printPickList, the
