@@ -314,12 +314,25 @@ export interface PickListRow {
   // after every row on this sheet is picked. Absent for every existing caller (unset renders
   // nothing extra), so this is additive, not a breaking change to the pick-list layout.
   note?: string | undefined;
+  // Real-world request: "ยาที่ต้องเติมหน้างาน แต่ไม่มียาใน substock ก็ให้ขึ้นในใบเติมหน้างาน แต่ให้มี
+  // หมายเหตุไว้ว่า substock เป็น 0" — a zero-substock row's note (printTodayReplenishList) is a
+  // real supply problem to escalate, not just a heads-up like the ordinary partial-shortfall
+  // note above — this prints it in red instead of `.note`'s amber so it doesn't read as the same
+  // severity. Optional and additive: unset (every other note) keeps the existing amber style.
+  noteCritical?: boolean | undefined;
   // Real-world request: the printed sheet already says WHERE a row's qty is headed (`bin`),
   // but gave no clue where to physically go pick it FROM — someone carrying ใบเติมหน้างาน had
   // to separately look up each drug's substock shelf code themselves. Optional and additive:
   // a column for it only appears on sheets whose rows actually set it (see printPickListSheet
   // below), so the cart-based ใบจัดยาเติมชั้น (which never sets this) keeps its current layout.
   pickBin?: string | undefined;
+  // Real-world request: "ช่วยเพิ่มว่ายาใน substock ก่อนจะหยิบมีคงเหลือเท่าไร เพื่อเป็นการเช็ค
+  // substock ไปในตัว" — the pick-from shelf code alone didn't say whether there's actually
+  // enough there; this prints as a small secondary line under `pickBin` (same primary/secondary
+  // two-line pattern `boxes`' own qty cell already uses), so checking substock happens for free
+  // while reading the sheet, not as a separate step. Optional and additive, same as `pickBin`
+  // itself — only meaningful when `pickBin` is also set.
+  pickBinQty?: number | undefined;
   // Real-world request: "ใบเติมหน้างานประจำ และใบเบิกจากคลังให้แยกประเภทยากิน ยาฉีดด้วยครับ" — same
   // reasoning as TransferScreen's own on-screen route grouping (walking between the oral shelf
   // and the locked injectable cabinet with one unsorted sheet is real, physical confusion).
@@ -416,8 +429,8 @@ export function printPickListSheet(
   const rowHtml = (r: PickListRow, i: number) => `<tr>
       <td class="n">${i + 1}</td>
       <td class="bin">${escapeHtml(r.bin || '—')}</td>
-      ${showPickBin ? `<td class="pickbin">${escapeHtml(r.pickBin || '—')}</td>` : ''}
-      <td class="name">${escapeHtml(r.name)}${r.note ? `<div class="note">หมายเหตุ: ${escapeHtml(r.note)}</div>` : ''}</td>
+      ${showPickBin ? `<td class="pickbin">${escapeHtml(r.pickBin || '—')}${r.pickBinQty != null ? `<div class="pickbinsub">${r.pickBinQty.toLocaleString('en-US')} ${escapeHtml(r.unit)}</div>` : ''}</td>` : ''}
+      <td class="name">${escapeHtml(r.name)}${r.note ? `<div class="note${r.noteCritical ? ' notecrit' : ''}">${r.noteCritical ? '⚠ ' : 'หมายเหตุ: '}${escapeHtml(r.note)}</div>` : ''}</td>
       ${showParCols ? `<td class="par">${r.par != null ? (typeof r.par === 'number' ? r.par.toLocaleString('en-US') : escapeHtml(r.par)) : '—'}</td><td class="curbal">${r.curBalance != null ? r.curBalance.toLocaleString('en-US') : '—'}</td>` : ''}
       ${qtyCell(r)}
       <td class="check">☐</td>
@@ -513,11 +526,27 @@ export function printPickListSheet(
      wins via source order) so a group header never gets mistaken for a data row at a glance. */
   table.rows tr.grouphead td { background: #e4efe9; color: #17552f; font-weight: 700; font-size: 10pt; padding: 1.8mm 2.5mm; border: 0.6pt solid #9fb8b8; }
   .n { width: 7mm; color: #667; text-align: center; }
-  .bin { width: 22mm; font-weight: 700; white-space: nowrap; }
-  .pickbin { width: 22mm; font-weight: 700; white-space: nowrap; color: #245a59; }
+  /* Real-world request: "คอลัมน์ชั้นวางยา และหยิบจาก substock สามารถทำให้แคบกว่านี้ได้...ส่วน
+     รายการความกว้างคอลัมน์ให้เพิ่มพื้นที่หน่อย" — bin/shelf codes (nowrap) rarely need the room
+     this originally gave them; trimmed so the drug-name column (no fixed width of its own —
+     auto table layout gives it whatever's left) gets more of the page back. An outlier long
+     code still just grows its own column (nowrap never clips), same as before. */
+  .bin { width: 14mm; font-weight: 700; white-space: nowrap; }
+  .pickbin { width: 16mm; font-weight: 700; white-space: nowrap; color: #245a59; }
+  .pickbinsub { font-size: 7.5pt; color: #667; font-weight: 400; margin-top: 0.3mm; white-space: normal; }
+  /* Real-world request: "อยากให้ชื่อรายการยามีความเด่น เพื่อป้องกันการหยิบยาผิด" — the drug name is
+     the single safety-critical read on every row of this sheet (picking the wrong med off the
+     shelf is the actual failure this guards against), so it gets its own larger/bolder weight
+     instead of blending into the same 10pt body text as every other column. */
+  .name { font-size: 11.5pt; font-weight: 700; }
   .qty { width: 26mm; font-weight: 700; text-align: right; }
   .check { width: 10mm; text-align: center; font-size: 12pt; }
   .note { font-size: 8pt; color: #a15c00; font-weight: 600; margin-top: 0.5mm; }
+  /* Real-world request: "...ให้มีหมายเหตุไว้ว่า substock เป็น 0 เพื่อที่จะแก้ไขปัญหาที่ยาขาดครับ" — a
+     zero-substock row (printTodayReplenishList) is a real shortage to escalate, not just the
+     ordinary "picked less than full par" heads-up .note already covers, so it reads in red/
+     bold instead of amber — it should be the one thing on the row the eye can't skip past. */
+  .notecrit { color: #b3261e; font-weight: 700; }
   /* Par/คงเหลือ (ใบขอเบิกจากคลังใหญ่ only — see PickListRow.par's own doc comment) — narrow
      plain-number columns, kept visually lighter than .qty (which is the actual action item on
      this sheet) so the reviewer's eye still lands on "เบิกเท่าไหร่" first. */

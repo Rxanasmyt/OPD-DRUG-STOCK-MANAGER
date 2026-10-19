@@ -1607,6 +1607,9 @@ describe('printTodayReplenishList — substock pick-location regression', () => 
     // was headed (bin, the floor shelf), never where to physically go pick it from.
     expect(row?.pickBin).toBe(REPL_MED.binSub);
     expect(row?.bin).toBe(REPL_MED.bin);
+    // Real-world follow-up: "ช่วยเพิ่มว่ายาใน substock ก่อนจะหยิบมีคงเหลือเท่าไร เพื่อเป็นการเช็ค
+    // substock ไปในตัว" — the substock balance at pickBin, not just its location.
+    expect(row?.pickBinQty).toBe(REPL_LOT.qty);
   });
 
   // Regression for a real request: "ใบเติมหน้างานประจำ และใบเบิกจากคลังให้แยกประเภทยากิน ยาฉีด
@@ -1654,6 +1657,39 @@ describe('printTodayReplenishList — box-breakdown note format regression', () 
     const rows = vi.mocked(printModule.printPickListSheet).mock.calls[callsBefore][0];
     const row = rows.find((r) => r.name === REPL_BOXED_MED.name);
     expect(row?.note).toContain('หยิบ 2x60');
+  });
+});
+
+// Real-world request: "ยาที่ต้องเติมหน้างาน แต่ไม่มียาใน substock ก็ให้ขึ้นในใบเติมหน้างาน แต่ให้มี
+// หมายเหตุไว้ว่า substock เป็น 0 เพื่อที่จะแก้ไขปัญหาที่ยาขาดครับ" — before this fix, a med with zero
+// substock balance got qty === 0 and the row was filtered out of the sheet entirely.
+const REPL_ZEROSUB_MED = {
+  id: 'm13', code: 'MED-0013', name: 'Paracetamol 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  price: 1, had: false, active: true, parSub: 500, parFloor: 100, floorMin: 50, floor: 10,
+  bin: 'A13', binSub: 'S70', noSubstock: false, used30: 0, usedPrev30: 0, volatility: 0,
+};
+
+describe('printTodayReplenishList — zero-substock regression', () => {
+  it('still lists a below-Min med with empty substock, flagged with a critical note instead of being dropped', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<PrintTodayReplenishHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [REPL_ZEROSUB_MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', []); // nothing in substock at all
+
+    const callsBefore = vi.mocked(printModule.printPickListSheet).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'print-today-replenish' }));
+    await waitFor(() => expect(vi.mocked(printModule.printPickListSheet).mock.calls.length).toBeGreaterThan(callsBefore));
+    const rows = vi.mocked(printModule.printPickListSheet).mock.calls[callsBefore][0];
+    const row = rows.find((r) => r.name === REPL_ZEROSUB_MED.name);
+    // Without the fix this row didn't exist at all (filtered out for qty === 0).
+    expect(row).toBeDefined();
+    expect(row?.qty).toBe(0);
+    expect(row?.pickBinQty).toBe(0);
+    expect(row?.note).toContain('substock เป็น 0');
+    expect(row?.noteCritical).toBe(true);
   });
 });
 

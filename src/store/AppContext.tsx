@@ -2060,19 +2060,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .map((m) => {
         const need = Math.max(0, m.parFloor - m.floor);
         const qty = suggestTransferQty(state, m);
+        const subBalance = subQty(state, m.id);
+        // Bug fix (real-world report): "ยาที่ต้องเติมหน้างาน แต่ไม่มียาใน substock ก็ให้ขึ้นในใบเติม
+        // หน้างาน แต่ให้มีหมายเหตุไว้ว่า substock เป็น 0 เพื่อที่จะแก้ไขปัญหาที่ยาขาดครับ" — a med with
+        // zero substock balance got qty === 0 from suggestTransferQty's own min-with-substock cap,
+        // and the old `.filter((r) => r.qty > 0)` further down then dropped the row from the sheet
+        // entirely. That silently hid exactly the meds most in need of attention (nothing at all to
+        // even partially fill) instead of flagging the shortage, so whoever reads the sheet never
+        // learned there was a problem to escalate. The row stays now (filter removed below); this
+        // note takes priority over the plain partial-shortfall note since "nothing to pick" is the
+        // more severe case of the same underlying problem. noteCritical marks it for a stronger
+        // (red, not amber) look on the printed sheet — see print.ts.
+        const zeroSubNote = subBalance <= 0 ? 'substock เป็น 0 — ไม่มีให้หยิบวันนี้ ต้องเบิกจากคลังใหญ่ด่วน' : undefined;
         // suggestTransferQty caps at what's actually in substock — flag it on the sheet
         // itself when that cap bit, so picking every row here still won't quietly leave the
         // shelf under par; the person carrying this sheet should know to also flag it for
         // the next "เบิกจากคลังใหญ่" run instead of assuming the job's done.
-        const shortNote = qty < need ? 'substock เหลือไม่พอเติมเต็ม par (ขาดอีก ' + nf(need - qty) + ' ' + m.unit + ')' : undefined;
+        const shortNote = !zeroSubNote && qty < need ? 'substock เหลือไม่พอเติมเต็ม par (ขาดอีก ' + nf(need - qty) + ' ' + m.unit + ')' : undefined;
         // Bug fix: qty here is suggestTransferQty()'s result — capped at whatever substock
         // actually has, which is NOT guaranteed to be a whole number of boxes (unlike
         // printWarehouseRequestList, which rounds its own qty up to a packStep multiple first).
         // boxBreakdownLabel() shows the exact split (e.g. "1x30 + 17 เม็ด" for 47 units out of a
-        // 30-unit box) instead of ever rounding it away into a misleading whole-box count.
+        // 30-unit box) instead of ever rounding it away into a misleading whole-box count. Returns
+        // undefined when qty is 0 (the zero-substock case above), so boxNote naturally drops out.
         const boxLabel = boxBreakdownLabel(m, qty);
         const boxNote = boxLabel ? 'หยิบ ' + boxLabel : undefined;
-        const note = [boxNote, shortNote].filter(Boolean).join(' · ') || undefined;
+        const note = [boxNote, zeroSubNote || shortNote].filter(Boolean).join(' · ') || undefined;
+        const noteCritical = zeroSubNote != null;
         // Real-world request: this sheet already says where the qty is headed (bin, the floor
         // shelf) but gave no clue where to physically go pick it from — add the substock shelf
         // code (Med.binSub) so the person walking the floor also knows where in substock to go.
@@ -2092,22 +2106,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // ทั้ง 3 ค่า (Min, Max, คงเหลือปัจจุบัน) ครบที่สุด แต่ต้องเพิ่มคอลัมน์ใหม่อีก 1 คอลัมน์...
         // แต่ปรับให้อ่านง่ายเหมาะสม" — this sheet is about the FLOOR shelf (items below floor Min,
         // filled toward floor Max), so its own Min/Max/current is the more directly relevant
-        // context than substock's, which only ever told the reader "is there enough to pick FROM"
-        // (still covered separately via pickBin above). Packs all 3 numbers into the same 2
-        // columns without a genuinely new one: `par` (a string here — see its own doc comment in
-        // print.ts) carries "Min / Max" together, `curBalance` carries the floor's current qty —
-        // exactly why this row is on the list in the first place (below Min), displayed alongside
-        // where it's headed.
+        // context than substock's own par/current. Packs all 3 numbers into the same 2 columns
+        // without a genuinely new one: `par` (a string here — see its own doc comment in print.ts)
+        // carries "Min / Max" together, `curBalance` carries the floor's current qty — exactly
+        // why this row is on the list in the first place (below Min), displayed alongside where
+        // it's headed.
+        //
+        // Real-world follow-up (2): "ช่วยเพิ่มว่ายาใน substock ก่อนจะหยิบมีคงเหลือเท่าไร เพื่อเป็น
+        // การเช็ค substock ไปในตัว" — the pick-from shelf code (pickBin) alone didn't say whether
+        // there's actually enough THERE to cover `qty`; pickBinQty prints as a small secondary
+        // line under it (print.ts), so checking substock happens for free while reading the
+        // sheet, not a separate lookup.
         const par = nf(floorMinOf(m)) + ' / ' + nf(m.parFloor);
         const curBalance = m.floor;
         const boxes = m.packSize && m.packSize > 1 ? Math.floor(qty / m.packSize) : 0;
-        return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note, pickBin: m.binSub || undefined, route: effectiveRouteOf(m), par, curBalance, boxes };
-      })
-      .filter((r) => r.qty > 0);
-    // Only bail out with the old "nothing available to transfer" toast when there's truly
-    // nothing to show at all — a held med still means there's something worth printing (the
-    // heads-up section below), even with zero actual pick rows.
-    if (!rows.length && !heldMeds.length) { toast('รายการที่ต่ำกว่า Min ไม่มีของเหลือใน substock ให้เติมเลยสักรายการ — ต้องเบิกจากคลังใหญ่ก่อน'); return; }
+        return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note, noteCritical, pickBin: m.binSub || undefined, pickBinQty: subBalance, route: effectiveRouteOf(m), par, curBalance, boxes };
+      });
+    // Bug fix: this used to filter out rows whose qty landed at 0 (zero substock — see
+    // zeroSubNote above), then bail out entirely with a toast if that emptied the list. Every
+    // row here already comes from `items`, which is already "below floor Min" — a zero-qty row
+    // is exactly the one that most needs to stay visible (with its own note) rather than
+    // disappear, so there is no longer a case where `rows` is empty while `items` isn't.
     const heldRows = heldMeds.map((m) => ({
       name: m.name,
       reason: m.outOfStockReason || '—',
