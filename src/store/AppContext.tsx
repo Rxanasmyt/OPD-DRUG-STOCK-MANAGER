@@ -2082,7 +2082,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // with one unsorted printed sheet is the exact confusion that already got fixed on
         // screen. effectiveRouteOf() (not the plain explicit-only routeOf()) so a printed sheet
         // groups correctly from day one too, not just once someone manually confirms every drug.
-        return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note, pickBin: m.binSub || undefined, route: effectiveRouteOf(m) };
+        //
+        // Real-world request: "ไม่มีจำนวนยาใน substock...อยากให้จำนวนที่แสดงโชว์จำนวนเป็นกล่องเป็น
+        // หลัก แล้วเขียนกำกับว่า กี่กล่อง กี่เม็ด" — reuses the exact Par/คงเหลือ/boxes columns
+        // printWarehouseRequestList already built (PickListRow.par/curBalance/boxes — see their
+        // own doc comments), with the SAME substock-focused meaning there: par is substock's own
+        // target (m.parSub), curBalance is substock's CURRENT balance (subQty) — what's actually
+        // available to pick qty FROM, which is exactly what was missing here. boxes is whatever
+        // whole boxes qty covers (Math.floor, since unlike the warehouse sheet's own qty — always
+        // rounded up to a clean box multiple — suggestTransferQty()'s result can land mid-box;
+        // the precise remainder still shows in boxNote above, e.g. "หยิบ 1x30 + 17 เม็ด", so
+        // nothing here loses that exactness, it's additive).
+        const par = m.parSub;
+        const curBalance = subQty(state, m.id);
+        const boxes = m.packSize && m.packSize > 1 ? Math.floor(qty / m.packSize) : 0;
+        return { bin: binDisplayAll(m), name: m.name, qty, unit: m.unit, note, pickBin: m.binSub || undefined, route: effectiveRouteOf(m), par, curBalance, boxes };
       })
       .filter((r) => r.qty > 0);
     // Only bail out with the old "nothing available to transfer" toast when there's truly
