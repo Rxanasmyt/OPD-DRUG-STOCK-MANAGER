@@ -2150,11 +2150,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const curBalance = short ? subQty(state, m.id) : m.floor;
       const par = short ? m.parSub : m.parFloor;
       const need = Math.max(0, par - curBalance);
-      // Round the raw shortfall up to a whole multiple of this med's requisition step — for a
+      // Round the raw shortfall to a whole multiple of this med's requisition step — for a
       // box-only med (Med.packSize set) that's real box count, never a fractional box; for
       // everything else it's the same generic magnitude step packStep() already falls back to.
+      // Bug fix (real-world report, same class as suggestTransferQty's own identical fix — see
+      // its doc comment in selectors.ts): always rounding UP overfills badly when the shortfall
+      // lands just over a box boundary (a deficit of 101 for a 100-unit box used to round up to
+      // 2 boxes/200 units instead of 1). Nearest-box for a real box size, same ceil-always
+      // fallback as before for the generic magnitude step (not a physical box, no overfill risk
+      // there). qty stays an exact multiple of m.packSize either way (nearest is still a multiple
+      // of step), so `boxes` below is still a clean division, never a guess.
       const step = packStep(m);
-      const qty = Math.ceil(need / step) * step;
+      const qty = m.packSize && m.packSize > 1
+        ? Math.max(step, Math.round(need / step) * step)
+        : Math.ceil(need / step) * step;
       // Real-world request: "จำนวนที่ต้องเบิกเป็นจำนวนกล่อง...และยอดคงเหลือ ณ ปัจจุบัน" — qty above
       // is always an EXACT multiple of m.packSize whenever one is set (step === m.packSize in
       // that case), so this is a plain division, never a Math.floor-and-drop-remainder guess;

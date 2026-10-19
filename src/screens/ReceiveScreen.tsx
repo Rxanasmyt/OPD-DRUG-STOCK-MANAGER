@@ -20,13 +20,20 @@ function needsReceiveRatio(m: Med, curSub: number): number {
 // Real-world request: "...จำนวนยาที่ต้องเบิกจากคลัง...ถ้ามีหน่วยเป็นกล่อง บอกรายละเอียดกล่องละ
 // เท่าไร ต้องเบิกกี่กล่อง...เนื่องจากการทำงานจริงเบิกยาและเติมหน้างานเป็นกล่องๆ" — requesting FROM
 // the central warehouse (unlike filling the shelf from substock, which is capped by whatever's
-// physically there) has no such cap, so the request itself rounds UP to a whole box — same
-// rounding printWarehouseRequestList's own print sheet already uses, just surfaced here too so
-// it's visible before ever tapping "พิมพ์ใบขอเบิก". Returns null for a med with no real box size
+// physically there) has no such cap, so the request itself always rounds to a whole box — same
+// rounding printWarehouseRequestList's own print sheet uses, just surfaced here too so it's
+// visible before ever tapping "พิมพ์ใบขอเบิก". Returns null for a med with no real box size
 // set (packSize unset/≤1) — nothing to show.
+//
+// Bug fix (real-world report, same class as suggestTransferQty's own identical fix — see its doc
+// comment in selectors.ts): rounds to the NEAREST whole box, not always up — a deficit of 101 for
+// a 100-unit box used to round up to 2 boxes/200 units (nearly double) instead of 1 box/100.
+// Math.max(step, …) keeps this never 0 boxes when there's a real need > 0, matching
+// printWarehouseRequestList's own identical floor.
 function boxRequestNote(m: Med, need: number): string | null {
   if (!m.packSize || m.packSize <= 1 || need <= 0) return null;
-  const qty = Math.ceil(need / packStep(m)) * packStep(m);
+  const step = packStep(m);
+  const qty = Math.max(step, Math.round(need / step) * step);
   const label = boxBreakdownLabel(m, qty);
   return label ? 'เบิกเป็นกล่อง — ' + label : null;
 }

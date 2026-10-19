@@ -883,18 +883,30 @@ export function boxBreakdownLabel(m: Pick<Med, 'packSize' | 'unit'>, qty: number
 // (Max) was ALSO being rounded up to a box multiple by suggestPar()/roundStep() back then, which
 // could inflate the "real" target before this function ever saw it.
 //
-// Real-world request (this round): "การโชว์แสดง min max par ให้โชว์ตัวเลขจริงๆที่คำนวนได้จริง แต่
-// หลักการเติมยา...จะต้องเติมเป็นกล่องอยู่แล้ว ดังนั้นตอนคำนวนการเติมยา ก็ให้คำนวนเป็นกล่องแล้วยาถึง
-// max พอดี หรือเกิน max ได้ตามความเหมาะสม" — suggestPar() no longer box-rounds Max/Min/par at all
-// (see its own comment), so `parFloor` here is now the real, un-inflated target. Reverted to always
-// rounding UP to the next whole box: the one way to guarantee a fill never leaves floor SHORT of
-// its real Max, now that there's no risk of compounding two separate up-roundings on top of each
-// other the way the v3.121.0 fix was guarding against.
+// Reverted (v3.12x): once suggestPar() stopped box-rounding Max/Min/par, this went back to always
+// rounding UP, reasoning that with no pre-inflated target left to compound against, ceil was the
+// one way to guarantee a fill never leaves floor short of its real Max.
+//
+// Reverted AGAIN (this round, real-world report): "ยาต้องเติม 101 เม็ด แต่ยา 1 กล่อง มี 100 เม็ด
+// แต่ตอนนี้ระบบแนะนำให้เติม 2 กล่องคือ 200 เม็ด ซึ่งมากกว่าที่ควรจะเติม 99 เม็ด ไม่สมเหตุสมผล...มี
+// กรณีแบบนี้กับยาหลายตัว" — turns out double-rounding was never the only way ceil-always overfills:
+// ANY deficit landing just over a box boundary does the same thing regardless of whether Max
+// itself is pre-rounded, and for a large box size that's a near-100%-oversupply, not a rounding
+// nicety. Back to nearest-box for a med with a REAL box size (Med.packSize) — still never 0 boxes
+// when there's a real deficit (Math.max(step, …) below), since floor being under Max always means
+// at least one box is worth moving; accepted tradeoff per this decision: a fill can now land
+// slightly under Max when the deficit is less than half a box, in exchange for never overfilling
+// by nearly a full box for a 1-unit remainder. The generic magnitude step (10/100, used when a med
+// has no real packSize) stays rounding UP as before: that step is a round-number display
+// convenience, not a physical "can only move whole units of this size" constraint, so there's no
+// overfill risk there worth trading "never falls short" away for.
 export function suggestTransferQty(state: AppState, m: Med): number {
   const need = Math.max(0, m.parFloor - m.floor);
   if (need <= 0) return 0;
   const step = packStep(m);
-  const qty = Math.max(step, Math.ceil(need / step) * step);
+  const qty = m.packSize && m.packSize > 1
+    ? Math.max(step, Math.round(need / step) * step)
+    : Math.ceil(need / step) * step;
   return Math.min(subQty(state, m.id), qty);
 }
 
