@@ -328,13 +328,22 @@ export interface PickListRow {
   route?: RouteType;
   // Real-world request (ใบขอเบิกจากคลังใหญ่): "อยากให้มีรายละเอียดของ par stock แต่ละตัว...และยอด
   // คงเหลือ ณ ปัจจุบันที่ทำใบเบิก" — optional and additive like pickBin/route above: only
-  // printWarehouseRequestList (AppContext.tsx) sets `par`/`curBalance`/`boxes`, so the other two
-  // pick-list sheets (ใบจัดยาเติมชั้น/ใบเติมหน้างานประจำวัน) keep their current layout and column
-  // count completely unchanged — see showParCols below.
-  par?: number;
+  // printWarehouseRequestList/printTodayReplenishList (AppContext.tsx) set `par`/`curBalance`/
+  // `boxes`, so ใบจัดยาเติมชั้น (the cart-based sheet) keeps its current layout and column count
+  // completely unchanged — see showParCols below.
+  //
+  // Real-world request (ใบเติมหน้างานประจำวัน): "อาจจะไม่ต้องมี par substock แต่ต้องมี min max ของ
+  // ชั้นวางยา...ขอดูทั้ง 3 ค่า (Min, Max, คงเหลือปัจจุบัน) ครบที่สุด แต่ต้องเพิ่มคอลัมน์ใหม่อีก 1
+  // คอลัมน์...แต่ปรับให้อ่านง่ายเหมาะสม" — rather than a genuinely new (3rd) column, a string here
+  // packs Min/Max into the one existing column as "Min / Max" (curBalance, a plain number as
+  // always, carries the 3rd value); printWarehouseRequestList keeps passing a plain number (its
+  // own substock par) unchanged — see colLabels.par below for the matching header-text swap.
+  par?: number | string;
   /** Substock (or floor, for a noSubstock med) balance at the moment this sheet was printed —
    * the number a reviewer/approver needs to judge "is this request still right" without having
-   * to separately look the med up in the app. */
+   * to separately look the med up in the app. Repurposed by printTodayReplenishList as the
+   * floor's own current balance (paired with `par`'s "Min / Max" string there) — same column,
+   * same "the 3rd number this sheet's own Par-equivalent column doesn't fit" role either way. */
   curBalance?: number;
   /** Whole-box count this row's `qty` breaks down to (0/undefined for a med with no real box
    * size — Med.packSize unset — which falls back to the plain qty/unit the other two sheets
@@ -372,7 +381,7 @@ export function printPickListSheet(
   rows: PickListRow[],
   heading: string,
   subheading: string,
-  colLabels: { bin: string; qty: string; pickBin?: string } = { bin: 'ชั้น', qty: 'จำนวนที่ต้องหยิบ', pickBin: 'หยิบจาก (substock)' },
+  colLabels: { bin: string; qty: string; pickBin?: string; par?: string; curBalance?: string } = { bin: 'ชั้น', qty: 'จำนวนที่ต้องหยิบ', pickBin: 'หยิบจาก (substock)' },
   meta: { printedBy?: string } = {},
   // Bug fix: all three callers (ใบจัดยาเติมชั้น, ใบเติมหน้างานประจำวัน, ใบขอเบิกจากคลังใหญ่) used
   // to share the same hardcoded 3-signature block ("ผู้จัดทำรายการ" / "ผู้ตรวจสอบ / ผู้รับของ" /
@@ -409,7 +418,7 @@ export function printPickListSheet(
       <td class="bin">${escapeHtml(r.bin || '—')}</td>
       ${showPickBin ? `<td class="pickbin">${escapeHtml(r.pickBin || '—')}</td>` : ''}
       <td class="name">${escapeHtml(r.name)}${r.note ? `<div class="note">หมายเหตุ: ${escapeHtml(r.note)}</div>` : ''}</td>
-      ${showParCols ? `<td class="par">${r.par != null ? r.par.toLocaleString('en-US') : '—'}</td><td class="curbal">${r.curBalance != null ? r.curBalance.toLocaleString('en-US') : '—'}</td>` : ''}
+      ${showParCols ? `<td class="par">${r.par != null ? (typeof r.par === 'number' ? r.par.toLocaleString('en-US') : escapeHtml(r.par)) : '—'}</td><td class="curbal">${r.curBalance != null ? r.curBalance.toLocaleString('en-US') : '—'}</td>` : ''}
       ${qtyCell(r)}
       <td class="check">☐</td>
     </tr>`;
@@ -512,7 +521,12 @@ export function printPickListSheet(
   /* Par/คงเหลือ (ใบขอเบิกจากคลังใหญ่ only — see PickListRow.par's own doc comment) — narrow
      plain-number columns, kept visually lighter than .qty (which is the actual action item on
      this sheet) so the reviewer's eye still lands on "เบิกเท่าไหร่" first. */
-  .par, .curbal { width: 14mm; text-align: right; color: #556; }
+  /* .par is also reused for printTodayReplenishList's "Min / Max" combined text (PickListRow.par
+     can be a string there — see its own doc comment), noticeably wider than a plain number like
+     printWarehouseRequestList's own substock par — centered and given more room so "9,999 / 9,999"
+     never wraps or crowds the next column. */
+  .par { width: 20mm; text-align: center; color: #556; }
+  .curbal { width: 14mm; text-align: right; color: #556; }
   .qtybox { font-weight: 700; }
   .qtysub { font-size: 7.5pt; color: #667; font-weight: 400; margin-top: 0.3mm; }
 
@@ -553,7 +567,7 @@ export function printPickListSheet(
       <tr><td class="k">ผู้จัดทำรายการ</td><td class="v">${escapeHtml(meta.printedBy || '—')}</td><td class="k">วันที่จัดพิมพ์เอกสาร</td><td class="v">${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }))}</td></tr>
     </table>
     <table class="rows">
-      <thead><tr><th class="n">ลำดับ</th><th class="bin">${escapeHtml(colLabels.bin)}</th>${showPickBin ? `<th class="pickbin">${escapeHtml(colLabels.pickBin || 'หยิบจาก (substock)')}</th>` : ''}<th class="name">รายการยา</th>${showParCols ? '<th class="par">Par</th><th class="curbal">คงเหลือ</th>' : ''}<th class="qty">${escapeHtml(colLabels.qty)}</th><th class="check">✓</th></tr></thead>
+      <thead><tr><th class="n">ลำดับ</th><th class="bin">${escapeHtml(colLabels.bin)}</th>${showPickBin ? `<th class="pickbin">${escapeHtml(colLabels.pickBin || 'หยิบจาก (substock)')}</th>` : ''}<th class="name">รายการยา</th>${showParCols ? `<th class="par">${escapeHtml(colLabels.par || 'Par')}</th><th class="curbal">${escapeHtml(colLabels.curBalance || 'คงเหลือ')}</th>` : ''}<th class="qty">${escapeHtml(colLabels.qty)}</th><th class="check">✓</th></tr></thead>
       <tbody>${body}</tbody>
     </table>
     ${heldRows.length ? `<div class="heldsection">

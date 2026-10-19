@@ -71,4 +71,23 @@ describe('printPickListSheet — par/คงเหลือ columns regression', 
     expect(html).not.toContain('class="qtybox"');
     expect(html).toContain('<td class="qty">30 เม็ด</td>');
   });
+
+  // Real-world follow-up request: "อาจจะไม่ต้อง มี par substock แต่ต้องมี min max ของชั้นวางยา...
+  // ขอดูทั้ง 3 ค่า (Min, Max, คงเหลือปัจจุบัน)" — printTodayReplenishList now packs floor Min/Max
+  // into `par` as a plain string instead of a single number, with a matching header-label
+  // override, while curBalance still carries floor's current qty as a plain number as before.
+  const REPLENISH_ROWS: PickListRow[] = [
+    { bin: 'A1', name: 'Amoxicillin 500mg', qty: 100, unit: 'เม็ด', par: '50 / 200', curBalance: 10, boxes: 1 },
+  ];
+
+  it('renders a string par (floor Min/Max) as-is, with its own header label override', () => {
+    const { getHtml } = captureWrittenHtml();
+    printPickListSheet(REPLENISH_ROWS, 'ใบเติมหน้างานประจำวัน', 'ทดสอบ', { bin: 'ชั้น', qty: 'จำนวนที่ต้องหยิบ', par: 'Min / Max' });
+    const html = getHtml();
+
+    expect(html).toContain('<th class="par">Min / Max</th>');
+    expect(html).toContain('<th class="curbal">คงเหลือ</th>'); // curBalance keeps its default label
+    expect(html).toContain('<td class="par">50 / 200</td>');
+    expect(html).toContain('<td class="curbal">10</td>');
+  });
 });
