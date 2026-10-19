@@ -81,6 +81,37 @@ describe('printPickListSheet — pick-from substock balance regression', () => {
   });
 });
 
+// Real-world request: "ยาที่ต้องเติมหน้างาน แต่ไม่มียาใน substock ก็ให้ขึ้นในใบเติมหน้างาน แต่ให้มี
+// หมายเหตุไว้ว่า substock เป็น 0 เพื่อที่จะแก้ไขปัญหาที่ยาขาดครับ" — a note flagged noteCritical
+// prints in the stronger `.notecrit` style (red) with a ⚠ prefix instead of the ordinary amber
+// "หมายเหตุ:" note, so a real shortage doesn't read the same as a routine partial-shortfall note.
+describe('printPickListSheet — critical-note regression', () => {
+  it('renders a critical note with the notecrit class and a warning prefix', () => {
+    const { getHtml } = captureWrittenHtml();
+    printPickListSheet(
+      [{ bin: 'A13', name: 'Paracetamol 500mg', qty: 0, unit: 'เม็ด', note: 'substock เป็น 0 — ไม่มีให้หยิบวันนี้ ต้องเบิกจากคลังใหญ่ด่วน', noteCritical: true }],
+      'ใบเติมหน้างานประจำวัน', 'ทดสอบ',
+    );
+    const html = getHtml();
+    expect(html).toContain('class="note notecrit"');
+    expect(html).toContain('⚠ substock เป็น 0');
+    expect(html).not.toContain('หมายเหตุ: substock เป็น 0');
+  });
+
+  it('keeps the ordinary amber note style when noteCritical is unset', () => {
+    const { getHtml } = captureWrittenHtml();
+    printPickListSheet(
+      [{ bin: 'A1', name: 'Amoxicillin 500mg', qty: 30, unit: 'เม็ด', note: 'หยิบ 1x30' }],
+      'ใบเติมหน้างานประจำวัน', 'ทดสอบ',
+    );
+    const html = getHtml();
+    expect(html).toContain('<div class="note">หมายเหตุ: หยิบ 1x30</div>');
+    // The .notecrit CSS rule is always present in the stylesheet (static, not row-dependent) —
+    // what must NOT appear is any row actually wearing that class.
+    expect(html).not.toContain('class="note notecrit"');
+  });
+});
+
 // Regression test for a real request: "ใบเติมหน้างานประจำ และใบเบิกจากคลังให้แยกประเภทยากิน ยาฉีด
 // ด้วยครับ" — printPickListSheet now groups by route the same way TransferScreen's own screen
 // list already does, but ONLY when the caller's rows actually set `route` (printPickList, the
