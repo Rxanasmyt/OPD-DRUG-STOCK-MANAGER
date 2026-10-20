@@ -126,6 +126,13 @@ async function main() {
 
   const medsSnap = await db.collection('meds').get();
   const meds = medsSnap.docs.map((d) => ({ id: d.id, name: d.data().name, whCode: d.data().whCode }));
+  console.log(`Meds in the app: ${meds.length}`);
+  // Diagnostic (real report: a first run matched 0 of ~290 rows) — prints a sample of the app's
+  // own med names alongside their matchKey() so a mismatch in NAMING CONVENTION (not just a
+  // typo) is visible at a glance, rather than guessing blind from an all-zero match report.
+  console.log('Sample of app med names (for sanity-checking the match heuristic against):');
+  for (const m of meds.slice(0, 15)) console.log(`  "${m.name}"  ->  key: "${matchKey(m.name, '')}"`);
+  console.log('');
   const medByKey = groupByKey(meds, (m) => matchKey(m.name, ''));
 
   const updates = [];
