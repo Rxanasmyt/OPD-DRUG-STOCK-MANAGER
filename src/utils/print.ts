@@ -363,6 +363,13 @@ export interface PickListRow {
    * already show). Printed as the PRIMARY quantity when set, with the exact unit count moved to
    * a secondary detail line underneath — the reverse of `note`'s smaller/secondary treatment. */
   boxes?: number;
+  // Real-world request: before this app, ใบเบิกยา (the requisition sent to คลังยาใหญ่) came from
+  // a Google Sheet listing each drug's own central-warehouse code — the number warehouse staff
+  // actually cross-reference against, not this app's internal `bin`/drug name. Optional and
+  // additive, same pattern as pickBin/route/par above — only printWarehouseRequestList
+  // (AppContext.tsx) sets this, so the other two pick-list sheets keep their current layout,
+  // column count, and width completely unchanged. See Med.whCode's own doc comment (types.ts).
+  whCode?: string | undefined;
 }
 
 /** One row of the optional "ยาขาดชั่วคราว" informational section — see printPickListSheet's
@@ -422,7 +429,10 @@ export function printPickListSheet(
   // the other two pick-list sheets never do, so this stays false for them and their column
   // count/qty-cell layout is completely unaffected.
   const showParCols = sorted.some((r) => r.par !== undefined);
-  const colCount = 3 + (showPickBin ? 1 : 0) + (showParCols ? 2 : 0) + 2; // ลำดับ, ชั้น, [หยิบจาก], รายการยา, [Par, คงเหลือ], จำนวน, ✓
+  // Only printWarehouseRequestList sets this (see PickListRow.whCode's own doc comment) — same
+  // "additive, optional column" pattern as showPickBin/showParCols above.
+  const showWhCode = sorted.some((r) => r.whCode);
+  const colCount = 3 + (showPickBin ? 1 : 0) + (showParCols ? 2 : 0) + (showWhCode ? 1 : 0) + 2; // ลำดับ, ชั้น, [หยิบจาก], [รหัสคลัง], รายการยา, [Par, คงเหลือ], จำนวน, ✓
   const qtyCell = (r: PickListRow) => showParCols && r.boxes
     ? `<td class="qty"><div class="qtybox">${r.boxes.toLocaleString('en-US')} กล่อง</div><div class="qtysub">${r.qty.toLocaleString('en-US')} ${escapeHtml(r.unit)}</div></td>`
     : `<td class="qty">${r.qty.toLocaleString('en-US')} ${escapeHtml(r.unit)}</td>`;
@@ -430,6 +440,7 @@ export function printPickListSheet(
       <td class="n">${i + 1}</td>
       <td class="bin">${escapeHtml(r.bin || '—')}</td>
       ${showPickBin ? `<td class="pickbin">${escapeHtml(r.pickBin || '—')}${r.pickBinQty != null ? `<div class="pickbinsub">${r.pickBinQty.toLocaleString('en-US')} ${escapeHtml(r.unit)}</div>` : ''}</td>` : ''}
+      ${showWhCode ? `<td class="whcode">${escapeHtml(r.whCode || '—')}</td>` : ''}
       <td class="name">${escapeHtml(r.name)}${r.note ? `<div class="note${r.noteCritical ? ' notecrit' : ''}">${r.noteCritical ? '⚠ ' : 'หมายเหตุ: '}${escapeHtml(r.note)}</div>` : ''}</td>
       ${showParCols ? `<td class="par">${r.par != null ? (typeof r.par === 'number' ? r.par.toLocaleString('en-US') : escapeHtml(r.par)) : '—'}</td><td class="curbal">${r.curBalance != null ? r.curBalance.toLocaleString('en-US') : '—'}</td>` : ''}
       ${qtyCell(r)}
@@ -533,6 +544,10 @@ export function printPickListSheet(
      code still just grows its own column (nowrap never clips), same as before. */
   .bin { width: 14mm; font-weight: 700; white-space: nowrap; }
   .pickbin { width: 16mm; font-weight: 700; white-space: nowrap; color: #245a59; }
+  /* รหัสยาคลัง (printWarehouseRequestList only — see PickListRow.whCode's own doc comment) —
+     a plain code, same narrow/nowrap treatment as .bin, since it's an identifier to scan, not
+     prose. */
+  .whcode { width: 18mm; white-space: nowrap; color: #556; }
   .pickbinsub { font-size: 7.5pt; color: #667; font-weight: 400; margin-top: 0.3mm; white-space: normal; }
   /* Real-world request: "อยากให้ชื่อรายการยามีความเด่น เพื่อป้องกันการหยิบยาผิด" — the drug name is
      the single safety-critical read on every row of this sheet (picking the wrong med off the
@@ -596,7 +611,7 @@ export function printPickListSheet(
       <tr><td class="k">ผู้จัดทำรายการ</td><td class="v">${escapeHtml(meta.printedBy || '—')}</td><td class="k">วันที่จัดพิมพ์เอกสาร</td><td class="v">${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }))}</td></tr>
     </table>
     <table class="rows">
-      <thead><tr><th class="n">ลำดับ</th><th class="bin">${escapeHtml(colLabels.bin)}</th>${showPickBin ? `<th class="pickbin">${escapeHtml(colLabels.pickBin || 'หยิบจาก (substock)')}</th>` : ''}<th class="name">รายการยา</th>${showParCols ? `<th class="par">${escapeHtml(colLabels.par || 'Par')}</th><th class="curbal">${escapeHtml(colLabels.curBalance || 'คงเหลือ')}</th>` : ''}<th class="qty">${escapeHtml(colLabels.qty)}</th><th class="check">✓</th></tr></thead>
+      <thead><tr><th class="n">ลำดับ</th><th class="bin">${escapeHtml(colLabels.bin)}</th>${showPickBin ? `<th class="pickbin">${escapeHtml(colLabels.pickBin || 'หยิบจาก (substock)')}</th>` : ''}${showWhCode ? `<th class="whcode">รหัสยาคลัง</th>` : ''}<th class="name">รายการยา</th>${showParCols ? `<th class="par">${escapeHtml(colLabels.par || 'Par')}</th><th class="curbal">${escapeHtml(colLabels.curBalance || 'คงเหลือ')}</th>` : ''}<th class="qty">${escapeHtml(colLabels.qty)}</th><th class="check">✓</th></tr></thead>
       <tbody>${body}</tbody>
     </table>
     ${heldRows.length ? `<div class="heldsection">

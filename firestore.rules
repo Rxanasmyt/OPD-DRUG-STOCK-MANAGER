@@ -96,16 +96,17 @@ service cloud.firestore {
       // real create write (AppContext.tsx) — `code, name, unit, dosageForm, price, had, active,
       // fridge?, parSub, parFloor, floor, floorMin, bin, used30, usedPrev30, volatility,
       // lastCountTs, ward, noSubstock, shared?, binIpd?, binSub?, category?, packSize?, route?,
-      // hosxpAliases?` (the `?` fields are the ones that write conditionally omits rather than
-      // always sending). hosxpAliases added for addMed()'s admin-registered HOSxP name-variant
-      // field — see Med.hosxpAliases's own doc comment (types.ts).
+      // hosxpAliases?, whCode?` (the `?` fields are the ones that write conditionally omits
+      // rather than always sending). hosxpAliases added for addMed()'s admin-registered HOSxP
+      // name-variant field — see Med.hosxpAliases's own doc comment (types.ts). whCode added for
+      // the central-warehouse drug code (see Med.whCode's own doc comment, types.ts).
       allow create: if isAdmin()
                     && request.resource.data.keys().hasOnly([
                          'code', 'name', 'unit', 'dosageForm', 'price', 'had', 'active',
                          'fridge', 'parSub', 'parFloor', 'floor', 'floorMin', 'bin',
                          'used30', 'usedPrev30', 'volatility', 'lastCountTs', 'ward',
                          'noSubstock', 'shared', 'binIpd', 'binSub', 'category', 'packSize', 'route',
-                         'hosxpAliases'
+                         'hosxpAliases', 'whCode'
                        ])
                     && request.resource.data.code is string
                     && request.resource.data.name is string
@@ -132,7 +133,8 @@ service cloud.firestore {
                     && (!('category' in request.resource.data) || request.resource.data.category is string)
                     && (!('packSize' in request.resource.data) || isNonNegNum(request.resource.data.packSize))
                     && (!('route' in request.resource.data) || request.resource.data.route is string)
-                    && (!('hosxpAliases' in request.resource.data) || request.resource.data.hosxpAliases is list);
+                    && (!('hosxpAliases' in request.resource.data) || request.resource.data.hosxpAliases is list)
+                    && (!('whCode' in request.resource.data) || request.resource.data.whCode is string);
       allow delete: if isAdmin();
       // Bug fix: this branch type-checked `floor` but not `lastCountTs`/`lastSubCountTs`,
       // inconsistent with the `lots` rule right below which type-checks every field it allows.
@@ -178,7 +180,7 @@ service cloud.firestore {
                               'outOfStockSince', 'outOfStockReason', 'outOfStockExpectedReturn',
                               'weekdayPeakFactor', 'weekdayPeakDay', 'weekdayPeakOccurrences',
                               'weekdayPattern', 'peakDayQty', 'peakDayDate', 'peakDayP90Qty',
-                              'hosxpAliases', 'dispenseDays30', 'usageCv'
+                              'hosxpAliases', 'dispenseDays30', 'usageCv', 'whCode'
                             ])
                          && (!('name' in request.resource.data) || request.resource.data.name is string)
                          && (!('unit' in request.resource.data) || request.resource.data.unit is string)
@@ -216,7 +218,8 @@ service cloud.firestore {
                          && (!('peakDayP90Qty' in request.resource.data) || isNonNegNum(request.resource.data.peakDayP90Qty))
                          && (!('hosxpAliases' in request.resource.data) || request.resource.data.hosxpAliases is list)
                          && (!('dispenseDays30' in request.resource.data) || isNonNegNum(request.resource.data.dispenseDays30))
-                         && (!('usageCv' in request.resource.data) || isNonNegNum(request.resource.data.usageCv)))
+                         && (!('usageCv' in request.resource.data) || isNonNegNum(request.resource.data.usageCv))
+                         && (!('whCode' in request.resource.data) || request.resource.data.whCode is string))
                     || (isActive() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['floor', 'lastCountTs', 'lastSubCountTs'])
                         && isNonNegNum(request.resource.data.floor)
                         && (!('lastCountTs' in resource.data) || 'lastCountTs' in request.resource.data)

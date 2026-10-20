@@ -533,7 +533,7 @@ export interface AppCtx {
   // med" form used to close (discarding every field just typed) right after firing this,
   // regardless of outcome, since it had no way to tell a failure apart from a success without
   // awaiting a real signal back.
-  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number | undefined; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined }) => Promise<boolean | undefined>;
+  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number | undefined; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined }) => Promise<boolean | undefined>;
   // Bug fix (flow friction): same shape as addMed above — MedsScreen's edit-med sheet used to
   // close (discarding every edited field) right after firing this, regardless of outcome.
   // `baseline`: the med record as it looked when the edit form was first opened (frozen by the
@@ -542,7 +542,7 @@ export interface AppCtx {
   // catch). Pass null when there's no meaningful baseline to compare against (there shouldn't
   // be a legitimate caller of updateMedFull without one, but it's optional rather than required
   // so a future caller can't be forced to fabricate one).
-  updateMedFull: (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined }, baseline: Med | null) => Promise<boolean | undefined>;
+  updateMedFull: (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined }, baseline: Med | null) => Promise<boolean | undefined>;
   /** Merges an existing OPD/IPD ward-pair (same name, one 'opd' one 'ipd' record) into a
    * single pooled record — see Med.binIpd. Survives as the OPD-ward record with the IPD
    * record's bin code carried over as `binIpd`; floor/used30/usedPrev30 are summed (not
@@ -2284,7 +2284,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // meds are judged against floor par here), so fall back to its floor bin for those.
       // Real-world request: "ใบเติมหน้างานประจำ และใบเบิกจากคลังให้แยกประเภทยากิน ยาฉีดด้วยครับ" —
       // see printTodayReplenishList's own comment above on the exact same addition there.
-      return { bin: short ? (m.binSub || '—') : binDisplayAll(m), name: m.name + (short ? '' : ' (ไม่มี substock)'), qty, unit: m.unit, par, curBalance, boxes, route: effectiveRouteOf(m) };
+      //
+      // Real-world request: before this app, ใบเบิกยา came from a Google Sheet that listed each
+      // drug's own คลังยาใหญ่ code — the number warehouse staff actually look items up by, not
+      // this app's internal m.code (see Med.whCode's own doc comment, types.ts). Optional —
+      // printPickListSheet only shows the column at all once at least one row sets it.
+      return { bin: short ? (m.binSub || '—') : binDisplayAll(m), name: m.name + (short ? '' : ' (ไม่มี substock)'), qty, unit: m.unit, par, curBalance, boxes, route: effectiveRouteOf(m), whCode: m.whCode };
     });
     const heldRows = heldMeds.map((m) => ({
       name: m.name,
@@ -4223,7 +4228,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [canEditMeds, logAudit, toast, toastErr]);
 
   // ---------- meds (formulary) management ----------
-  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number | undefined; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined }): Promise<boolean> => {
+  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number | undefined; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined }): Promise<boolean> => {
     if (!canEditMeds) return false;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
@@ -4317,6 +4322,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ...(input.packSize && input.packSize > 1 ? { packSize: Math.round(input.packSize) } : {}),
           ...(input.route ? { route: input.route } : {}),
           ...(input.hosxpAliases && input.hosxpAliases.length ? { hosxpAliases: input.hosxpAliases } : {}),
+          ...(input.whCode && input.whCode.trim() ? { whCode: input.whCode.trim() } : {}),
         });
         return { code: c, id: newMed.id };
       });
@@ -4346,9 +4352,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     bin: 'ชั้นวาง', binSub: 'ชั้นวาง substock', parSub: 'par substock', parFloor: 'par หน้างาน',
     floorMin: 'Min หน้างาน', ward: 'ward', noSubstock: 'ไม่มี substock', volatility: 'volatility',
     shared: 'ใช้ยอดร่วมกัน', binIpd: 'ชั้นวาง IPD', category: 'หมวดยา', packSize: 'ขนาดแพ็ค',
-    route: 'ประเภทการให้ยา', hosxpAliases: 'ชื่อ HOSxP ที่รู้จัก',
+    route: 'ประเภทการให้ยา', hosxpAliases: 'ชื่อ HOSxP ที่รู้จัก', whCode: 'รหัสยาคลัง',
   };
-  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined }, baseline: Med | null): Promise<boolean> => {
+  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined }, baseline: Med | null): Promise<boolean> => {
     if (!canEditMeds) return false;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
@@ -4417,6 +4423,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       packSize: input.packSize && input.packSize > 1 ? Math.round(input.packSize) : deleteField(),
       route: input.route ? input.route : deleteField(),
       hosxpAliases: input.hosxpAliases && input.hosxpAliases.length ? input.hosxpAliases : deleteField(),
+      whCode: input.whCode && input.whCode.trim() ? input.whCode.trim() : deleteField(),
     };
     try {
       await withTimeout(updateDoc(medRef(medId), patch));
