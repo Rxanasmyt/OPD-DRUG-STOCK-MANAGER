@@ -48,25 +48,19 @@ async function main() {
   console.log(confirm ? 'BACKFILLING (writes are live)' : 'DRY RUN (pass --confirm to actually write)');
   console.log(`Project: ${serviceAccount.project_id}\n`);
 
-  const [returnsSnap, txsSnap] = await Promise.all([
-    db.collection('returns').get(),
-    db.collection('txs').where('type', '==', 'return').get(),
-  ]);
+  // Bug fix (real Firestore quota pressure): this used to ALSO fetch the entire `txs` collection
+  // filtered to type=='return' (1,920+ docs and growing) up front, unconditionally, on every
+  // single invocation — dry-run or --confirm, whether or not anything was actually missing a
+  // reason. That's correct exactly once (the real historical gap this script exists to fix,
+  // before v3.131.0), but every run AFTER that gap is fully backfilled has nothing left to do and
+  // was still paying the full scan for nothing. `returns` is read alone first (cheap — it's not
+  // the collection this script's matching needs to scan) so a run with nothing missing can bail
+  // out before ever touching `txs` at all.
+  const returnsSnap = await db.collection('returns').get();
 
-  // Group txs candidates by key so an ambiguous match (more than one txs row sharing the exact
-  // same medId+ts+qty+by) is detectable rather than silently picking one.
-  const txsByKey = new Map();
-  for (const doc of txsSnap.docs) {
-    const d = doc.data();
-    if (!d.medId || typeof d.reason !== 'string' || !d.reason) continue; // nothing usable to backfill from
-    const key = matchKey(d);
-    if (!txsByKey.has(key)) txsByKey.set(key, []);
-    txsByKey.get(key).push(d);
-  }
-
-  // Same ambiguity check the other direction: more than one `returns` doc sharing the exact
-  // same key must also be skipped (ties broken by reading no further context is worse than no
-  // backfill at all for either of them).
+  // Same ambiguity check as below: more than one `returns` doc sharing the exact same key must
+  // also be skipped (ties broken by reading no further context is worse than no backfill at all
+  // for either of them).
   const returnsByKey = new Map();
   const missingReason = [];
   for (const doc of returnsSnap.docs) {
@@ -79,6 +73,24 @@ async function main() {
   }
 
   console.log(`returns docs missing a reason: ${missingReason.length} (of ${returnsSnap.size} total)`);
+
+  if (!missingReason.length) {
+    console.log('Nothing to backfill — every returns doc already has a reason. (Skipped scanning txs entirely.)');
+    return;
+  }
+
+  const txsSnap = await db.collection('txs').where('type', '==', 'return').get();
+
+  // Group txs candidates by key so an ambiguous match (more than one txs row sharing the exact
+  // same medId+ts+qty+by) is detectable rather than silently picking one.
+  const txsByKey = new Map();
+  for (const doc of txsSnap.docs) {
+    const d = doc.data();
+    if (!d.medId || typeof d.reason !== 'string' || !d.reason) continue; // nothing usable to backfill from
+    const key = matchKey(d);
+    if (!txsByKey.has(key)) txsByKey.set(key, []);
+    txsByKey.get(key).push(d);
+  }
 
   let updates = [];
   let skippedNoMatch = 0;
