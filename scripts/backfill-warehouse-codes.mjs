@@ -78,26 +78,42 @@
 // A handful of rows in scripts/data/warehouse-codes.csv itself had a plain transcription typo
 // that happened to also be the ONLY reason they didn't match a real app med — "Clotrimazale" (->
 // Clotrimazole), "PROCTOSEDHYL" (-> PROCTOSEDYL, one extra H), "Whitfieid" (-> Whitfield, l/i
-// mixed up), "Activited Chaco" (-> Activated Charcoal) — corrected directly in the data file
-// (each checked by hand against the real app med before correcting), plus "กรัม" (Thai for
-// "gram") normalized the same way "gm"/"g" already are. NOT corrected: "Tertracaine* 0.5 mg/ml"
-// (probably "tetracaine", which the app has as "tetracaine eye drop 0.5%") — 0.5% and 0.5 mg/ml
-// are NOT the same concentration (0.5% = 5 mg/ml), so this one needs a human to confirm the real
-// strength before it can be matched, typo or not.
+// mixed up), "Activited Chaco" (-> Activated Charcoal), "Glicerine" (-> Glycerine) — corrected
+// directly in the data file (each checked by hand against the real app med before correcting),
+// plus "กรัม" (Thai for "gram") normalized the same way "gm"/"g" already are, and "supposition"
+// (missing the final "y") added alongside the already-handled "suppository". NOT corrected:
+// "Tertracaine* 0.5 mg/ml" (probably "tetracaine", which the app has as "tetracaine eye drop
+// 0.5%") — 0.5% and 0.5 mg/ml are NOT the same concentration (0.5% = 5 mg/ml), so this one needs
+// a human to confirm the real strength before it can be matched, typo or not.
+//
+// "HCl" and "sulfate"/"sulphate" (salt-form suffixes) joined "sod"/"sodium"/"cal" as dropped
+// noise, by the same reasoning: this hospital never stocks the same active ingredient as both a
+// salt and a free-base form side by side, so the salt name never has to match (real cases: sheet
+// "Hydralazine HCl" vs the app's plain "HYDRALAZINE - PL 20 mg."; sheet "Morphine sulfate" vs
+// the app's plain "MORPHINE - PL 10 mg./ml.").
+//
+// Separately: this script's matching was NEVER filtered by the app med's own active/inactive
+// flag — an inactive med has always been a valid match candidate, same as an active one. A real
+// user question ("the Morphine/Remdesivir/Pethidine matches I expect are on inactive meds —
+// should those still get a warehouse code?") was answered explicitly: yes, every matched row
+// gets its whCode regardless of the target med's active state: the hospital may have its own
+// reasons for deactivating a med (Morphine's narcotic controls, for one) that have nothing to do
+// with whether the historical warehouse code for it is worth keeping on record.
 //
 // A med that already has a whCode is left untouched (never silently overwritten) — re-running
 // this after someone has since hand-corrected a code is always safe. Verified against this
-// hospital's real 442-med formulary: 222 of 292 sheet rows matched, 1 ambiguous (the สหัสธารา
-// case above), 69 genuinely unmatched — checked by hand, these fall into a few real categories
-// rather than a remaining matching bug: the med doesn't exist in the app's formulary yet
-// (Amikacin, Meropenem, Piperacillin+tazobactam, KY Jelly, a few more), the med exists but is
-// marked inactive in the app (Morphine, Pethidine, Remdesivir and others — the hospital's own
-// call whether to reactivate them, not this script's), a dose written as a different ratio that
-// needs arithmetic to compare (sheet "6 mg/2 ml" vs app "3 mg/ml" — same real concentration,
-// deliberately not computed/guessed at here), the app's own name has a plain typo (confirmed
-// case: "CEFTRIAZONE" should read "CEFTRIAXONE" — a data fix, not a matching one), the sheet's
-// own typo above (Tertracaine) where the real strength still needs confirming, or the
-// release-rate marker case above.
+// hospital's real 442-med formulary: 226 of 292 sheet rows matched, 1 ambiguous (the สหัสธารา
+// case above), 65 genuinely unmatched — checked by hand, these fall into a few real categories
+// rather than a remaining matching bug: the med doesn't exist in the app's formulary at all, even
+// inactive (Amikacin, Meropenem, Piperacillin+tazobactam, KY Jelly, a few more), a dose written
+// as a different ratio that needs arithmetic to compare (sheet "6 mg/2 ml" vs app "3 mg/ml" —
+// same real concentration, deliberately not computed/guessed at here), a dose or pack size that
+// is simply DIFFERENT from what the app has on record (sheet "Nystatin BP 12 ml" vs the app's own
+// "1 ml.", sheet "Swiff 90 ml" vs the app's own pack in grams — real discrepancies a human needs
+// to resolve, not a wording difference this script should paper over), the app's own name has a
+// plain typo (confirmed case: "CEFTRIAZONE" should read "CEFTRIAXONE" — a data fix, not a
+// matching one), the sheet's own typo above (Tertracaine) where the real strength still needs
+// confirming, or the release-rate marker case above.
 //
 // SAFETY: dry run by default — pass --confirm to actually write.
 //
@@ -154,7 +170,7 @@ const FORM_NOISE = new Set([
   'tab', 'tablet', 'cap', 'capsule', 'แคปซูล', 'แค็บซูล', 'caplet', 'เม็ด',
   'syrup', 'syr', 'susp', 'suspension', 'solution', 'sol',
   'inj', 'injection', 'cream', 'oint', 'ointment', 'lotion', 'drop', 'drops', 'gel', 'patch',
-  'inhaler', 'mdi', 'nebule', 'suppository', 'enema', 'powder', 'douche', 'wash', 'paste',
+  'inhaler', 'mdi', 'nebule', 'suppository', 'supposition', 'enema', 'powder', 'douche', 'wash', 'paste',
   'vial', 'amp', 'amphule', 'ampoule', 'ขวด', 'หลอด', 'ซอง', 'ห่อ', 'กล่อง',
   'sod', 'sodium',
   // "Human" is implied for virtually every biologic in this formulary (immunoglobulin, albumin)
@@ -175,6 +191,15 @@ const FORM_NOISE = new Set([
   // Kalimate) is the same kind of salt/cation abbreviation "sod"/"sodium" above already covers;
   // the app's own brand-only name never spells out the salt form either.
   'cal',
+  // "HCl" and "sulfate"/"sulphate" are salt-form suffixes this formulary is inconsistent about
+  // including — same reasoning as "sod"/"sodium"/"cal" above (real cases: sheet "Hydralazine
+  // HCl" vs the app's plain "HYDRALAZINE - PL 20 mg."; sheet "Morphine sulfate" vs the app's
+  // plain "MORPHINE - PL 10 mg./ml."). This hospital never stocks the same active ingredient in
+  // both a salt and a free-base form side by side, so dropping the salt name never risks
+  // conflating two actually-different drugs — the active ingredient's own name still has to
+  // match, and checked against every "hcl"/"sulfate" occurrence in both the app and the sheet,
+  // nothing here depends on the salt form itself to tell two different real drugs apart.
+  'hcl', 'sulfate', 'sulphate',
 ]);
 
 // A sheet row's own category, matched against a short list of the FORM_NOISE words that would
