@@ -1854,7 +1854,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // once genuinely idle but still VISIBLE, well short of logoutAtMs — a backgrounded/hidden tab
   // is instead owned by the dedicated visibilitychange effect further below, on its own shorter
   // grace period (hidden means definitely not being looked at; no need to wait).
-  const IDLE_PAUSE_MS = 3 * 60 * 1000; // well short of idleLogoutMinutes' own 5-minute floor
+  // Bug fix (real-world report): "ช่วยแก้ปัญหาเรื่องการใช้งานหลายๆ เครื่องด้วยครับ ให้ประหยัดการใช้
+  // ข้อมูลมากที่สุด" — confirmed via real GitHub Actions log forensics that every scheduled
+  // background job combined costs under 10,000 reads/day; the dominant remaining cost on a real
+  // multi-device day is this live-listener fan-out itself (every OTHER signed-in device's write
+  // bills a read to every device still actively subscribed) — the one lever actually left to
+  // pull without hurting real-time correctness is shortening how long a device stays counted as
+  // "live" between real actions. 60s (was 3 min) still comfortably covers the gap between two
+  // consecutive taps during active floor-fill/counting work (rarely more than a few seconds
+  // apart) without false-pausing mid-task, while cutting a device sitting untouched between
+  // actions — or between staff members passing a shared tablet — down to a small fraction of
+  // its old idle window before it stops contributing to every other device's fan-out cost.
+  const IDLE_PAUSE_MS = 60 * 1000; // well short of idleLogoutMinutes' own 5-minute floor
   useEffect(() => {
     if (state.authStatus !== 'signedIn') { patch((st) => (st.idleWarnVisible ? { idleWarnVisible: false } : st)); return; }
     const logoutAtMs = Math.max(5, state.idleLogoutMinutes) * 60 * 1000;
@@ -1899,7 +1910,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // much shorter grace period than the idle-visible case — just long enough that a quick alt-tab
   // doesn't thrash the listeners. Resuming is instant the moment the tab is visible again; see
   // state.dataSyncPaused's own doc comment (types.ts) for why reattaching is cheap.
-  const HIDDEN_PAUSE_MS = 60 * 1000;
+  //
+  // Bug fix (real-world report): "ช่วยแก้ปัญหาเรื่องการใช้งานหลายๆ เครื่องด้วยครับ ให้ประหยัดการใช้
+  // ข้อมูลมากที่สุด" — a hidden/backgrounded tab is unambiguously not being looked at (unlike the
+  // idle-but-visible case, there's no "might still be reading the screen" ambiguity to wait out),
+  // so this can be far more aggressive than IDLE_PAUSE_MS above. 15s still absorbs a genuinely
+  // quick alt-tab glance without thrashing the listeners, while getting a device someone actually
+  // switched away from (checking another app, a phone call, handing the tablet to a colleague)
+  // out of the fan-out cost almost immediately instead of a full extra minute.
+  const HIDDEN_PAUSE_MS = 15 * 1000;
   useEffect(() => {
     if (state.authStatus !== 'signedIn') return;
     let hiddenTimer: number | undefined;
