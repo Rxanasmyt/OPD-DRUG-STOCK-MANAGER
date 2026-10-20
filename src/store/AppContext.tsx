@@ -21,9 +21,9 @@ import { fetchParAdjustmentsSince, addParAdjustmentRecord, newParAdjustmentRef }
 import { fetchDrugReturnsByDateRange, newDrugReturnRef } from './repositories/returnsRepo';
 import { subscribeRecentPendingReceives, newPendingReceiveRef, pendingReceiveRef } from './repositories/pendingReceivesRepo';
 import { settingsRef, subscribeSettings, medSeqRef } from './repositories/metaRepo';
-import { floorLotRef, subscribeFloorLots, fetchAllFloorLots, fetchFloorLotsByMedId } from './repositories/floorLotsRepo';
+import { floorLotRef, subscribeFloorLots, fetchAllFloorLots, fetchFloorLotsByMedId, fetchActiveFloorLotsByMedId } from './repositories/floorLotsRepo';
 import { userRef, usersCollection, queryAdminUsers } from './repositories/usersRepo';
-import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetchLotsByMedIds } from './repositories/lotsRepo';
+import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetchLotsByMedIds, fetchActiveLotsByMedId } from './repositories/lotsRepo';
 import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchAllTxs, fetchTxsByName, fetchTxsByNameSince, fetchTxsAfter, queryTxsByDateRange } from './repositories/txsRepo';
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
 import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
@@ -2331,7 +2331,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // query right before reading each lot shrinks that window to a single round trip;
           // the Firestore client SDK can't query inside the transaction itself (trx.get() only
           // takes a doc ref), so this runs just outside it, freshly on every retry.
-          const liveLotDocs = (await fetchLotsByMedId(medId)).docs;
+          //
+          // Bug fix (real report: "เติมหน้างานตอนเช้า...ใช้ได้แป๊ปเดียวก็ถึง limit"): this used to
+          // be fetchLotsByMedId (no qty filter) — every spent lot this med has EVER had, re-read
+          // in full on every item in every cart, every retry. See fetchActiveLotsByMedId's own
+          // doc comment (lotsRepo.ts).
+          const liveLotDocs = await fetchActiveLotsByMedId(medId);
           // Bug fix (FEFO correctness): a lot doc missing/lacking `exp` (legacy import, manual
           // Firestore edit) used to default to `exp: 0` — 1970 — which sorts FIRST, ahead of
           // every lot with a real near-term expiry. That's exactly backwards for FEFO: an
@@ -2606,12 +2611,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // above), so it reruns fresh on every automatic retry; only merges into a lot that's
       // still genuinely active (qty > 0), never resurrects an old zeroed-out lot kept around
       // purely for its own history (see scrapLot's own comment on why depleted lots aren't
-      // deleted).
+      // deleted) — so fetchActiveLotsByMedId's own server-side qty filter changes nothing here
+      // except how much this reads (see its own doc comment, lotsRepo.ts).
       const substockMedIds = [...new Set(items.filter((it) => !(liveMeds.get(it.medId)?.noSubstock)).map((it) => it.medId))];
       await runTx(async (trx) => {
         const liveLotEntries = await Promise.all(substockMedIds.map(async (medId) => {
-          const snap = await fetchLotsByMedId(medId);
-          return [medId, snap.docs.map((d) => ({ id: d.id, ...(d.data() as { lotNo?: string; exp?: number; qty?: number }) }))] as const;
+          const docs = await fetchActiveLotsByMedId(medId);
+          return [medId, docs.map((d) => ({ id: d.id, ...(d.data() as { lotNo?: string; exp?: number; qty?: number }) }))] as const;
         }));
         const liveLotsByMed = new Map(liveLotEntries);
         // All of a Firestore transaction's reads must happen before any of its writes, so the
@@ -2722,8 +2728,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // already known, not run a query, so the lookup runs untransacted right here (fresh on
           // every retry, same query-then-get workaround commitTransfer's FEFO lot lookup already
           // uses above) and only the one candidate doc it finds gets a proper trx.get() to
-          // confirm it's still live before writing to it.
-          const liveLotDocs = (await fetchLotsByMedId(pr.medId)).docs;
+          // confirm it's still live before writing to it. fetchActiveLotsByMedId (not
+          // fetchLotsByMedId) since the candidate search below already requires qty > 0 anyway
+          // — see its own doc comment (lotsRepo.ts).
+          const liveLotDocs = await fetchActiveLotsByMedId(pr.medId);
           const candidate = liveLotDocs.find((d) => { const l = d.data() as { lotNo?: string; exp?: number; qty?: number }; return l.lotNo === pr.lotNo && l.exp === pr.exp && (l.qty || 0) > 0; });
           let merged = false;
           if (candidate) {
@@ -5470,8 +5478,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // can't run a query inside a transaction (trx.get() only takes a doc ref), so the lot-id
       // list has to be refreshed via a plain query immediately before the transaction starts —
       // this can't close the window to zero, but it shrinks it from "however long the count
-      // screen was open" down to a single round trip.
-      const lotIds = (await fetchLotsByMedId(medId)).docs.map((d) => d.id);
+      // screen was open" down to a single round trip. fetchActiveLotsByMedId (qty > 0 only) —
+      // a lot excluded here contributes 0 to curSub below either way, same as before, just
+      // without re-reading this med's entire spent-lot history to find that out every count
+      // (see its own doc comment, lotsRepo.ts).
+      const lotIds = (await fetchActiveLotsByMedId(medId)).map((d) => d.id);
       // Bug fix (data integrity): tx-log write folded into the same transaction as the lot
       // writes — see commitCount's note on this exact class of gap.
       await runTx(async (trx) => {
@@ -5551,7 +5562,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // right above — the lot-id set itself must be re-queried live, not read off the
         // onSnapshot cache, or a lot created concurrently (e.g. a receive landing mid-batch)
         // is invisible here and gets double-counted as a fabricated ปรับยอด lot.
-        const lotIds = (await fetchLotsByMedId(medId)).docs.map((d) => d.id);
+        // fetchActiveLotsByMedId (qty > 0 only) — same no-op-on-curSub reasoning as
+        // commitSubCount's own fix above.
+        const lotIds = (await fetchActiveLotsByMedId(medId)).map((d) => d.id);
         // Bug fix (data integrity): tx-log write folded into the same transaction — see
         // commitCount's note on this exact class of gap.
         await runTx(async (trx) => {
@@ -5757,9 +5770,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             // first (the client SDK can't query inside a transaction, same reason commitTransfer's
             // live lot query does), then each candidate doc is re-read fresh via trx.get before
             // any writes — all reads before any writes, same ordering commitTransfer uses.
+            // fetchActiveFloorLotsByMedId (qty > 0 only) — the loop below already skips any
+            // candidate whose live qty is <= 0, so reading every historical, long-since-emptied
+            // floor-lot doc for this med on every single reconcile row was pure waste (see its
+            // own doc comment, floorLotsRepo.ts) — real report: "เติมหน้างานตอนเช้า...ใช้ได้
+            // แป๊ปเดียวก็ถึง limit".
             const flTakes: { id: string; qty: number; take: number }[] = [];
             try {
-              const liveFloorLotDocs = (await fetchFloorLotsByMedId(m.id)).docs;
+              const liveFloorLotDocs = await fetchActiveFloorLotsByMedId(m.id);
               const ordered = liveFloorLotDocs
                 .map((d) => ({ id: d.id, exp: (d.data() as { exp?: number }).exp ?? Infinity }))
                 .sort((a, b) => a.exp - b.exp);

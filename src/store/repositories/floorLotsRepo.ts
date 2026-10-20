@@ -2,7 +2,7 @@
 // usernamesRepo.ts for the first rounds of this same collection-at-a-time pattern.
 import {
   collection, doc, getDocs, onSnapshot, query, where,
-  type DocumentReference, type FirestoreError, type QuerySnapshot, type Unsubscribe,
+  type DocumentReference, type FirestoreError, type QueryDocumentSnapshot, type QuerySnapshot, type Unsubscribe,
 } from 'firebase/firestore';
 import { db } from '../../firebase';
 
@@ -40,10 +40,35 @@ export function fetchAllFloorLots() {
   return getDocs(floorLotsCollection());
 }
 
-/** Every floorLots doc for one med — the live (untransacted) pre-read mergeWardMeds()/
- * commitReconcile() each run before re-reading their one chosen candidate via trx.get(), same
- * "client SDK can't query inside a transaction" workaround commitTransfer's own FEFO lot lookup
- * uses. */
+/** Every floorLots doc for one med, regardless of qty — mergeWardPairTx() is the only caller
+ * left that genuinely needs this (must reassign every floor-lot doc, including long-since-
+ * emptied ones, so the surviving med's history stays complete); commitReconcile()'s own
+ * per-row lookup below now uses fetchActiveFloorLotsByMedId instead. */
 export function fetchFloorLotsByMedId(medId: string) {
   return getDocs(query(floorLotsCollection(), where('medId', '==', medId)));
+}
+
+/** Every floorLots doc for one med that's still genuinely active (qty > 0) — the bounded
+ * counterpart to fetchFloorLotsByMedId above.
+ *
+ * Bug fix (real report: "เติมหน้างานตอนเช้า...ใช้ได้แป๊ปเดียวก็ถึง limit"): commitReconcile()'s
+ * own HOSxP-dispense floor-lot FEFO guess (AppContext.tsx) only ever acts on a candidate whose
+ * live qty is > 0 (`if (curQty <= 0) continue`) — same waste as lotsRepo's own
+ * fetchActiveLotsByMedId fixes, just on the floor side: every historical, long-since-emptied
+ * floor-lot doc for a commonly-dispensed med was being re-read in full on every single
+ * reconcile row, every day, forever.
+ *
+ * Needs a one-time composite index (`floorLots`: medId Ascending + qty Ascending) — same
+ * Firebase Console step as lotsRepo's own fetchActiveLotsByMedId; the same index-missing
+ * fallback applies here too, so a reconcile commit never hard-fails over it. */
+export async function fetchActiveFloorLotsByMedId(medId: string): Promise<QueryDocumentSnapshot[]> {
+  try {
+    const snap = await getDocs(query(floorLotsCollection(), where('medId', '==', medId), where('qty', '>', 0)));
+    return snap.docs;
+  } catch (e) {
+    const err = e as FirestoreError;
+    if (err?.code !== 'failed-precondition' || !/index/i.test(err.message || '')) throw e;
+    const snap = await fetchFloorLotsByMedId(medId);
+    return snap.docs.filter((d) => ((d.data() as { qty?: number }).qty ?? 0) > 0);
+  }
 }
