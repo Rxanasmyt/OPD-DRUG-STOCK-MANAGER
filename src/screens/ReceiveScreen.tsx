@@ -71,7 +71,7 @@ export default function ReceiveScreen() {
   // (see its own "Bug fix" comment), this screen just hadn't caught up yet.
   const options = useMemo(() => (
     !state.recvMed && state.recvSearch.trim()
-      ? state.meds.filter((m) => { const s = state.recvSearch.trim().toLowerCase(); return m.active && (m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0); }).slice(0, 12)
+      ? state.meds.filter((m) => { const s = state.recvSearch.trim().toLowerCase(); return m.active && (m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0 || (m.whCode || '').toLowerCase().indexOf(s) >= 0); }).slice(0, 12)
       : []
   ), [state.recvMed, state.recvSearch, state.meds]);
   // Bug fix: this screen used to show NOTHING until someone typed a search — a person opening
@@ -255,6 +255,10 @@ export default function ReceiveScreen() {
                       📋 button painted next to it. flexWrap drops it to a new line instead. */}
                   <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                     <MedDot code={m.code} /> {m.name} <WardBadge med={m} />
+                    {/* Real-world request: รหัสยาที่คลังยาใหญ่ใช้จริง (ดู Med.whCode's own doc
+                        comment, types.ts) — ต้องเห็นตรงนี้ตอนกำลังจะรับยาจากคลัง เพื่อตรวจกับใบ
+                        เบิกที่คลังออกให้ได้ทันที */}
+                    {m.whCode && <span className="muted" style={{ fontSize: 11 }}>· รหัสคลัง {m.whCode}</span>}
                     {recvItemCountByMed[m.id] > 0 && <span className="muted" style={{ fontSize: 11 }}>· เพิ่มแล้ว {recvItemCountByMed[m.id]} lot</span>}
                   </span>
                   {/* Bug fix (misleading number): this used to show "substock 0 · par N" for a
@@ -302,6 +306,7 @@ export default function ReceiveScreen() {
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <span style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                       <MedDot code={m.code} /> {m.name} <WardBadge med={m} />
+                      {m.whCode && <span className="muted" style={{ fontSize: 11 }}>· รหัสคลัง {m.whCode}</span>}
                       {recvItemCountByMed[m.id] > 0 && <span className="muted" style={{ fontSize: 11 }}>· เพิ่มแล้ว {recvItemCountByMed[m.id]} lot</span>}
                     </span>
                     {/* A noSubstock med has no real substock number to show (always 0) — its

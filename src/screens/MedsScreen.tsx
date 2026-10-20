@@ -145,6 +145,9 @@ interface MedFormValues {
   route: '' | RouteType;
   // ชื่อที่ไฟล์ HOSxP อาจใช้เรียกยานี้ — หนึ่งชื่อต่อบรรทัด ดู Med.hosxpAliases's own doc comment
   hosxpAliases: string;
+  // รหัสยาที่คลังยาใหญ่ใช้จริง — ดู Med.whCode's own doc comment (types.ts) สำหรับเหตุผลที่แยกจาก
+  // m.code (ที่แอพสร้างให้เองอัตโนมัติ และคลังไม่ได้ใช้จริง)
+  whCode: string;
 }
 
 function blankForm(): MedFormValues {
@@ -152,7 +155,7 @@ function blankForm(): MedFormValues {
   // one-day-dose pulls straight off the OPD shelf), so a brand-new med should start there and
   // let someone opt OUT (untick "เลิกใช้ร่วมกัน") for the minority that genuinely need separate
   // stock, rather than opting in every single time.
-  return { name: '', dosageForm: '', unit: '', price: '', had: false, fridge: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: true, binIpd: '', binSub: '', category: '', packSize: '', route: '', hosxpAliases: '' };
+  return { name: '', dosageForm: '', unit: '', price: '', had: false, fridge: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: true, binIpd: '', binSub: '', category: '', packSize: '', route: '', hosxpAliases: '', whCode: '' };
 }
 
 function formFromMed(m: Med): MedFormValues {
@@ -162,7 +165,7 @@ function formFromMed(m: Med): MedFormValues {
     ward: wardOf(m), noSubstock: !!m.noSubstock, volatility: m.volatility.toFixed(2),
     shared: isSharedMed(m), binIpd: m.binIpd || '', binSub: m.binSub || '', category: m.category || '',
     packSize: m.packSize ? String(m.packSize) : '', route: m.route || '',
-    hosxpAliases: (m.hosxpAliases || []).join('\n'),
+    hosxpAliases: (m.hosxpAliases || []).join('\n'), whCode: m.whCode || '',
   };
 }
 
@@ -385,7 +388,7 @@ export default function MedsScreen() {
   const medsBeforeWard = useMemo(
     () => state.meds
       .filter((m) => (filter === 'all' ? true : filter === 'active' ? m.active : filter === 'inactive' ? !m.active : filter === 'onHold' ? m.active && isOnStockHold(m) : filter === 'incomplete' ? m.active && missingFields(m).length > 0 : m.active && m.parFloor === 1 && floorMinOf(m) === 1))
-      .filter((m) => { const s = q.trim().toLowerCase(); return !s || m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0; }),
+      .filter((m) => { const s = q.trim().toLowerCase(); return !s || m.name.toLowerCase().indexOf(s) >= 0 || m.code.toLowerCase().indexOf(s) >= 0 || (m.whCode || '').toLowerCase().indexOf(s) >= 0; }),
     [state.meds, filter, q],
   );
 
@@ -482,7 +485,7 @@ export default function MedsScreen() {
             // toast as the only feedback while every field just typed (name, dosage form,
             // price, bins, par levels, ...) was already gone, forcing a full re-entry to retry.
             // Now only closes once addMed actually confirms success.
-            const ok = await addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined, route: v.route || undefined, hosxpAliases: parseHosxpAliases(v.hosxpAliases, v.name) });
+            const ok = await addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined, route: v.route || undefined, hosxpAliases: parseHosxpAliases(v.hosxpAliases, v.name), whCode: v.whCode.trim() || undefined });
             if (ok) setAddOpen(false);
           }}
         />
@@ -675,7 +678,7 @@ export default function MedsScreen() {
                       {m.fridge && <span title="ยาตู้เย็น — ต้องแช่เย็น" style={{ color: 'var(--fridge)', fontSize: 12 }}>🧊</span>}
                     </div>
                     <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                      {m.code} · ชั้น {isSharedMed(m) ? ('OPD ' + (m.bin || '—') + ' / IPD ' + (m.binIpd || '—')) : (m.bin || '—')}{!m.noSubstock && m.binSub ? ' · substock ' + m.binSub : ''} · {m.unit} · {nf(m.price)} บาท
+                      {m.code}{m.whCode ? ' · รหัสคลัง ' + m.whCode : ''} · ชั้น {isSharedMed(m) ? ('OPD ' + (m.bin || '—') + ' / IPD ' + (m.binIpd || '—')) : (m.bin || '—')}{!m.noSubstock && m.binSub ? ' · substock ' + m.binSub : ''} · {m.unit} · {nf(m.price)} บาท
                     </div>
                     {m.active && (
                       <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
@@ -801,7 +804,7 @@ export default function MedsScreen() {
                 // to close the sheet right after firing updateMedFull regardless of outcome, so
                 // a failure (network error, permission check) lost every edited field with only
                 // a toast to show for it. Now only closes once the save actually confirms success.
-                const ok = await updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined, route: v.route || undefined, hosxpAliases: parseHosxpAliases(v.hosxpAliases, v.name) }, editBaselineRef.current);
+                const ok = await updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined, route: v.route || undefined, hosxpAliases: parseHosxpAliases(v.hosxpAliases, v.name), whCode: v.whCode.trim() || undefined }, editBaselineRef.current);
                 if (ok) setEditingId(null);
               }}
               // ยาชื่อเดียวกันที่แยกรายการไว้คนละ ward (คนละ Firestore doc ตามหลักการออกแบบ
@@ -898,6 +901,14 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
       <label style={{ display: 'block', marginBottom: 9 }}>
         <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>ชื่อยา + ขนาด (เช่น Enalapril 5 mg)</span>
         <input value={v.name} onChange={(e) => set('name', e.target.value)} style={inputStyle} />
+      </label>
+      {/* Real-world request: ใบเบิกยาเดิม (ก่อนใช้แอพนี้) เป็นข้อมูลใน Google Sheet ที่มีรหัสยาของ
+          คลังยาใหญ่เอง — คนละรหัสกับ m.code ด้านบน (แอพสร้างให้เองอัตโนมัติ คลังไม่ได้ใช้จริง) ดู
+          Med.whCode's own doc comment (types.ts). Free text เพราะยาบางตัวยังไม่มีรหัสนี้ — ไม่บังคับ
+          กรอก. */}
+      <label style={{ display: 'block', marginBottom: 9 }}>
+        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>รหัสยาคลังใหญ่ (ถ้ามี)</span>
+        <input value={v.whCode} onChange={(e) => set('whCode', e.target.value)} placeholder="รหัสที่คลังยาใหญ่ใช้เบิก" style={inputStyle} />
       </label>
       <label style={{ display: 'block', marginBottom: v.category ? 9 : 5 }}>
         <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>หมวดกลุ่มยา</span>

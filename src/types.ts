@@ -308,6 +308,19 @@ export interface Med {
   // until an admin adds one; matchHosxpMed() treats a missing/empty list exactly as before this
   // field existed.
   hosxpAliases?: string[] | undefined;
+  // Real-world request: before this app, ใบเบิกยา (the requisition sent to คลังยาใหญ่) came from
+  // a Google Sheet that listed each drug's own CENTRAL-WAREHOUSE code — a different number from
+  // this app's own auto-generated `code` (MED-0001, ..., internal-only — printed on shelf-label
+  // QRs, never actually used by the warehouse; see printWarehouseRequestList's own comment,
+  // AppContext.tsx). The warehouse staff who release stock look items up by THEIR code, not by
+  // drug name or this app's internal one — without it, ใบขอเบิกจากคลังใหญ่ gives them nothing to
+  // cross-reference against their own system. Free text (not every med has been assigned one
+  // yet, and the format isn't this app's to validate) — printed on ใบขอเบิกจากคลังใหญ่ (the one
+  // document that actually leaves this pharmacy for the warehouse) and shown on the meds list/
+  // receive screen for day-to-day lookup; absent entirely for a med nobody has entered it for
+  // yet, same "optional, no migration needed" convention as every other field added after this
+  // formulary's initial seed.
+  whCode?: string | undefined;
 }
 
 export interface Lot {
