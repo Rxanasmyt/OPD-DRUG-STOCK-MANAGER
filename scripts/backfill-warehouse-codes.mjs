@@ -40,20 +40,53 @@
 //      whether a space separates them), and µg/μg normalize to "mcg" the same as the app's own
 //      spelling — always equating two SPELLINGS of one real number/unit, never two different
 //      numbers to each other.
+//   5. The hospital's own sheet and the app disagree on a handful of specific spellings for the
+//      SAME real drug — "Potassium Chloride KCL" (sheet) vs the app's plain "KCl"; "Human tetanus
+//      immunoglobulin" (sheet) vs the app's own name with no "Human"; "Cal.polystyrene(kalimate)"
+//      (sheet, the generic name) vs the app's own brand-only "KALIMATE POWDER". Normalized as
+//      phrase/word synonyms (see stripNoise and FORM_NOISE below) — each pair names one real drug,
+//      so equating them never risks conflating two different ones.
+//   6. A number glued directly to its unit with no space ("1gm", "400U") tokenized as ONE word,
+//      while the other side's spaced version ("1 gm.", "400 U") tokenized as TWO — split a digit
+//      run from an adjacent letter run so both sides agree; "gm" and "g" (the same gram unit)
+//      are then normalized to one spelling too (sheet "5gm" vs the app's own "5 g.").
+//   7. The app often states a real required quantity INSIDE parentheses ("KCl injection 20 mEq.
+//      Amphule (10 ml.)") where the sheet states it in plain text ("20 mEql/10 ml") — parens are
+//      now only dropped when they hold no digit (a bare brand/route marker like "(PL)", "(ERIG)",
+//      "(TIG)" is still noise); keeping a parenthesized NUMBER only ever adds a word to the app
+//      side, so it can only let an already-failing match start succeeding, never break one.
 // A sheet row matching more than one app med (or vice versa) after all of the above is reported
 // as ambiguous and skipped, never guessed at — except when the sheet's own category (ยาเม็ด/ยาฉีด/
 // ยาใช้ภายนอก/ยาน้ำ) can narrow it to exactly one candidate via CATEGORY_HINTS (e.g. two meds
 // named "Bactrim" at the same strength, one an oral tablet and one an injection — the sheet row's
-// own category picks the right one without guessing at the drug identity itself). A med that
-// already has a whCode is left untouched (never silently overwritten) — re-running this after
-// someone has since hand-corrected a code is always safe. Verified against this hospital's real
-// 442-med formulary: 205 of 293 sheet rows matched, 0 ambiguous, 87 genuinely unmatched — checked
-// by hand, these fall into a few real categories rather than a remaining matching bug: the med
-// doesn't exist in the app's formulary yet (vaccines, immunoglobulins, a few injectables),
-// a dose written as a different ratio that needs arithmetic to compare (sheet "6 mg/2 ml" vs app
-// "3 mg/ml" — same real concentration, deliberately not computed/guessed at here), or a release-
-// rate marker (IR/SR/CR) this app's own naming is inconsistent about including — left for manual
-// review in MedsScreen instead of risking two different real formulations being treated as one.
+// own category picks the right one without guessing at the drug identity itself). Loosening the
+// word-subset rule can also newly EXPOSE a real structural ambiguity that a tokenizing accident
+// used to hide — real case: "สหัสธารา 500 mg." uniquely matched the app's plain-brand entry only
+// because the app's OTHER, "ตราธนัทเฮิร์บ"-branded 500mg entry happened to write its strength
+// glued ("500mg.", not matching the sheet's spaced "500 mg." before fix #6 above); once both
+// tokenize the same way, the sheet row — which never names either brand — is honestly ambiguous
+// between them, and is now correctly reported as such instead of a lucky, unverified guess.
+// Also deliberately NOT done, tried once and reverted: stripping "cr"/"sr"/"ir"/"er" release-rate
+// markers as noise. It would fix one unmatched row (sheet "Theophylline CR", no competing plain/
+// SR sibling), but "Cr." is ALSO this formulary's abbreviation for "Cream" (TRIAMCINOLONE (5g)
+// Cr. 0.1%, already uniquely matched) — stripping it collapses the Triamcinolone cream/lotion/
+// paste trio (all 0.1%, same ingredient) into a 3-way ambiguity, breaking an already-correct
+// match to fix one unmatched row. Left for manual review in MedsScreen instead, same as
+// Morphine's SR/IR, which has the identical problem (its own SR/plain siblings would become
+// indistinguishable).
+//
+// A med that already has a whCode is left untouched (never silently overwritten) — re-running
+// this after someone has since hand-corrected a code is always safe. Verified against this
+// hospital's real 442-med formulary: 218 of 292 sheet rows matched, 1 ambiguous (the สหัสธารา
+// case above), 73 genuinely unmatched — checked by hand, these fall into a few real categories
+// rather than a remaining matching bug: the med doesn't exist in the app's formulary yet
+// (Amikacin, Meropenem, Piperacillin+tazobactam, KY Jelly, a few more), the med exists but is
+// marked inactive in the app (Morphine, Pethidine, Remdesivir and others — the hospital's own
+// call whether to reactivate them, not this script's), a dose written as a different ratio that
+// needs arithmetic to compare (sheet "6 mg/2 ml" vs app "3 mg/ml" — same real concentration,
+// deliberately not computed/guessed at here), the app's own name has a plain typo (confirmed
+// case: "CEFTRIAZONE" should read "CEFTRIAXONE" — a data fix, not a matching one), or the
+// release-rate marker case above.
 //
 // SAFETY: dry run by default — pass --confirm to actually write.
 //
@@ -113,6 +146,24 @@ const FORM_NOISE = new Set([
   'inhaler', 'mdi', 'nebule', 'suppository', 'enema', 'powder', 'douche', 'wash', 'paste',
   'vial', 'amp', 'amphule', 'ampoule', 'ขวด', 'หลอด', 'ซอง', 'ห่อ', 'กล่อง',
   'sod', 'sodium',
+  // "Human" is implied for virtually every biologic in this formulary (immunoglobulin, albumin)
+  // and the app's own naming is inconsistent about spelling it out (real case: sheet "Human
+  // tetanus immunoglobulin (TIG)" vs the app's own "tetanus Immunoglobulin(TIG)-tetagam P", no
+  // "Human" at all) — dropping it never risks conflating two different biologics, since the
+  // product-specific word (tetagam/erig/hrig/...) still has to match.
+  //
+  // NOT dropped, deliberately: "cr"/"sr"/"ir"/"er" release-rate markers — tried once, reverted.
+  // "Cr." does double duty in this formulary as BOTH "controlled-release" (Theophylline CR, no
+  // competing plain/SR sibling, would have been safe alone) AND an abbreviation for "Cream"
+  // (TRIAMCINOLONE (5g) Cr. 0.1%, which already uniquely matches today) — stripping it collapses
+  // the Triamcinolone cream/lotion/paste trio (all 0.1%, same ingredient) into a 3-way ambiguity,
+  // breaking an already-correct match to fix one unmatched row. Left as manual review in
+  // MedsScreen instead, same as Morphine's SR/IR.
+  'human',
+  // "Cal." (real case: sheet "Cal.polystyrene(kalimate)" — calcium polystyrene sulfonate, brand
+  // Kalimate) is the same kind of salt/cation abbreviation "sod"/"sodium" above already covers;
+  // the app's own brand-only name never spells out the salt form either.
+  'cal',
 ]);
 
 // A sheet row's own category, matched against a short list of the FORM_NOISE words that would
@@ -129,16 +180,51 @@ const CATEGORY_HINTS = {
 function stripNoise(raw) {
   return (raw || '')
     .toLowerCase()
-    .replace(/\(.*?\)/g, ' ')
+    // A few specific generic<->brand / spelled-out<->abbreviated phrasings this hospital's sheets
+    // and app disagree on (real cases: sheet "Potassium Chloride KCL inj" vs the app's own plain
+    // "KCl injection..."; sheet "Cal.polystyrene(kalimate)" vs the app's own "KALIMATE POWDER" —
+    // calcium polystyrene sulfonate is Kalimate's generic name). Each pair names the exact same
+    // real drug, so normalizing both sides to one spelling only ever equates a drug with itself.
+    .replace(/potassium\s*chloride/g, 'kcl')
+    .replace(/polystyrene/g, 'kalimate')
+    // A trailing "20 mEql" in a sheet strength (real case: "Potassium Chloride KCL inj 20
+    // mEql/10 ml") is this hospital's own transcription of "20 mEq" — the app names the exact
+    // same 20 mEq / 10 ml amphule as "KCl injection 20 mEq. Amphule (10 ml.)", both the dose and
+    // the volume agree, only the extra trailing "l" differs.
+    .replace(/\bmeql\b/g, 'meq')
+    // A wholesale pack-count suffix like "5gm*100's" ("100 sachets per box") describes how the
+    // central warehouse boxes it, not the drug itself, and the app's own med name (one sachet)
+    // never carries it — dropped the same way a container word already is.
+    .replace(/\d+'s\b/g, ' ')
+    // Parenthesized content is dropped UNLESS it holds a number — a bare abbreviation/brand/
+    // route marker in parens ("(PL)", "(ERIG)", "(TIG)", "(NPH)") is noise the sheet never
+    // repeats, but the app often puts a real required quantity there that the sheet states in
+    // plain text (real case: sheet "Potassium Chloride KCL inj 20 mEql/10 ml" vs the app's own
+    // "KCl injection 20 mEq. Amphule (10 ml.)" — the "10 ml" volume the row needs only exists
+    // inside the app's parens). This only ever ADDS words to the app side, so it can only let a
+    // match succeed that previously failed for lacking a word — it never drops a word a match
+    // used to depend on.
+    .replace(/\(([^)]*)\)/g, (_, inner) => (/\d/.test(inner) ? ` ${inner} ` : ' '))
     .replace(/[-–]\s*(pl|due|ned)\b/g, ' ')
     .replace(/[*#]/g, ' ')
     .replace(/\//g, ' ')
+    // A number glued directly to its unit with no space ("1gm", "400U") is one token; the other
+    // side often writes the same value with a space ("1 gm.", "400 U") — two tokens. Splitting a
+    // digit run from an immediately-following (or preceding) letter run makes both sides tokenize
+    // the same way; it can only split a glued token into finer pieces, never merge two already-
+    // distinct words into one, so it never risks conflating two different drugs.
+    .replace(/(\d)([a-zA-Z])/g, '$1 $2')
+    .replace(/([a-zA-Z])(\d)/g, '$1 $2')
     // µg/μg (micro sign U+00B5, or Greek mu U+03BC — sheets use either) and "mcg" are the same
     // unit written differently (real case: sheet "Cytotec tab 200 µg" vs the app's own "Cytotec
     // 200 mcg. เม็ด").
     .replace(/[µμ]g/g, 'mcg')
     .replace(/mg\.?/g, 'mg')
     .replace(/ml\.?/g, 'ml')
+    // "gm" and "g" are the same gram unit (real case: sheet "Cal.polystyrene(kalimate) 5gm" vs
+    // the app's own "KALIMATE POWDER 5 g."); normalized after the digit-letter split above so
+    // "5gm" has already become two tokens ("5", "gm") before this runs.
+    .replace(/\bgm\.?\b/g, 'g')
     .replace(/mcg\.?/g, 'mcg')
     // A decimal number keeps its trailing zeros stripped before the digits are merged, so "0.10"
     // and "0.1" (the exact same concentration, just written with/without a trailing zero — real
