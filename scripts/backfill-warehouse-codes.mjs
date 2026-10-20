@@ -75,17 +75,28 @@
 // Morphine's SR/IR, which has the identical problem (its own SR/plain siblings would become
 // indistinguishable).
 //
+// A handful of rows in scripts/data/warehouse-codes.csv itself had a plain transcription typo
+// that happened to also be the ONLY reason they didn't match a real app med — "Clotrimazale" (->
+// Clotrimazole), "PROCTOSEDHYL" (-> PROCTOSEDYL, one extra H), "Whitfieid" (-> Whitfield, l/i
+// mixed up), "Activited Chaco" (-> Activated Charcoal) — corrected directly in the data file
+// (each checked by hand against the real app med before correcting), plus "กรัม" (Thai for
+// "gram") normalized the same way "gm"/"g" already are. NOT corrected: "Tertracaine* 0.5 mg/ml"
+// (probably "tetracaine", which the app has as "tetracaine eye drop 0.5%") — 0.5% and 0.5 mg/ml
+// are NOT the same concentration (0.5% = 5 mg/ml), so this one needs a human to confirm the real
+// strength before it can be matched, typo or not.
+//
 // A med that already has a whCode is left untouched (never silently overwritten) — re-running
 // this after someone has since hand-corrected a code is always safe. Verified against this
-// hospital's real 442-med formulary: 218 of 292 sheet rows matched, 1 ambiguous (the สหัสธารา
-// case above), 73 genuinely unmatched — checked by hand, these fall into a few real categories
+// hospital's real 442-med formulary: 222 of 292 sheet rows matched, 1 ambiguous (the สหัสธารา
+// case above), 69 genuinely unmatched — checked by hand, these fall into a few real categories
 // rather than a remaining matching bug: the med doesn't exist in the app's formulary yet
 // (Amikacin, Meropenem, Piperacillin+tazobactam, KY Jelly, a few more), the med exists but is
 // marked inactive in the app (Morphine, Pethidine, Remdesivir and others — the hospital's own
 // call whether to reactivate them, not this script's), a dose written as a different ratio that
 // needs arithmetic to compare (sheet "6 mg/2 ml" vs app "3 mg/ml" — same real concentration,
 // deliberately not computed/guessed at here), the app's own name has a plain typo (confirmed
-// case: "CEFTRIAZONE" should read "CEFTRIAXONE" — a data fix, not a matching one), or the
+// case: "CEFTRIAZONE" should read "CEFTRIAXONE" — a data fix, not a matching one), the sheet's
+// own typo above (Tertracaine) where the real strength still needs confirming, or the
 // release-rate marker case above.
 //
 // SAFETY: dry run by default — pass --confirm to actually write.
@@ -187,6 +198,10 @@ function stripNoise(raw) {
     // real drug, so normalizing both sides to one spelling only ever equates a drug with itself.
     .replace(/potassium\s*chloride/g, 'kcl')
     .replace(/polystyrene/g, 'kalimate')
+    // "กรัม" is the Thai word for "gram" (real case: the app's own "Activated Charcoal 50 กรัม"
+    // vs the sheet's "50 g") — the same equivalence "gm"/"g" already gets below, just spelled in
+    // Thai instead of abbreviated in English.
+    .replace(/กรัม/g, 'g')
     // A trailing "20 mEql" in a sheet strength (real case: "Potassium Chloride KCL inj 20
     // mEql/10 ml") is this hospital's own transcription of "20 mEq" — the app names the exact
     // same 20 mEq / 10 ml amphule as "KCl injection 20 mEq. Amphule (10 ml.)", both the dose and

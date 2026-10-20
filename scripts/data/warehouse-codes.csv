@@ -228,7 +228,7 @@ code,name,strength,unit,category
 1300052,HIBISCRUB,4%,ขวด (5 L.),ยาใช้ภายนอก
 1500051,Chlorhexidine mouth wash,180,Amphule (10 ml.),ยาใช้ภายนอก
 1300066,Clotrimazole CREAM,1%,ซลอด (5 g.),ยาใช้ภายนอก
-1300067,Clotrimazale,500 mg,เม็ด (VG),ยาใช้ภายนอก
+1300067,Clotrimazole,500 mg,เม็ด (VG),ยาใช้ภายนอก
 1300116,GENTIAN VIOLET,1%,ขวด (30 ml.),ยาใช้ภายนอก
 1300405,Glicerine rectal supposition*,1.5 g,แท่ง,ยาใช้ภายนอก
 1300132,Hydrogen peroxide,6%,30 ml,ยาใช้ภายนอก
@@ -239,7 +239,7 @@ code,name,strength,unit,category
 1500324,terramycin  eye oint,5g,ซลอด(3.5 gm),ยาใช้ภายนอก
 1500211,POLY-OPH,5 ml.,ขวด ED (5 ml.),ยาใช้ภายนอก
 1300398,Povidine   30 ml,10%,Amphule (10 ml.),ยาใช้ภายนอก
-1300219,PROCTOSEDHYL (R)*,-,เม็ด (SP.),ยาใช้ภายนอก
+1300219,PROCTOSEDYL (R)*,-,เม็ด (SP.),ยาใช้ภายนอก
 1500232,Salbutamol MDI\ ventolin MDi\ - PL,100 mcg./dose,ซลอด MDI (200 dose),ยาใช้ภายนอก
 1500235,Salbutamol Sulfate NB,2.5 mg./2.5,NEBULE,ยาใช้ภายนอก
 1300236,CONCON*-SALICYLIC ACID+LACTIC ACID,.,ขวด (15 ml.),ยาใช้ภายนอก
@@ -255,13 +255,13 @@ code,name,strength,unit,category
 1300271,TRIAMCINOLONE (5g) Cr.,0.10%,ขวด (5 g.),ยาใช้ภายนอก
 1300406,urea,10%,ซลอด (30 g.),ยาใช้ภายนอก
 1100434,Utrogestan,100 mg,เม็ด (VG),ยาใช้ภายนอก
-1300284,Whitfieid s ointment,6.0+3.0%,ซลอด,ยาใช้ภายนอก
+1300284,Whitfield s ointment,6.0+3.0%,ซลอด,ยาใช้ภายนอก
 1300285,ZINC PASTE,5 g.,ซลอด (5 g.),ยาใช้ภายนอก
 3000082,KY Jelly,50 gm,ซลอด (5 g.),ยาใช้ภายนอก
 1600300,ครีมพญายอ,10 mg.,ซลอด,ยาใช้ภายนอก
 1600402,น้ำมันไพล,24mg,ซลอด,ยาใช้ภายนอก
 2200002,ACETYLCYSTEINE (Fluimucil),200 mg.,กล่อง,ยาน้ำ
-1200001,Activited Chaco,50 g,ห่อ,ยาน้ำ
+1200001,Activated Charcoal,50 g,ห่อ,ยาน้ำ
 1200010,ALUM milk,220+120 mg.,ขวด (240 ml.),ยาน้ำ
 1200017,Augmentin susp.-,400+57 mg.,ขวด,ยาน้ำ
 1200021,AMOXICILLIN syrup,250 mg/5ml,ขวด,ยาน้ำ
