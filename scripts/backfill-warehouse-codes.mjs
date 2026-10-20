@@ -32,6 +32,14 @@
 //      that drops thousands-separator commas, SPLITTING it into two separate number tokens
 //      ("6","25") — which could then wrongly subset-match a sheet row asking for the bare number
 //      "25" alone. Digit.digit is now merged into one token instead (6.25 -> "625"), never split.
+//   4. A "%" strength written with/without a trailing zero ("0.10%" vs the app's own "0.1 %") or
+//      a microgram symbol written as "µg"/"μg" instead of "mcg" (sheet "Cytotec tab 200 µg" vs
+//      the app's own "Cytotec 200 mcg. เม็ด") produced two different tokens for the exact same
+//      real value. Trailing zeros are stripped from a decimal before merging its digits, "%" is
+//      dropped as a symbol (not merged into the number, since the sheet and the app disagree on
+//      whether a space separates them), and µg/μg normalize to "mcg" the same as the app's own
+//      spelling — always equating two SPELLINGS of one real number/unit, never two different
+//      numbers to each other.
 // A sheet row matching more than one app med (or vice versa) after all of the above is reported
 // as ambiguous and skipped, never guessed at — except when the sheet's own category (ยาเม็ด/ยาฉีด/
 // ยาใช้ภายนอก/ยาน้ำ) can narrow it to exactly one candidate via CATEGORY_HINTS (e.g. two meds
@@ -39,10 +47,13 @@
 // own category picks the right one without guessing at the drug identity itself). A med that
 // already has a whCode is left untouched (never silently overwritten) — re-running this after
 // someone has since hand-corrected a code is always safe. Verified against this hospital's real
-// 442-med formulary: 192 of 293 sheet rows matched, 0 ambiguous, 101 genuinely unmatched (legacy/
-// herbal names, or a dose expressed as a different ratio, e.g. sheet "6 mg/2 ml" vs app "3
-// mg/ml" — real unit-conversion differences this script deliberately does not try to resolve by
-// arithmetic) — left for manual review in MedsScreen instead of guessed at.
+// 442-med formulary: 205 of 293 sheet rows matched, 0 ambiguous, 87 genuinely unmatched — checked
+// by hand, these fall into a few real categories rather than a remaining matching bug: the med
+// doesn't exist in the app's formulary yet (vaccines, immunoglobulins, a few injectables),
+// a dose written as a different ratio that needs arithmetic to compare (sheet "6 mg/2 ml" vs app
+// "3 mg/ml" — same real concentration, deliberately not computed/guessed at here), or a release-
+// rate marker (IR/SR/CR) this app's own naming is inconsistent about including — left for manual
+// review in MedsScreen instead of risking two different real formulations being treated as one.
 //
 // SAFETY: dry run by default — pass --confirm to actually write.
 //
@@ -122,13 +133,27 @@ function stripNoise(raw) {
     .replace(/[-–]\s*(pl|due|ned)\b/g, ' ')
     .replace(/[*#]/g, ' ')
     .replace(/\//g, ' ')
+    // µg/μg (micro sign U+00B5, or Greek mu U+03BC — sheets use either) and "mcg" are the same
+    // unit written differently (real case: sheet "Cytotec tab 200 µg" vs the app's own "Cytotec
+    // 200 mcg. เม็ด").
+    .replace(/[µμ]g/g, 'mcg')
     .replace(/mg\.?/g, 'mg')
     .replace(/ml\.?/g, 'ml')
     .replace(/mcg\.?/g, 'mcg')
-    // Decimal point / thousands separator between two digits: merge into one token (6.25 ->
-    // "625", 2,500 -> "2500") — never split a single number into two misleading separate ones
-    // (see this file's own header comment, cause #3).
-    .replace(/(\d)[.,](\d)/g, '$1$2')
+    // A decimal number keeps its trailing zeros stripped before the digits are merged, so "0.10"
+    // and "0.1" (the exact same concentration, just written with/without a trailing zero — real
+    // case: sheet "BETAMETHASONE 0.10%" vs the app's own "BETAMETHASONE 0.1 % หลอด") produce the
+    // SAME token ("01") instead of two different ones ("010" vs "01"). Only ever equates two
+    // representations of one real number — never two different ones to each other.
+    .replace(/\d+\.\d+/g, (m) => {
+      let s = m.replace(/0+$/, '');
+      if (s.endsWith('.')) s = s.slice(0, -1);
+      return s.replace('.', '');
+    })
+    // "%" itself is dropped (not merged into the preceding number) — the sheet and the app
+    // disagree on whether a space separates the number from it ("0.10%" vs "0.1 %"), which is
+    // otherwise enough on its own to produce two different tokens for the same strength.
+    .replace(/%/g, ' ')
     .replace(/[.,]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
