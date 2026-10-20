@@ -2,7 +2,7 @@
 // usernamesRepo.ts for the first rounds of this same collection-at-a-time pattern.
 import {
   collection, doc, getDocs, onSnapshot, query, where,
-  type DocumentReference, type FirestoreError, type QuerySnapshot, type Unsubscribe,
+  type DocumentReference, type FirestoreError, type QueryDocumentSnapshot, type QuerySnapshot, type Unsubscribe,
 } from 'firebase/firestore';
 import { db } from '../../firebase';
 
@@ -50,11 +50,43 @@ export function fetchAllLots() {
   return getDocs(lotsCollection());
 }
 
-/** Every lots doc for one med — the live (untransacted) pre-read several commit actions run
- * before re-reading their candidates via trx.get(), same "client SDK can't query inside a
- * transaction" workaround used throughout this file. */
+/** Every lots doc for one med, regardless of qty — deleteMed()'s own cleanup (must delete every
+ * historical lot doc, not just the live ones) and mergeWardPairTx() (must reassign every lot,
+ * including long-since-emptied ones, so the surviving med's ledger history stays complete) are
+ * the only two callers left that genuinely need this; everything else now uses
+ * fetchActiveLotsByMedId below. */
 export function fetchLotsByMedId(medId: string) {
   return getDocs(query(lotsCollection(), where('medId', '==', medId)));
+}
+
+/** Every lots doc for one med that's still genuinely active (qty > 0) — the bounded counterpart
+ * to fetchLotsByMedId above.
+ *
+ * Bug fix (real report: "เติมหน้างานตอนเช้า...ใช้ได้แป๊ปเดียวก็ถึง limit"): commitTransfer's FEFO
+ * lot lookup, commitReceive/approvePendingReceive's lot-merge check, and commitSubCount/
+ * commitAllSubCounts' live lot-id refresh (AppContext.tsx) all used to call fetchLotsByMedId —
+ * the FULL, unfiltered per-med lot history — then immediately filter the result down to qty > 0
+ * themselves, exactly the same waste subscribeLots' own doc comment describes for the live
+ * listener, just re-read in full on every single one of the most routine actions in the app
+ * (every item in every morning floor-refill cart, every receive, every substock count) instead
+ * of once per connect. A long-running, high-turnover med can carry hundreds of spent lot docs
+ * after months of real use — none of them ever actually used by any of these call sites.
+ *
+ * Needs a one-time composite index (`lots`: medId Ascending + qty Ascending) created in the
+ * Firebase Console before this is as cheap as it should be — until then, Firestore rejects the
+ * query with a "the query requires an index" error, which the fallback below catches so a real
+ * transfer/receive/count action never hard-fails just because that console step hasn't happened
+ * yet; it just keeps paying the old, uncapped cost until it has. */
+export async function fetchActiveLotsByMedId(medId: string): Promise<QueryDocumentSnapshot[]> {
+  try {
+    const snap = await getDocs(query(lotsCollection(), where('medId', '==', medId), where('qty', '>', 0)));
+    return snap.docs;
+  } catch (e) {
+    const err = e as FirestoreError;
+    if (err?.code !== 'failed-precondition' || !/index/i.test(err.message || '')) throw e;
+    const snap = await fetchLotsByMedId(medId);
+    return snap.docs.filter((d) => ((d.data() as { qty?: number }).qty ?? 0) > 0);
+  }
 }
 
 /** Every lots doc across up to 30 meds at once — Firestore's own `in` operator cap — used by
