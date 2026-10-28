@@ -30,6 +30,18 @@ export default defineConfig({
         },
       },
     },
+    // Investigated as a real-world request ("ขนาดไฟล์แอพเริ่มใหญ่"): checked every chunk rollup's
+    // default 500 kB warning was flagging. xlsx/UsageCharts (both ~400 kB) are ALREADY their own
+    // lazy chunks loaded only on first real use (see the globIgnores comment below) — not part of
+    // the initial load at all, so they were never the problem the warning seemed to suggest. The
+    // one real chunk over 500 kB is vendor-firebase (~790 kB) above, and it imports only the 3
+    // Firebase subpackages this app actually uses (app/auth/firestore — no analytics/storage/
+    // messaging pulled in by accident) — splitting it further would only fragment the one-time
+    // download this manualChunks split above already exists to make reusable across every future
+    // deploy (see that comment), for no real savings. Raised only to stop that warning
+    // mischaracterizing an already-deliberate, already-minimal chunk as a build problem; it
+    // changes nothing about what ships, just the diagnostic threshold.
+    chunkSizeWarningLimit: 850,
   },
   plugins: [
     react(),

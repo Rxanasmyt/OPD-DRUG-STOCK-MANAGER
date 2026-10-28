@@ -150,7 +150,7 @@ function parseCsvLine(line) {
   return out;
 }
 
-function loadSheetRows() {
+export function loadSheetRows() {
   const text = readFileSync(DATA_FILE, 'utf8');
   const lines = text.split(/\r?\n/).filter((l) => l.length > 0);
   return lines.slice(1).map((line) => {
@@ -166,7 +166,7 @@ function loadSheetRows() {
 // file's own header comment, cause #1/#2) — dropped from BOTH sides before comparing, since
 // neither the sheet's nor the app's choice of wording for "this is a tablet/injection/..." is
 // reliable enough to require matching.
-const FORM_NOISE = new Set([
+export const FORM_NOISE = new Set([
   'tab', 'tablet', 'cap', 'capsule', 'แคปซูล', 'แค็บซูล', 'caplet', 'เม็ด',
   'syrup', 'syr', 'susp', 'suspension', 'solution', 'sol',
   'inj', 'injection', 'cream', 'oint', 'ointment', 'lotion', 'drop', 'drops', 'gel', 'patch',
@@ -200,20 +200,26 @@ const FORM_NOISE = new Set([
   // match, and checked against every "hcl"/"sulfate" occurrence in both the app and the sheet,
   // nothing here depends on the salt form itself to tell two different real drugs apart.
   'hcl', 'sulfate', 'sulphate',
+  // Full spelled-out "hydrochloride" (real case: the app's own "Terramycin-Oxytetracycline
+  // hydrochlorideOINT." vs the sheet's plain "terramycin eye oint") — the same salt-form
+  // suffix "hcl" above already drops, just spelled out in full instead of abbreviated; the
+  // app's own naming is inconsistent about which form it uses, same as the sod/sodium and
+  // cal/calcium pairs already handled.
+  'hydrochloride',
 ]);
 
 // A sheet row's own category, matched against a short list of the FORM_NOISE words that would
 // most plausibly appear in the real dosage form for it — used ONLY to break a tie between more
 // than one otherwise-matching app med (see CATEGORY_HINTS' own call site), never to accept a
 // match that didn't already pass the real word-subset check above.
-const CATEGORY_HINTS = {
+export const CATEGORY_HINTS = {
   'ยาเม็ด': ['tab', 'tablet', 'เม็ด', 'cap', 'capsule', 'แคปซูล', 'แค็บซูล', 'caplet'],
   'ยาฉีด': ['inj', 'injection', 'vial', 'amp', 'amphule', 'ampoule'],
   'ยาน้ำ': ['syrup', 'syr', 'susp', 'suspension', 'solution', 'sol'],
   'ยาใช้ภายนอก': ['cream', 'oint', 'ointment', 'lotion', 'drop', 'gel', 'patch', 'inhaler', 'mdi', 'nebule', 'suppository', 'enema', 'powder', 'douche', 'wash', 'paste'],
 };
 
-function stripNoise(raw) {
+export function stripNoise(raw) {
   return (raw || '')
     .toLowerCase()
     // A few specific generic<->brand / spelled-out<->abbreviated phrasings this hospital's sheets
@@ -223,6 +229,16 @@ function stripNoise(raw) {
     // real drug, so normalizing both sides to one spelling only ever equates a drug with itself.
     .replace(/potassium\s*chloride/g, 'kcl')
     .replace(/polystyrene/g, 'kalimate')
+    // "SO4" (real case: sheet "Atropine SO4 0.6 mg/1 ml" vs the app's own plain "ATROPINE inj
+    // 0.6 mg./ml. Amphule (1 ml.)") is the same kind of salt-form suffix FORM_NOISE's "hcl"/
+    // "sulfate"/"sulphate" already drop — written as the chemical formula instead of the word.
+    // Stripped HERE (a literal-phrase removal), not added to FORM_NOISE: it contains a digit,
+    // so the digit/letter-splitting step further down would otherwise break it into "so"+"4"
+    // before FORM_NOISE's token-by-token filter ever saw it as one word. Same safety reasoning
+    // as the other salt-form entries: this hospital never stocks the same active ingredient as
+    // both a salt and a free-base form side by side, so dropping it never risks conflating two
+    // different drugs.
+    .replace(/\bso4\b/g, ' ')
     // "กรัม" is the Thai word for "gram" (real case: the app's own "Activated Charcoal 50 กรัม"
     // vs the sheet's "50 g") — the same equivalence "gm"/"g" already gets below, just spelled in
     // Thai instead of abbreviated in English.
@@ -280,27 +296,30 @@ function stripNoise(raw) {
     // disagree on whether a space separates the number from it ("0.10%" vs "0.1 %"), which is
     // otherwise enough on its own to produce two different tokens for the same strength.
     .replace(/%/g, ' ')
-    .replace(/[.,]/g, ' ')
+    // ";" (real case: sheet "Sodium Bicarbonate 7.5% ; 50 ml" vs the app's own plain "SODIUM
+    // BICARBONATE 7.5% 50 ml. Amphule") is this sheet's own stray field-separator punctuation —
+    // never meaningful content, same treatment as "."/"," right below.
+    .replace(/[.,;]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-function rawWords(name) {
+export function rawWords(name) {
   return stripNoise(name).split(' ').filter(Boolean);
 }
 
-function wordSet(parts) {
+export function wordSet(parts) {
   const s = new Set();
   for (const p of parts) for (const w of rawWords(p)) if (!FORM_NOISE.has(w)) s.add(w);
   return s;
 }
 
-function isSubset(small, big) {
+export function isSubset(small, big) {
   for (const w of small) if (!big.has(w)) return false;
   return true;
 }
 
-function matchesCategoryHint(name, category) {
+export function matchesCategoryHint(name, category) {
   const hints = CATEGORY_HINTS[category] || [];
   const words = rawWords(name);
   return hints.some((h) => words.includes(h));
@@ -407,7 +426,14 @@ async function main() {
   console.log(`Backfilled whCode onto ${updates.length} med(s).`);
 }
 
-main().catch((err) => {
-  console.error('Backfill failed:', err);
-  process.exit(1);
-});
+// Only run main() (which requires FIREBASE_SERVICE_ACCOUNT_KEY and connects to Firestore) when
+// this file is actually run as a script — NOT when it's imported, which lets a verification
+// harness (see scripts/ — any offline matcher-logic check) import the pure matching functions
+// above (stripNoise/wordSet/isSubset/loadSheetRows/FORM_NOISE/CATEGORY_HINTS, all exported)
+// without needing real Firebase credentials or touching production data at all.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((err) => {
+    console.error('Backfill failed:', err);
+    process.exit(1);
+  });
+}
