@@ -370,6 +370,14 @@ export interface PickListRow {
   // (AppContext.tsx) sets this, so the other two pick-list sheets keep their current layout,
   // column count, and width completely unchanged. See Med.whCode's own doc comment (types.ts).
   whCode?: string | undefined;
+  // Real-world request: the original Google-Sheet requisition had a "ยาที่ค้าง" column (how much
+  // of LAST round's request still hasn't shown up) — see printWarehouseRequestByCategory's own
+  // doc comment (AppContext.tsx) for how this is estimated. Informational only: never added back
+  // into `qty`/`boxes` above (today's shortfall calculation already reflects reality — if last
+  // round's stock never arrived, today's own balance is still low and today's qty is already
+  // sized for that), so this never double-counts. Optional and additive, same pattern as whCode
+  // above — only printWarehouseRequestByCategory sets this.
+  carryOver?: number | undefined;
 }
 
 /** One row of the optional "ยาขาดชั่วคราว" informational section — see printPickListSheet's
@@ -411,7 +419,13 @@ export function printPickListSheet(
   // the central warehouse, whose own staff release the stock — "ผู้รับของ" reads as if receiving
   // already happened, when this sheet is only the outgoing request. Made overridable per document
   // type instead of a one-size label set that doesn't fit its own use.
-  signoffLabels: [string, string, string] = ['ผู้จัดทำรายการ', 'ผู้ตรวจสอบ / ผู้รับของ', 'ผู้อนุมัติ'],
+  // Real-world request (ใบขอเบิกจากคลังใหญ่): the original Google-Sheet-based requisition had
+  // FOUR signature roles (ผู้ขอเบิก/ผู้จ่าย/ผู้อนุมัติ/ผู้รับของ), one more than this sheet's
+  // original 3-role default — generalized from a fixed 3-tuple to a plain array so a caller can
+  // pass any number of roles; the two existing 3-role callers (ใบจัดยาเติมชั้น,
+  // ใบเติมหน้างานประจำวัน) are untouched by this, since an array of length 3 renders identically
+  // to the old tuple.
+  signoffLabels: string[] = ['ผู้จัดทำรายการ', 'ผู้ตรวจสอบ / ผู้รับของ', 'ผู้อนุมัติ'],
   // Real-world request: "บริษัทยาไม่มาส่ง ล่าช้า เลิกผลิต คลังปิดปลาย/ต้นปีงบประมาณ" — meds flagged
   // isOnStockHold() are already excluded from the main rows above (nothing a requisition does
   // fixes a supply problem — see needsWarehouseRequest()'s own doc comment), but silently
@@ -432,7 +446,10 @@ export function printPickListSheet(
   // Only printWarehouseRequestList sets this (see PickListRow.whCode's own doc comment) — same
   // "additive, optional column" pattern as showPickBin/showParCols above.
   const showWhCode = sorted.some((r) => r.whCode);
-  const colCount = 3 + (showPickBin ? 1 : 0) + (showParCols ? 2 : 0) + (showWhCode ? 1 : 0) + 2; // ลำดับ, ชั้น, [หยิบจาก], [รหัสคลัง], รายการยา, [Par, คงเหลือ], จำนวน, ✓
+  // Only printWarehouseRequestByCategory sets this (see PickListRow.carryOver's own doc
+  // comment) — same "additive, optional column" pattern as showWhCode above.
+  const showCarryOver = sorted.some((r) => r.carryOver);
+  const colCount = 3 + (showPickBin ? 1 : 0) + (showParCols ? 2 : 0) + (showWhCode ? 1 : 0) + (showCarryOver ? 1 : 0) + 2; // ลำดับ, ชั้น, [หยิบจาก], [รหัสคลัง], รายการยา, [Par, คงเหลือ], [ยาที่ค้าง], จำนวน, ✓
   const qtyCell = (r: PickListRow) => showParCols && r.boxes
     ? `<td class="qty"><div class="qtybox">${r.boxes.toLocaleString('en-US')} กล่อง</div><div class="qtysub">${r.qty.toLocaleString('en-US')} ${escapeHtml(r.unit)}</div></td>`
     : `<td class="qty">${r.qty.toLocaleString('en-US')} ${escapeHtml(r.unit)}</td>`;
@@ -443,6 +460,7 @@ export function printPickListSheet(
       ${showWhCode ? `<td class="whcode">${escapeHtml(r.whCode || '—')}</td>` : ''}
       <td class="name">${escapeHtml(r.name)}${r.note ? `<div class="note${r.noteCritical ? ' notecrit' : ''}">${r.noteCritical ? '⚠ ' : 'หมายเหตุ: '}${escapeHtml(r.note)}</div>` : ''}</td>
       ${showParCols ? `<td class="par">${r.par != null ? (typeof r.par === 'number' ? r.par.toLocaleString('en-US') : escapeHtml(r.par)) : '—'}</td><td class="curbal">${r.curBalance != null ? r.curBalance.toLocaleString('en-US') : '—'}</td>` : ''}
+      ${showCarryOver ? `<td class="carryover">${r.carryOver ? r.carryOver.toLocaleString('en-US') : '—'}</td>` : ''}
       ${qtyCell(r)}
       <td class="check">☐</td>
     </tr>`;
@@ -548,6 +566,10 @@ export function printPickListSheet(
      a plain code, same narrow/nowrap treatment as .bin, since it's an identifier to scan, not
      prose. */
   .whcode { width: 18mm; white-space: nowrap; color: #556; }
+  /* ยาที่ค้าง (printWarehouseRequestByCategory only — see PickListRow.carryOver's own doc
+     comment) — a small flag number, amber like .note above since it's the same "worth a
+     second look, not an error" severity. */
+  .carryover { width: 16mm; text-align: right; font-weight: 700; color: #a15c00; }
   .pickbinsub { font-size: 7.5pt; color: #667; font-weight: 400; margin-top: 0.3mm; white-space: normal; }
   /* Real-world request: "อยากให้ชื่อรายการยามีความเด่น เพื่อป้องกันการหยิบยาผิด" — the drug name is
      the single safety-critical read on every row of this sheet (picking the wrong med off the
@@ -611,7 +633,7 @@ export function printPickListSheet(
       <tr><td class="k">ผู้จัดทำรายการ</td><td class="v">${escapeHtml(meta.printedBy || '—')}</td><td class="k">วันที่จัดพิมพ์เอกสาร</td><td class="v">${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }))}</td></tr>
     </table>
     <table class="rows">
-      <thead><tr><th class="n">ลำดับ</th><th class="bin">${escapeHtml(colLabels.bin)}</th>${showPickBin ? `<th class="pickbin">${escapeHtml(colLabels.pickBin || 'หยิบจาก (substock)')}</th>` : ''}${showWhCode ? `<th class="whcode">รหัสยาคลัง</th>` : ''}<th class="name">รายการยา</th>${showParCols ? `<th class="par">${escapeHtml(colLabels.par || 'Par')}</th><th class="curbal">${escapeHtml(colLabels.curBalance || 'คงเหลือ')}</th>` : ''}<th class="qty">${escapeHtml(colLabels.qty)}</th><th class="check">✓</th></tr></thead>
+      <thead><tr><th class="n">ลำดับ</th><th class="bin">${escapeHtml(colLabels.bin)}</th>${showPickBin ? `<th class="pickbin">${escapeHtml(colLabels.pickBin || 'หยิบจาก (substock)')}</th>` : ''}${showWhCode ? `<th class="whcode">รหัสยาคลัง</th>` : ''}<th class="name">รายการยา</th>${showParCols ? `<th class="par">${escapeHtml(colLabels.par || 'Par')}</th><th class="curbal">${escapeHtml(colLabels.curBalance || 'คงเหลือ')}</th>` : ''}${showCarryOver ? `<th class="carryover">ยาที่ค้าง</th>` : ''}<th class="qty">${escapeHtml(colLabels.qty)}</th><th class="check">✓</th></tr></thead>
       <tbody>${body}</tbody>
     </table>
     ${heldRows.length ? `<div class="heldsection">
@@ -623,9 +645,7 @@ export function printPickListSheet(
       </table>
     </div>` : ''}
     <div class="signoff">
-      <div class="sig"><div class="line"></div><div class="lbl">${escapeHtml(signoffLabels[0])}</div><div class="date">วันที่ ____ /____ /______</div></div>
-      <div class="sig"><div class="line"></div><div class="lbl">${escapeHtml(signoffLabels[1])}</div><div class="date">วันที่ ____ /____ /______</div></div>
-      <div class="sig"><div class="line"></div><div class="lbl">${escapeHtml(signoffLabels[2])}</div><div class="date">วันที่ ____ /____ /______</div></div>
+      ${signoffLabels.map((lbl) => `<div class="sig"><div class="line"></div><div class="lbl">${escapeHtml(lbl)}</div><div class="date">วันที่ ____ /____ /______</div></div>`).join('')}
     </div>
   </div>
   <script>window.onload = function () {

@@ -1784,6 +1784,104 @@ describe('printWarehouseRequestList — box-breakdown/par/balance columns regres
   });
 });
 
+// Real-world request: "เดิมการปริ้นใบเบิก จะปริ้นจาก gg sheet...อยากให้แอพสามารถปริ้นออกมาโดยข้อมูล
+// จากการปริ้นแบบเดิมยังครบ" — printWarehouseRequestByCategory() splits the combined
+// printWarehouseRequestList above into the hospital's own 4 physical sheets (Med.reqCategory).
+const WH_CAT_TAB_MED = {
+  id: 'm20', code: 'MED-0020', name: 'Amoxicillin 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  price: 1, had: false, active: true, parSub: 300, parFloor: 100, floorMin: 50, floor: 80,
+  bin: 'B20', binSub: 'S20', noSubstock: false, used30: 0, usedPrev30: 0, volatility: 0,
+  reqCategory: 'tab' as const,
+};
+const WH_CAT_INJ_MED = {
+  id: 'm21', code: 'MED-0021', name: 'Ceftriaxone 1g', unit: 'Vial', dosageForm: 'ฉีด',
+  price: 1, had: false, active: true, parSub: 200, parFloor: 60, floorMin: 30, floor: 50,
+  bin: 'B21', binSub: 'S21', noSubstock: false, used30: 0, usedPrev30: 0, volatility: 0,
+  reqCategory: 'injection' as const,
+};
+const WH_CAT_UNSET_MED = {
+  id: 'm22', code: 'MED-0022', name: 'Omeprazole 20mg', unit: 'เม็ด', dosageForm: 'เม็ด',
+  price: 1, had: false, active: true, parSub: 150, parFloor: 60, floorMin: 30, floor: 40,
+  bin: 'B22', binSub: 'S22', noSubstock: false, used30: 0, usedPrev30: 0, volatility: 0,
+  // no reqCategory — never matched a whCode yet (see Med.reqCategory's own doc comment)
+};
+
+function PrintWarehouseRequestByCategoryHarness() {
+  const { printWarehouseRequestByCategory } = useApp();
+  return (
+    <div>
+      <button onClick={() => printWarehouseRequestByCategory('tab')}>print-wh-tab</button>
+      <button onClick={() => printWarehouseRequestByCategory('injection')}>print-wh-injection</button>
+    </div>
+  );
+}
+
+describe('printWarehouseRequestByCategory — 4-sheet split regression', () => {
+  it('only includes meds whose reqCategory matches the printed category, never an unset or different one', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<PrintWarehouseRequestByCategoryHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [WH_CAT_TAB_MED, WH_CAT_INJ_MED, WH_CAT_UNSET_MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', []);
+
+    const callsBefore = vi.mocked(printModule.printPickListSheet).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'print-wh-tab' }));
+    await waitFor(() => expect(vi.mocked(printModule.printPickListSheet).mock.calls.length).toBeGreaterThan(callsBefore));
+    const rows = vi.mocked(printModule.printPickListSheet).mock.calls[callsBefore][0];
+    expect(rows.some((r) => r.name === WH_CAT_TAB_MED.name)).toBe(true);
+    expect(rows.some((r) => r.name === WH_CAT_INJ_MED.name)).toBe(false);
+    expect(rows.some((r) => r.name === WH_CAT_UNSET_MED.name)).toBe(false);
+  });
+
+  it('uses the original 4-role signature block (ผู้ขอเบิก/ผู้จ่าย/ผู้อนุมัติ/ผู้รับของ), not the combined sheet\'s 3-role one', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<PrintWarehouseRequestByCategoryHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [WH_CAT_INJ_MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', []);
+
+    const callsBefore = vi.mocked(printModule.printPickListSheet).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'print-wh-injection' }));
+    await waitFor(() => expect(vi.mocked(printModule.printPickListSheet).mock.calls.length).toBeGreaterThan(callsBefore));
+    const signoffLabels = vi.mocked(printModule.printPickListSheet).mock.calls[callsBefore][5];
+    expect(signoffLabels).toEqual(['ผู้ขอเบิก', 'ผู้จ่าย', 'ผู้อนุมัติ', 'ผู้รับของ']);
+  });
+
+  it('computes ยาที่ค้าง from the previous round\'s stored qty/curBalance, and saves a fresh round after printing', async () => {
+    const user = userEvent.setup();
+    // Seeded as if ยาเม็ด was last printed asking for 100 units when curBalance (substock) was
+    // 0 — today's substock (WH_CAT_TAB_MED.binSub lots below) sits at only 30, so only 30 of
+    // that 100 can have arrived: carryOver = max(0, 100 - 30) = 70.
+    seedDoc('whRequestRounds/tab', { printedAt: Date.now() - 7 * 86400000, printedBy: 'คนก่อน', lines: { [WH_CAT_TAB_MED.id]: { qty: 100, curBalanceAtPrint: 0 } } });
+    renderWithApp(<PrintWarehouseRequestByCategoryHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [WH_CAT_TAB_MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', [{ id: 'l1', medId: WH_CAT_TAB_MED.id, qty: 30, loc: WH_CAT_TAB_MED.binSub }]);
+
+    const callsBefore = vi.mocked(printModule.printPickListSheet).mock.calls.length;
+    const setDocCallsBefore = vi.mocked(setDoc).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'print-wh-tab' }));
+    await waitFor(() => expect(vi.mocked(printModule.printPickListSheet).mock.calls.length).toBeGreaterThan(callsBefore));
+    const rows = vi.mocked(printModule.printPickListSheet).mock.calls[callsBefore][0];
+    const row = rows.find((r) => r.name === WH_CAT_TAB_MED.name);
+    expect(row?.curBalance).toBe(30);
+    expect(row?.carryOver).toBe(70);
+
+    // The new round this print just created must be saved so the NEXT print can estimate off it.
+    await waitFor(() => expect(vi.mocked(setDoc).mock.calls.length).toBeGreaterThan(setDocCallsBefore));
+    const roundCall = vi.mocked(setDoc).mock.calls.slice(setDocCallsBefore).find((c) => (c[0] as { path?: string }).path === 'whRequestRounds/tab');
+    const savedRound = roundCall?.[1] as { lines: Record<string, { qty: number; curBalanceAtPrint: number }> } | undefined;
+    expect(savedRound?.lines[WH_CAT_TAB_MED.id]?.curBalanceAtPrint).toBe(30);
+    expect(savedRound?.lines[WH_CAT_TAB_MED.id]?.qty).toBe(row?.qty);
+  });
+});
+
 // Real-world request: "เพิ่มการตั้งค่ายาหมดชั่วคราว...บริษัทยาไม่มาส่ง ล่าช้า เลิกผลิต คลังปิดช่วง
 // ปลาย/ต้นปีงบประมาณ...แจ้งเตือนทุกๆการเบิก" — startStockHold()/endStockHold() (AppContext.tsx)
 // flag/clear Med.outOfStockSince (+Reason/+ExpectedReturn), suppress the med from

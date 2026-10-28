@@ -4,6 +4,7 @@ import { DAY, daysUntil, isoDate, nf } from '../utils/format';
 import { UNCATEGORIZED, DRUG_CATEGORIES, categoryLabel } from '../data/categories';
 import { suggestRoute } from '../data/routeSuggest';
 import type { RouteType } from '../data/routes';
+import type { ReqCategory } from '../data/reqCategories';
 
 /** Pure, stateless helpers derived from AppState — no mutation, safe to call during render. */
 
@@ -78,6 +79,15 @@ export function routeOf(m: Med): RouteType {
 export function effectiveRouteOf(m: Med): RouteType {
   if (m.route) return m.route;
   return suggestRoute(m) || 'other';
+}
+
+/** `m.reqCategory` is undefined (not a guessed value) for a med whose whCode never matched a
+ * row in scripts/data/warehouse-codes.csv — deliberately never guessed from dosageForm/unit
+ * (see Med.reqCategory's own doc comment on why: user asked for the sheet's own category, not
+ * a new heuristic). Callers that print/group by it treat undefined as its own visible bucket
+ * (reqCategoryLabel(undefined) already reads "ยังไม่ระบุหมวด") rather than something to infer. */
+export function reqCategoryOf(m: Med): ReqCategory | undefined {
+  return m.reqCategory;
 }
 
 /** Shelf/bin code to display for `m` when looking at it from ward `w` — the IPD-side code on
