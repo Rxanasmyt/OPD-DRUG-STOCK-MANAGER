@@ -648,7 +648,10 @@ export function categoryStats(state: AppState, meds: Med[], expiryWarnDays: numb
   const medById = new Map(meds.map((m) => [m.id, m]));
   state.lots.forEach((l) => {
     const m = medById.get(l.medId);
-    if (!m || l.qty <= 0) return;
+    // A lot received without an expiry (real-world request: "...ไม่ต้องบังคับให้ใส่ Lot และวัน
+    // หมดอายุ...") has no date to assess risk against — excluded here rather than guessed at,
+    // same reasoning as fefoLot/fefoFloorLot's own missing-exp handling below.
+    if (!m || l.qty <= 0 || l.exp == null) return;
     if (daysUntil(l.exp) <= expiryWarnDays) rowFor(categoryOf(m)).atRisk += l.qty * (m.price || 0);
   });
   // Fixed display order (DRUG_CATEGORIES' own order, "ยังไม่ระบุหมวด" last as listed there)
@@ -781,8 +784,14 @@ export function fefoLot(state: AppState, medId: MedId) {
 // lots always do; a real warehouse restock from the same manufacturer batch number occasionally
 // might) land in separate floorLots docs instead of colliding — correct either way, since they
 // really are different physical stock with different real expiries.
-export function floorLotDocId(medId: MedId, lotNo: string, exp: number): string {
-  return medId + '__' + (lotNo ? lotNo.replace(/[/]/g, '_') : 'nolot') + '__' + exp;
+// lotNo/exp are optional (real-world request: "...ไม่ต้องบังคับให้ใส่ Lot และวันหมดอายุ...") —
+// every batch received without one lands in the SAME "nolot"/"noexp" bucket for a given med,
+// merging their quantities together rather than colliding by accident; since there's no real way
+// to tell two untracked batches of the same med apart anyway, pooling them is the honest
+// representation, not a bug (deliberately different from how two lots that both HAVE a real,
+// different lotNo/exp never merge — see this function's call site in commitTransfer).
+export function floorLotDocId(medId: MedId, lotNo: string | undefined, exp: number | undefined): string {
+  return medId + '__' + (lotNo ? lotNo.replace(/[/]/g, '_') : 'nolot') + '__' + (exp ?? 'noexp');
 }
 
 export function floorLotsFor(state: AppState, medId: MedId) {

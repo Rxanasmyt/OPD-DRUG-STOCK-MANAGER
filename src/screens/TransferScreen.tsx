@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import type { MedId } from '../types';
 import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, effectiveRouteOf, binDisplayAll, daysOfStockLeft, expTone, isOnStockHold, boxBreakdownLabel } from '../store/selectors';
-import { nf, thDate, digitsOnly, isoDate, daysUntil, bangkokWeekday } from '../utils/format';
+import { nf, lotLabel, expLabel, digitsOnly, isoDate, daysUntil, bangkokWeekday } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge, DaysLeftBadge, PackSizeBadge, UsageRateBadge, PAR_LABEL_COLOR } from '../components/Qty';
@@ -374,7 +374,7 @@ export default function TransferScreen() {
                           const tone = fefoDays !== null ? expTone(fefoDays, state.expiryWarnDays) : 'var(--green)';
                           return (
                             <div style={{ fontSize: 11.5, color: tone, marginTop: 5, fontWeight: fefoDays !== null && fefoDays < 30 ? 700 : undefined }}>
-                              FEFO: lot {f ? f.lotNo : '—'} · exp {f ? (f.exp != null ? thDate(f.exp) : 'ไม่ทราบวันหมดอายุ') : 'ไม่มีของใน substock'}
+                              FEFO: lot {f ? lotLabel(f.lotNo) : '—'} · exp {f ? expLabel(f.exp) : 'ไม่มีของใน substock'}
                               {f && <span className="muted" style={{ color: 'inherit', opacity: fefoDays !== null && fefoDays < 30 ? 1 : undefined }}> (เหลือ {nf(f.qty)})</span>}
                               {fefoDays !== null && fefoDays < 0 && <span> — ⚠ หมดอายุแล้ว ควรตัดออกก่อนเติม</span>}
                               {fefoDays !== null && fefoDays >= 0 && fefoDays < 30 && <span> — ⚠ ใกล้หมดอายุมาก</span>}
@@ -390,16 +390,21 @@ export default function TransferScreen() {
                             this stays a secondary warning alongside the substock FEFO line above,
                             never a replacement for it — hidden entirely when there's no floor-lot
                             data yet for this med (nothing transferred under this feature, or it's
-                            all been dispensed/scrapped). */}
-                        {ff && ff.exp != null && (() => {
-                          const ffDays = daysUntil(ff.exp);
-                          const tone = expTone(ffDays, state.expiryWarnDays);
+                            all been dispensed/scrapped). Bug fix: a floor lot received without
+                            an expiry (real-world request: "...ไม่ต้องบังคับให้ใส่ Lot และวันหมด
+                            อายุ...") used to hide this whole line entirely (the old `ff.exp !=
+                            null` guard on the block itself) — now shown the same "ไม่ทราบวันหมด
+                            อายุ" way the substock FEFO line above already handles it, instead of
+                            silently dropping the only floor-side signal this med has. */}
+                        {ff && (() => {
+                          const ffDays = ff.exp != null ? daysUntil(ff.exp) : null;
+                          const tone = ffDays !== null ? expTone(ffDays, state.expiryWarnDays) : 'var(--green)';
                           return (
-                            <div style={{ fontSize: 11.5, color: tone, marginTop: 3, fontWeight: ffDays < 30 ? 700 : undefined }}>
-                              บนชั้น: lot {ff.lotNo} · exp {thDate(ff.exp)}
-                              <span className="muted" style={{ color: 'inherit', opacity: ffDays < 30 ? 1 : undefined }}> (เหลือ {nf(ff.qty)})</span>
-                              {ffDays < 0 && <span> — ⚠ หมดอายุแล้วบนชั้น</span>}
-                              {ffDays >= 0 && ffDays < 30 && <span> — ⚠ ใกล้หมดอายุมาก</span>}
+                            <div style={{ fontSize: 11.5, color: tone, marginTop: 3, fontWeight: ffDays !== null && ffDays < 30 ? 700 : undefined }}>
+                              บนชั้น: lot {lotLabel(ff.lotNo)} · exp {expLabel(ff.exp)}
+                              <span className="muted" style={{ color: 'inherit', opacity: ffDays !== null && ffDays < 30 ? 1 : undefined }}> (เหลือ {nf(ff.qty)})</span>
+                              {ffDays !== null && ffDays < 0 && <span> — ⚠ หมดอายุแล้วบนชั้น</span>}
+                              {ffDays !== null && ffDays >= 0 && ffDays < 30 && <span> — ⚠ ใกล้หมดอายุมาก</span>}
                             </div>
                           );
                         })()}

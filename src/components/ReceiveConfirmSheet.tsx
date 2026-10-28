@@ -89,13 +89,17 @@ export default function ReceiveConfirmSheet() {
               {ocrBusy ? '⏳ กำลังอ่านฉลาก…' : '📷 ถ่ายรูปฉลากเพื่ออ่าน lot/วันหมดอายุอัตโนมัติ'}
             </span>
           </button>
+          {/* Real-world request: "...ไม่ต้องบังคับให้ใส่ Lot และวันหมดอายุ...อาจจะใส่ในบางเคสที่
+              เป็นยาใช้น้อย เนื่องจากตอนนี้ภาระหน้างานหนัก...หากในอนาคตคงที่แล้วค่อยใส่ lot และ exp
+              แบบเต็มรูปแบบ" — both fields below are optional now (only "ถ้ามี" labels below
+              changed; nothing here blocks "เพิ่มลงใบรับ" when they're left blank). */}
           <div className="grid-2" style={{ marginBottom: 9 }}>
             <label>
-              <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Lot no.</span>
+              <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Lot no. (ถ้ามี)</span>
               <input value={state.recvLot} onChange={(e) => setRecvLot(e.target.value)} placeholder="เช่น A2609" style={inputStyle} />
             </label>
             <label>
-              <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>วันหมดอายุ</span>
+              <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>วันหมดอายุ (ถ้ามี)</span>
               <input value={state.recvExp} onChange={(e) => setRecvExp(e.target.value)} type="date" style={inputStyle} />
             </label>
           </div>

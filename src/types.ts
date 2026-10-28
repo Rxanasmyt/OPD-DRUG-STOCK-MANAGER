@@ -327,8 +327,16 @@ export interface Lot {
   id: LotId;
   code: string;
   medId: MedId;
-  lotNo: string;
-  exp: number;
+  // Optional since real-world request: "...ไม่ต้องบังคับให้ใส่ Lot และวันหมดอายุ...เนื่องจาก
+  // ตอนนี้ภาระหน้างานหนัก...หากในอนาคตคงที่แล้วค่อยใส่ lot และ exp แบบเต็มรูปแบบ" (the hospital is
+  // short-staffed right now and wants receiving fast enough to skip lot/expiry for most drugs,
+  // filling them in only for low-turnover ones worth the extra typing). Every FEFO sort already
+  // treats a missing exp as "sorts last" (fefoLot/fefoFloorLot, selectors.ts — never picked as
+  // most-urgent over a lot with a real, known expiry), and expiry-risk valuation
+  // (categoryStats, selectors.ts) simply can't assess risk it has no date for, so it's excluded
+  // rather than guessed at.
+  lotNo?: string | undefined;
+  exp?: number | undefined;
   qty: number;
   loc: string;
 }
@@ -356,8 +364,10 @@ export interface Lot {
 export interface FloorLot {
   id: FloorLotId;
   medId: MedId;
-  lotNo: string;
-  exp: number;
+  // Optional for the same real-world reason as Lot.lotNo/exp above — a floor lot transferred
+  // from an unrecorded-lot substock lot simply carries the same unknown lot/expiry forward.
+  lotNo?: string | undefined;
+  exp?: number | undefined;
   qty: number;
 }
 
@@ -486,8 +496,9 @@ export interface RecvItem {
   medId: string;
   name: string;
   unit: string;
-  lotNo: string;
-  exp: number;
+  // Optional — see Lot.lotNo/exp's own doc comment (types.ts) for why.
+  lotNo?: string | undefined;
+  exp?: number | undefined;
   qty: number;
 }
 
@@ -520,8 +531,9 @@ export interface PendingReceive {
   medId: string;
   name: string;
   unit: string;
-  lotNo: string;
-  exp: number;
+  // Optional — see Lot.lotNo/exp's own doc comment (types.ts) for why.
+  lotNo?: string | undefined;
+  exp?: number | undefined;
   qty: number;
   requestedBy: string;
   requestedByUid: string;

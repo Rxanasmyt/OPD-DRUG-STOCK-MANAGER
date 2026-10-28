@@ -2,7 +2,7 @@ import { useMemo, useRef } from 'react';
 import { useApp } from '../store/AppContext';
 import type { MedId } from '../types';
 import { toneFor, subTone, daysUntil, usesSubstock, floorMinOf, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, suggestTransferQty, isOnStockHold } from '../store/selectors';
-import { nf, thDate, isoDate } from '../utils/format';
+import { nf, lotLabel, expLabel, isoDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge, UsageRateBadge, PAR_LABEL_COLOR } from '../components/Qty';
 import { HadTag } from '../components/Badge';
@@ -95,15 +95,18 @@ export default function HomeScreen() {
   const W = warn();
   const medIds = useMemo(() => new Set(meds.map((m) => m.id)), [meds]);
   const wardLots = useMemo(() => state.lots.filter((l) => medIds.has(l.medId)), [state.lots, medIds]);
+  // A lot received without an expiry (real-world request: "...ไม่ต้องบังคับให้ใส่ Lot และวัน
+  // หมดอายุ...") can't be judged near-expiry at all — excluded here, same reasoning as
+  // AdjustScreen's own scrapRows/categoryStats (selectors.ts).
   const expLots = useMemo(() => wardLots
-    .filter((l) => l.qty > 0 && daysUntil(l.exp) < W)
-    .sort((a, b) => a.exp - b.exp), [wardLots, W]);
+    .filter((l) => l.qty > 0 && l.exp != null && daysUntil(l.exp) < W)
+    .sort((a, b) => (a.exp ?? Infinity) - (b.exp ?? Infinity)), [wardLots, W]);
   // Bug fix (consistency): a lot expiring TODAY (daysUntil===0) is already unsafe to dispense —
   // the aging/turnover report's "หมดอายุแล้ว" bucket already counts it as expired (its `<= hi`
   // bound with hi=0) — but this tile used `< 0`, so the SAME lot read as "already expired" on
   // the Report screen and merely "near expiry, not yet due" here, and the quick-scrap shortcut
   // below funneled it into the wrong flow (ordinary transfer instead of expired write-off).
-  const expiredCount = useMemo(() => wardLots.filter((l) => l.qty > 0 && daysUntil(l.exp) <= 0).length, [wardLots]);
+  const expiredCount = useMemo(() => wardLots.filter((l) => l.qty > 0 && l.exp != null && daysUntil(l.exp) <= 0).length, [wardLots]);
   // Bug fix: daysUntil() computes days remaining until a *future* timestamp (right for
   // expiry dates) — for a tx.ts, which is always in the past, it was always negative, so
   // this tile silently showed 0 for every transaction ever logged. Compare calendar dates.
@@ -355,7 +358,7 @@ export default function HomeScreen() {
         {expLots.slice(0, 5).map((l) => {
           const m = meds.find((x) => x.id === l.medId);
           if (!m) return null;
-          const d = daysUntil(l.exp);
+          const d = daysUntil(l.exp ?? Infinity);
           return (
             <div key={l.id} className="row-interactive" {...rowToCard(m.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: '1px solid var(--border-soft)', cursor: 'pointer' }}>
               <div style={{ width: 52, flex: 'none', textAlign: 'center', background: d < 30 ? 'var(--red-bg)' : 'var(--amber-bg)', color: d < 30 ? 'var(--red)' : 'var(--amber-ink)', borderRadius: 11, padding: '6px 2px' }}>
@@ -367,7 +370,7 @@ export default function HomeScreen() {
                   <MedDot code={m.code} />
                   <span>{m.name}</span>
                 </div>
-                <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>lot {l.lotNo} · exp {thDate(l.exp)} · เหลือ {nf(l.qty)} {m.unit}</div>
+                <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>lot {lotLabel(l.lotNo)} · exp {expLabel(l.exp)} · เหลือ {nf(l.qty)} {m.unit}</div>
               </div>
               <button
                 onClick={stopRowNav(() => { if (d <= 0) { pickAdjType('expired'); go('adjust'); } else { bump(m.id, 1); go('transfer'); } })}

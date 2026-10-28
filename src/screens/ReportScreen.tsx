@@ -46,8 +46,11 @@ export default function ReportScreen() {
     const medIds = new Set(meds.map((m) => m.id));
     return state.lots.filter((l) => medIds.has(l.medId));
   }, [state.lots, meds]);
+  // A lot received without an expiry (real-world request: "...ไม่ต้องบังคับให้ใส่ Lot และวัน
+  // หมดอายุ...") can't be placed into any aging bucket by days-until-expiry — excluded from this
+  // report rather than guessed at, same reasoning as categoryStats' own atRisk calc.
   const buckets = useMemo(() => AGING_BUCKETS.map(([label, lo, hi, fg]) => {
-    const ls = wardLots.filter((l) => l.qty > 0 && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
+    const ls = wardLots.filter((l) => l.qty > 0 && l.exp != null && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
     const value = ls.reduce((s, l) => s + l.qty * (medById.get(l.medId)?.price || 0), 0);
     return { label, fg, lots: ls.length, value };
   }), [wardLots, medById]);
@@ -63,7 +66,7 @@ export default function ReportScreen() {
   // this is the one place that didn't, so it silently disagreed with both.
   const riskValue = useMemo(() => wardLots.reduce((s, l) => {
     const m = medById.get(l.medId);
-    return m && l.qty > 0 && daysUntil(l.exp) <= state.expiryWarnDays ? s + l.qty * m.price : s;
+    return m && l.qty > 0 && l.exp != null && daysUntil(l.exp) <= state.expiryWarnDays ? s + l.qty * m.price : s;
   }, 0), [wardLots, medById, state.expiryWarnDays]);
 
   // ---------- ภาพรวมผู้บริหาร (exec tab) ----------

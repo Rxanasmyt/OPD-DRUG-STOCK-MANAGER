@@ -16,6 +16,21 @@ export function thDate(ms: number): string {
   return new Date(ms).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit' });
 }
 
+// Real-world request: "...ไม่ต้องบังคับให้ใส่ Lot และวันหมดอายุ...เนื่องจากตอนนี้ภาระหน้างานหนัก"
+// — Lot.exp/FloorLot.exp (and the local RecvItem/PendingReceive that feed them) became optional
+// for exactly this, so every "lot X · exp Y" display across the app needs one consistent
+// fallback string instead of each screen inventing its own wording (TransferScreen already had
+// "ไม่ทราบวันหมดอายุ" for a different edge case before this — reused here for the same reason).
+export function expLabel(exp: number | undefined): string {
+  return exp != null ? thDate(exp) : 'ไม่ทราบวันหมดอายุ';
+}
+
+// Companion to expLabel() above, for the lot number itself — a lot entered without one (same
+// real-world request) shouldn't display as a blank "lot " with nothing after it.
+export function lotLabel(lotNo: string | undefined): string {
+  return lotNo && lotNo.trim() ? lotNo : 'ไม่ระบุ lot';
+}
+
 /** Full, spelled-out Thai date (e.g. "8 กันยายน 2569") — the form official Thai documents use
  * (a requisition/ใบเบิก header never abbreviates the month or truncates the year), as opposed
  * to thDate()'s short "08 ก.ย. 69" used everywhere else in the app's own on-screen UI. Only

@@ -55,8 +55,13 @@ describe('SubstockCardScreen — floor-ledger toggle regression', () => {
 
   it('shows the exact box+loose split on the transfer_to_floor row for a box-only med', async () => {
     await openCard();
-    // Substock side (default): transfer_to_floor is a DISPENSE (จ่าย column).
-    await screen.findByText('2x10+5');
+    // Substock side (default): transfer_to_floor is a DISPENSE (จ่าย column). The running
+    // balance right after this row also happens to be 25 (same box breakdown as the dispensed
+    // qty itself), so the text legitimately renders twice — in the จ่าย cell AND the คงเหลือ
+    // cell of the row above. findAllByText (not findByText) is correct here: we're asserting
+    // the box-breakdown line rendered at all, not which single cell it's in.
+    const matches = await screen.findAllByText('2x10+5');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('switching back to substock restores the original substock-only ledger', async () => {

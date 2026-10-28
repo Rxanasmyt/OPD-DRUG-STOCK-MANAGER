@@ -1,5 +1,5 @@
 import { useApp } from '../store/AppContext';
-import { nf, thTime, thDate } from '../utils/format';
+import { nf, thTime, lotLabel, expLabel } from '../utils/format';
 import { wardOf, isSharedMed } from '../store/selectors';
 import { MedDot } from '../components/MedDot';
 import { HadTag } from '../components/Badge';
@@ -39,7 +39,7 @@ export default function TConfirmScreen() {
         .map((l) => {
           const take = Math.min(need, l.qty);
           need -= take;
-          return take > 0 ? `lot ${l.lotNo} exp ${thDate(l.exp)} × ${nf(take)}` : null;
+          return take > 0 ? `lot ${lotLabel(l.lotNo)} exp ${expLabel(l.exp)} × ${nf(take)}` : null;
         })
         .filter(Boolean);
       // Bug fix (data-integrity UX): carts are local-only, never reflected in Firestore until

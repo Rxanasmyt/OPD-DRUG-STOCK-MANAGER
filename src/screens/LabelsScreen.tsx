@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
 import { daysUntil, wardOf, binFor, binDisplayAll, isSharedMed } from '../store/selectors';
 import { parseBinRange, binInRange, binSortKey, binCompare } from '../utils/binRange';
-import { thDate } from '../utils/format';
+import { lotLabel, expLabel } from '../utils/format';
 import { QrCode } from '../components/QrCode';
 import { encodeQr } from '../utils/qr';
 import { shortLabelName, fitSingleLineFontSizePx, splitTitleForDisplay } from '../utils/labelName';
@@ -235,8 +235,10 @@ export default function LabelsScreen() {
         // the boundary to `<=`, matching every other near-expiry check in the app (was `<`,
         // excluding a lot exactly `expiryWarnDays` days out that every KPI/report total already
         // counts as at-risk).
-        const lotTag = [m?.had ? 'HIGH ALERT' : '', daysUntil(l.exp) <= warn() ? 'ใกล้หมดอายุ' : ''].filter(Boolean).join(' · ');
-        return { code: l.code, bin: undefined as string | undefined, payload: encodeQr('lot', l.code), title: m ? m.name : '—', sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: lotTag, tagColor: m?.had ? 'var(--had)' : 'var(--amber)', ward: m && !isSharedMed(m) ? wardOf(m) : undefined };
+        // A lot with no recorded expiry (real-world request: "...ไม่ต้องบังคับให้ใส่ Lot และวัน
+        // หมดอายุ...") can't be flagged near-expiry at all — left off the tag rather than guessed.
+        const lotTag = [m?.had ? 'HIGH ALERT' : '', l.exp != null && daysUntil(l.exp) <= warn() ? 'ใกล้หมดอายุ' : ''].filter(Boolean).join(' · ');
+        return { code: l.code, bin: undefined as string | undefined, payload: encodeQr('lot', l.code), title: m ? m.name : '—', sub: 'lot ' + lotLabel(l.lotNo) + ' · exp ' + expLabel(l.exp), tag: lotTag, tagColor: m?.had ? 'var(--had)' : 'var(--amber)', ward: m && !isSharedMed(m) ? wardOf(m) : undefined };
       })
     : state.locScope === 'sub'
     ? [...subMeds].sort((a, b) => binCompare(a.binSub || '', b.binSub || '')).slice(0, 8).map((m) => ({ code: m.code, bin: m.binSub, payload: encodeQr('med', m.code), title: shortLabelName(m.name), sub: 'หน่วย ' + m.unit + ' · substock ' + m.binSub, tag: printTag(m), tagColor: m.had ? 'var(--had)' : 'var(--fridge)', ward: undefined as Ward | undefined }))

@@ -28,7 +28,7 @@ import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchA
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
 import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays } from './selectors';
-import { nf, thDate, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
+import { nf, thDate, lotLabel, expLabel, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
 import { shortLabelName } from '../utils/labelName';
@@ -1532,8 +1532,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // hi` with hi=0) — a lot expiring TODAY is already counted as expired there, but this
     // notification used `< 0`, so a lot that just crossed into "expired" on the report could
     // still be silently bucketed as "near expiry" here and never get the more urgent notice.
-    const expiredCount = activeLots.filter((l) => daysUntil(l.exp) <= 0).length;
-    const nearCount = activeLots.filter((l) => { const d = daysUntil(l.exp); return d > 0 && d < state.expiryWarnDays; }).length;
+    // A lot with no recorded expiry (real-world request: "...ไม่ต้องบังคับให้ใส่ Lot และวัน
+    // หมดอายุ...") can't be judged expired/near-expiry at all — excluded, same reasoning as
+    // every other expiry-risk calc (categoryStats, ReportScreen's aging buckets, etc).
+    const expiredCount = activeLots.filter((l) => l.exp != null && daysUntil(l.exp) <= 0).length;
+    const nearCount = activeLots.filter((l) => { if (l.exp == null) return false; const d = daysUntil(l.exp); return d > 0 && d < state.expiryWarnDays; }).length;
     void maybeNotifyExpiring(nearCount, expiredCount);
   }, [state.authStatus, state.dbReady, state.meds, state.lots, state.expiryWarnDays, notifyEnabled]);
 
@@ -2311,7 +2314,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await runTx(async (trx) => {
         const rows: AppState['doneRows'] = [];
         const medReads: Record<string, number> = {};
-        const lotReads: Record<string, { qty: number; lotNo: string; exp: number }> = {};
+        const lotReads: Record<string, { qty: number; lotNo: string | undefined; exp: number | undefined }> = {};
         const lotIdsByMed: Record<string, string[]> = {};
         // Floor-lot tracking (see FloorLot in types.ts): each substock lot actually drawn from
         // below needs a matching floorLots doc read so the write phase can merge the transferred
@@ -2366,7 +2369,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           await Promise.all(lotIds.map(async (lotId) => {
             const lotSnap = await trx.get(lotRef(lotId));
             const data = lotSnap.data() as { qty?: number; lotNo?: string; exp?: number } | undefined;
-            lotReads[lotId] = { qty: data?.qty ?? 0, lotNo: data?.lotNo ?? '', exp: data?.exp ?? Infinity };
+            // Bug fix: used to default a missing lotNo/exp to ''/Infinity right here — harmless
+            // as long as every real lot doc always had both (the old mandatory-lot/exp UI
+            // guaranteed that), but real-world request "...ไม่ต้องบังคับให้ใส่ Lot และวันหมด
+            // อายุ..." means a lot genuinely CAN lack either now, and those defaults would have
+            // gone straight into the floorLots write below (floorTake, further down) as a
+            // literal `exp: Infinity` — turning "unknown expiry" into "never expires" on the
+            // floor-lot record. Keeping the true optional value here instead; Infinity is still
+            // used, but only as a local SORT key further down (fefoFloorLot/fefoLot's own
+            // pattern), never written.
+            lotReads[lotId] = { qty: data?.qty ?? 0, lotNo: data?.lotNo, exp: data?.exp };
           }));
         }));
         // Best-effort read of any existing floorLots doc for each distinct (medId, lotNo, exp)
@@ -2375,9 +2387,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // "no floor stock of this batch yet", handled the same as any other read miss.
         const floorLotIdsSeen = new Set<string>();
         await Promise.all(ids.flatMap((medId) => lotIdsByMed[medId].map((lotId) => {
-          const lotNo = lotReads[lotId]?.lotNo || '';
-          const exp = lotReads[lotId]?.exp ?? Infinity;
-          const flId = floorLotDocId(medId, lotNo, exp);
+          const flId = floorLotDocId(medId, lotReads[lotId]?.lotNo, lotReads[lotId]?.exp);
           if (floorLotIdsSeen.has(flId)) return Promise.resolve();
           floorLotIdsSeen.add(flId);
           return trx.get(floorLotRef(flId)).then((snap) => {
@@ -2429,7 +2439,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // split across more than one substock lot doc still lands in a single floorLots doc —
           // see floorLotDocId's own doc comment (selectors.ts) for why exp must be part of this
           // key, not just lotNo.
-          const floorTake: Record<string, { add: number; exp: number; lotNo: string }> = {};
+          const floorTake: Record<string, { add: number; exp: number | undefined; lotNo: string | undefined }> = {};
           for (const lotId of lotIdsByMed[medId]) {
             if (need <= 0) break;
             const lotData = lotReads[lotId];
@@ -2437,14 +2447,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const take = Math.min(need, lotData.qty);
             trx.update(lotRef(lotId), { qty: lotData.qty - take });
             need -= take;
-            used.push(lotData.lotNo + ' (' + nf(take) + ')');
+            used.push(lotLabel(lotData.lotNo) + ' (' + nf(take) + ')');
             const flId = floorLotDocId(medId, lotData.lotNo, lotData.exp);
             if (!floorTake[flId]) floorTake[flId] = { add: 0, exp: lotData.exp, lotNo: lotData.lotNo };
             floorTake[flId].add += take;
           }
           for (const [flId, t] of Object.entries(floorTake)) {
             const prevQty = floorLotReads[flId] ?? 0;
-            trx.set(floorLotRef(flId), { medId, lotNo: t.lotNo, exp: t.exp, qty: prevQty + t.add });
+            // Bug fix: `t.lotNo`/`t.exp` can now genuinely be undefined (real-world request:
+            // "...ไม่ต้องบังคับให้ใส่ Lot และวันหมดอายุ...") — Firestore throws on a field
+            // explicitly written as `undefined`, so a blank one is left out of the doc rather
+            // than written as `lotNo: undefined`/`exp: undefined` (same fix as commitReceive's
+            // own new-lot write above).
+            trx.set(floorLotRef(flId), { medId, ...(t.lotNo ? { lotNo: t.lotNo } : {}), ...(t.exp != null ? { exp: t.exp } : {}), qty: prevQty + t.add });
           }
           // Safe: the missing-med check above already threw before this loop could run for
           // any medId that doesn't resolve, so every lookup here is guaranteed to hit.
@@ -2494,8 +2509,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addRecv = useCallback(async (opts?: { scanNext?: boolean }) => {
     const m = state.meds.find((x) => x.id === state.recvMed);
     const q = parseIntSafe(state.recvQty);
-    if (!m || !q || !state.recvLot || !state.recvExp) { toast('กรอก lot, วันหมดอายุ และจำนวนให้ครบก่อนเพิ่มรายการ'); return; }
-    const expMs = new Date(state.recvExp).getTime();
+    // Real-world request: "...ไม่ต้องบังคับให้ใส่ Lot และวันหมดอายุ...อาจจะใส่ในบางเคสที่เป็นยา
+    // ใช้น้อย เนื่องจากตอนนี้ภาระหน้างานหนัก...หากในอนาคตคงที่แล้วค่อยใส่ lot และ exp แบบเต็มรูปแบบ"
+    // — lot/exp used to be mandatory here; only the quantity actually received is now required
+    // (still can't legitimately skip THAT — there's no "unknown amount" equivalent). Every FEFO
+    // sort and expiry-risk calc downstream already treats a missing exp as "unknown, never
+    // picked/flagged as most-urgent" (fefoLot/fefoFloorLot, categoryStats, ReportScreen's aging
+    // buckets, etc. — see each one's own doc comment), so a blank lot/exp here is a fully
+    // supported, safe state, not a gap papered over.
+    if (!m || !q) { toast('กรอกจำนวนที่รับให้ครบก่อนเพิ่มรายการ'); return; }
+    const lotNo = state.recvLot.trim() || undefined;
+    const expMs = state.recvExp ? new Date(state.recvExp).getTime() : undefined;
     // Bug fix (typo safety net): receiving is the one place in this app's stock flows that
     // creates a brand-new lot from scratch with no live number to sanity-check it against — a
     // NEW lot arriving today should never legitimately have an expiry already in the past, but
@@ -2503,8 +2527,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // label before this. commitCount/commitAllCounts/commitAllSubCounts already confirm an
     // implausible number before committing; this exact flow had no equivalent at all, even
     // though a wrong expiry here goes straight into FEFO's own pick order (see TransferScreen's
-    // own expTone fix) with no further checkpoint downstream.
-    if (daysUntil(expMs) < 0 && !(await confirmAsync(
+    // own expTone fix) with no further checkpoint downstream. Skipped entirely when no expiry
+    // was typed at all — nothing to sanity-check.
+    if (expMs != null && daysUntil(expMs) < 0 && !(await confirmAsync(
       'วันหมดอายุที่กรอก (' + thDate(expMs) + ') เป็นวันที่ผ่านไปแล้ว — ยานี้เพิ่งรับเข้าใหม่วันนี้ พิมพ์วันถูกต้องแล้วใช่ไหม?'
     ))) return;
     // Same typo-safety-net idea as the expiry check above, sized off this med's own par — a
@@ -2514,7 +2539,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (q > Math.max(par, 20) * 8 && !(await confirmAsync(
       'จำนวนที่กรอก (' + nf(q) + ' ' + m.unit + ') มากผิดปกติเมื่อเทียบกับ par (' + nf(par) + ') ของ ' + m.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
     ))) return;
-    const item: RecvItem = { medId: m.id, name: m.name, unit: m.unit, lotNo: state.recvLot, exp: expMs, qty: q };
+    const item: RecvItem = { medId: m.id, name: m.name, unit: m.unit, lotNo, exp: expMs, qty: q };
     patch((st) => ({
       recvItems: [...st.recvItems, item], recvLot: '', recvExp: '', recvQty: '', recvSearch: '',
       // scanNext: real-world request, same reasoning as ScanConfirmSheet's "ยืนยัน · สแกนตัวต่อไป"
@@ -2585,8 +2610,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // with a reason); nothing here touches meds/lots stock until that happens.
         items.forEach((it) => {
           batch.set(newPendingReceiveRef(), {
-            recvNo: state.recvNo, medId: it.medId, name: it.name, unit: it.unit, lotNo: it.lotNo, exp: it.exp, qty: it.qty,
-            requestedBy: userName(), requestedByUid: state.myUid, status: 'pending', ts: Date.now(),
+            recvNo: state.recvNo, medId: it.medId, name: it.name, unit: it.unit,
+            ...(it.lotNo ? { lotNo: it.lotNo } : {}), ...(it.exp != null ? { exp: it.exp } : {}),
+            qty: it.qty, requestedBy: userName(), requestedByUid: state.myUid, status: 'pending', ts: Date.now(),
           });
         });
         await withTimeout(batch.commit());
@@ -2594,7 +2620,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         hapticSuccess();
         setState((st) => ({
           ...st, screen: 'done', navStack: pushNav(st.navStack, st.screen), doneKind: 'recvPending',
-          doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + it.lotNo + ' · exp ' + thDate(it.exp), qty: nf(it.qty) + ' ' + it.unit, medId: asMedId(it.medId) })),
+          doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + lotLabel(it.lotNo) + ' · exp ' + expLabel(it.exp), qty: nf(it.qty) + ' ' + it.unit, medId: asMedId(it.medId) })),
           recvItems: [], recvNo: genDefaultRecvNo(),
         }));
         return;
@@ -2659,7 +2685,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const noSubBoxLabel = m.packSize ? boxBreakdownLabel({ packSize: m.packSize, unit: it.unit }, it.qty) : undefined;
             trx.set(newTxRef(), {
               type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'floor',
-              note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp) + (noSubBoxLabel ? ' · ' + noSubBoxLabel : '') + ' — ไม่มี substock ขึ้นหน้างานทันที', by: userName(), ts: Date.now(),
+              note: 'ใบเบิก ' + state.recvNo + ' · lot ' + lotLabel(it.lotNo) + ' exp ' + expLabel(it.exp) + (noSubBoxLabel ? ' · ' + noSubBoxLabel : '') + ' — ไม่มี substock ขึ้นหน้างานทันที', by: userName(), ts: Date.now(),
             });
             return;
           }
@@ -2674,20 +2700,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             stagedLotRefs.set(key, ref);
           } else {
             const lotRef = newLotRef();
-            trx.set(lotRef, { code: genLotCode(m?.code, asMedId(it.medId), lotRef.id), medId: it.medId, lotNo: it.lotNo, exp: it.exp, qty: it.qty, loc: 'ชั้น bulk' });
+            // Bug fix: lotNo/exp are now optional (real-world request: "...ไม่ต้องบังคับให้ใส่
+            // Lot และวันหมดอายุ...") — Firestore throws on a field explicitly written as
+            // `undefined`, so a blank one is left out of the doc entirely rather than written as
+            // `lotNo: undefined`/`exp: undefined`.
+            trx.set(lotRef, { code: genLotCode(m?.code, asMedId(it.medId), lotRef.id), medId: it.medId, ...(it.lotNo ? { lotNo: it.lotNo } : {}), ...(it.exp != null ? { exp: it.exp } : {}), qty: it.qty, loc: 'ชั้น bulk' });
             stagedLotRefs.set(key, lotRef);
           }
           const boxLabel = m?.packSize ? boxBreakdownLabel({ packSize: m.packSize, unit: it.unit }, it.qty) : undefined;
           trx.set(newTxRef(), {
             type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'substock',
-            note: 'ใบเบิก ' + state.recvNo + ' · lot ' + it.lotNo + ' exp ' + thDate(it.exp) + (boxLabel ? ' · ' + boxLabel : ''), by: userName(), ts: Date.now(),
+            note: 'ใบเบิก ' + state.recvNo + ' · lot ' + lotLabel(it.lotNo) + ' exp ' + expLabel(it.exp) + (boxLabel ? ' · ' + boxLabel : ''), by: userName(), ts: Date.now(),
           });
         });
       });
       hapticSuccess();
       setState((st) => ({
         ...st, screen: 'done', navStack: pushNav(st.navStack, st.screen), doneKind: 'receive',
-        doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + it.lotNo + ' · exp ' + thDate(it.exp), qty: nf(it.qty) + ' ' + it.unit, medId: asMedId(it.medId) })),
+        doneRows: items.map((it) => ({ name: it.name, sub: 'lot ' + lotLabel(it.lotNo) + ' · exp ' + expLabel(it.exp), qty: nf(it.qty) + ' ' + it.unit, medId: asMedId(it.medId) })),
         recvItems: [], recvNo: genDefaultRecvNo(),
       }));
     } catch (e) {
@@ -2724,7 +2754,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           trx.update(medRef(pr.medId), { floor: increment(pr.qty) });
           trx.set(newTxRef(), {
             type: 'receive_from_central' as TxType, name: pr.name, medId: pr.medId, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'floor',
-            note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + (boxLabel ? ' · ' + boxLabel : '') + ' — ไม่มี substock ขึ้นหน้างานทันที — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
+            note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + lotLabel(pr.lotNo) + ' exp ' + expLabel(pr.exp) + (boxLabel ? ' · ' + boxLabel : '') + ' — ไม่มี substock ขึ้นหน้างานทันที — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
           });
         } else {
           // Bug fix (lot duplication): same fix as commitReceive's own — merge into an existing
@@ -2749,11 +2779,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
           if (!merged) {
             const lotRef = newLotRef();
-            trx.set(lotRef, { code: genLotCode(m?.code, asMedId(pr.medId), lotRef.id), medId: pr.medId, lotNo: pr.lotNo, exp: pr.exp, qty: pr.qty, loc: 'ชั้น bulk' });
+            // See commitReceive's identical "Bug fix" comment above — lotNo/exp are optional now,
+            // so a blank one is left out of the doc rather than written as `undefined`.
+            trx.set(lotRef, { code: genLotCode(m?.code, asMedId(pr.medId), lotRef.id), medId: pr.medId, ...(pr.lotNo ? { lotNo: pr.lotNo } : {}), ...(pr.exp != null ? { exp: pr.exp } : {}), qty: pr.qty, loc: 'ชั้น bulk' });
           }
           trx.set(newTxRef(), {
             type: 'receive_from_central' as TxType, name: pr.name, medId: pr.medId, qty: pr.qty, unit: pr.unit, from: 'คลังยาใหญ่', to: 'substock',
-            note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + pr.lotNo + ' exp ' + thDate(pr.exp) + (boxLabel ? ' · ' + boxLabel : '') + ' — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
+            note: 'ใบเบิก ' + pr.recvNo + ' · lot ' + lotLabel(pr.lotNo) + ' exp ' + expLabel(pr.exp) + (boxLabel ? ' · ' + boxLabel : '') + ' — อนุมัติคำขอของ ' + pr.requestedBy, by: userName(), ts: Date.now(),
           });
         }
         trx.update(ref, { status: 'approved', resolvedBy: userName(), resolvedTs: Date.now() });
@@ -3061,7 +3093,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // but this one, despite being the single most common destructive tap on the floor (scrapping
     // an expired lot), fired instantly. One line, not the heavier typed-confirmation used for
     // bulk/admin actions, since this is routine day-to-day work, not a rare admin operation.
-    if (!(await confirmAsync('ตัด lot ' + l.lotNo + ' (' + m.name + ') จำนวน ' + nf(l.qty) + ' หน่วย ออกจาก substock ถาวร?\nกู้คืนไม่ได้'))) return;
+    if (!(await confirmAsync('ตัด lot ' + lotLabel(l.lotNo) + ' (' + m.name + ') จำนวน ' + nf(l.qty) + ' หน่วย ออกจาก substock ถาวร?\nกู้คืนไม่ได้'))) return;
     try {
       // Bug fix (data integrity): re-read the lot's real qty inside the same transaction that
       // zeroes it and logs the write-off — the old plain updateDoc + separate logTx() could
@@ -3076,12 +3108,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         trx.update(ref, { qty: 0 });
         trx.set(newTxRef(), {
           type: 'expired', name: m.name, medId: m.id, qty: -realQty, unit: m.unit,
-          reason: 'หมดอายุ / ใกล้หมดอายุ', note: 'lot ' + l.lotNo + ' exp ' + thDate(l.exp) + ' · มูลค่า ' + nf(realQty * m.price) + ' บาท',
+          reason: 'หมดอายุ / ใกล้หมดอายุ', note: 'lot ' + lotLabel(l.lotNo) + ' exp ' + expLabel(l.exp) + ' · มูลค่า ' + nf(realQty * m.price) + ' บาท',
           loc: 'substock', by: userName(), ts: Date.now(),
         } satisfies Omit<import('../types').Tx, 'id'>);
       });
       hapticSuccess();
-      toast('ตัด lot ' + l.lotNo + ' ออกจาก substock แล้ว · บันทึกลง discrepancy log');
+      toast('ตัด lot ' + lotLabel(l.lotNo) + ' ออกจาก substock แล้ว · บันทึกลง discrepancy log');
     } catch (e) {
       toastErr(e, 'ตัด lot ไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
@@ -3098,7 +3130,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!l) return;
     const m = state.meds.find((x) => x.id === l.medId);
     if (!m) return;
-    if (!(await confirmAsync('ตัด lot ' + l.lotNo + ' (' + m.name + ') จำนวน ' + nf(l.qty) + ' หน่วย ออกจากข้อมูล lot บนชั้นยา?\n(ไม่กระทบยอดคงเหลือบนชั้น ถ้ายามีจริง ให้บันทึก "ยาเสีย/หมดอายุ" แยกอีกครั้ง)\nกู้คืนไม่ได้'))) return;
+    if (!(await confirmAsync('ตัด lot ' + lotLabel(l.lotNo) + ' (' + m.name + ') จำนวน ' + nf(l.qty) + ' หน่วย ออกจากข้อมูล lot บนชั้นยา?\n(ไม่กระทบยอดคงเหลือบนชั้น ถ้ายามีจริง ให้บันทึก "ยาเสีย/หมดอายุ" แยกอีกครั้ง)\nกู้คืนไม่ได้'))) return;
     try {
       let realQty = l.qty;
       await runTx(async (trx) => {
@@ -3108,7 +3140,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         trx.update(ref, { qty: 0 });
       });
       hapticSuccess();
-      toast('ตัดข้อมูล lot ' + l.lotNo + ' บนชั้นยาแล้ว (' + nf(realQty) + ' หน่วย)');
+      toast('ตัดข้อมูล lot ' + lotLabel(l.lotNo) + ' บนชั้นยาแล้ว (' + nf(realQty) + ' หน่วย)');
     } catch (e) {
       toastErr(e, 'ตัด lot ไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
@@ -3140,8 +3172,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (st.reportTab === 'aging') {
       const medIds = new Set(meds.map((m) => m.id));
       const bDef: [string, number, number][] = [['หมดอายุแล้ว', -99999, 0], ['เหลือ ≤ 30 วัน', 0, 30], ['31–90 วัน', 30, 90], ['91–180 วัน', 90, 180], ['มากกว่า 180 วัน', 180, 99999]];
+      // A lot received without an expiry (real-world request: "...ไม่ต้องบังคับให้ใส่ Lot และวัน
+      // หมดอายุ...") can't be placed into any aging bucket — excluded, matching ReportScreen's
+      // own on-screen buckets (same computation, kept in sync so the export never disagrees).
       const rows = bDef.map(([label, lo, hi]) => {
-        const ls = st.lots.filter((l) => medIds.has(l.medId) && l.qty > 0 && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
+        const ls = st.lots.filter((l) => medIds.has(l.medId) && l.qty > 0 && l.exp != null && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
         const val = ls.reduce((s, l) => s + l.qty * (meds.find((m) => m.id === l.medId)?.price || 0), 0);
         return [label, ls.length, Math.round(val)];
       });
@@ -3212,7 +3247,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const healthyPct = meds.length ? Math.round((healthy / meds.length) * 100) : 100;
     const riskValue = state.lots.reduce((s, l) => {
       const m = meds.find((x) => x.id === l.medId);
-      return m && l.qty > 0 && daysUntil(l.exp) <= state.expiryWarnDays ? s + l.qty * m.price : s;
+      return m && l.qty > 0 && l.exp != null && daysUntil(l.exp) <= state.expiryWarnDays ? s + l.qty * m.price : s;
     }, 0);
     const monthAgo = Date.now() - 30 * DAY;
     // state.txs is the realtime cache capped to the 300 most-recent rows across ALL types — a
@@ -3280,7 +3315,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const activeMedIds = new Set(activeMeds.map((m) => m.id));
       const bDef: [string, number, number][] = [['หมดอายุแล้ว', -99999, 0], ['เหลือ ≤ 30 วัน', 0, 30], ['31–90 วัน', 30, 90], ['91–180 วัน', 90, 180], ['มากกว่า 180 วัน', 180, 99999]];
       addSheet('stock_aging', [['bucket', 'lots', 'value_thb'], ...bDef.map(([label, lo, hi]) => {
-        const ls = st.lots.filter((l) => activeMedIds.has(l.medId) && l.qty > 0 && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
+        const ls = st.lots.filter((l) => activeMedIds.has(l.medId) && l.qty > 0 && l.exp != null && daysUntil(l.exp) > lo && daysUntil(l.exp) <= hi);
         const val = ls.reduce((s, l) => s + l.qty * (activeMeds.find((m) => m.id === l.medId)?.price || 0), 0);
         return [label, ls.length, Math.round(val)];
       })]);
@@ -3343,7 +3378,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // 6) Pending receives — ใบรับที่ยังรออนุมัติ ณ ตอนนี้ (already live-synced for every role
       // that can see the receive screen, no extra fetch needed).
       addSheet('pending_receives', [['status', 'recv_no', 'medication', 'lot_no', 'expiry', 'qty', 'unit', 'requested_by', 'requested_at'],
-        ...st.pendingReceives.map((r) => [r.status, r.recvNo, r.name, r.lotNo, isoDate(r.exp), r.qty, r.unit, r.requestedBy, new Date(r.ts).toISOString()])]);
+        ...st.pendingReceives.map((r) => [r.status, r.recvNo, r.name, r.lotNo || '-', r.exp != null ? isoDate(r.exp) : '-', r.qty, r.unit, r.requestedBy, new Date(r.ts).toISOString()])]);
 
       // 7) User accounts — Admin only, same restriction the live subscription itself already
       // enforces (state.users is only ever populated for role === 'admin' — see the live-data
@@ -3383,7 +3418,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...st.lots
           .slice()
           .sort((a, b) => (a.exp ?? Infinity) - (b.exp ?? Infinity))
-          .map((l) => [st.meds.find((m) => m.id === l.medId)?.name || l.medId, l.lotNo, l.exp != null ? isoDate(l.exp) : '-', l.qty, l.qty > 0 ? 'คงเหลือ' : 'หมด/ตัดออกแล้ว'])]);
+          .map((l) => [st.meds.find((m) => m.id === l.medId)?.name || l.medId, l.lotNo || '-', l.exp != null ? isoDate(l.exp) : '-', l.qty, l.qty > 0 ? 'คงเหลือ' : 'หมด/ตัดออกแล้ว'])]);
 
       // 10) Global settings (หน้าตั้งค่า → เกณฑ์แจ้งเตือน/par อัตโนมัติ) — real, saved app
       // configuration (see the meta/settings Firestore doc this app writes via
@@ -3475,8 +3510,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // see while physically picking stock off the shelf; a high-alert drug's lot label used
         // to look identical to any ordinary drug's, with the one visual safety cue this app
         // deliberately built for shelf labels simply missing on this specific print path.
-        const lotTag = [m.had ? 'HIGH ALERT' : '', daysUntil(l.exp) <= state.expiryWarnDays ? 'ใกล้หมดอายุ' : ''].filter(Boolean).join(' · ') || undefined;
-        return { payload: encodeQr('lot', l.code), id: l.code, title: m.name, sub: 'lot ' + l.lotNo + ' · exp ' + thDate(l.exp), tag: lotTag, ward: wardOf(m) };
+        // A lot with no recorded expiry (real-world request: "...ไม่ต้องบังคับให้ใส่ Lot และวัน
+        // หมดอายุ...") can't be flagged near-expiry — left off the tag rather than guessed, same
+        // reasoning as LabelsScreen's own preview (which this print path must match).
+        const lotTag = [m.had ? 'HIGH ALERT' : '', l.exp != null && daysUntil(l.exp) <= state.expiryWarnDays ? 'ใกล้หมดอายุ' : ''].filter(Boolean).join(' · ') || undefined;
+        return { payload: encodeQr('lot', l.code), id: l.code, title: m.name, sub: 'lot ' + lotLabel(l.lotNo) + ' · exp ' + expLabel(l.exp), tag: lotTag, ward: wardOf(m) };
       });
       // Same shelf-order fix as the med-label branch above — a lot label's own layout has no
       // bin field to sort by directly (see PrintLabel.bin's doc comment: adding one here would
