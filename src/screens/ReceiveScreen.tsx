@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useApp } from '../store/AppContext';
 import { usesSubstock, needsWarehouseRequest, subTone, daysOfStockLeft, packStep, boxBreakdownLabel } from '../store/selectors';
-import { nf, thDate, thTime, isoDate } from '../utils/format';
+import { nf, lotLabel, expLabel, thDate, thTime, isoDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty, DaysLeftBadge, PackSizeBadge, UsageRateBadge, PAR_LABEL_COLOR } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
@@ -166,7 +166,7 @@ export default function ReceiveScreen() {
                   <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--green)', flex: 'none' }}>{nf(r.qty)} {r.unit}</span>
                 </div>
                 <div className="muted" style={{ fontSize: 11.5, marginTop: 3, lineHeight: 1.45 }}>
-                  ใบเบิก {r.recvNo} · lot {r.lotNo} · exp {thDate(r.exp)} · ขอโดย {r.requestedBy} เมื่อ {thDate(r.ts)} {thTime(r.ts)}
+                  ใบเบิก {r.recvNo} · lot {lotLabel(r.lotNo)} · exp {expLabel(r.exp)} · ขอโดย {r.requestedBy} เมื่อ {thDate(r.ts)} {thTime(r.ts)}
                 </div>
                 {canApprove ? (() => {
                   const rowBusy = !!state.busy[`approveReceive:${r.id}`] || !!state.busy[`rejectReceive:${r.id}`];
@@ -347,7 +347,7 @@ export default function ReceiveScreen() {
                 <div key={i} className="row-interactive" {...rowToCard(asMedId(it.medId))} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>{it.name} {itMed && <WardBadge med={itMed} />}</div>
-                    <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>lot {it.lotNo} · exp {thDate(it.exp)} · {nf(it.qty)} {it.unit}</div>
+                    <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>lot {lotLabel(it.lotNo)} · exp {expLabel(it.exp)} · {nf(it.qty)} {it.unit}</div>
                   </div>
                   {/* Bug fix (tap target, same gap as TConfirmScreen's identical "ลบ" button —
                       audit finding): no minHeight/minWidth, under the app's own 40-44px

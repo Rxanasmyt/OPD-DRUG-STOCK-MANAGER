@@ -271,13 +271,19 @@ service cloud.firestore {
       // active user could stuff arbitrary extra fields into a new lot doc. hasOnly() here is
       // the exact 6-field shape verified against every real write path, so no legitimate write
       // is affected.
+      // lotNo/exp made optional (real-world request: "...ไม่ต้องบังคับให้ใส่ Lot และวันหมดอายุ
+      // ...เนื่องจากตอนนี้ภาระหน้างานหนัก...") — still type-checked when actually sent, just no
+      // longer required on every create. AppContext.tsx's own write side (commitReceive/
+      // approvePendingReceive) already leaves a blank one out of the payload entirely rather
+      // than sending it as `null`/`undefined` (which Firestore itself rejects), so hasOnly()'s
+      // field cap above doesn't need to change for this.
       allow create: if isActive()
                     && request.resource.data.keys().hasOnly(['code', 'medId', 'lotNo', 'qty', 'exp', 'loc'])
                     && request.resource.data.code is string
                     && request.resource.data.medId is string
-                    && request.resource.data.lotNo is string
+                    && (!('lotNo' in request.resource.data) || request.resource.data.lotNo is string)
                     && isNonNegNum(request.resource.data.qty)
-                    && request.resource.data.exp is number
+                    && (!('exp' in request.resource.data) || request.resource.data.exp is number)
                     && request.resource.data.loc is string;
       // Bug fix (audit finding — real production hardening, not just type-checking): this used
       // to only type-check medId/qty/exp on every update, with no restriction on WHICH fields
@@ -296,12 +302,18 @@ service cloud.firestore {
       // rule to exactly that shape closes the "any field, any value" gap without needing to
       // guess at a legitimate quantity ceiling (a real receipt or count can legitimately be any
       // size), which is the one part of this finding not addressed here on purpose.
+      // lotNo/exp (both now optional — see the create rule's own comment above) still can't
+      // change once a lot exists either way: if the existing doc has one, the new write must
+      // match it exactly; if it never had one, the type-check above already covers whatever
+      // this write sends, and affectedKeys().hasOnly() below rejects a write that newly adds or
+      // removes the key (the field's own PRESENCE, not just its value, counts as a diff).
       allow update: if isActive()
                     && request.resource.data.medId is string
                     && isNonNegNum(request.resource.data.qty)
-                    && request.resource.data.exp is number
-                    && request.resource.data.lotNo == resource.data.lotNo
-                    && request.resource.data.exp == resource.data.exp
+                    && (!('lotNo' in request.resource.data) || request.resource.data.lotNo is string)
+                    && (!('exp' in request.resource.data) || request.resource.data.exp is number)
+                    && (!('lotNo' in resource.data) || request.resource.data.lotNo == resource.data.lotNo)
+                    && (!('exp' in resource.data) || request.resource.data.exp == resource.data.exp)
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['qty', 'medId']);
       // Bug fix: the app itself never deletes a lot doc — every real depletion (scrap, transfer,
       // count) zeroes `qty` via a transaction that also logs a matching txs row, same pattern the
@@ -326,18 +338,21 @@ service cloud.firestore {
       // Bug fix (audit finding): hasOnly() added — the one real write path (AppContext.tsx's
       // commitTransfer, via a deterministic-id trx.set()) always sends exactly these 4 fields,
       // verified against every call site; closes the same "arbitrary extra fields" gap as `lots`.
+      // lotNo/exp optional — see `lots`' own identical create-rule comment above for why.
       allow create: if isActive()
                     && request.resource.data.keys().hasOnly(['medId', 'lotNo', 'qty', 'exp'])
                     && request.resource.data.medId is string
-                    && request.resource.data.lotNo is string
+                    && (!('lotNo' in request.resource.data) || request.resource.data.lotNo is string)
                     && isNonNegNum(request.resource.data.qty)
-                    && request.resource.data.exp is number;
+                    && (!('exp' in request.resource.data) || request.resource.data.exp is number);
+      // See `lots`' own identical update-rule comment above for why these are checked this way.
       allow update: if isActive()
                     && request.resource.data.medId is string
                     && isNonNegNum(request.resource.data.qty)
-                    && request.resource.data.exp is number
-                    && request.resource.data.lotNo == resource.data.lotNo
-                    && request.resource.data.exp == resource.data.exp
+                    && (!('lotNo' in request.resource.data) || request.resource.data.lotNo is string)
+                    && (!('exp' in request.resource.data) || request.resource.data.exp is number)
+                    && (!('lotNo' in resource.data) || request.resource.data.lotNo == resource.data.lotNo)
+                    && (!('exp' in resource.data) || request.resource.data.exp == resource.data.exp)
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['qty', 'medId']);
       // The app itself never deletes a floorLots doc — scrapFloorLot() zeroes `qty` via the
       // update rule above, same as scrapLot() does for `lots`. Admin-only, matching `lots`.

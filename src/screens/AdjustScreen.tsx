@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { subQty, daysUntil, toneFor, subTone } from '../store/selectors';
-import { nf, thDate } from '../utils/format';
+import { nf, lotLabel, expLabel } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty } from '../components/Qty';
 import { WardBadge } from '../components/WardBadge';
@@ -74,9 +74,12 @@ export default function AdjustScreen() {
   // a crash/reload the way the actual in-progress cart data (state.returnCart) does.
   const [returnMode, setReturnMode] = useState<'single' | 'batch'>('single');
 
+  // A lot received without an expiry (real-world request: "...ไม่ต้องบังคับให้ใส่ Lot และวัน
+  // หมดอายุ...") can't be judged "near-expiry" at all — excluded here rather than guessed at,
+  // same reasoning as categoryStats' own atRisk calc (selectors.ts).
   const scrapRows = state.lots
-    .filter((l) => l.qty > 0 && daysUntil(l.exp) <= 30)
-    .sort((a, b) => a.exp - b.exp)
+    .filter((l) => l.qty > 0 && l.exp != null && daysUntil(l.exp) <= 30)
+    .sort((a, b) => (a.exp ?? Infinity) - (b.exp ?? Infinity))
     .map((l) => ({ l, m: meds.find((x) => x.id === l.medId) }))
     .filter((x): x is { l: typeof x.l; m: NonNullable<typeof x.m> } => !!x.m);
 
@@ -86,8 +89,8 @@ export default function AdjustScreen() {
   // real floor stock is being removed (that's still commitAdjust's "ยาเสีย/หมดอายุ" job, same as
   // always — scrapFloorLot only corrects the floor-lot BATCH record, never Med.floor itself).
   const floorScrapRows = state.floorLots
-    .filter((l) => l.qty > 0 && daysUntil(l.exp) <= 30)
-    .sort((a, b) => a.exp - b.exp)
+    .filter((l) => l.qty > 0 && l.exp != null && daysUntil(l.exp) <= 30)
+    .sort((a, b) => (a.exp ?? Infinity) - (b.exp ?? Infinity))
     .map((l) => ({ l, m: meds.find((x) => x.id === l.medId) }))
     .filter((x): x is { l: typeof x.l; m: NonNullable<typeof x.m> } => !!x.m);
 
@@ -113,12 +116,12 @@ export default function AdjustScreen() {
         <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 13 }}>
           <div style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', fontSize: 13, color: 'var(--muted)' }}>lot ที่หมดอายุแล้วหรือเหลือไม่เกิน 30 วัน — ตัดออกจาก substock พร้อมบันทึกเหตุผล</div>
           {scrapRows.map(({ l, m }) => {
-            const d = daysUntil(l.exp);
+            const d = daysUntil(l.exp ?? Infinity);
             return (
               <div key={l.id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', display: 'flex', gap: 10, alignItems: 'center' }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>{m.name} <WardBadge med={m} /></div>
-                  <div style={{ fontSize: 11.5, marginTop: 2, color: d < 0 ? 'var(--red)' : 'var(--amber)' }}>lot {l.lotNo} · exp {thDate(l.exp)} · {nf(l.qty)} {m.unit} · มูลค่า {nf(l.qty * m.price)} บาท</div>
+                  <div style={{ fontSize: 11.5, marginTop: 2, color: d < 0 ? 'var(--red)' : 'var(--amber)' }}>lot {lotLabel(l.lotNo)} · exp {expLabel(l.exp)} · {nf(l.qty)} {m.unit} · มูลค่า {nf(l.qty * m.price)} บาท</div>
                 </div>
                 <button onClick={() => scrapLot(l.id)} disabled={!!state.busy[`scrapLot:${l.id}`]} className="btn-danger" style={{ padding: '9px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, flex: 'none', minHeight: 44, opacity: state.busy[`scrapLot:${l.id}`] ? 0.7 : 1 }}>
                   {state.busy[`scrapLot:${l.id}`] ? 'กำลังตัด…' : 'ตัดออก'}
@@ -136,12 +139,12 @@ export default function AdjustScreen() {
             lot บนชั้นยา (หน้างาน) ที่หมดอายุแล้วหรือเหลือไม่เกิน 30 วัน — ข้อมูล lot นี้เป็นค่าประมาณ (best-effort) ตัดออกเฉพาะข้อมูล lot เท่านั้น ถ้ายามีจริงบนชั้น ให้บันทึก "ยาเสีย/หมดอายุ" แยกอีกครั้ง
           </div>
           {floorScrapRows.map(({ l, m }) => {
-            const d = daysUntil(l.exp);
+            const d = daysUntil(l.exp ?? Infinity);
             return (
               <div key={l.id} style={{ padding: '11px 13px', borderBottom: '1px solid var(--border-soft)', display: 'flex', gap: 10, alignItems: 'center' }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>{m.name} <WardBadge med={m} /></div>
-                  <div style={{ fontSize: 11.5, marginTop: 2, color: d < 0 ? 'var(--red)' : 'var(--amber)' }}>lot {l.lotNo} · exp {thDate(l.exp)} · {nf(l.qty)} {m.unit}</div>
+                  <div style={{ fontSize: 11.5, marginTop: 2, color: d < 0 ? 'var(--red)' : 'var(--amber)' }}>lot {lotLabel(l.lotNo)} · exp {expLabel(l.exp)} · {nf(l.qty)} {m.unit}</div>
                 </div>
                 <button onClick={() => scrapFloorLot(l.id)} disabled={!!state.busy[`scrapFloorLot:${l.id}`]} className="btn-danger" style={{ padding: '9px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, flex: 'none', minHeight: 44, opacity: state.busy[`scrapFloorLot:${l.id}`] ? 0.7 : 1 }}>
                   {state.busy[`scrapFloorLot:${l.id}`] ? 'กำลังตัด…' : 'ตัดออก'}
