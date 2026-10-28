@@ -3974,7 +3974,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const curDaysByName: Record<string, Set<string>> = {};
       const curDaysById: Record<string, Set<string>> = {};
       snap.docs.forEach((d) => {
-        const x = d.data() as { type?: string; name?: string; medId?: string; qty?: number; ts?: number; coveredFrom?: string; coveredTo?: string };
+        const x = d.data() as { type?: string; name?: string; medId?: string; qty?: number; reportedQty?: number; ts?: number; coveredFrom?: string; coveredTo?: string };
         // fetchTxsAfter() no longer filters by type server-side (see this function's own
         // comment above on why) — every other tx type (transfer/receive/adjust/count/...) in
         // this window must be excluded here instead, restoring exactly what the removed
@@ -3985,13 +3985,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (ageDays < 0) return;
         const bucket = ageDays <= 30 ? 30 : ageDays <= 60 ? 60 : 0;
         if (!bucket) return;
+        // Bug fix (data integrity): reportedQty — when set — is the real HOSxP-reported amount;
+        // `qty` alone understates it whenever commitReconcile's floor clamp fired (see
+        // Tx.reportedQty's own doc comment, types.ts). Falls back to qty for every row from
+        // before this field existed, or where the clamp never fired — the same number this
+        // always read.
+        const dispensedQty = Math.abs(x.reportedQty ?? x.qty);
         if (dupNames.has(x.name)) {
           if (!x.medId) return;
           const map = bucket === 30 ? curById : prevById;
-          map[x.medId] = (map[x.medId] || 0) + Math.abs(x.qty);
+          map[x.medId] = (map[x.medId] || 0) + dispensedQty;
         } else {
           const map = bucket === 30 ? curByName : prevByName;
-          map[x.name] = (map[x.name] || 0) + Math.abs(x.qty);
+          map[x.name] = (map[x.name] || 0) + dispensedQty;
         }
         if (bucket !== 30) return; // dispenseDays30 only ever covers the current 30-day bucket
         const fromIso = x.coveredFrom || isoDate(x.ts);
@@ -4102,7 +4108,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // weekday-pattern average at all (an infrequent one-off never would).
       const byKeyDay = new Map<string, Map<string, number>>();
       snap.docs.forEach((d) => {
-        const x = d.data() as { type?: string; name?: string; medId?: string; qty?: number; ts?: number; coveredFrom?: string; coveredTo?: string };
+        const x = d.data() as { type?: string; name?: string; medId?: string; qty?: number; reportedQty?: number; ts?: number; coveredFrom?: string; coveredTo?: string };
         // fetchTxsAfter() no longer filters by type server-side — see this function's own
         // comment above on why — so every other tx type in this window must be excluded here
         // instead, restoring exactly what the removed server-side type filter used to guarantee.
@@ -4124,7 +4130,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const fromTs = new Date(fromIso + 'T00:00:00').getTime();
         const toTs = new Date(toIso + 'T00:00:00').getTime();
         const daysCovered = Math.max(1, Math.round((toTs - fromTs) / DAY) + 1);
-        const perDayQty = Math.abs(x.qty) / daysCovered;
+        // Bug fix (data integrity): same reportedQty-over-qty preference as recomputeUsageStats
+        // above — see Tx.reportedQty's own doc comment (types.ts).
+        const perDayQty = Math.abs(x.reportedQty ?? x.qty) / daysCovered;
         for (let i = 0; i < daysCovered; i++) {
           const dayTs = fromTs + i * DAY;
           if (dayTs > now) continue;
@@ -5923,8 +5931,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             } catch { /* best-effort — floor-lot tracking is a secondary signal, never blocks the real deduction below */ }
             trx.update(ref, { floor: after });
             for (const t of flTakes) trx.update(floorLotRef(t.id), { qty: t.qty - t.take });
+            // Bug fix (data integrity): `qty` below is deliberately the REAL floor delta
+            // (before-after), never r.qty directly — scripts/check-stock-drift.mjs replays every
+            // tx's own `qty` to verify it against the live floor, so `qty` has to keep meaning
+            // "what actually happened to floor." When the floor clamp above caught a short
+            // balance (HOSxP reports dispensing more than this med's current floor holds — a
+            // stale count, or a big multi-day catch-up file against a fast-moving drug), that
+            // delta is SMALLER than what HOSxP actually reported — reportedQty carries the true
+            // number for recomputeUsageStats()/collect-daily-metrics.mjs to prefer instead, so
+            // usage stats (and the par suggestion they feed) never quietly understate exactly
+            // the meds running low enough to hit this clamp. See Tx.reportedQty's own doc
+            // comment (types.ts).
+            const deducted = before - after;
             trx.set(newTxRef(), {
-              type: 'reconcile_hosxp', name: m.name, medId: m.id, qty: -(before - after), unit: m.unit,
+              type: 'reconcile_hosxp', name: m.name, medId: m.id, qty: -deducted, unit: m.unit,
               reason: 'นำเข้าจากไฟล์ HOSxP',
               note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP' + (r.match.kind === 'fuzzy' ? ' (จับคู่ชื่อแบบไม่ตรงเป๊ะ — ยืนยันโดยผู้ใช้แล้ว)' : ''),
               loc: 'floor', by: userName(), ts: Date.now(),
@@ -5932,6 +5952,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               // catch-up), separate from `ts` above (when the admin actually clicked commit —
               // always "today"). See Tx.coveredFrom/coveredTo's own doc comment (types.ts).
               coveredFrom: state.hosxpCoveredFrom, coveredTo: state.hosxpCoveredTo,
+              ...(deducted !== r.qty ? { reportedQty: r.qty } : {}),
             } satisfies Omit<import('../types').Tx, 'id'>);
           });
           applied++;

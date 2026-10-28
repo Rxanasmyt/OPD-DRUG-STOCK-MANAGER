@@ -379,14 +379,18 @@ service cloud.firestore {
       // (see Tx.coveredFrom/coveredTo's own doc comment, types.ts) — only ever set on a
       // reconcile_hosxp row, but not worth a narrower per-type check here (this rule never
       // branches on `type`, same as every other field in this hasOnly() set).
+      // reportedQty added for the same reconcile_hosxp write — the real HOSxP-reported amount
+      // when it differs from `qty` (which stays the real floor delta so scripts/check-stock-
+      // drift.mjs keeps working) — see Tx.reportedQty's own doc comment, types.ts.
       allow create: if isActive()
-                    && request.resource.data.keys().hasOnly(['type', 'name', 'medId', 'qty', 'unit', 'by', 'ts', 'reason', 'note', 'loc', 'from', 'to', 'coveredFrom', 'coveredTo'])
+                    && request.resource.data.keys().hasOnly(['type', 'name', 'medId', 'qty', 'unit', 'by', 'ts', 'reason', 'note', 'loc', 'from', 'to', 'coveredFrom', 'coveredTo', 'reportedQty'])
                     && request.resource.data.type is string
                     && request.resource.data.qty is number
                     && request.resource.data.by == myProfile().name
                     && request.resource.data.ts is number
                     && (!('coveredFrom' in request.resource.data) || request.resource.data.coveredFrom is string)
-                    && (!('coveredTo' in request.resource.data) || request.resource.data.coveredTo is string);
+                    && (!('coveredTo' in request.resource.data) || request.resource.data.coveredTo is string)
+                    && (!('reportedQty' in request.resource.data) || request.resource.data.reportedQty is number);
       allow update: if false;
       // Admin-only exception for resetAllStockLedgers() (AppContext.tsx) — the go-live
       // "start the system over" action that wipes the substock card ledger/report/usage-rate

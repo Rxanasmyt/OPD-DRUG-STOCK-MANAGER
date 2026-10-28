@@ -419,6 +419,23 @@ export interface Tx {
   // AppState.hosxpCoveredFrom/hosxpCoveredTo's own doc comment for the full "why".
   coveredFrom?: string;
   coveredTo?: string;
+  // Bug fix (data integrity): only ever set on a 'reconcile_hosxp' row, and only when it differs
+  // from `qty` — commitReconcile() (AppContext.tsx) clamps the live floor at 0 (a med can't go
+  // negative), so a day HOSxP reports dispensing MORE than this med's current floor actually
+  // holds (a stale/lagging floor count, or a big multi-day Monday catch-up file against a
+  // fast-moving drug) used to silently log `qty` as the SMALLER clamped amount — correct for
+  // the floor balance itself, but WRONG for every downstream reader that takes `qty` to mean
+  // "how much HOSxP really reported dispensing": recomputeUsageStats()/scripts/recompute-usage-
+  // stats.mjs (used30/usedPrev30, which feeds suggestPar() — understating usage on exactly the
+  // meds running low enough to hit this clamp quietly suppresses their own reorder suggestion)
+  // and scripts/collect-daily-metrics.mjs's daily "จ่ายจริงรวม (HOSxP)" KPI total. `qty` itself
+  // is deliberately left as the real floor delta (never changed) — scripts/check-stock-drift.mjs
+  // replays every tx's `qty` to verify it against the live floor, so `qty` has to keep meaning
+  // "what actually happened to floor," not "what was reported." `reportedQty` is the one true
+  // HOSxP-reported number for the two usage-stat readers above to prefer when present; a row
+  // from before this field existed (or where no clamp fired) has none — every reader falls back
+  // to `Math.abs(qty)`, the same number it always read.
+  reportedQty?: number;
 }
 
 export interface User {
