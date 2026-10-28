@@ -378,6 +378,14 @@ export interface PickListRow {
   // sized for that), so this never double-counts. Optional and additive, same pattern as whCode
   // above — only printWarehouseRequestByCategory sets this.
   carryOver?: number | undefined;
+  // Real-world request: "การปริ้นใบเบิก ให้ชื่อยาตามลำดับเหมือน gg sheet ให้ครบถ้วน" — the default
+  // sort below (by `bin`, shelf location) is correct for the two floor-fill checklists (walking
+  // shelf-to-shelf in physical order is the whole point of those), but wrong for
+  // printWarehouseRequestByCategory: staff already know this list in the hospital's OWN original
+  // Google-Sheet row order, not this app's shelf layout. Optional and additive, same pattern as
+  // carryOver/whCode above — only printWarehouseRequestByCategory sets this (from
+  // data/warehouseSheetOrder.ts), so the other two callers' bin-sort is completely unaffected.
+  order?: number | undefined;
 }
 
 /** One row of the optional "ยาขาดชั่วคราว" informational section — see printPickListSheet's
@@ -434,7 +442,14 @@ export function printPickListSheet(
   // this; the cart-based ใบจัดยาเติมชั้น doesn't.
   heldRows: HeldRow[] = [],
 ): boolean {
-  const sorted = rows.slice().sort((a, b) => a.bin.localeCompare(b.bin));
+  // `order` (when any row sets it) sorts first, bin-order as the tie-break for the rest — a row
+  // with no `order` (never set, by either of the two bin-sorted callers, or a stray row this
+  // one caller somehow didn't assign one to) always sorts AFTER every row that has one, never
+  // guessed into the middle of the sheet's own sequence. When NO row sets `order` (the two
+  // existing callers), every row compares equal on the first term and this is byte-for-byte the
+  // original bin-only sort.
+  const sorted = rows.slice().sort((a, b) =>
+    (a.order ?? Number.POSITIVE_INFINITY) - (b.order ?? Number.POSITIVE_INFINITY) || a.bin.localeCompare(b.bin));
   const now = Date.now();
   // Only show the "pick from" column when at least one row actually sets it — the cart-based
   // ใบจัดยาเติมชั้น (printPickList) never does, so it keeps its original layout unchanged.

@@ -1880,6 +1880,34 @@ describe('printWarehouseRequestByCategory — 4-sheet split regression', () => {
     expect(savedRound?.lines[WH_CAT_TAB_MED.id]?.curBalanceAtPrint).toBe(30);
     expect(savedRound?.lines[WH_CAT_TAB_MED.id]?.qty).toBe(row?.qty);
   });
+
+  it('attaches the original Google-Sheet row order (by whCode) to each row, and clears route so a per-category sheet is never re-grouped', async () => {
+    const user = userEvent.setup();
+    // printPickListSheet is mocked in this file (its own sort logic is covered separately in
+    // print.orderColumn.test.ts) — this only checks that AppContext hands it the right `order`/
+    // `route` per row for its real sort to act on.
+    const SHEET_FIRST = { ...WH_CAT_TAB_MED, id: 'm30', name: 'Acyclovir/Zocovin - PL 400 mg.', whCode: '1100002' };
+    const SHEET_SECOND = { ...WH_CAT_TAB_MED, id: 'm31', name: 'ALBENdazole 200 mg.', whCode: '1100005' };
+    renderWithApp(<PrintWarehouseRequestByCategoryHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [SHEET_SECOND, SHEET_FIRST]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', []);
+
+    const callsBefore = vi.mocked(printModule.printPickListSheet).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'print-wh-tab' }));
+    await waitFor(() => expect(vi.mocked(printModule.printPickListSheet).mock.calls.length).toBeGreaterThan(callsBefore));
+    const rows = vi.mocked(printModule.printPickListSheet).mock.calls[callsBefore][0];
+    const first = rows.find((r) => r.name === SHEET_FIRST.name);
+    const second = rows.find((r) => r.name === SHEET_SECOND.name);
+    expect(first?.order).toBe(0);
+    expect(second?.order).toBe(1);
+    expect((first?.order ?? Infinity)).toBeLessThan(second?.order ?? Infinity);
+    // route must be cleared on every row — a per-category sheet never re-groups by route on top
+    // of the category split (see printWarehouseRequestByCategory's own comment).
+    expect(rows.every((r) => r.route === undefined)).toBe(true);
+  });
 });
 
 // Real-world request: "เพิ่มการตั้งค่ายาหมดชั่วคราว...บริษัทยาไม่มาส่ง ล่าช้า เลิกผลิต คลังปิดช่วง

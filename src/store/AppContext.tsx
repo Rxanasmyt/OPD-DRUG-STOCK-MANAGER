@@ -42,6 +42,7 @@ import { categoryLabel } from '../data/categories';
 import type { RouteType } from '../data/routes';
 import { type ReqCategory, reqCategoryLabel } from '../data/reqCategories';
 import { whRequestRoundRef, type WhRequestRound, type WhRequestRoundLine } from './repositories/whRequestRoundsRepo';
+import { WAREHOUSE_SHEET_ORDER } from '../data/warehouseSheetOrder';
 import { withTimeout, TimeoutError } from '../utils/timeout';
 import { readNotifyEnabled, writeNotifyEnabled, readLowStockNotifyEnabled, writeLowStockNotifyEnabled, requestPermission, currentPermission, maybeNotifyExpiring, maybeNotifyLowStock } from '../utils/notify';
 import { hapticSuccess, hapticError } from '../utils/haptic';
@@ -2342,6 +2343,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const printWarehouseRequestByCategory = useCallback(async (category: ReqCategory) => {
     const { items, heldMeds, rows, heldRows } = buildWarehouseRequestRows(category);
     if (!items.length && !heldMeds.length) { toast('หมวด' + reqCategoryLabel(category).replace(/^\S+\s/, '') + ' ยังไม่มีรายการที่ต้องเบิกตอนนี้'); return; }
+    // Real-world request: "การปริ้นใบเบิก ให้ชื่อยาตามลำดับเหมือน gg sheet ให้ครบถ้วน" — rows is
+    // shared with printWarehouseRequestList above, which sets `route` so printPickListSheet
+    // groups by it (useful there — one combined sheet covering every route at once). This
+    // caller already splits by the MORE specific 4-category split, so a route sub-grouping on
+    // top would only reorder rows away from the sheet's own sequence (most visibly for
+    // 'external', which spans several routes — topical/eye/ear/inhaled/paint — under one
+    // physical sheet). Cleared here so printPickListSheet renders one flat list, ordered by
+    // `order` below instead. A med with no whCode match (never matched a sheet row) gets no
+    // `order` — sorts after every row that has one (see print.ts's own sort comment), never
+    // guessed into the middle of the real sheet's sequence.
+    rows.forEach((r, i) => {
+      delete r.route;
+      const code = items[i].whCode;
+      if (code && code in WAREHOUSE_SHEET_ORDER) r.order = WAREHOUSE_SHEET_ORDER[code];
+    });
     // Best-effort: a failed read just means no carryover shows this round (same as a
     // never-before-printed category) rather than blocking the print itself.
     let prevLines: Record<string, WhRequestRoundLine> = {};
