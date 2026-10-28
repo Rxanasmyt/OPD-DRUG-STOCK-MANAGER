@@ -219,7 +219,12 @@ export default function LabelsScreen() {
   // binCompare()'s doc comment, binRange.ts) — the preview must show the same physical-shelf
   // order the real printout now does, not plain formulary order, or someone checking the preview
   // before printing would see a different order than what actually comes out of the printer.
-  const wardLotsShelfOrdered = [...wardLots].sort((a, b) => {
+  // Bug fix (efficiency): only `rows` below (labelType === 'lot' branch) ever reads this —
+  // computing it unconditionally meant every keystroke in the med-picker search box (its own
+  // local state, re-rendering this whole screen) re-sorted every ward lot against a nested
+  // meds.find() lookup even while viewing the ฉลากตัวยา/ฉลากชั้นวาง tabs, where the result was
+  // thrown away. Gating it the same way `rows` itself is gated below skips that dead work.
+  const wardLotsShelfOrdered = state.labelType !== 'lot' ? [] : [...wardLots].sort((a, b) => {
     const ma = meds.find((x) => x.id === a.medId);
     const mb = meds.find((x) => x.id === b.medId);
     return binCompare(ma?.binSub || ma?.bin || '', mb?.binSub || mb?.bin || '');

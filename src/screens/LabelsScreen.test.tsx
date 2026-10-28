@@ -23,6 +23,9 @@ const OPD_MED = {
   used30: 0, usedPrev30: 0, volatility: 0,
 };
 
+const LOT_A = { id: 'l-a', code: 'LOT-A', medId: OPD_MED.id, lotNo: 'A1', qty: 5, exp: Date.now() + 90 * 86400000 };
+const LOT_B = { id: 'l-b', code: 'LOT-B', medId: SHARED_MED.id, lotNo: 'B1', qty: 5, exp: Date.now() + 90 * 86400000 };
+
 describe('LabelsScreen — bin-search ward-scope regression', () => {
   it('scopes the shelf-code picker search to the selected เฉพาะ OPD/เฉพาะ IPD chip', async () => {
     renderWithApp(<LabelsScreen />);
@@ -51,5 +54,27 @@ describe('LabelsScreen — bin-search ward-scope regression', () => {
     fireEvent.click(screen.getByRole('button', { name: 'เฉพาะ IPD' }));
     await screen.findByText('Zocovin (Acyclovir)');
     expect(screen.queryByText('Chloroquine 250mg')).not.toBeInTheDocument();
+  });
+
+  // Regression test for an efficiency fix found during a systematic audit: wardLotsShelfOrdered
+  // used to be computed unconditionally every render (a full sort with a nested meds.find() per
+  // comparison) even on tabs that never read it, wasting work on every keystroke in the
+  // med-picker search box above. Gating it to only compute on the ฉลาก lot tab must not break
+  // the actual shelf-order feature it exists for — fed here deliberately out of physical-shelf
+  // order (SHARED_MED's bin "M6" before OPD_MED's "A1") to prove the sort still runs and reorders
+  // correctly once that tab is selected.
+  it('still sorts lot labels into physical shelf order on the ฉลาก lot tab', async () => {
+    renderWithApp(<LabelsScreen />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [SHARED_MED, OPD_MED]);
+    fireCollection('lots', [LOT_B, LOT_A]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'ฉลาก lot' }));
+    await screen.findByText('Zocovin (Acyclovir)');
+
+    const titles = screen.getAllByText(/Zocovin \(Acyclovir\)|Chloroquine 250mg/).map((el) => el.textContent);
+    // OPD_MED's bin "A1" sorts before SHARED_MED's bin "M6" — opposite of the feed order above.
+    expect(titles).toEqual(['Chloroquine 250mg', 'Zocovin (Acyclovir)']);
   });
 });
