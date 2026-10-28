@@ -1026,12 +1026,17 @@ export function printExecutiveSummarySheet(
   .sectitle { font-size: 12pt; font-weight: 700; margin: 6mm 0 2.5mm; padding-top: 4mm; border-top: 0.6pt solid #cdd6d1; }
   .sectitle:first-of-type { border-top: none; padding-top: 0; }
 
-  // Bug fix (print pagination): break-inside: avoid used to sit on the TABLE itself, not its
-  // rows — for a table this could actually run to several pages (top-10-by-value/by-usage
-  // tables can still be long), that forces the whole table to try to fit on one page (or the
-  // browser just overrides the constraint), instead of the real goal: never split a single
-  // ROW's own top/bottom halves across a page cut. Moved to the "tr" rule below, same fix as the
-  // sibling ledger print sheet's table.
+  /* Bug fix (print pagination): break-inside: avoid used to sit on the TABLE itself, not its
+     rows — for a table this could actually run to several pages (top-10-by-value/by-usage
+     tables can still be long), that forces the whole table to try to fit on one page (or the
+     browser just overrides the constraint), instead of the real goal: never split a single
+     ROW's own top/bottom halves across a page cut. Moved to the "tr" rule below, same fix as the
+     sibling ledger print sheet's table.
+     Bug fix (CSS syntax): this comment block itself used to be written with JS-style "//" line
+     comments, which CSS does not recognize — "//" is invalid, so the parser treated all of it
+     (plus the apostrophe in "ROW's" opening an unterminated string) as a garbage selector
+     prelude for the next rule, silently dropping the whole table.rows{...} rule below (width/
+     border-collapse/font-size) on the real printed/PDF output. Must be a /* */ block comment. */
   table.rows { width: 100%; border-collapse: collapse; font-size: 10pt; }
   table.rows tr { break-inside: avoid; }
   table.rows th { text-align: left; font-size: 9pt; font-weight: 700; color: #14211a; background: #eef6f6; border: 0.6pt solid #9fb8b8; padding: 1.8mm 2.6mm; }
@@ -1238,11 +1243,14 @@ export function printKpiReportSheet(rows: DailyMetrics[], meta: { fromDate: stri
   .sectitle:first-of-type { border-top: none; padding-top: 0; }
   .chartbox { border: 0.6pt solid #b8c4bd; border-radius: 2mm; padding: 3mm; background: #fff; break-inside: avoid; margin-bottom: 4mm; }
 
-  // Bug fix (print pagination): this table can carry up to 90 daily rows (a 90-day KPI range)
-  // — real risk of spanning several pages, but nothing here kept a single row's own top/bottom
-  // halves from splitting across the page cut. Every other "keep together" block elsewhere in
-  // this file (.stat, .chartbox) already uses break-inside: avoid; this table's rows never got
-  // it. <thead> itself already repeats on every printed page natively.
+  /* Bug fix (print pagination): this table can carry up to 90 daily rows (a 90-day KPI range)
+     — real risk of spanning several pages, but nothing here kept a single row's own top/bottom
+     halves from splitting across the page cut. Every other "keep together" block elsewhere in
+     this file (.stat, .chartbox) already uses break-inside: avoid; this table's rows never got
+     it. <thead> itself already repeats on every printed page natively.
+     Bug fix (CSS syntax): same as the sibling exec-summary sheet's table.rows comment above —
+     this was written with invalid JS-style "//" comments, which silently dropped the whole
+     table.rows{...} rule (width/border-collapse/font-size) below on the real printed output. */
   table.rows { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
   table.rows tr { break-inside: avoid; }
   table.rows th { text-align: left; font-size: 8.8pt; font-weight: 700; color: #14211a; background: #eef6f6; border: 0.6pt solid #9fb8b8; padding: 1.8mm 2.4mm; }
