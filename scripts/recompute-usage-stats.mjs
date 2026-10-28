@@ -145,13 +145,19 @@ async function main() {
     if (ageDays < 0) continue;
     const bucket = ageDays <= 30 ? 30 : ageDays <= 60 ? 60 : 0;
     if (!bucket) continue;
+    // Bug fix (data integrity): reportedQty — when set — is the real HOSxP-reported amount;
+    // `qty` alone understates it whenever AppContext.tsx's commitReconcile floor clamp fired
+    // (see Tx.reportedQty's own doc comment, src/types.ts, and this file's hand-kept-in-sync
+    // note at the top). Falls back to qty for every row from before this field existed, or
+    // where the clamp never fired — the same number this always read.
+    const dispensedQty = Math.abs(x.reportedQty ?? x.qty);
     if (dupNames.has(x.name)) {
       if (!x.medId) continue;
       const map = bucket === 30 ? curById : prevById;
-      map[x.medId] = (map[x.medId] || 0) + Math.abs(x.qty);
+      map[x.medId] = (map[x.medId] || 0) + dispensedQty;
     } else {
       const map = bucket === 30 ? curByName : prevByName;
-      map[x.name] = (map[x.name] || 0) + Math.abs(x.qty);
+      map[x.name] = (map[x.name] || 0) + dispensedQty;
     }
     if (bucket !== 30) continue; // dispenseDays30 only ever covers the current 30-day bucket
     const fromIso = x.coveredFrom || isoDate(x.ts);
@@ -229,7 +235,8 @@ async function main() {
     const fromTs = new Date(fromIso + 'T00:00:00').getTime();
     const toTs = new Date(toIso + 'T00:00:00').getTime();
     const daysCovered = Math.max(1, Math.round((toTs - fromTs) / DAY) + 1);
-    const perDayQty = Math.abs(x.qty) / daysCovered;
+    // Bug fix (data integrity): same reportedQty-over-qty preference as Part 1 above.
+    const perDayQty = Math.abs(x.reportedQty ?? x.qty) / daysCovered;
     for (let i = 0; i < daysCovered; i++) {
       const dayTs = fromTs + i * DAY;
       if (dayTs > now) continue;

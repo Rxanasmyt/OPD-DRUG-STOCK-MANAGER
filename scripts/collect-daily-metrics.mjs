@@ -216,7 +216,11 @@ async function main() {
       transferredQty += t.qty || 0;
       if (t.medId) floorRefillCounts[t.medId] = (floorRefillCounts[t.medId] || 0) + 1;
     }
-    else if (t.type === 'reconcile_hosxp') { dispensedQty += Math.abs(t.qty || 0); reconciledToday = true; }
+    // Bug fix (data integrity): reportedQty — when set — is the real HOSxP-reported amount;
+    // `qty` alone understates it whenever AppContext.tsx's commitReconcile floor clamp fired
+    // (see Tx.reportedQty's own doc comment, src/types.ts). Falls back to qty for every row
+    // from before this field existed, or where the clamp never fired.
+    else if (t.type === 'reconcile_hosxp') { dispensedQty += Math.abs(t.reportedQty ?? t.qty ?? 0); reconciledToday = true; }
     else if (['adjust', 'damaged', 'return', 'expired', 'ward_move_out', 'ward_move_in'].includes(t.type)) {
       adjustQty += Math.abs(t.qty || 0);
       // Real-world request: realized waste/loss บาท — same `meds.find()` lookup style as the
