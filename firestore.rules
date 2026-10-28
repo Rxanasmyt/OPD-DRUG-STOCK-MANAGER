@@ -96,7 +96,7 @@ service cloud.firestore {
       // real create write (AppContext.tsx) — `code, name, unit, dosageForm, price, had, active,
       // fridge?, parSub, parFloor, floor, floorMin, bin, used30, usedPrev30, volatility,
       // lastCountTs, ward, noSubstock, shared?, binIpd?, binSub?, category?, packSize?, route?,
-      // hosxpAliases?, whCode?` (the `?` fields are the ones that write conditionally omits
+      // hosxpAliases?, whCode?, reqCategory?` (the `?` fields are the ones that write conditionally omits
       // rather than always sending). hosxpAliases added for addMed()'s admin-registered HOSxP
       // name-variant field — see Med.hosxpAliases's own doc comment (types.ts). whCode added for
       // the central-warehouse drug code (see Med.whCode's own doc comment, types.ts).
@@ -106,7 +106,7 @@ service cloud.firestore {
                          'fridge', 'parSub', 'parFloor', 'floor', 'floorMin', 'bin',
                          'used30', 'usedPrev30', 'volatility', 'lastCountTs', 'ward',
                          'noSubstock', 'shared', 'binIpd', 'binSub', 'category', 'packSize', 'route',
-                         'hosxpAliases', 'whCode'
+                         'hosxpAliases', 'whCode', 'reqCategory'
                        ])
                     && request.resource.data.code is string
                     && request.resource.data.name is string
@@ -134,7 +134,8 @@ service cloud.firestore {
                     && (!('packSize' in request.resource.data) || isNonNegNum(request.resource.data.packSize))
                     && (!('route' in request.resource.data) || request.resource.data.route is string)
                     && (!('hosxpAliases' in request.resource.data) || request.resource.data.hosxpAliases is list)
-                    && (!('whCode' in request.resource.data) || request.resource.data.whCode is string);
+                    && (!('whCode' in request.resource.data) || request.resource.data.whCode is string)
+                    && (!('reqCategory' in request.resource.data) || request.resource.data.reqCategory is string);
       allow delete: if isAdmin();
       // Bug fix: this branch type-checked `floor` but not `lastCountTs`/`lastSubCountTs`,
       // inconsistent with the `lots` rule right below which type-checks every field it allows.
@@ -180,7 +181,7 @@ service cloud.firestore {
                               'outOfStockSince', 'outOfStockReason', 'outOfStockExpectedReturn',
                               'weekdayPeakFactor', 'weekdayPeakDay', 'weekdayPeakOccurrences',
                               'weekdayPattern', 'peakDayQty', 'peakDayDate', 'peakDayP90Qty',
-                              'hosxpAliases', 'dispenseDays30', 'usageCv', 'whCode'
+                              'hosxpAliases', 'dispenseDays30', 'usageCv', 'whCode', 'reqCategory'
                             ])
                          && (!('name' in request.resource.data) || request.resource.data.name is string)
                          && (!('unit' in request.resource.data) || request.resource.data.unit is string)
@@ -219,7 +220,8 @@ service cloud.firestore {
                          && (!('hosxpAliases' in request.resource.data) || request.resource.data.hosxpAliases is list)
                          && (!('dispenseDays30' in request.resource.data) || isNonNegNum(request.resource.data.dispenseDays30))
                          && (!('usageCv' in request.resource.data) || isNonNegNum(request.resource.data.usageCv))
-                         && (!('whCode' in request.resource.data) || request.resource.data.whCode is string))
+                         && (!('whCode' in request.resource.data) || request.resource.data.whCode is string)
+                         && (!('reqCategory' in request.resource.data) || request.resource.data.reqCategory is string))
                     || (isActive() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['floor', 'lastCountTs', 'lastSubCountTs'])
                         && isNonNegNum(request.resource.data.floor)
                         && (!('lastCountTs' in resource.data) || 'lastCountTs' in request.resource.data)
@@ -472,6 +474,27 @@ service cloud.firestore {
     match /meta/{doc} {
       allow read: if isActive();
       allow write: if isAdmin();
+    }
+
+    // ---- warehouse-requisition "last round" snapshots (printWarehouseRequestByCategory,
+    // AppContext.tsx; see WhRequestRound in whRequestRoundsRepo.ts) — real-world request: the
+    // hospital's original Google-Sheet-based requisition had a "ยาที่ค้าง" column; this is the
+    // new state behind it. One doc per category (tab/liquid/injection/external — doc id is the
+    // category itself), OVERWRITTEN every time that category is printed, so there's never more
+    // than 4 docs total and no query/index is ever needed to find "the last round". Any active
+    // staff member can print a requisition (same role bar as creating a txs row), so
+    // create/update here is isActive(), not isAdmin() — this is an informational carryover
+    // estimate, never a real stock quantity, so (unlike lots/txs) its inner `lines` map isn't
+    // deep-validated field-by-field; worst case a malformed write only shows a wrong "ยาที่ค้าง"
+    // number next round, it can never corrupt real stock data. ----
+    match /whRequestRounds/{category} {
+      allow read: if isActive();
+      allow create, update: if isActive()
+                            && request.resource.data.keys().hasOnly(['printedAt', 'printedBy', 'lines'])
+                            && request.resource.data.printedAt is number
+                            && request.resource.data.printedBy is string
+                            && request.resource.data.lines is map;
+      allow delete: if isAdmin();
     }
 
     // ---- daily KPI snapshots (scripts/collect-daily-metrics.mjs, see types.ts:DailyMetrics)

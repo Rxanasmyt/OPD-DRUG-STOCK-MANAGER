@@ -10,6 +10,7 @@ import { SearchInput } from '../components/SearchInput';
 import StockHoldBanner from '../components/StockHoldBanner';
 import type { Med, MedId } from '../types';
 import { asMedId } from '../types';
+import { REQ_CATEGORIES } from '../data/reqCategories';
 
 // The "ควรเบิกจากคลังใหญ่" sort order — a noSubstock med has no substock stage to rank by (see
 // needsReceive's doc comment below), so its floor/parFloor ratio stands in for it there.
@@ -42,7 +43,7 @@ export default function ReceiveScreen() {
   const {
     state, sub, setRecvNo, setRecvSearch, pickRecvMed,
     removeRecvItem, commitReceive, approvePendingReceive, rejectPendingReceive, openScanSearch,
-    printWarehouseRequestList, promptAsync, goSubstockCardFor,
+    printWarehouseRequestList, printWarehouseRequestByCategory, promptAsync, goSubstockCardFor,
   } = useApp();
   // Real-world request: "ให้ทุกหน้าที่แสดงชื่อยาจำนวนยา...ให้สามารถดูบัตรสต็อคได้" — every med
   // row on this screen used to be action-only (pick it to receive / remove it / approve/reject
@@ -143,12 +144,29 @@ export default function ReceiveScreen() {
       <StepIndicator steps={RECEIVE_STEPS} current={0} />
       <StockHoldBanner />
       <div style={{ padding: '10px 14px 24px' }}>
+      {/* Real-world request: "เดิมการปริ้นใบเบิก จะปริ้นจาก gg sheet...อยากให้แอพสามารถปริ้นออกมา
+          โดยข้อมูลจากการปริ้นแบบเดิมยังครบ" — the hospital's own 4 paper sheets (ยาเม็ด/ยาน้ำ/ยาฉีด/
+          ยาใช้ภายนอก), each submitted as its own document. See
+          printWarehouseRequestByCategory's own doc comment (AppContext.tsx). */}
+      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>🖨 พิมพ์ใบขอเบิกจากคลังใหญ่ — รอบ 2 สัปดาห์ (แยกตามหมวดเดิม)</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+        {REQ_CATEGORIES.map((c) => (
+          <button
+            key={c.id}
+            onClick={() => printWarehouseRequestByCategory(c.id)}
+            className="btn-outline"
+            style={{ padding: 11, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44 }}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
       <button
         onClick={printWarehouseRequestList}
         className="btn-outline"
-        style={{ width: '100%', padding: 12, borderRadius: 11, fontSize: 13.5, fontWeight: 600, minHeight: 46, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+        style={{ width: '100%', padding: 10, borderRadius: 11, fontSize: 12, fontWeight: 600, minHeight: 40, marginBottom: 16, color: 'var(--muted)' }}
       >
-        🖨 พิมพ์ใบขอเบิกจากคลังใหญ่ — รอบ 2 สัปดาห์
+        🖨 พิมพ์รวมทุกหมวดในใบเดียว (แบบเดิมก่อนแยก)
       </button>
 
       {(canApprove ? pending.length > 0 : myPending.length > 0) && (

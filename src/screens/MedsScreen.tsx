@@ -14,6 +14,7 @@ import { FRIDGE_LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
 import { suggestRoute } from '../data/routeSuggest';
 import { ROUTES, routeLabel, type RouteType } from '../data/routes';
+import { REQ_CATEGORIES, type ReqCategory } from '../data/reqCategories';
 
 type Filter = 'active' | 'inactive' | 'all' | 'parOne' | 'onHold' | 'incomplete';
 
@@ -148,6 +149,9 @@ interface MedFormValues {
   // รหัสยาที่คลังยาใหญ่ใช้จริง — ดู Med.whCode's own doc comment (types.ts) สำหรับเหตุผลที่แยกจาก
   // m.code (ที่แอพสร้างให้เองอัตโนมัติ และคลังไม่ได้ใช้จริง)
   whCode: string;
+  // หมวดใบเบิก 4 ประเภทเดิม (เม็ด/น้ำ/ฉีด/ภายนอก) — ดู Med.reqCategory's own doc comment (types.ts)
+  // สำหรับเหตุผลที่แยกจาก route (ยากิน ครอบคลุมทั้งเม็ดและน้ำ)
+  reqCategory: '' | ReqCategory;
 }
 
 function blankForm(): MedFormValues {
@@ -155,7 +159,7 @@ function blankForm(): MedFormValues {
   // one-day-dose pulls straight off the OPD shelf), so a brand-new med should start there and
   // let someone opt OUT (untick "เลิกใช้ร่วมกัน") for the minority that genuinely need separate
   // stock, rather than opting in every single time.
-  return { name: '', dosageForm: '', unit: '', price: '', had: false, fridge: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: true, binIpd: '', binSub: '', category: '', packSize: '', route: '', hosxpAliases: '', whCode: '' };
+  return { name: '', dosageForm: '', unit: '', price: '', had: false, fridge: false, bin: '', parSub: '', parFloor: '', floorMin: '', ward: 'opd', noSubstock: false, volatility: '1.10', shared: true, binIpd: '', binSub: '', category: '', packSize: '', route: '', hosxpAliases: '', whCode: '', reqCategory: '' };
 }
 
 function formFromMed(m: Med): MedFormValues {
@@ -165,7 +169,7 @@ function formFromMed(m: Med): MedFormValues {
     ward: wardOf(m), noSubstock: !!m.noSubstock, volatility: m.volatility.toFixed(2),
     shared: isSharedMed(m), binIpd: m.binIpd || '', binSub: m.binSub || '', category: m.category || '',
     packSize: m.packSize ? String(m.packSize) : '', route: m.route || '',
-    hosxpAliases: (m.hosxpAliases || []).join('\n'), whCode: m.whCode || '',
+    hosxpAliases: (m.hosxpAliases || []).join('\n'), whCode: m.whCode || '', reqCategory: m.reqCategory || '',
   };
 }
 
@@ -485,7 +489,7 @@ export default function MedsScreen() {
             // toast as the only feedback while every field just typed (name, dosage form,
             // price, bins, par levels, ...) was already gone, forcing a full re-entry to retry.
             // Now only closes once addMed actually confirms success.
-            const ok = await addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined, route: v.route || undefined, hosxpAliases: parseHosxpAliases(v.hosxpAliases, v.name), whCode: v.whCode.trim() || undefined });
+            const ok = await addMed({ name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined, route: v.route || undefined, hosxpAliases: parseHosxpAliases(v.hosxpAliases, v.name), whCode: v.whCode.trim() || undefined, reqCategory: v.reqCategory || undefined });
             if (ok) setAddOpen(false);
           }}
         />
@@ -804,7 +808,7 @@ export default function MedsScreen() {
                 // to close the sheet right after firing updateMedFull regardless of outcome, so
                 // a failure (network error, permission check) lost every edited field with only
                 // a toast to show for it. Now only closes once the save actually confirms success.
-                const ok = await updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined, route: v.route || undefined, hosxpAliases: parseHosxpAliases(v.hosxpAliases, v.name), whCode: v.whCode.trim() || undefined }, editBaselineRef.current);
+                const ok = await updateMedFull(m.id, { name: v.name, dosageForm: v.dosageForm, unit: v.unit, price: parseFloat(v.price) || 0, had: v.had, fridge: v.fridge, bin: v.bin, binSub: v.binSub || undefined, parSub: parseInt(v.parSub, 10) || 0, parFloor: parseInt(v.parFloor, 10) || 0, floorMin: parseInt(v.floorMin, 10) || 0, ward: v.shared ? 'opd' : v.ward, noSubstock: v.noSubstock, volatility: parseFloat(v.volatility) || 1.1, shared: v.shared, binIpd: v.shared ? v.binIpd : undefined, category: v.category || undefined, packSize: parseInt(v.packSize, 10) || undefined, route: v.route || undefined, hosxpAliases: parseHosxpAliases(v.hosxpAliases, v.name), whCode: v.whCode.trim() || undefined, reqCategory: v.reqCategory || undefined }, editBaselineRef.current);
                 if (ok) setEditingId(null);
               }}
               // ยาชื่อเดียวกันที่แยกรายการไว้คนละ ward (คนละ Firestore doc ตามหลักการออกแบบ
@@ -910,6 +914,21 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
         <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>รหัสยาคลังใหญ่ (ถ้ามี)</span>
         <input value={v.whCode} onChange={(e) => set('whCode', e.target.value)} placeholder="รหัสที่คลังยาใหญ่ใช้เบิก" style={inputStyle} />
       </label>
+      {/* Real-world request: "เดิมการปริ้นใบเบิก จะปริ้นจาก gg sheet...อยากให้แอพสามารถปริ้นออกมาโดย
+          ข้อมูลจากการปริ้นแบบเดิมยังครบ" — see Med.reqCategory's own doc comment (types.ts) for why
+          this is a separate field from ประเภทการให้ยา above (ยากิน covers both เม็ดและน้ำ, which the
+          hospital's own 4 paper sheets always split). Usually set automatically by
+          scripts/backfill-req-categories.mjs from the sheet's own data; this is the manual
+          override/first-time-entry path — no auto-suggestion button, since the user explicitly
+          asked for the sheet's own category, never a guess from รูปแบบยา/หน่วย. */}
+      <div style={{ marginBottom: 9 }}>
+        <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>หมวดใบเบิกจากคลัง (เม็ด/น้ำ/ฉีด/ภายนอก)</span>
+        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+          {REQ_CATEGORIES.map((c) => (
+            <button key={c.id} type="button" className="chip" style={chip(v.reqCategory === c.id)} onClick={() => set('reqCategory', v.reqCategory === c.id ? '' : c.id)}>{c.label}</button>
+          ))}
+        </div>
+      </div>
       <label style={{ display: 'block', marginBottom: v.category ? 9 : 5 }}>
         <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>หมวดกลุ่มยา</span>
         <select value={v.category} onChange={(e) => set('category', e.target.value)} style={{ ...inputStyle, appearance: 'auto' as const }}>

@@ -321,6 +321,21 @@ export interface Med {
   // yet, same "optional, no migration needed" convention as every other field added after this
   // formulary's initial seed.
   whCode?: string | undefined;
+  // Real-world request: "เดิมการปริ้นใบเบิก จะปริ้นจาก gg sheet...อยากให้แอพสามารถปริ้นออกมาโดยข้อมูล
+  // จากการปริ้นแบบเดิมยังครบ" — the hospital's own 4 paper requisition sheets (ใบเบิกยาเม็ด/ยาน้ำ/
+  // ยาฉีด/ยาใช้ภายนอก) are a DIFFERENT cut than Med.route (routes.ts): 'oral' alone covers both
+  // tablets AND oral liquids/syrups, which the hospital's own process always submits as two
+  // separate physical sheets to the warehouse. Asked directly which to use for the split —
+  // user said "แยกประเภทยาตามข้อมูลที่ผมส่งให้เลยครับ" (use the sheets' own category, not a new
+  // guess from dosageForm/unit). Backfilled from scripts/data/warehouse-codes.csv's own
+  // `category` column via scripts/backfill-req-categories.mjs (exact 1:1 match by whCode — no
+  // fuzzy name matching needed, since whCode is already a verified match from
+  // backfill-warehouse-codes.mjs). See data/reqCategories.ts for the single source of truth on
+  // the 4 values/labels/order. Optional — absent for every med with no whCode match yet (or
+  // added since), same "no migration needed" convention as whCode/route/category above; always
+  // read via reqCategoryOf() in selectors.ts so an unset one falls back to a visible "ยังไม่ระบุ"
+  // bucket on the printed sheet instead of being silently dropped.
+  reqCategory?: 'tab' | 'liquid' | 'injection' | 'external' | undefined;
 }
 
 export interface Lot {

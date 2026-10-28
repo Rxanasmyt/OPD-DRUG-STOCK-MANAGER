@@ -27,12 +27,12 @@ import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetch
 import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchAllTxs, fetchTxsByName, fetchTxsByNameSince, fetchTxsAfter, queryTxsByDateRange } from './repositories/txsRepo';
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
 import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays, reqCategoryOf } from './selectors';
 import { nf, thDate, lotLabel, expLabel, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
 import { shortLabelName } from '../utils/labelName';
-import { printLabelSheet, printPickListSheet, printExecutiveSummarySheet, type PrintLabel, type ExecSummaryStat, type ExecSummaryRow } from '../utils/print';
+import { printLabelSheet, printPickListSheet, printExecutiveSummarySheet, type PickListRow, type PrintLabel, type ExecSummaryStat, type ExecSummaryRow } from '../utils/print';
 import { parseHosxpUsageWorkbook, parseUsageCsvTextWithSkipped, splitNameQty, type RawUsageRow } from '../utils/usageImport';
 import { LOCS, FRIDGE_LOCS } from '../data/locations';
 import { binCompare } from '../utils/binRange';
@@ -40,6 +40,8 @@ import { suggestCategoryId } from '../data/categorySuggest';
 import { suggestRoute } from '../data/routeSuggest';
 import { categoryLabel } from '../data/categories';
 import type { RouteType } from '../data/routes';
+import { type ReqCategory, reqCategoryLabel } from '../data/reqCategories';
+import { whRequestRoundRef, type WhRequestRound, type WhRequestRoundLine } from './repositories/whRequestRoundsRepo';
 import { withTimeout, TimeoutError } from '../utils/timeout';
 import { readNotifyEnabled, writeNotifyEnabled, readLowStockNotifyEnabled, writeLowStockNotifyEnabled, requestPermission, currentPermission, maybeNotifyExpiring, maybeNotifyLowStock } from '../utils/notify';
 import { hapticSuccess, hapticError } from '../utils/haptic';
@@ -426,6 +428,7 @@ export interface AppCtx {
   printPickList: () => void;
   printTodayReplenishList: () => void;
   printWarehouseRequestList: () => void;
+  printWarehouseRequestByCategory: (category: ReqCategory) => void;
   removeFromCart: (id: MedId) => void;
   /** Empties the whole fill cart in one action — the only way out of a mis-built cart used
    * to be removing rows one at a time (or committing a transfer nobody wanted). */
@@ -533,7 +536,7 @@ export interface AppCtx {
   // med" form used to close (discarding every field just typed) right after firing this,
   // regardless of outcome, since it had no way to tell a failure apart from a success without
   // awaiting a real signal back.
-  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number | undefined; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined }) => Promise<boolean | undefined>;
+  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number | undefined; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined; reqCategory?: ReqCategory | undefined }) => Promise<boolean | undefined>;
   // Bug fix (flow friction): same shape as addMed above — MedsScreen's edit-med sheet used to
   // close (discarding every edited field) right after firing this, regardless of outcome.
   // `baseline`: the med record as it looked when the edit form was first opened (frozen by the
@@ -542,7 +545,7 @@ export interface AppCtx {
   // catch). Pass null when there's no meaningful baseline to compare against (there shouldn't
   // be a legitimate caller of updateMedFull without one, but it's optional rather than required
   // so a future caller can't be forced to fabricate one).
-  updateMedFull: (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined }, baseline: Med | null) => Promise<boolean | undefined>;
+  updateMedFull: (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined; reqCategory?: ReqCategory | undefined }, baseline: Med | null) => Promise<boolean | undefined>;
   /** Merges an existing OPD/IPD ward-pair (same name, one 'opd' one 'ipd' record) into a
    * single pooled record — see Med.binIpd. Survives as the OPD-ward record with the IPD
    * record's bin code carried over as `binIpd`; floor/used30/usedPrev30 are summed (not
@@ -2225,7 +2228,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // standing requisition list of everything under its substock par right now, ready to bring
   // along whenever that cycle comes up — not a scheduled notification demanding a specific
   // day (nothing here can page anyone; this is a static site with no backend to run a timer).
-  const printWarehouseRequestList = useCallback(() => {
+  // Shared row-building logic for both printWarehouseRequestList (everything at once, the
+  // original behavior, kept as a never-removed safety net) and printWarehouseRequestByCategory
+  // (the new per-category split — see its own doc comment below for why that exists). Not a
+  // useCallback itself — cheap to recreate every render, only ever invoked synchronously inside
+  // the two callbacks below, never during render.
+  const buildWarehouseRequestRows = (categoryFilter?: ReqCategory) => {
     // Bug fix: unlike printTodayReplenishList right above (which already guards with
     // usesSubstock(m)), this was missing the same check — a med marked noSubstock (liquids/
     // inhalers/sprays that go straight from the central warehouse to the shelf, see
@@ -2244,15 +2252,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // a substock stage is judged against substock/parSub as before; one without is judged
     // against floor/parFloor instead — every active med lands in exactly one of those checks,
     // never both, so nothing doubles up and nothing that actually needs requesting is missing.
-    const items = state.meds.filter((m) => m.active && needsWarehouseRequest(m, subQty(state, m.id)));
+    const items = state.meds.filter((m) => m.active && needsWarehouseRequest(m, subQty(state, m.id))
+      && (!categoryFilter || reqCategoryOf(m) === categoryFilter));
     // Real-world request: a med flagged isOnStockHold() (supplier delay/discontinuation,
     // warehouse closed for fiscal year-end) is already excluded from `items` above via
     // needsWarehouseRequest() — correctly, since requesting it again does nothing — but
     // whoever carries this sheet to the warehouse should still see it listed as an open
     // question, not have it silently vanish as if the shortage were resolved.
-    const heldMeds = state.meds.filter((m) => m.active && isOnStockHold(m));
-    if (!items.length && !heldMeds.length) { toast('ทุกรายการยังสูงกว่า par — ยังไม่ต้องเบิกเพิ่ม'); return; }
-    const rows = items.map((m) => {
+    const heldMeds = state.meds.filter((m) => m.active && isOnStockHold(m)
+      && (!categoryFilter || reqCategoryOf(m) === categoryFilter));
+    const rows: PickListRow[] = items.map((m) => {
       const short = usesSubstock(m);
       const curBalance = short ? subQty(state, m.id) : m.floor;
       const par = short ? m.parSub : m.parFloor;
@@ -2300,7 +2309,64 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       since: thDate(m.outOfStockSince as number),
       expectedReturn: m.outOfStockExpectedReturn ? thDate(m.outOfStockExpectedReturn) : undefined,
     }));
+    return { items, heldMeds, rows, heldRows };
+  };
+
+  const printWarehouseRequestList = useCallback(() => {
+    const { items, heldMeds, rows, heldRows } = buildWarehouseRequestRows();
+    if (!items.length && !heldMeds.length) { toast('ทุกรายการยังสูงกว่า par — ยังไม่ต้องเบิกเพิ่ม'); return; }
     const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการยาที่มีปริมาณคงคลังต่ำกว่าเกณฑ์มาตรฐาน (Par) ทั้งระบบ รวมถึงรายการยาที่ไม่มีการสำรองคลังย่อย (Substock)', { bin: 'ชั้นวาง substock', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() }, ['ผู้จัดทำคำขอ (ห้องยา)', 'ผู้อนุมัติคำขอ (ห้องยา)', 'ผู้จ่ายยา (คลังใหญ่)'], heldRows);
+    toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
+  }, [state, toast, userName]);
+
+  // Real-world request: "เดิมการปริ้นใบเบิก จะปริ้นจาก gg sheet...อยากให้แอพสามารถปริ้นออกมาโดยข้อมูล
+  // จากการปริ้นแบบเดิมยังครบ" — the hospital's own paper process always submitted 4 SEPARATE
+  // requisition sheets (ใบเบิกยาเม็ด/ยาน้ำ/ยาฉีด/ยาใช้ภายนอก — see Med.reqCategory's own doc
+  // comment, types.ts, for why this is a different split than route). Additive: the existing
+  // printWarehouseRequestList above (everything at once, route-grouped) is completely unchanged
+  // and still exists as a combined/fallback view — this is a NEW function alongside it, used by
+  // 4 new buttons (ReceiveScreen), one per category.
+  //
+  // "ยาที่ค้าง" (still outstanding from last time this category was printed): the original
+  // Google-Sheet column. Estimated from whRequestRounds/{category} (see whRequestRoundsRepo.ts)
+  // — the ONE previous round's {qty requested, curBalance at that print time} per med — rather
+  // than scanning txs history, since state.txs is capped to the 300 most-recent rows app-wide
+  // (not reliably deep enough to span a ~2-week requisition cycle). "received since" is
+  // estimated as (today's curBalance − that round's curBalanceAtPrint); carryOver is whatever of
+  // that round's qty isn't accounted for by that rise. This is an approximation (other activity
+  // between the two prints — dispensing, a separate count adjustment — can throw it off either
+  // way) but matches what the original paper column itself was: an informal "still waiting" flag
+  // for a human to double-check, never a precise ledger. Never added back into this round's own
+  // qty/boxes (today's shortfall already reflects reality — see PickListRow.carryOver's own doc
+  // comment, print.ts), so it can never double-count a request.
+  const printWarehouseRequestByCategory = useCallback(async (category: ReqCategory) => {
+    const { items, heldMeds, rows, heldRows } = buildWarehouseRequestRows(category);
+    if (!items.length && !heldMeds.length) { toast('หมวด' + reqCategoryLabel(category).replace(/^\S+\s/, '') + ' ยังไม่มีรายการที่ต้องเบิกตอนนี้'); return; }
+    // Best-effort: a failed read just means no carryover shows this round (same as a
+    // never-before-printed category) rather than blocking the print itself.
+    let prevLines: Record<string, WhRequestRoundLine> = {};
+    try {
+      const snap = await withTimeout(getDoc(whRequestRoundRef(category)));
+      if (snap.exists()) prevLines = (snap.data() as WhRequestRound).lines || {};
+    } catch { /* non-critical — see comment above */ }
+    rows.forEach((r, i) => {
+      const prev = prevLines[items[i].id];
+      if (!prev) return;
+      const received = Math.max(0, (r.curBalance ?? 0) - prev.curBalanceAtPrint);
+      const carry = Math.max(0, prev.qty - received);
+      if (carry > 0) r.carryOver = carry;
+    });
+    const ok = printPickListSheet(
+      rows, 'ใบขอเบิกจากคลังใหญ่ — ' + reqCategoryLabel(category),
+      'รายการยาที่มีปริมาณคงคลังต่ำกว่าเกณฑ์มาตรฐาน (Par) ในหมวดนี้',
+      { bin: 'ชั้นวาง substock', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() },
+      ['ผู้ขอเบิก', 'ผู้จ่าย', 'ผู้อนุมัติ', 'ผู้รับของ'], heldRows,
+    );
+    if (ok) {
+      const newLines: Record<string, WhRequestRoundLine> = {};
+      items.forEach((m, i) => { newLines[m.id] = { qty: rows[i].qty, curBalanceAtPrint: rows[i].curBalance ?? 0 }; });
+      try { await withTimeout(setDoc(whRequestRoundRef(category), { printedAt: Date.now(), printedBy: userName(), lines: newLines })); } catch { /* non-critical — see comment above */ }
+    }
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state, toast, userName]);
 
@@ -4266,7 +4332,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [canEditMeds, logAudit, toast, toastErr]);
 
   // ---------- meds (formulary) management ----------
-  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number | undefined; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined }): Promise<boolean> => {
+  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number | undefined; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined; reqCategory?: ReqCategory | undefined }): Promise<boolean> => {
     if (!canEditMeds) return false;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
@@ -4361,6 +4427,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ...(input.route ? { route: input.route } : {}),
           ...(input.hosxpAliases && input.hosxpAliases.length ? { hosxpAliases: input.hosxpAliases } : {}),
           ...(input.whCode && input.whCode.trim() ? { whCode: input.whCode.trim() } : {}),
+          ...(input.reqCategory ? { reqCategory: input.reqCategory } : {}),
         });
         return { code: c, id: newMed.id };
       });
@@ -4390,9 +4457,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     bin: 'ชั้นวาง', binSub: 'ชั้นวาง substock', parSub: 'par substock', parFloor: 'par หน้างาน',
     floorMin: 'Min หน้างาน', ward: 'ward', noSubstock: 'ไม่มี substock', volatility: 'volatility',
     shared: 'ใช้ยอดร่วมกัน', binIpd: 'ชั้นวาง IPD', category: 'หมวดยา', packSize: 'ขนาดแพ็ค',
-    route: 'ประเภทการให้ยา', hosxpAliases: 'ชื่อ HOSxP ที่รู้จัก', whCode: 'รหัสยาคลัง',
+    route: 'ประเภทการให้ยา', hosxpAliases: 'ชื่อ HOSxP ที่รู้จัก', whCode: 'รหัสยาคลัง', reqCategory: 'หมวดใบเบิกจากคลัง',
   };
-  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined }, baseline: Med | null): Promise<boolean> => {
+  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined; reqCategory?: ReqCategory | undefined }, baseline: Med | null): Promise<boolean> => {
     if (!canEditMeds) return false;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
@@ -4462,6 +4529,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       route: input.route ? input.route : deleteField(),
       hosxpAliases: input.hosxpAliases && input.hosxpAliases.length ? input.hosxpAliases : deleteField(),
       whCode: input.whCode && input.whCode.trim() ? input.whCode.trim() : deleteField(),
+      reqCategory: input.reqCategory ? input.reqCategory : deleteField(),
     };
     try {
       await withTimeout(updateDoc(medRef(medId), patch));
@@ -6457,6 +6525,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept, setAuthRemember, signIn, signUp, logout, setDevice, seedDatabase,
     setSearch, setFilter, setWardFilter, bump, setCartQty, fillAll, fillUrgent, printPickList, printTodayReplenishList, removeFromCart, clearCart, commitTransfer,
     setRecvNo, setRecvSearch, pickRecvMed, setRecvLot, setRecvExp, setRecvQty, addRecv, cancelReceivePick, removeRecvItem, commitReceive, printWarehouseRequestList,
+    printWarehouseRequestByCategory,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
     pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, commitSingleReturn, addToReturnCart, removeReturnCartItem, commitReturnCart, fetchDrugReturns, exportDrugReturnsCsv, scrapLot, scrapFloorLot,
