@@ -555,10 +555,23 @@ export function printPickListSheet(
   .doctitle { text-align: center; font-size: 12.5pt; font-weight: 700; margin: 2mm 0 1mm; letter-spacing: .01em; }
   .docsub { text-align: center; font-size: 8.5pt; color: #555; margin-bottom: 2mm; }
 
-  .metabox { width: 100%; border-collapse: collapse; font-size: 8.5pt; margin-bottom: 2mm; }
-  .metabox td { border: 0.6pt solid #b8c4bd; padding: 1mm 2mm; }
-  .metabox .k { background: #eef6f6; font-weight: 700; color: #245a59; width: 24mm; white-space: nowrap; }
-  .metabox .v { width: 63mm; }
+  /* Real-world request (ใบขอเบิกคลังยา/ใบเติมหน้างาน — this round): "ยังเปลืองกระดาษอยู่", this time
+     backed by a real HOSxP-system printout the request compared against — a much plainer 8-column
+     sheet with no letterhead crest/org block and no metadata box at all, fitting ~28 rows/page vs
+     this sheet's measured 31 (after the qty-cell fix in the same round). This sheet deliberately
+     keeps its crest/letterhead (official-document identity, per the 2015 cabinet resolution
+     standard already cited above) and its metadata (who printed it and when — real provenance the
+     old blank handwritten "วันที่..." line never had), so it was never going to match that bare
+     printout row-for-row — but the metabox itself was still carrying more height than its 4 plain
+     label/value pairs need: a bordered 2-ROW×4-cell TABLE, when every value here is short enough
+     to read as one line. Collapsed to a single flex row (same .k/.v classes, same 4 values, same
+     border/background treatment per pair) — measured (Playwright/Chromium, not guessed) at 6.3mm
+     instead of the old 12.72mm, exactly halved, with zero information removed. */
+  .metabox { display: flex; flex-wrap: wrap; gap: 0; font-size: 8.5pt; margin-bottom: 2mm; border: 0.6pt solid #b8c4bd; border-radius: 1mm; overflow: hidden; }
+  .metabox .pair { display: flex; align-items: stretch; }
+  .metabox .k { background: #eef6f6; font-weight: 700; color: #245a59; white-space: nowrap; padding: 1mm 2mm; display: flex; align-items: center; }
+  .metabox .v { white-space: nowrap; padding: 1mm 2.5mm 1mm 2mm; display: flex; align-items: center; border-right: 0.6pt solid #b8c4bd; }
+  .metabox .pair:last-child .v { border-right: none; }
 
   /* Bug fix (print pagination): a genuinely long pick/replenish list (this formulary runs
      ~580 meds) can span many pages — nothing here kept a single row's own top/bottom halves
@@ -666,10 +679,12 @@ export function printPickListSheet(
     </div>
     <div class="doctitle">${escapeHtml(heading)}</div>
     <div class="docsub">${escapeHtml(subheading)}</div>
-    <table class="metabox">
-      <tr><td class="k">วันที่</td><td class="v">${escapeHtml(thDateLong(now))}</td><td class="k">จำนวนรายการ</td><td class="v">${sorted.length} รายการ</td></tr>
-      <tr><td class="k">ผู้จัดทำรายการ</td><td class="v">${escapeHtml(meta.printedBy || '—')}</td><td class="k">วันที่จัดพิมพ์เอกสาร</td><td class="v">${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }))}</td></tr>
-    </table>
+    <div class="metabox">
+      <div class="pair"><div class="k">วันที่</div><div class="v">${escapeHtml(thDateLong(now))}</div></div>
+      <div class="pair"><div class="k">จำนวนรายการ</div><div class="v">${sorted.length} รายการ</div></div>
+      <div class="pair"><div class="k">ผู้จัดทำรายการ</div><div class="v">${escapeHtml(meta.printedBy || '—')}</div></div>
+      <div class="pair"><div class="k">วันที่จัดพิมพ์เอกสาร</div><div class="v">${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }))}</div></div>
+    </div>
     <table class="rows">
       <thead><tr><th class="n">ลำดับ</th><th class="bin">${escapeHtml(colLabels.bin)}</th>${showPickBin ? `<th class="pickbin">${escapeHtml(colLabels.pickBin || 'หยิบจาก (substock)')}</th>` : ''}${showWhCode ? `<th class="whcode">รหัสยาคลัง</th>` : ''}<th class="name">รายการยา</th>${showParCols ? `<th class="par">${escapeHtml(colLabels.par || 'Par')}</th><th class="curbal">${escapeHtml(colLabels.curBalance || 'คงเหลือ')}</th>` : ''}${showCarryOver ? `<th class="carryover">ยาที่ค้าง</th>` : ''}<th class="qty">${escapeHtml(colLabels.qty)}</th><th class="check">✓</th></tr></thead>
       <tbody>${body}</tbody>
