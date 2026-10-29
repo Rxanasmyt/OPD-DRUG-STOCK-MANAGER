@@ -76,6 +76,22 @@ describe('printPickListSheet — compact-layout regression', () => {
     expect(html).toContain('.par { width: 20mm;');
   });
 
+  it('renders the metadata box as a single compact row instead of a bordered 2-row table, with all 4 values preserved', () => {
+    const { getHtml } = captureWrittenHtml();
+    printPickListSheet(ROWS, 'ใบเติมหน้างานประจำวัน', 'ทดสอบ', undefined, { printedBy: 'ทดสอบ ผู้จัดทำ' });
+    const html = getHtml();
+
+    expect(html).not.toContain('<table class="metabox">');
+    expect(html).toContain('<div class="metabox">');
+    // All 4 label/value pairs the old 2x2 table held must still be here — restructured, not cut.
+    expect(html).toContain('<div class="k">วันที่</div>');
+    expect(html).toContain('<div class="k">จำนวนรายการ</div>');
+    expect(html).toContain('<div class="v">2 รายการ</div>');
+    expect(html).toContain('<div class="k">ผู้จัดทำรายการ</div>');
+    expect(html).toContain('<div class="v">ทดสอบ ผู้จัดทำ</div>');
+    expect(html).toContain('<div class="k">วันที่จัดพิมพ์เอกสาร</div>');
+  });
+
   it('still prints every row and column of real data — bin, pick-from bin, name, qty, unit', () => {
     const { getHtml } = captureWrittenHtml();
     printPickListSheet(ROWS, 'ใบเติมหน้างานประจำวัน', 'ทดสอบ');
