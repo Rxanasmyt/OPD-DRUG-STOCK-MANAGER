@@ -40,7 +40,28 @@ import { readFile, writeFile, mkdir, appendFile } from 'node:fs/promises';
 // snapshotBeforeDelete(), the last-resort recovery layer resetAllStockLedgers()/
 // resetAllQuantities() write before wiping data) was missing from this list, meaning the one
 // safety net a go-live reset relies on wasn't in the daily backup either.
-const FULL_COLLECTIONS = ['meds', 'lots', 'users', 'usernames', 'pendingReceives', 'meta', 'dailyMetrics', '_preResetSnapshots'];
+// Bug fix (found during a Firestore-quota health check — comparing this list against every
+// `match /{collection}/{id}` block in firestore.rules, the actual source of truth for what
+// collections this app has): FOUR more real, actively-written collections were missing
+// entirely — from both FULL_COLLECTIONS and INCREMENTAL_COLLECTIONS below, with nothing in this
+// script or verify-backup.mjs ever indicating the gap (same silent-gap shape as the two fixes
+// above). A restore from this backup would have come back with each of these simply absent:
+//   - 'floorLots' — the per-shelf floor stock lots commitReconcile()/commitTransfer()/
+//     scrapFloorLot() read and write (firestore.rules' `match /floorLots/{lotId}`, right
+//     alongside `lots`). Mutated in place (qty decrements on every dispense/scrap), not
+//     append-only, and its already-FEFO-allocated batch/expiry detail isn't reconstructable
+//     from txs the way a med's own floor total is — has to be a full read, like `lots`.
+//   - 'parAdjustments' — one row per manual/bulk par-suggestion adjustment (applyOnePar/
+//     applyAllSuggested). Create-only in the rules, but its own timestamp field is
+//     `adjustedAt`, not `ts` — doesn't fit the generic `ts`-based incremental loop below as-is,
+//     and manual par adjustments are infrequent enough that a full read costs nothing.
+//   - 'usageHistory' — one row per usage-import action (commitUsageImport). Same shape as
+//     parAdjustments: create-only, but keyed by `importedAt` not `ts`, and low-volume (imports
+//     happen occasionally, not per-med-per-day) — full read.
+//   - 'whRequestRounds' — one doc PER CATEGORY (เม็ด/น้ำ/ฉีด/ภายนอก — see Med.reqCategory),
+//     updated in place each time that category's warehouse request round is (re)printed.
+//     Mutable and tiny (a handful of docs total) — full read, same as `meta`.
+const FULL_COLLECTIONS = ['meds', 'lots', 'floorLots', 'users', 'usernames', 'pendingReceives', 'meta', 'dailyMetrics', '_preResetSnapshots', 'parAdjustments', 'usageHistory', 'whRequestRounds'];
 
 // Bug fix (Firestore quota incident, real-world report: "วันนี้ก็ถึง limit firestore...แก้ยังไงดี
 // ครับปัญหาซ้ำซาก" — follow-up after the intraday-metrics.yml cadence fix): Google Cloud's own
@@ -56,7 +77,17 @@ const FULL_COLLECTIONS = ['meds', 'lots', 'users', 'usernames', 'pendingReceives
 // where the merged state actually lives across runs (a separate, private backup repo — this
 // script itself has no opinion on that, it just reads/writes whatever directory --state-dir
 // points at).
-const INCREMENTAL_COLLECTIONS = ['txs', 'auditLog'];
+//
+// Bug fix (same health-check as FULL_COLLECTIONS' comment above): 'returns' — one row per
+// patient/ward medication return (commitSingleReturn/commitReturnCart) — was missing from the
+// backup entirely, but unlike parAdjustments/usageHistory above, it fits this incremental loop
+// with ZERO new code: it's create-only in firestore.rules (`allow update, delete: if false`,
+// same guarantee as txs/auditLog) AND already uses the exact same `ts: number` field name this
+// loop already filters/tracks on. Returns are routine enough in a hospital (unlike the
+// infrequent, human-initiated parAdjustments/usageHistory) that this collection can plausibly
+// keep growing for this hospital's whole lifetime the same way txs/auditLog do — worth the
+// incremental treatment from day one instead of waiting for its own future quota incident.
+const INCREMENTAL_COLLECTIONS = ['txs', 'auditLog', 'returns'];
 
 // A deliberately generous overlap re-read window, not a tight cutoff: `ts` is a CLIENT-set
 // timestamp (Date.now() at write time — see firestore.rules' txs/auditLog create rules), not a
