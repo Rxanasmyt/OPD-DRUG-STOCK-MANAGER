@@ -79,6 +79,14 @@ export default function CountScreen() {
   const oneBusyKey = (id: string) => (loc === 'floor' ? 'count:' : 'subCount:') + id;
   const systemQtyOf = (m: Med) => (loc === 'floor' ? m.floor : subQty(state, m.id));
   const lastTsOf = (m: Med) => (loc === 'floor' ? m.lastCountTs : m.lastSubCountTs);
+  // Real-world report: "เคยกรอกผิดมาแล้ว ทำให้เกิด error ได้ง่าย" — countInputs/subCountInputs
+  // are already two completely separate state slots (see Loc's own doc comment above), so a
+  // value typed under one tab can never leak into the other's stored data however the two tabs
+  // are switched between. The real gap was the batch commit button below never naming which
+  // mode it was about to save — nothing stopped someone from switching tabs, not noticing, and
+  // confidently tapping "save everything" while reading the wrong tab's banner. Named here so
+  // the one moment that actually commits data says out loud what it's about to commit.
+  const locLabel = loc === 'floor' ? 'หน้างาน (floor)' : 'substock';
   // Real-world request: "ไล่ดูตามรหัสชั้นวาง" — the shelf-position sort/filter TransferScreen
   // already offers for เติมหน้างาน, brought here too so a physical cycle count (walking the
   // shelf/substock room in one pass) doesn't have to fight an alphabetical or staleness order.
@@ -222,7 +230,7 @@ export default function CountScreen() {
         >
           {state.busy[allBusyKey]
             ? 'กำลังบันทึก…'
-            : `บันทึกที่กรอกไว้ทั้งหมด (${nf(typedIds.length)} รายการ` + (typedDiffCount > 0 ? ` · มีส่วนต่าง ${nf(typedDiffCount)})` : ' · ตรงกับระบบทุกรายการ)')}
+            : `บันทึกยอดนับ${locLabel} ที่กรอกไว้ทั้งหมด (${nf(typedIds.length)} รายการ` + (typedDiffCount > 0 ? ` · มีส่วนต่าง ${nf(typedDiffCount)})` : ' · ตรงกับระบบทุกรายการ)')}
         </button>
       )}
 
