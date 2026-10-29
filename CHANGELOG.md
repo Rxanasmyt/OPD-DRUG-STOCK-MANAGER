@@ -7,6 +7,28 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.222.0] - 2026-10-29
+
+### แก้ไข
+- **บัคจริง (ตรวจตามคำขอ "ตรวจสอบเรื่อง limit firebase"): backup รายวันขาดไป 4 collection เต็มๆ
+  — ถ้าต้อง restore จริงจะหายแบบไม่มีใครรู้** — เทียบรายชื่อ collection ใน `firestore.rules`
+  (แหล่งความจริงที่สุดว่าแอพมีกี่ collection จริง) กับรายชื่อใน `scripts/backup-firestore.mjs`
+  พบว่าขาดไป 4 collection ที่แอพเขียนจริงทุกวัน: `floorLots` (สต็อกหน้างานแยกตามชั้นวาง —
+  commitReconcile/commitTransfer/scrapFloorLot ใช้), `parAdjustments` (ประวัติปรับ par),
+  `usageHistory` (ประวัตินำเข้าข้อมูลการใช้ยา), `whRequestRounds` (รอบพิมพ์ใบขอเบิกแต่ละหมวด)
+  — ไม่มีจุดไหนในสคริปต์หรือ `verify-backup.mjs` เคยแจ้งเตือนว่าขาดเลย (บัคคลาสเดียวกับที่เคยแก้
+  `dailyMetrics`/`_preResetSnapshots` ไปก่อนหน้านี้) เพิ่มทั้ง 4 เข้า `FULL_COLLECTIONS` (ยกเว้น
+  `returns` ที่พบว่าขาดไปด้วยเหมือนกัน แต่เข้าเงื่อนไข incremental ได้ตรงเป๊ะ — create-only +
+  มีฟิลด์ `ts` ชื่อเดียวกับที่ลูปเดิมใช้อยู่แล้ว — จึงใส่ใน `INCREMENTAL_COLLECTIONS` แทนโดยไม่ต้อง
+  เพิ่มโค้ดใหม่เลย) ยืนยันแล้วว่าตอนนี้ 15 collection ใน firestore.rules ครบอยู่ใน backup ทั้งหมด
+- **ตรวจสอบสถานะ Firestore quota โดยรวม (ไม่พบจุดใหม่ที่ต้องแก้)** — ไล่ตรวจ read pattern ของทุก
+  background script ที่รันตามตาราง (collect-daily-metrics × 4 ครั้ง/วัน, recompute-usage-stats,
+  check-stock-drift, notify-low-stock, backup-firestore — รวม 1 ครั้ง/วันต่อสคริปต์) ทุกตัวอ่าน
+  `meds` แบบเต็ม (จำเป็น — ทุกยาที่ยัง active/inactive ถูกใช้จริงหลายจุด) และ `lots`/`txs`/
+  `auditLog`/`dailyMetrics`/`pendingReceives` แบบกรองแล้วทั้งหมด (`qty > 0` หรือกรองช่วงวันที่) —
+  เป็นไปตามรูปแบบที่แก้ไว้แล้วจาก incident ก่อนหน้า (ดู PR #116-121 และรายการ "Firestore quota
+  incident" อื่นๆ ใน CHANGELOG นี้) ไม่พบรูปแบบใหม่ที่เสี่ยงทำให้เกิน quota เพิ่ม
+
 ## [3.221.0] - 2026-10-28
 
 ### แก้ไข
