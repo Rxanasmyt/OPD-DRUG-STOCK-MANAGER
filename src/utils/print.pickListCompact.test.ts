@@ -4,6 +4,10 @@
 // tighter @page margin and table/letterhead/signoff padding. This only checks the two things that
 // actually matter for the request: the page uses noticeably less space, and every row/column of
 // real data is still printed — nothing dropped to get there.
+// Follow-up request: "ใบเบิกคลังยาสามารถลดขนาดฟอนต์ให้ประหยัดพื้นที่กระดาษได้อีกมั้ยครับ" — a second
+// pass went further (margin 10mm→8mm, table cell padding 1.5mm 2.5mm→1.1mm 2mm, every font-size
+// cut ~1pt) — see print.ts's own updated comment on this <style> block for the full before/after
+// and why the drug-name column's relative size over body text was deliberately preserved.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { printPickListSheet, type PickListRow } from './print';
 
@@ -37,11 +41,14 @@ describe('printPickListSheet — compact-layout regression', () => {
     printPickListSheet(ROWS, 'ใบเติมหน้างานประจำวัน', 'ทดสอบ');
     const html = getHtml();
 
-    expect(html).toContain('@page { size: A4; margin: 10mm; }');
-    // The old layout's own values must be gone, not just a new rule added alongside them.
+    expect(html).toContain('@page { size: A4; margin: 8mm; }');
+    // Both the pre-first-pass values AND the first pass's own since-superseded values must be
+    // gone, not just a new rule added alongside them.
     expect(html).not.toContain('margin: 16mm 14mm');
-    expect(html).toContain('table.rows td { padding: 1.5mm 2.5mm;');
+    expect(html).not.toContain('@page { size: A4; margin: 10mm; }');
+    expect(html).toContain('table.rows td { padding: 1.1mm 2mm;');
     expect(html).not.toContain('padding: 2.4mm 3mm');
+    expect(html).not.toContain('padding: 1.5mm 2.5mm');
   });
 
   it('still prints every row and column of real data — bin, pick-from bin, name, qty, unit', () => {
