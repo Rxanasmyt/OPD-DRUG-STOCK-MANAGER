@@ -41,9 +41,9 @@ describe('printPickListSheet — par/คงเหลือ columns regression', 
 
     expect(html).toContain('<th class="par">Par</th>');
     expect(html).toContain('<th class="curbal">คงเหลือ</th>');
-    // Boxed row: box count is the PRIMARY figure, exact unit qty is the secondary detail line.
-    expect(html).toContain('<div class="qtybox">17 กล่อง</div>');
-    expect(html).toContain('<div class="qtysub">510 เม็ด</div>');
+    // Boxed row: box count is the PRIMARY figure, exact unit qty is the secondary detail —
+    // inline (one line, not stacked — see qtyCell()'s own doc comment in print.ts for why).
+    expect(html).toContain('<span class="qtybox">17 กล่อง</span> <span class="qtysub">(510 เม็ด)</span>');
     // Par/balance values printed for both rows.
     expect(html).toContain('<td class="par">500</td>');
     expect(html).toContain('<td class="curbal">0</td>');
