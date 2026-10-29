@@ -528,47 +528,52 @@ export function printPickListSheet(
      ช่วยลดพื้นที่การใช้แต่ข้อมูลยังครบถ้วนเหมือนเดิม" — this sheet (shared by ใบจัดยาเติมชั้น,
      ใบเติมหน้างานประจำวัน, and ใบขอเบิกจากคลังใหญ่, exactly the three documents named) is the one
      genuinely long one in this file: a real run can list most of the ~580-med formulary, so every
-     mm of margin/padding here is multiplied by hundreds of rows. Every size below is tightened
-     (smaller page margin, tighter letterhead/table padding, smaller non-data chrome like the
-     checkbox column and signature block) while keeping every column, every row, and every piece
-     of information exactly as it was — this is a spacing pass only, nothing here removes or
-     abbreviates any printed data. 9.5–10pt body/table text is still comfortably legible printed
-     (the same size range official Thai forms commonly use), so nothing here trades readability
-     for page count either. */
-  @page { size: A4; margin: 10mm; }
+     mm of margin/padding here is multiplied by hundreds of rows. First pass (spacing only): page
+     margin/letterhead/table padding tightened while keeping every column/row/piece of information
+     exactly as it was, with body/table text held at 9.5–10pt — explicitly NOT trading readability
+     for page count.
+     Follow-up real-world request (this round): "ใบเบิกคลังยาสามารถลดขนาดฟอนต์ให้ประหยัดพื้นที่กระดาษ
+     ได้อีกมั้ยครับ" — asked explicitly to go further and accept smaller text this time (offered the
+     spacing-only option again first; this was the one chosen). Every font-size below is cut by
+     roughly 1pt from the first pass. The drug-name column — the one safety-critical read on this
+     sheet (see .name's own comment) — drops too (11.5pt → 10.5pt) but deliberately keeps the SAME
+     ~1pt gap over body text it always had, so the "this one column is bigger, read it first"
+     signal this sheet relies on for pick-safety is preserved relative to everything else, not
+     flattened out by this pass. */
+  @page { size: A4; margin: 8mm; }
   * { box-sizing: border-box; }
   /* Sarabun is the closest freely-loadable match to TH Sarabun New — the typeface the 2015
      cabinet resolution set as the standard for official Thai government documents — with
      'Noto Sans Thai'/system sans as a fallback if the page prints before the web font loads. */
-  body { font-family: 'Sarabun', 'Noto Sans Thai', system-ui, -apple-system, sans-serif; margin: 0; color: #14211a; font-size: 10.5pt; }
+  body { font-family: 'Sarabun', 'Noto Sans Thai', system-ui, -apple-system, sans-serif; margin: 0; color: #14211a; font-size: 9.5pt; }
 
-  .letterhead { display: flex; align-items: center; gap: 3mm; padding-bottom: 2mm; border-bottom: 1pt solid #14211a; }
+  .letterhead { display: flex; align-items: center; gap: 3mm; padding-bottom: 1.5mm; border-bottom: 1pt solid #14211a; }
   .letterhead .crest { flex: none; display: flex; align-items: center; }
-  .letterhead .org .h1 { font-size: 13pt; font-weight: 700; line-height: 1.25; }
-  .letterhead .org .h2 { font-size: 9.5pt; color: #444; line-height: 1.25; }
+  .letterhead .org .h1 { font-size: 12pt; font-weight: 700; line-height: 1.2; }
+  .letterhead .org .h2 { font-size: 8.5pt; color: #444; line-height: 1.2; }
 
-  .doctitle { text-align: center; font-size: 14pt; font-weight: 700; margin: 3mm 0 1mm; letter-spacing: .01em; }
-  .docsub { text-align: center; font-size: 9.5pt; color: #555; margin-bottom: 2.5mm; }
+  .doctitle { text-align: center; font-size: 12.5pt; font-weight: 700; margin: 2mm 0 1mm; letter-spacing: .01em; }
+  .docsub { text-align: center; font-size: 8.5pt; color: #555; margin-bottom: 2mm; }
 
-  .metabox { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-bottom: 3mm; }
-  .metabox td { border: 0.6pt solid #b8c4bd; padding: 1.2mm 2.5mm; }
+  .metabox { width: 100%; border-collapse: collapse; font-size: 8.5pt; margin-bottom: 2mm; }
+  .metabox td { border: 0.6pt solid #b8c4bd; padding: 1mm 2mm; }
   .metabox .k { background: #eef6f6; font-weight: 700; color: #245a59; width: 24mm; white-space: nowrap; }
   .metabox .v { width: 63mm; }
 
   /* Bug fix (print pagination): a genuinely long pick/replenish list (this formulary runs
      ~580 meds) can span many pages — nothing here kept a single row's own top/bottom halves
      from splitting across the page cut. Same fix as the other print sheets' tables in this file. */
-  table.rows { width: 100%; border-collapse: collapse; font-size: 10pt; }
+  table.rows { width: 100%; border-collapse: collapse; font-size: 9pt; }
   table.rows tr { break-inside: avoid; }
-  table.rows th { text-align: left; font-size: 9pt; font-weight: 700; color: #14211a; background: #eef6f6; border: 0.6pt solid #9fb8b8; padding: 1.4mm 2.5mm; }
-  table.rows td { padding: 1.5mm 2.5mm; border: 0.5pt solid #cdd6d1; }
+  table.rows th { text-align: left; font-size: 8pt; font-weight: 700; color: #14211a; background: #eef6f6; border: 0.6pt solid #9fb8b8; padding: 1.1mm 2mm; }
+  table.rows td { padding: 1.1mm 2mm; border: 0.5pt solid #cdd6d1; }
   table.rows tbody tr:nth-child(even) { background: #f8faf9; }
   /* Route-group header row (see PickListRow.route's own doc comment) — a full-width row inside
      the SAME table (not a separate table per group) so the printed sheet stays one continuous,
      numbered checklist across groups — no thead repeats, no page-break oddities from splitting
      into multiple tables. Distinct from the even/odd striping above (its own background always
      wins via source order) so a group header never gets mistaken for a data row at a glance. */
-  table.rows tr.grouphead td { background: #e4efe9; color: #17552f; font-weight: 700; font-size: 10pt; padding: 1.8mm 2.5mm; border: 0.6pt solid #9fb8b8; }
+  table.rows tr.grouphead td { background: #e4efe9; color: #17552f; font-weight: 700; font-size: 9pt; padding: 1.4mm 2mm; border: 0.6pt solid #9fb8b8; }
   .n { width: 7mm; color: #667; text-align: center; }
   /* Real-world request: "คอลัมน์ชั้นวางยา และหยิบจาก substock สามารถทำให้แคบกว่านี้ได้...ส่วน
      รายการความกว้างคอลัมน์ให้เพิ่มพื้นที่หน่อย" — bin/shelf codes (nowrap) rarely need the room
@@ -585,15 +590,16 @@ export function printPickListSheet(
      comment) — a small flag number, amber like .note above since it's the same "worth a
      second look, not an error" severity. */
   .carryover { width: 16mm; text-align: right; font-weight: 700; color: #a15c00; }
-  .pickbinsub { font-size: 7.5pt; color: #667; font-weight: 400; margin-top: 0.3mm; white-space: normal; }
+  .pickbinsub { font-size: 7pt; color: #667; font-weight: 400; margin-top: 0.3mm; white-space: normal; }
   /* Real-world request: "อยากให้ชื่อรายการยามีความเด่น เพื่อป้องกันการหยิบยาผิด" — the drug name is
      the single safety-critical read on every row of this sheet (picking the wrong med off the
      shelf is the actual failure this guards against), so it gets its own larger/bolder weight
-     instead of blending into the same 10pt body text as every other column. */
-  .name { font-size: 11.5pt; font-weight: 700; }
+     instead of blending into the same body text as every other column. Kept ~1pt above body
+     text through the later font-shrink pass above too — see that comment for why. */
+  .name { font-size: 10.5pt; font-weight: 700; }
   .qty { width: 26mm; font-weight: 700; text-align: right; }
-  .check { width: 10mm; text-align: center; font-size: 12pt; }
-  .note { font-size: 8pt; color: #a15c00; font-weight: 600; margin-top: 0.5mm; }
+  .check { width: 10mm; text-align: center; font-size: 11pt; }
+  .note { font-size: 7.5pt; color: #a15c00; font-weight: 600; margin-top: 0.5mm; }
   /* Real-world request: "...ให้มีหมายเหตุไว้ว่า substock เป็น 0 เพื่อที่จะแก้ไขปัญหาที่ยาขาดครับ" — a
      zero-substock row (printTodayReplenishList) is a real shortage to escalate, not just the
      ordinary "picked less than full par" heads-up .note already covers, so it reads in red/
@@ -609,23 +615,23 @@ export function printPickListSheet(
   .par { width: 20mm; text-align: center; color: #556; }
   .curbal { width: 14mm; text-align: right; color: #556; }
   .qtybox { font-weight: 700; }
-  .qtysub { font-size: 7.5pt; color: #667; font-weight: 400; margin-top: 0.3mm; }
+  .qtysub { font-size: 7pt; color: #667; font-weight: 400; margin-top: 0.3mm; }
 
-  .heldsection { margin-top: 4mm; }
-  .heldsection .heldtitle { font-size: 10.5pt; font-weight: 700; color: #8a2e2e; margin-bottom: 1mm; }
-  .heldsection .heldsub { font-size: 8.5pt; color: #666; margin-bottom: 1.5mm; }
-  table.held { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+  .heldsection { margin-top: 3mm; }
+  .heldsection .heldtitle { font-size: 9.5pt; font-weight: 700; color: #8a2e2e; margin-bottom: 1mm; }
+  .heldsection .heldsub { font-size: 8pt; color: #666; margin-bottom: 1.2mm; }
+  table.held { width: 100%; border-collapse: collapse; font-size: 8.5pt; }
   table.held tr { break-inside: avoid; }
-  table.held th { text-align: left; font-size: 8.5pt; font-weight: 700; color: #8a2e2e; background: #fbeceb; border: 0.6pt solid #e3b6b3; padding: 1.2mm 2.5mm; }
-  table.held td { padding: 1.4mm 2.5mm; border: 0.5pt solid #e8d3d2; }
+  table.held th { text-align: left; font-size: 8pt; font-weight: 700; color: #8a2e2e; background: #fbeceb; border: 0.6pt solid #e3b6b3; padding: 1mm 2mm; }
+  table.held td { padding: 1.1mm 2mm; border: 0.5pt solid #e8d3d2; }
   table.held tbody tr:nth-child(even) { background: #fdf6f5; }
   .heldsince { width: 32mm; white-space: nowrap; color: #666; }
 
-  .signoff { display: flex; justify-content: space-between; gap: 8mm; margin-top: 7mm; break-inside: avoid; }
-  .signoff .sig { flex: 1; text-align: center; font-size: 9.5pt; }
-  .signoff .sig .line { border-bottom: 0.6pt solid #14211a; height: 8mm; }
-  .signoff .sig .lbl { margin-top: 1.5mm; font-weight: 700; }
-  .signoff .sig .date { margin-top: 3mm; color: #555; }
+  .signoff { display: flex; justify-content: space-between; gap: 8mm; margin-top: 5mm; break-inside: avoid; }
+  .signoff .sig { flex: 1; text-align: center; font-size: 8.5pt; }
+  .signoff .sig .line { border-bottom: 0.6pt solid #14211a; height: 6mm; }
+  .signoff .sig .lbl { margin-top: 1mm; font-weight: 700; }
+  .signoff .sig .date { margin-top: 2mm; color: #555; }
 
   @media screen {
     body { background: #eee; padding: 14mm; }
