@@ -130,3 +130,37 @@ describe('CountScreen — box-counting regression', () => {
     expect(screen.getByText('= 35 เม็ด')).toBeInTheDocument();
   });
 });
+
+// Real-world report: "เคยกรอกผิดมาแล้ว ทำให้เกิด error ได้ง่าย" (ระหว่างนับหน้างาน/substock แยกกัน
+// ไม่ชัดว่ากำลังจะบันทึกโหมดไหน) — countInputs/subCountInputs are already two fully separate
+// state slots (a value typed under one tab can never land in the other's stored data), but the
+// batch "save everything" button never named which mode it was about to commit — the one real
+// gap: switch tabs, not notice, confidently save the wrong one. Named explicitly in the button
+// text itself, the one place that actually commits data.
+describe('CountScreen — commit-all button names the mode being saved', () => {
+  it('says "หน้างาน (floor)" while on the floor tab', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<CountScreen />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [PLAIN_MED]);
+    fireCollection('lots', []);
+
+    await user.type(await screen.findByLabelText('จำนวนที่นับได้ ' + PLAIN_MED.name), '30');
+    expect(screen.getByRole('button', { name: /บันทึกยอดนับหน้างาน \(floor\) ที่กรอกไว้ทั้งหมด/ })).toBeInTheDocument();
+  });
+
+  it('says "substock" while on the substock tab, for the same med and value', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<CountScreen />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [PLAIN_MED]);
+    fireCollection('lots', []);
+
+    await user.click(screen.getByRole('button', { name: 'นับ substock' }));
+    await user.type(await screen.findByLabelText('จำนวนที่นับได้ ' + PLAIN_MED.name), '30');
+    expect(screen.getByRole('button', { name: /บันทึกยอดนับsubstock ที่กรอกไว้ทั้งหมด/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /บันทึกยอดนับหน้างาน \(floor\)/ })).not.toBeInTheDocument();
+  });
+});
