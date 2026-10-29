@@ -2253,13 +2253,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // a substock stage is judged against substock/parSub as before; one without is judged
     // against floor/parFloor instead — every active med lands in exactly one of those checks,
     // never both, so nothing doubles up and nothing that actually needs requesting is missing.
-    const items = state.meds.filter((m) => m.active && needsWarehouseRequest(m, subQty(state, m.id))
+    // Real-world request: "อยากให้มียาทุกตัว ถึงแม้ว่าจะสูงเกินกว่า max แล้ว ให้ใส่จำนวนที่ควรเบิก
+    // เป็น 0 แทน" — matches the original Google-Sheet/HOSxP-printed form this replaced, which
+    // always listed the FULL formulary with 0 for anything already at/above its own max, rather
+    // than silently dropping rows that don't currently need anything. Used to filter on
+    // needsWarehouseRequest() here (below par only); now lists every active med in scope, and
+    // leaves the actual "0 vs a real number" distinction to the qty math below (`need` is
+    // already correctly 0 — never negative — whenever curBalance is already at/over par).
+    // needsWarehouseRequest() itself is untouched and still drives every OTHER "needs
+    // restocking" signal in the app (ReceiveScreen's needsReceive list, HomeScreen's badge
+    // count) — this is a print-sheet-only change, not a redefinition of "needs requesting".
+    const items = state.meds.filter((m) => m.active && !isOnStockHold(m)
       && (!categoryFilter || reqCategoryOf(m) === categoryFilter));
     // Real-world request: a med flagged isOnStockHold() (supplier delay/discontinuation,
-    // warehouse closed for fiscal year-end) is already excluded from `items` above via
-    // needsWarehouseRequest() — correctly, since requesting it again does nothing — but
-    // whoever carries this sheet to the warehouse should still see it listed as an open
-    // question, not have it silently vanish as if the shortage were resolved.
+    // warehouse closed for fiscal year-end) is excluded from `items` above — correctly, since
+    // requesting it again does nothing — but whoever carries this sheet to the warehouse should
+    // still see it listed as an open question, not have it silently vanish as if the shortage
+    // were resolved.
     const heldMeds = state.meds.filter((m) => m.active && isOnStockHold(m)
       && (!categoryFilter || reqCategoryOf(m) === categoryFilter));
     const rows: PickListRow[] = items.map((m) => {
@@ -2277,8 +2287,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // fallback as before for the generic magnitude step (not a physical box, no overfill risk
       // there). qty stays an exact multiple of m.packSize either way (nearest is still a multiple
       // of step), so `boxes` below is still a clean division, never a guess.
+      // Bug fix (same round as listing every med regardless of par, above): the `Math.max(step,
+      // ...)` floor below exists so a real shortfall never rounds DOWN to 0 boxes — correct only
+      // when `need` is already known to be positive, which every row used to be guaranteed to be
+      // (the old needsWarehouseRequest() filter never let a `need === 0` row reach this code).
+      // Now that this list includes meds already at/above par too, `need === 0` is a real,
+      // common case here — and that same floor would have wrongly forced a 1-box request for a
+      // med that needs nothing at all. Short-circuit to exactly 0 first.
       const step = packStep(m);
-      const qty = m.packSize && m.packSize > 1
+      const qty = need <= 0 ? 0
+        : m.packSize && m.packSize > 1
         ? Math.max(step, Math.round(need / step) * step)
         : Math.ceil(need / step) * step;
       // Real-world request: "จำนวนที่ต้องเบิกเป็นจำนวนกล่อง...และยอดคงเหลือ ณ ปัจจุบัน" — qty above
@@ -2315,8 +2333,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const printWarehouseRequestList = useCallback(() => {
     const { items, heldMeds, rows, heldRows } = buildWarehouseRequestRows();
-    if (!items.length && !heldMeds.length) { toast('ทุกรายการยังสูงกว่า par — ยังไม่ต้องเบิกเพิ่ม'); return; }
-    const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการยาที่มีปริมาณคงคลังต่ำกว่าเกณฑ์มาตรฐาน (Par) ทั้งระบบ รวมถึงรายการยาที่ไม่มีการสำรองคลังย่อย (Substock)', { bin: 'ชั้นวาง substock', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() }, ['ผู้จัดทำคำขอ (ห้องยา)', 'ผู้อนุมัติคำขอ (ห้องยา)', 'ผู้จ่ายยา (คลังใหญ่)'], heldRows);
+    // Bug fix (same round as listing every med regardless of par, buildWarehouseRequestRows'
+    // own comment above): `items` now includes every active med, not just the ones below par —
+    // this guard only ever fires on a genuinely empty formulary now, never "nothing needs
+    // restocking today" (that's just every row printing qty 0, a normal, expected result).
+    if (!items.length && !heldMeds.length) { toast('ไม่มีรายการยาที่ active อยู่ในระบบ'); return; }
+    const ok = printPickListSheet(rows, 'ใบขอเบิกจากคลังใหญ่', 'รายการยาทั้งหมด (รวมถึงรายการที่ไม่มีการสำรองคลังย่อย — Substock) — จำนวนที่ควรเบิกคำนวณจากปริมาณคงคลังเทียบกับเกณฑ์มาตรฐาน (Par); 0 หมายถึงยังไม่ต้องเบิกเพิ่ม', { bin: 'ชั้นวาง substock', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() }, ['ผู้จัดทำคำขอ (ห้องยา)', 'ผู้อนุมัติคำขอ (ห้องยา)', 'ผู้จ่ายยา (คลังใหญ่)'], heldRows);
     toast(ok ? 'เปิดหน้าต่างพิมพ์แล้ว' : 'เปิดหน้าต่างพิมพ์ไม่ได้ — เบราว์เซอร์บล็อกป็อปอัป ลองอนุญาตป็อปอัปสำหรับเว็บนี้แล้วลองใหม่');
   }, [state, toast, userName]);
 
@@ -2342,7 +2364,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // comment, print.ts), so it can never double-count a request.
   const printWarehouseRequestByCategory = useCallback(async (category: ReqCategory) => {
     const { items, heldMeds, rows, heldRows } = buildWarehouseRequestRows(category);
-    if (!items.length && !heldMeds.length) { toast('หมวด' + reqCategoryLabel(category).replace(/^\S+\s/, '') + ' ยังไม่มีรายการที่ต้องเบิกตอนนี้'); return; }
+    // Bug fix (same round as listing every med regardless of par, buildWarehouseRequestRows'
+    // own comment above): `items` now includes every active med in this category, not just the
+    // ones below par — this guard only ever fires when the category genuinely has no active
+    // meds at all now, never "nothing needs restocking today" (that's just every row printing
+    // qty 0, a normal, expected result).
+    if (!items.length && !heldMeds.length) { toast('หมวด' + reqCategoryLabel(category).replace(/^\S+\s/, '') + ' ยังไม่มีรายการยาที่ active อยู่'); return; }
     // Real-world request: "การปริ้นใบเบิก ให้ชื่อยาตามลำดับเหมือน gg sheet ให้ครบถ้วน" — rows is
     // shared with printWarehouseRequestList above, which sets `route` so printPickListSheet
     // groups by it (useful there — one combined sheet covering every route at once). This
@@ -2374,7 +2401,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
     const ok = printPickListSheet(
       rows, 'ใบขอเบิกจากคลังใหญ่ — ' + reqCategoryLabel(category),
-      'รายการยาที่มีปริมาณคงคลังต่ำกว่าเกณฑ์มาตรฐาน (Par) ในหมวดนี้',
+      'รายการยาทั้งหมดในหมวดนี้ — จำนวนที่ควรเบิกคำนวณจากปริมาณคงคลังเทียบกับเกณฑ์มาตรฐาน (Par); 0 หมายถึงยังไม่ต้องเบิกเพิ่ม',
       { bin: 'ชั้นวาง substock', qty: 'จำนวนที่ควรเบิก' }, { printedBy: userName() },
       ['ผู้ขอเบิก', 'ผู้จ่าย', 'ผู้อนุมัติ', 'ผู้รับของ'], heldRows,
     );

@@ -1752,6 +1752,70 @@ describe('printWarehouseRequestList — substock-bin-instead-of-med-code regress
   });
 });
 
+// Real-world request: "ในใบเบิกอยากให้มียาทุกตัว ถึงแม้ว่าจะสูงเกินกว่า max แล้ว ให้ใส่จำนวนที่ควร
+// เบิกเป็น 0 แทน" — matches the original Google-Sheet/HOSxP-printed form, which always listed
+// the full formulary (0 for anything already at/above its own max) rather than silently
+// dropping rows that don't currently need anything.
+const WH_ABOVE_PAR_MED = {
+  id: 'm13', code: 'MED-0013', name: 'Adenosine 6mg', unit: 'Vial', dosageForm: 'ฉีด',
+  price: 1, had: false, active: true, parSub: 12, parFloor: 5, floorMin: 2, floor: 5,
+  bin: 'B13', binSub: 'S61', noSubstock: false, packSize: 1, used30: 0, usedPrev30: 0, volatility: 0,
+};
+const WH_ABOVE_PAR_BOXED_MED = {
+  id: 'm14', code: 'MED-0014', name: 'Ceftriaxone sodium 1 g', unit: 'Vial', dosageForm: 'ฉีด',
+  price: 1, had: false, active: true, parSub: 900, parFloor: 100, floorMin: 50, floor: 100,
+  bin: 'B14', binSub: 'S62', noSubstock: false, packSize: 50, used30: 0, usedPrev30: 0, volatility: 0,
+};
+
+describe('printWarehouseRequestList — lists every active med, 0 for anything already at/above par', () => {
+  it('still includes a med already at par, with qty 0 (not omitted)', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<PrintWarehouseRequestHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [WH_ABOVE_PAR_MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    // Exactly at parSub (12) — curSub === parSub, not below it.
+    fireCollection('lots', [{ id: 'l13', medId: WH_ABOVE_PAR_MED.id, qty: 12, loc: WH_ABOVE_PAR_MED.binSub }]);
+
+    const callsBefore = vi.mocked(printModule.printPickListSheet).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'print-warehouse-request' }));
+    await waitFor(() => expect(vi.mocked(printModule.printPickListSheet).mock.calls.length).toBeGreaterThan(callsBefore));
+    const rows = vi.mocked(printModule.printPickListSheet).mock.calls[callsBefore][0];
+    const row = rows.find((r) => r.name === WH_ABOVE_PAR_MED.name);
+    expect(row).toBeDefined();
+    expect(row?.qty).toBe(0);
+    expect(row?.boxes).toBe(0);
+    expect(row?.curBalance).toBe(12);
+    expect(row?.par).toBe(12);
+  });
+
+  it('never floors a boxed med already at/above par up to a 1-box request', async () => {
+    // Regression guard: the box-rounding floor (Math.max(step, ...)) that stops a REAL shortfall
+    // rounding down to 0 boxes used to run unconditionally — before this round, every row here
+    // was already guaranteed to need something, so that never mattered. Now that at/above-par
+    // meds reach this same code, that same floor would have wrongly forced a 1-box (50-unit)
+    // request for a med that needs nothing at all.
+    const user = userEvent.setup();
+    renderWithApp(<PrintWarehouseRequestHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [WH_ABOVE_PAR_BOXED_MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    // Above parSub (900) — curSub 950 > parSub 900.
+    fireCollection('lots', [{ id: 'l14', medId: WH_ABOVE_PAR_BOXED_MED.id, qty: 950, loc: WH_ABOVE_PAR_BOXED_MED.binSub }]);
+
+    const callsBefore = vi.mocked(printModule.printPickListSheet).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'print-warehouse-request' }));
+    await waitFor(() => expect(vi.mocked(printModule.printPickListSheet).mock.calls.length).toBeGreaterThan(callsBefore));
+    const rows = vi.mocked(printModule.printPickListSheet).mock.calls[callsBefore][0];
+    const row = rows.find((r) => r.name === WH_ABOVE_PAR_BOXED_MED.name);
+    expect(row).toBeDefined();
+    expect(row?.qty).toBe(0);
+    expect(row?.boxes).toBe(0);
+  });
+});
+
 const WH_BOXED_MED = {
   id: 'm12', code: 'MED-0012', name: 'Diclofenac 25mg', unit: 'เม็ด', dosageForm: 'เม็ด',
   price: 1, had: false, active: true, parSub: 500, parFloor: 100, floorMin: 50, floor: 80,
