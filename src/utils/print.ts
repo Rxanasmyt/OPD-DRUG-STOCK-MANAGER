@@ -466,7 +466,7 @@ export function printPickListSheet(
   const showCarryOver = sorted.some((r) => r.carryOver);
   const colCount = 3 + (showPickBin ? 1 : 0) + (showParCols ? 2 : 0) + (showWhCode ? 1 : 0) + (showCarryOver ? 1 : 0) + 2; // ลำดับ, ชั้น, [หยิบจาก], [รหัสคลัง], รายการยา, [Par, คงเหลือ], [ยาที่ค้าง], จำนวน, ✓
   const qtyCell = (r: PickListRow) => showParCols && r.boxes
-    ? `<td class="qty"><div class="qtybox">${r.boxes.toLocaleString('en-US')} กล่อง</div><div class="qtysub">${r.qty.toLocaleString('en-US')} ${escapeHtml(r.unit)}</div></td>`
+    ? `<td class="qty"><span class="qtybox">${r.boxes.toLocaleString('en-US')} กล่อง</span> <span class="qtysub">(${r.qty.toLocaleString('en-US')} ${escapeHtml(r.unit)})</span></td>`
     : `<td class="qty">${r.qty.toLocaleString('en-US')} ${escapeHtml(r.unit)}</td>`;
   const rowHtml = (r: PickListRow, i: number) => `<tr>
       <td class="n">${i + 1}</td>
@@ -584,8 +584,11 @@ export function printPickListSheet(
   .pickbin { width: 16mm; font-weight: 700; white-space: nowrap; color: #245a59; }
   /* รหัสยาคลัง (printWarehouseRequestList only — see PickListRow.whCode's own doc comment) —
      a plain code, same narrow/nowrap treatment as .bin, since it's an identifier to scan, not
-     prose. */
-  .whcode { width: 18mm; white-space: nowrap; color: #556; }
+     prose. Bug fix (measured, not guessed — see qty's own comment below): a real browser render
+     of the longest realistic code (7 digits, e.g. "1100002") only ever needs ~14.4mm including
+     cell padding; the old 18mm was never actually earning its keep, so the surplus moved to
+     qty below, which measurably needed it. */
+  .whcode { width: 15mm; white-space: nowrap; color: #556; }
   /* ยาที่ค้าง (printWarehouseRequestByCategory only — see PickListRow.carryOver's own doc
      comment) — a small flag number, amber like .note above since it's the same "worth a
      second look, not an error" severity. */
@@ -597,8 +600,22 @@ export function printPickListSheet(
      instead of blending into the same body text as every other column. Kept ~1pt above body
      text through the later font-shrink pass above too — see that comment for why. */
   .name { font-size: 10.5pt; font-weight: 700; }
-  .qty { width: 26mm; font-weight: 700; text-align: right; }
-  .check { width: 10mm; text-align: center; font-size: 11pt; }
+  /* Real-world request (this round): "ใบเบิกคลังยา...ยังเปลืองกระดาษอยู่" — this column used to be
+     the SINGLE biggest forced cost on this sheet: qtyCell() rendered the box count and the real
+     unit count as two stacked block-level lines, which meant EVERY row on this sheet (every
+     caller that sets 'boxes' sets showParCols too — see qtyCell() above) was at least 2 lines
+     tall, regardless of whether the drug name itself needed to wrap or not. A real-browser
+     measurement (not a guess — scratchpad script rendering actual generated HTML through
+     Playwright/Chromium) confirmed a uniform-height sheet at 2 lines/row; now rendered as one
+     line ("56 กล่อง (5,625 เม็ด)") instead. 30mm was ALSO measured, not guessed: the realistic
+     worst case this formulary can produce (a 3-digit box count with a 5-digit real quantity,
+     e.g. "199 กล่อง (19,999 เม็ด)") needs ~27.4mm of text plus this cell's own padding — 30mm
+     clears that with margin to spare without reaching all the way to the literal (and
+     unrealistic for any real par/floor value here) worst case of 5-digit boxes. */
+  .qty { width: 30mm; font-weight: 700; text-align: right; white-space: nowrap; }
+  /* Bug fix (measured): a bare "☐" glyph needs ~5mm including padding — 10mm was pure surplus,
+     moved to qty above, which measurably needed it (see qty's own comment). */
+  .check { width: 8mm; text-align: center; font-size: 11pt; }
   .note { font-size: 7.5pt; color: #a15c00; font-weight: 600; margin-top: 0.5mm; }
   /* Real-world request: "...ให้มีหมายเหตุไว้ว่า substock เป็น 0 เพื่อที่จะแก้ไขปัญหาที่ยาขาดครับ" — a
      zero-substock row (printTodayReplenishList) is a real shortage to escalate, not just the
@@ -615,7 +632,7 @@ export function printPickListSheet(
   .par { width: 20mm; text-align: center; color: #556; }
   .curbal { width: 14mm; text-align: right; color: #556; }
   .qtybox { font-weight: 700; }
-  .qtysub { font-size: 7pt; color: #667; font-weight: 400; margin-top: 0.3mm; }
+  .qtysub { font-size: 7pt; color: #667; font-weight: 400; }
 
   .heldsection { margin-top: 3mm; }
   .heldsection .heldtitle { font-size: 9.5pt; font-weight: 700; color: #8a2e2e; margin-bottom: 1mm; }

@@ -8,6 +8,13 @@
 // pass went further (margin 10mm→8mm, table cell padding 1.5mm 2.5mm→1.1mm 2mm, every font-size
 // cut ~1pt) — see print.ts's own updated comment on this <style> block for the full before/after
 // and why the drug-name column's relative size over body text was deliberately preserved.
+// Third pass: "ใบเบิกคลังยา...ยังเปลืองกระดาษอยู่" with a screenshot showing only 17 rows/page —
+// a real-browser (Playwright/Chromium) measurement found the qty cell's stacked box/unit lines
+// forced EVERY row on this sheet to 2 lines tall regardless of the drug name's own length, the
+// single biggest remaining cost. Collapsed to one line (see print.parColumns.test.ts for the
+// exact HTML shape) and reflowed column widths using the same measured, not guessed, approach —
+// .whcode/.check both had real surplus (verified against the longest realistic content each
+// actually carries), reassigned to .qty (verified to need ~27.4mm for a realistic worst case).
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { printPickListSheet, type PickListRow } from './print';
 
@@ -49,6 +56,24 @@ describe('printPickListSheet — compact-layout regression', () => {
     expect(html).toContain('table.rows td { padding: 1.1mm 2mm;');
     expect(html).not.toContain('padding: 2.4mm 3mm');
     expect(html).not.toContain('padding: 1.5mm 2.5mm');
+  });
+
+  it('reflows column widths so qty (now one line, not two) gets the room reclaimed from whcode/check', () => {
+    const { getHtml } = captureWrittenHtml();
+    printPickListSheet(ROWS, 'ใบเติมหน้างานประจำวัน', 'ทดสอบ');
+    const html = getHtml();
+
+    expect(html).toContain('.qty { width: 30mm;');
+    expect(html).not.toContain('.qty { width: 26mm;');
+    expect(html).toContain('.whcode { width: 15mm;');
+    expect(html).not.toContain('.whcode { width: 18mm;');
+    expect(html).toContain('.check { width: 8mm;');
+    expect(html).not.toContain('.check { width: 10mm;');
+    // .bin and .par are NOT touched this round — .bin already sits near the real minimum a long
+    // HAD-prefixed shelf code needs, and .par is shared with printTodayReplenishList's wider
+    // "Min / Max" combined text (see that column's own doc comment in print.ts).
+    expect(html).toContain('.bin { width: 14mm;');
+    expect(html).toContain('.par { width: 20mm;');
   });
 
   it('still prints every row and column of real data — bin, pick-from bin, name, qty, unit', () => {
