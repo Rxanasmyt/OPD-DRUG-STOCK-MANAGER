@@ -5978,6 +5978,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // a row's real-deduction transaction throws (see the per-row try/catch below); surfaced in
     // the outer catch's toast if still set when it fires.
     let failedMedName: string | null = null;
+    // Bug fix (debugging gap — real incident, recurring 2026-10-30 even after the
+    // get()-budget/write-coupling/concurrency mechanisms already found and fixed above):
+    // failedMedName alone named WHICH drug's transaction threw, but not WHAT was actually being
+    // written to it — on a repeat failure (confirmed live: Adenosine 3 mg/ml Vial, same drug,
+    // twice, even with CHUNK_SIZE=1 above ruling out concurrency as the cause) there was still no
+    // way to tell, from the toast alone, whether `before`/`after`/the reported qty themselves were
+    // sane numbers or already corrupted before ever reaching Firestore — every retry without this
+    // was another blind round trip through a screenshot instead of an actual answer. Captured
+    // right alongside failedMedName, from the exact same local `before`/`after`/`r.qty` already in
+    // scope at the point of failure, so the NEXT occurrence (if the mechanism still isn't fixed)
+    // is diagnosable from the toast text itself, no DevTools and no extra round trip required.
+    let failedDebug: string | null = null;
     const skippedNames: string[] = [];
     try {
       // Bug fix (flow latency, later partly reverted below — real incident, 2026-10-30): this
@@ -6059,6 +6071,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             });
           } catch (e) {
             failedMedName = m.name;
+            failedDebug = 'medId=' + m.id + ' reportedQty=' + r.qty + ' floorBefore=' + before + ' floorAfter=' + after;
             throw e;
           }
           applied++;
@@ -6185,7 +6198,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // same partial-progress behavior as before this change, just now also reachable via a
       // timeout instead of only a hard Firestore error. `applied` still reflects how many
       // rows actually landed, worth telling the person rather than implying nothing happened.
-      toastErr(e, 'ประมวลผลไม่สำเร็จ' + (failedMedName ? ' (ยา: ' + failedMedName + ')' : '') + (applied > 0 ? ' — ตัดยอดไปแล้ว ' + applied + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง'));
+      if (failedDebug) console.error('commitReconcile failure debug:', failedDebug);
+      toastErr(e, 'ประมวลผลไม่สำเร็จ' + (failedMedName ? ' (ยา: ' + failedMedName + ')' : '') + (applied > 0 ? ' — ตัดยอดไปแล้ว ' + applied + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง') + (failedDebug ? ' [' + failedDebug + ']' : ''));
     }
   }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpCoveredFrom, state.hosxpCoveredTo, state.meds, state.txs, userName, logAudit, toast, toastErr, patch, guardOnce, confirmAsync, recomputeUsageStats, analyzeWeekdayUsage]);
 
