@@ -172,6 +172,21 @@ function ReconcileHarness() {
   );
 }
 
+// A bigger dispense than ReconcileHarness's fixed 7 — needed so a med fragmented across 10
+// small floor lots (2 units each, see the FEFO-cap regression test below) would actually have
+// to walk past the 7-lot cap to satisfy it under the OLD uncapped logic; 7 units alone would
+// never reach that far regardless of whether the cap existed.
+function ReconcileHarnessBigDispense() {
+  const { state, setHosxpText, processHosxp, commitReconcile } = useApp();
+  useEffect(() => { setHosxpText('Paracetamol 500mg,19'); }, [setHosxpText]);
+  return (
+    <div>
+      <button onClick={processHosxp}>process</button>
+      <button onClick={commitReconcile} disabled={!state.hosxpRows}>commit-reconcile</button>
+    </div>
+  );
+}
+
 describe('commitReconcile — floor-lot FEFO deduction regression', () => {
   it('deducts the dispensed qty from floor lots earliest-expiry-first, spilling over into the next lot', async () => {
     const user = userEvent.setup();
@@ -205,6 +220,58 @@ describe('commitReconcile — floor-lot FEFO deduction regression', () => {
     // The real floor deduction (the number that actually matters every day) must still apply in
     // full regardless of floor-lot bookkeeping.
     expect(writes.find((w) => w.path === 'meds/m1')?.data).toEqual({ floor: 33 });
+  });
+
+  // Real-world incident: "ตัดยอดหน้างานไม่ได้" — a live run failed partway through with
+  // permission-denied after 3 rows had already applied. Root cause: Firestore caps every
+  // transaction at 20 get()/exists() calls made from WITHIN security rules — every trx.get()/
+  // trx.update() here evaluates this project's rules, each of which calls myProfile() (an
+  // internal get()) to check isActive(). A med whose floor stock happens to be fragmented
+  // across MANY small floor-lot docs could walk through enough of them in this best-effort FEFO
+  // loop alone to exhaust that budget — and because the REQUIRED writes right after it (the
+  // real floor deduction, the tx-log entry) run their OWN rule evaluations too, those then fail
+  // with the same permission-denied once the budget is gone, which the loop's own try/catch
+  // can't catch (scoped to the loop only) — silently defeating this whole block's "never blocks
+  // the real deduction" promise for exactly the meds this best-effort tracking most needs to
+  // work for. Fixed by capping how many floor lots one row's transaction will ever examine.
+  it('caps how many floor lots it reads/draws from per row, so a med fragmented across many lots can never blow the per-transaction Firestore rules budget', async () => {
+    const user = userEvent.setup();
+    const lots = Array.from({ length: 10 }, (_, i) => ({
+      id: 'fl' + i, medId: MED.id, qty: 2, exp: Date.now() + (i + 1) * 86400000,
+    }));
+    renderWithApp(<><ReconcileHarnessBigDispense /><Toast /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    await waitFor(() => expect(hasListener('txs')).toBe(true));
+    fireCollection('txs', []);
+
+    await user.click(screen.getByRole('button', { name: 'process' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'commit-reconcile' })).not.toBeDisabled());
+    seedDoc('meds/m1', { floor: MED.floor });
+    // 10 floor-lot docs of 2 units each (20 total) — a 19-unit HOSxP dispense would need ALL 10
+    // lots to fully satisfy under the OLD uncapped logic (9×2=18, short by 1); with the cap this
+    // row's transaction only ever reads/draws from the first 7 (14 units), 5 units short of the
+    // real dispense — exactly the point: the cap can leave `need` unsatisfied, on purpose, in
+    // exchange for never risking the transaction's real writes.
+    seedCollection('floorLots', lots);
+    lots.forEach((l) => seedDoc('floorLots/' + l.id, { medId: l.medId, qty: l.qty, exp: l.exp }));
+
+    await user.click(screen.getByRole('button', { name: 'commit-reconcile' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+    const writes = getLastTransactionWrites();
+    const flWrites = writes.filter((w) => w.path.startsWith('floorLots/'));
+    // Exactly 7 floor-lot docs touched — never more, however fragmented the med's real floor
+    // stock is, and never fewer here since `need` (19) stays positive through all 7 of this
+    // test's 2-unit lots. The cap is the one guarantee that keeps this transaction's total rule
+    // get() calls (1 med read + up to 7 floor reads + 1 med write + up to 7 floor writes + 1 tx
+    // create = 17 at most) safely under Firestore's 20-call-per-transaction ceiling.
+    expect(flWrites.length).toBe(7);
+    expect(flWrites.every((w) => w.data.qty === 0)).toBe(true); // each 2-unit lot fully drawn
+    // The real floor deduction (the number that actually matters every day) applies in full —
+    // completely unaffected by the cap on the secondary floor-lot bookkeeping. 40 - 19 = 21.
+    expect(writes.find((w) => w.path === 'meds/m1')?.data).toEqual({ floor: 21 });
   });
 
   it('still applies the real floor deduction even when there is no floor-lot data at all', async () => {

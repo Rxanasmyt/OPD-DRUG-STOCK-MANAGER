@@ -5945,8 +5945,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               const ordered = liveFloorLotDocs
                 .map((d) => ({ id: d.id, exp: (d.data() as { exp?: number }).exp ?? Infinity }))
                 .sort((a, b) => a.exp - b.exp);
+              // Bug fix (real incident: "ตัดยอดหน้างานไม่ได้" — permission-denied, 3 rows applied
+              // before the failure): Firestore caps every transaction at 20 get()/exists() calls
+              // made from WITHIN security rules — exceeding it is itself reported as
+              // permission-denied, on whichever operation tips it over. Every trx.get()/
+              // trx.update() in this transaction evaluates this project's rules, each of which
+              // calls myProfile() (an internal get()) to check isActive() — so each floor lot
+              // this loop reads costs 1 of that budget, and (if actually drawn from) costs
+              // another when written below. A med whose floor stock happens to be fragmented
+              // across many small lots could walk through enough of them here to exhaust the
+              // budget entirely — and because the REQUIRED writes right after this try/catch
+              // (the real floor deduction, the tx-log entry) run their OWN rule evaluations too,
+              // THOSE then fail with the exact same permission-denied once the budget is gone,
+              // which this try/catch can't catch (it's scoped to this loop only) — silently
+              // defeating this whole block's own "best-effort, never blocks the real deduction"
+              // promise for exactly the meds this best-effort tracking most needs to work for.
+              // Capped well under budget — reserves 1 (med read) + 1 (med write) + 1 (tx create)
+              // + up to 7 reads + up to 7 writes here = 17 of the 20 available, with margin to
+              // spare — rather than trying to track every last fragment, which the HOSxP number
+              // itself carries no batch detail for anyway (see this block's own comment above).
+              const FEFO_LOT_CAP = 7;
               let need = r.qty;
-              for (const fl of ordered) {
+              for (const fl of ordered.slice(0, FEFO_LOT_CAP)) {
                 if (need <= 0) break;
                 const flSnap = await trx.get(floorLotRef(fl.id));
                 const curQty = (flSnap.data() as { qty?: number } | undefined)?.qty ?? 0;
