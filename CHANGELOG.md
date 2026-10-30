@@ -7,6 +7,30 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.238.0] - 2026-10-30
+
+### เพิ่ม (diagnostic)
+- **[ตัดยอด HOSxP permission-denied เกิดซ้ำอีกครั้งแม้ตัด concurrency ออกหมดแล้ว — เพิ่มข้อมูลดิบในข้อความ
+  แจ้งเตือน เพื่อให้ครั้งต่อไปวินิจฉัยได้จากข้อความเดียว ไม่ต้องเดาอีก]** — หลัง v3.237.0 (ตัดยอดทีละ
+  รายการ ไม่มี concurrency อีกแล้ว) ผู้ใช้งานจริงรายงานว่า `permission-denied` เกิดซ้ำอีกครั้งบนยาตัวเดิม
+  (Adenosine 3 mg/ml Vial) ซ้ำกับที่เคยเจอมาก่อนตัด concurrency ออก — เป็นหลักฐานตรงที่ว่า theory
+  "concurrent transaction contention" ที่ v3.237.0 แก้ตามนั้น **ไม่ใช่สาเหตุจริง** (ตัด concurrency ออก
+  หมดแล้วยังเกิดอยู่)
+  - ตรวจสอบ Adenosine's โครงสร้างข้อมูลจริง (floor=0, ward=ipd, high-alert, category=emergency ฯลฯ)
+    กับ `firestore.rules` จริงโดยตรง ผ่าน Firestore emulator (`@firebase/rules-unit-testing`) — จำลอง
+    transaction การตัดยอดจริงทุกขั้นตอน (trx.get → compute before/after → trx.update(floor) +
+    trx.set(txs)) กับ rules ตัวจริงของโปรเจกต์ (ไม่ใช่ admin SDK ที่ bypass rules แบบสคริปต์
+    diagnostic เดิม) — **ผ่านปกติ ไม่มี permission-denied** แม้ floor เดิมเป็น 0 แล้วตัดซ้ำเป็น 0 อีก
+    (no-op write) — ตัด theory "floor ไม่เปลี่ยนค่าทำให้ affectedKeys() ว่างแล้ว rules พัง" ทิ้งได้ด้วย
+    หลักฐานจริง ไม่ใช่การเดา
+  - ตรวจสอบโค้ด parse ตัวเลขจำนวนจาก HOSxP ทั้งสองทาง (`parseCellNumber`/`parseIntSafe`) — ทั้งคู่
+    return 0 เสมอเมื่อ parse ไม่ได้ ไม่มีทางได้ `NaN` ออกมาจริง ตัด theory "เลขจำนวนจาก HOSxP เพี้ยน
+    เป็น NaN" ทิ้งได้เช่นกัน
+  - ยังไม่พบสาเหตุที่แท้จริง — เพิ่ม `failedDebug` (medId/จำนวนที่รายงาน/floor ก่อน-หลัง ของแถวที่พัง)
+    ต่อจาก `failedMedName` (v3.236.0) ลงในข้อความ toast นี้โดยตรง เพราะหน้างาน (tablet) ไม่มี DevTools
+    ให้เปิดดู — ถ้าเกิดซ้ำอีกครั้ง ข้อความ toast ครั้งหน้าจะมีตัวเลขจริงพอให้ระบุกลไกได้ทันที ไม่ต้องรอ
+    รอบเดามั่ว/สคริปต์ diagnostic อีกรอบ
+
 ## [3.237.0] - 2026-10-30
 
 ### แก้ไข (ชั่วคราว — แลกความเร็วกับความชัวร์)

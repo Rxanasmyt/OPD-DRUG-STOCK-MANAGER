@@ -421,7 +421,10 @@ describe('commitReconcile — floor-lot FEFO deduction regression', () => {
 
     await user.click(screen.getByRole('button', { name: 'commit-reconcile' }));
 
-    await screen.findByText('ประมวลผลไม่สำเร็จ (ยา: ' + MED.name + ') ลองใหม่อีกครั้ง (permission-denied)');
+    await screen.findByText(
+      'ประมวลผลไม่สำเร็จ (ยา: ' + MED.name + ') ลองใหม่อีกครั้ง'
+      + ' [medId=m1 reportedQty=7 floorBefore=40 floorAfter=33] (permission-denied)'
+    );
   });
 });
 
