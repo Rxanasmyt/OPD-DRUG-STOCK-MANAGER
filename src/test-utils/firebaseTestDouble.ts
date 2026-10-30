@@ -56,6 +56,8 @@ export function resetFirebaseTestDouble() {
   collectionStore.clear();
   lastTransactionWrites = [];
   lastTransactionReads = [];
+  allTransactionLogs = [];
+  failTransactionCommitForPathPrefix = null;
   batchWrites = [];
   autoIdCounter = 0;
 }
@@ -102,6 +104,35 @@ export function getLastTransactionWrites(): TrxWrite[] {
 let lastTransactionReads: string[] = [];
 export function getLastTransactionReads(): string[] {
   return lastTransactionReads;
+}
+
+// Every runTransaction() call this test has made so far, in order, each entry the SAME live
+// reads/writes arrays getLastTransactionReads()/getLastTransactionWrites() track for that one
+// call (so it's filled in by the time a test reads it, not just a snapshot taken at call time).
+// Needed once a single commit action can legitimately open MORE THAN ONE transaction in
+// sequence (e.g. commitReconcile's real floor deduction and its separate, best-effort floor-lot
+// FEFO tracking — see that function's own "Bug fix (real incident, recurring...)" comment) —
+// lastTransactionReads/Writes alone can only ever show the most recent of those, which isn't
+// always the one a test actually needs to assert on.
+export type TrxLog = { reads: string[]; writes: TrxWrite[] };
+let allTransactionLogs: TrxLog[] = [];
+export function getAllTransactionLogs(): TrxLog[] {
+  return allTransactionLogs;
+}
+
+// Makes the NEXT runTransaction() call whose queued writes include a path starting with
+// `pathPrefix` reject as a whole, as if firestore.rules had rejected one of those writes at
+// commit time (same real-world shape as a malformed historical doc, or any other rules
+// rejection — the SPECIFIC reason is never what these regression tests are proving; see
+// commitReconcile's own floor-lot-tracking-decoupling regression, AppContext.floorLots.test.tsx,
+// for why "which write failed" rather than "which call number failed" is the thing worth being
+// able to simulate: a transaction's rules are evaluated for every queued read+write together at
+// commit, not per individual trx.get()/update() call, so a real regression here has to be able
+// to fail a transaction based on WHAT it tried to write, not WHEN it ran. One-shot — clears
+// itself the moment it fires, same convention as vitest's own mockRejectedValueOnce.
+let failTransactionCommitForPathPrefix: string | null = null;
+export function failNextTransactionCommitWritingPathPrefix(pathPrefix: string) {
+  failTransactionCommitForPathPrefix = pathPrefix;
 }
 
 // Same idea as lastTransactionWrites, for writeBatch() — AppContext's non-transactional bulk/
@@ -244,17 +275,28 @@ vi.mock('firebase/firestore', () => ({
   // for real concurrent-write races but not for what these tests check (single-shot correctness
   // of the FEFO/last-admin/phantom-stock logic against a fixed snapshot, not the retry-on-
   // conflict behavior itself — that needs a real emulator, not this mock). update()/set() calls
-  // are recorded into lastTransactionWrites so a test can assert exactly what got written.
+  // are recorded into lastTransactionWrites so a test can assert exactly what got written. The
+  // whole transaction's reads/writes are queued (by running fn(trx) to completion) BEFORE the
+  // path-prefix-rejection check below runs — mirrors the real SDK, which evaluates/commits every
+  // queued read+write of one transaction together, not per individual trx.get()/update() call
+  // (see commitReconcile's own "Bug fix (real incident, recurring...)" comment, AppContext.tsx,
+  // for why that distinction matters to what this mock needs to simulate correctly).
   runTransaction: vi.fn(async (_db: unknown, fn: (trx: unknown) => unknown) => {
     const writes: TrxWrite[] = [];
     const reads: string[] = [];
     lastTransactionWrites = writes;
     lastTransactionReads = reads;
-    return fn({
+    allTransactionLogs.push({ reads, writes });
+    const result = await fn({
       get: vi.fn(async (target: { path: string }) => { reads.push(target.path); return readSeededDoc(target.path); }),
       update: vi.fn((target: { path: string }, data: Record<string, unknown>) => { writes.push({ kind: 'update', path: target.path, data }); }),
       set: vi.fn((target: { path: string }, data: Record<string, unknown>) => { writes.push({ kind: 'set', path: target.path, data }); }),
     });
+    if (failTransactionCommitForPathPrefix && writes.some((w) => w.path.startsWith(failTransactionCommitForPathPrefix!))) {
+      failTransactionCommitForPathPrefix = null;
+      throw Object.assign(new Error('simulated rules rejection (test double)'), { code: 'permission-denied' });
+    }
+    return result;
   }),
   increment: (n: number) => n,
   deleteField: () => undefined,

@@ -25,6 +25,7 @@ import Toast from '../components/Toast';
 import ConfirmDialog from '../components/ConfirmDialog';
 import {
   signInAs, fireCollection, hasListener, seedDoc, seedCollection, getLastTransactionWrites, getLastTransactionReads,
+  getAllTransactionLogs, failNextTransactionCommitWritingPathPrefix,
 } from '../test-utils/firebaseTestDouble';
 import { asMedId, asFloorLotId } from '../types';
 
@@ -263,14 +264,17 @@ describe('commitReconcile — floor-lot FEFO deduction regression', () => {
     seedDoc('floorLots/flLater', { medId: MED.id, lotNo: 'FL', exp: later, qty: 5 });
 
     await user.click(screen.getByRole('button', { name: 'commit-reconcile' }));
-    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+    // Two sequential transactions now: the real floor deduction, then the separate, best-effort
+    // floor-lot FEFO tracking (see commitReconcile's own "Bug fix (real incident, recurring...)"
+    // comment) — wait for both to have landed before asserting on either.
+    await waitFor(() => expect(getAllTransactionLogs().length).toBe(2));
 
-    const writes = getLastTransactionWrites();
-    expect(writes.find((w) => w.path === 'floorLots/flSoon')?.data).toEqual({ qty: 0 });
-    expect(writes.find((w) => w.path === 'floorLots/flLater')?.data).toEqual({ qty: 3 });
+    const [deductionLog, floorLotLog] = getAllTransactionLogs();
+    expect(floorLotLog.writes.find((w) => w.path === 'floorLots/flSoon')?.data).toEqual({ qty: 0 });
+    expect(floorLotLog.writes.find((w) => w.path === 'floorLots/flLater')?.data).toEqual({ qty: 3 });
     // The real floor deduction (the number that actually matters every day) must still apply in
-    // full regardless of floor-lot bookkeeping.
-    expect(writes.find((w) => w.path === 'meds/m1')?.data).toEqual({ floor: 33 });
+    // full regardless of floor-lot bookkeeping — now its own, separate (and first) transaction.
+    expect(deductionLog.writes.find((w) => w.path === 'meds/m1')?.data).toEqual({ floor: 33 });
   });
 
   // Real-world incident: "ตัดยอดหน้างานไม่ได้" — a live run failed partway through with
@@ -309,20 +313,23 @@ describe('commitReconcile — floor-lot FEFO deduction regression', () => {
     lots.forEach((l) => seedDoc('floorLots/' + l.id, { medId: l.medId, qty: l.qty, exp: l.exp }));
 
     await user.click(screen.getByRole('button', { name: 'commit-reconcile' }));
-    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+    // Two sequential transactions now (see the other test in this describe block for why) —
+    // wait for both before asserting.
+    await waitFor(() => expect(getAllTransactionLogs().length).toBe(2));
 
-    const writes = getLastTransactionWrites();
-    const flWrites = writes.filter((w) => w.path.startsWith('floorLots/'));
+    const [deductionLog, floorLotLog] = getAllTransactionLogs();
+    const flWrites = floorLotLog.writes.filter((w) => w.path.startsWith('floorLots/'));
     // Exactly 7 floor-lot docs touched — never more, however fragmented the med's real floor
     // stock is, and never fewer here since `need` (19) stays positive through all 7 of this
-    // test's 2-unit lots. The cap is the one guarantee that keeps this transaction's total rule
-    // get() calls (1 med read + up to 7 floor reads + 1 med write + up to 7 floor writes + 1 tx
-    // create = 17 at most) safely under Firestore's 20-call-per-transaction ceiling.
+    // test's 2-unit lots. The cap is now what keeps this (separate, best-effort) transaction's
+    // own rule get() calls (up to 7 reads + up to 7 writes = 14 at most) safely under Firestore's
+    // 20-call-per-transaction ceiling, on its own — it no longer shares a budget with the real
+    // deduction transaction at all.
     expect(flWrites.length).toBe(7);
     expect(flWrites.every((w) => w.data.qty === 0)).toBe(true); // each 2-unit lot fully drawn
     // The real floor deduction (the number that actually matters every day) applies in full —
     // completely unaffected by the cap on the secondary floor-lot bookkeeping. 40 - 19 = 21.
-    expect(writes.find((w) => w.path === 'meds/m1')?.data).toEqual({ floor: 21 });
+    expect(deductionLog.writes.find((w) => w.path === 'meds/m1')?.data).toEqual({ floor: 21 });
   });
 
   it('still applies the real floor deduction even when there is no floor-lot data at all', async () => {
@@ -345,6 +352,48 @@ describe('commitReconcile — floor-lot FEFO deduction regression', () => {
     const writes = getLastTransactionWrites();
     expect(writes.find((w) => w.path === 'meds/m1')?.data).toEqual({ floor: 33 });
     expect(writes.some((w) => w.path.startsWith('floorLots/'))).toBe(false);
+  });
+
+  // Real-world incident (recurring, 2026-10-30 — distinct from the FEFO-budget-cap incident
+  // above, same symptom: "ตัดยอดไปแล้ว N รายการก่อนเกิดปัญหา (permission-denied)"): Firestore
+  // evaluates security rules for every queued read AND write in a transaction together, all at
+  // COMMIT time — not per individual trx.get()/trx.update() call — so a try/catch around only
+  // the best-effort floor-lot tracking's READS (the FEFO-cap fix above) could never catch a
+  // rejection surfacing from one of its WRITES once the transaction actually tries to commit,
+  // and that failure took the real floor deduction down with it, since both were queued in the
+  // SAME transaction. Fixed by running the floor-lot tracking as its own, separate transaction,
+  // AFTER the real deduction has already committed — this proves that decoupling directly: even
+  // when the floor-lot transaction itself fails outright, the real deduction (already landed by
+  // then) must stay in place and the row must still count as applied.
+  it('does not let a floor-lot tracking transaction failure block or undo the real floor deduction that already committed', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ReconcileHarness /><Toast /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    await waitFor(() => expect(hasListener('txs')).toBe(true));
+    fireCollection('txs', []);
+
+    await user.click(screen.getByRole('button', { name: 'process' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'commit-reconcile' })).not.toBeDisabled());
+    seedDoc('meds/m1', { floor: MED.floor });
+    const exp = Date.now() + 86400000;
+    seedCollection('floorLots', [{ id: 'flOnly', medId: MED.id, qty: 10, exp }]);
+    seedDoc('floorLots/flOnly', { medId: MED.id, qty: 10, exp });
+
+    // Whichever transaction ends up actually queuing a write to a floorLots/ doc rejects as a
+    // whole at commit — same shape as a real firestore.rules rejection (e.g. a malformed
+    // historical floor-lot doc), whatever the exact cause. The point under test is WHETHER that
+    // failure can still reach the real floor deduction, not what specifically triggered it.
+    failNextTransactionCommitWritingPathPrefix('floorLots/');
+
+    await user.click(screen.getByRole('button', { name: 'commit-reconcile' }));
+    // Without the fix, the real deduction and the floor-lot write were queued in the SAME
+    // transaction, so this exact failure would have rejected that whole transaction, rolling
+    // back the real floor deduction right along with it, and this row would never have counted
+    // as applied — the toast below would instead read "ประมวลผลไม่สำเร็จ".
+    await screen.findByText('ตัดยอดหน้างานตามไฟล์แล้ว 1 รายการ — บันทึกลง discrepancy log');
+    expect(getAllTransactionLogs()[0]?.writes.find((w) => w.path === 'meds/m1')?.data).toEqual({ floor: 33 });
   });
 });
 
