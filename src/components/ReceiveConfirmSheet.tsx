@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties } from 'react';
+import type { CSSProperties } from 'react';
 import { useApp } from '../store/AppContext';
 import { usesSubstock } from '../store/selectors';
 import { BottomSheet } from './BottomSheet';
@@ -7,7 +7,6 @@ import { MedDot } from './MedDot';
 import { WardBadge } from './WardBadge';
 import { PackSizeBadge } from './Qty';
 import { MedMiniCard } from './MedMiniCard';
-import { recognizeLotLabel } from '../utils/ocr';
 
 /**
  * One med, one confirm — shown as soon as a รับเข้า (receive) scan (or search/quick-pick) picks
@@ -19,39 +18,8 @@ import { recognizeLotLabel } from '../utils/ocr';
  * gives it the same "impossible to miss, nothing else on screen" treatment.
  */
 export default function ReceiveConfirmSheet() {
-  const { state, sub, setRecvLot, setRecvExp, setRecvQty, addRecv, cancelReceivePick, toast } = useApp();
+  const { state, sub, setRecvLot, setRecvExp, setRecvQty, addRecv, cancelReceivePick } = useApp();
   const recvMed = state.recvMed ? state.meds.find((m) => m.id === state.recvMed) : null;
-  const [ocrBusy, setOcrBusy] = useState(false);
-  const ocrInputRef = useRef<HTMLInputElement>(null);
-  // Bug fix: recognizeLotLabel() is async and this sheet stays mounted across meds (only
-  // state.recvMed changes) — if the user doesn't wait for a photo to resolve and instead types
-  // lot/exp by hand and taps "สแกนตัวต่อไป" for the NEXT med, the still-pending OCR result used
-  // to land in setRecvLot/setRecvExp regardless of which med was active by the time it resolved,
-  // silently writing med A's lot/expiry onto med B's form — a real traceability risk. Track which
-  // med a photo was actually taken for and compare against the CURRENT med (via ref, so the async
-  // continuation reads live state, not a stale closure) before applying the result.
-  const recvMedIdRef = useRef<string | null>(null);
-  recvMedIdRef.current = recvMed?.id ?? null;
-
-  const handleOcrPhoto = async (file: File, forMedId: string) => {
-    setOcrBusy(true);
-    try {
-      const { lotNo, expIso } = await recognizeLotLabel(file);
-      if (recvMedIdRef.current !== forMedId) {
-        toast('อ่านฉลากเสร็จช้าไป (เปลี่ยนไปยาตัวอื่นแล้ว) — ข้าม ไม่กรอกอัตโนมัติ');
-        return;
-      }
-      if (lotNo) setRecvLot(lotNo);
-      if (expIso) setRecvExp(expIso);
-      if (!lotNo && !expIso) toast('อ่านฉลากไม่พบ lot หรือวันหมดอายุที่ชัดเจน — กรอกเองด้านล่าง');
-      else toast('อ่านฉลากแล้ว — ตรวจสอบให้ตรงกับฉลากจริงก่อนบันทึกเสมอ' + (!lotNo ? ' (ไม่พบ lot — กรอกเอง)' : '') + (!expIso ? ' (ไม่พบวันหมดอายุ — กรอกเอง)' : ''));
-    } catch (e) {
-      console.error('OCR read failed:', e);
-      toast('อ่านฉลากไม่สำเร็จ — กรอกเองแทน');
-    } finally {
-      setOcrBusy(false);
-    }
-  };
 
   return (
     <BottomSheet open={!!recvMed} onClose={cancelReceivePick} title={recvMed ? recvMed.name : undefined}>
@@ -70,25 +38,6 @@ export default function ReceiveConfirmSheet() {
               <MedMiniCard medId={recvMed.id} unit={recvMed.unit} />
             </div>
           )}
-          <input
-            ref={ocrInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            style={{ display: 'none' }}
-            onChange={(e) => { const f = e.target.files?.[0]; if (f && recvMed) handleOcrPhoto(f, recvMed.id); e.target.value = ''; }}
-          />
-          <button
-            type="button"
-            onClick={() => ocrInputRef.current?.click()}
-            disabled={ocrBusy}
-            className={'press-spring' + (ocrBusy ? '' : ' ai-glow')}
-            style={{ width: '100%', border: '1.5px solid var(--ai-1)', background: 'var(--bg-card)', padding: '10px 12px', borderRadius: 10, fontSize: 12.5, fontWeight: 700, minHeight: 42, marginBottom: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: ocrBusy ? 0.7 : 1 }}
-          >
-            <span className={ocrBusy ? undefined : 'ai-text'} style={{ color: ocrBusy ? 'var(--muted)' : undefined }}>
-              {ocrBusy ? '⏳ กำลังอ่านฉลาก…' : '📷 ถ่ายรูปฉลากเพื่ออ่าน lot/วันหมดอายุอัตโนมัติ'}
-            </span>
-          </button>
           {/* Real-world request: "...ไม่ต้องบังคับให้ใส่ Lot และวันหมดอายุ...อาจจะใส่ในบางเคสที่
               เป็นยาใช้น้อย เนื่องจากตอนนี้ภาระหน้างานหนัก...หากในอนาคตคงที่แล้วค่อยใส่ lot และ exp
               แบบเต็มรูปแบบ" — both fields below are optional now (only "ถ้ามี" labels below
@@ -119,20 +68,13 @@ export default function ReceiveConfirmSheet() {
           >
             ยกเลิกรายการนี้ — ไม่รับยาตัวนี้
           </button>
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <div style={{ marginTop: 10 }}>
             <button
               onClick={() => addRecv()}
-              className="btn-outline"
-              style={{ flex: 1, padding: 12, borderRadius: 10, fontSize: 13, fontWeight: 600, minHeight: 46 }}
-            >
-              เพิ่มลงใบรับ · เสร็จสิ้น
-            </button>
-            <button
-              onClick={() => addRecv({ scanNext: true })}
               className="btn-primary"
-              style={{ flex: 1, padding: 12, borderRadius: 10, fontSize: 13, fontWeight: 700, minHeight: 46 }}
+              style={{ width: '100%', padding: 12, borderRadius: 10, fontSize: 13, fontWeight: 700, minHeight: 46 }}
             >
-              เพิ่มลงใบรับ · สแกนตัวต่อไป
+              เพิ่มลงใบรับ
             </button>
           </div>
         </div>
