@@ -6001,62 +6001,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // own fix comment describes. This is the daily real-dispense deduction path — the one
           // number this whole app exists to keep trustworthy — so it gets the same atomic
           // treatment every other stock-mutating flow already has.
+          let before = 0, after = 0;
           await runTx(async (trx) => {
             const ref = medRef(m.id);
             const snap = await trx.get(ref);
-            const before = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
-            const after = Math.max(0, before - r.qty);
-            // Floor-lot tracking (see FloorLot in types.ts): HOSxP's dispensed number carries no
-            // batch detail at all, so this is a best-effort FEFO guess across whatever floor lots
-            // exist for this med — never blocks or throws, since the real floor deduction above
-            // is the number that actually matters every day. Live query runs outside trx.get
-            // first (the client SDK can't query inside a transaction, same reason commitTransfer's
-            // live lot query does), then each candidate doc is re-read fresh via trx.get before
-            // any writes — all reads before any writes, same ordering commitTransfer uses.
-            // fetchActiveFloorLotsByMedId (qty > 0 only) — the loop below already skips any
-            // candidate whose live qty is <= 0, so reading every historical, long-since-emptied
-            // floor-lot doc for this med on every single reconcile row was pure waste (see its
-            // own doc comment, floorLotsRepo.ts) — real report: "เติมหน้างานตอนเช้า...ใช้ได้
-            // แป๊ปเดียวก็ถึง limit".
-            const flTakes: { id: string; qty: number; take: number }[] = [];
-            try {
-              const liveFloorLotDocs = await fetchActiveFloorLotsByMedId(m.id);
-              const ordered = liveFloorLotDocs
-                .map((d) => ({ id: d.id, exp: (d.data() as { exp?: number }).exp ?? Infinity }))
-                .sort((a, b) => a.exp - b.exp);
-              // Bug fix (real incident: "ตัดยอดหน้างานไม่ได้" — permission-denied, 3 rows applied
-              // before the failure): Firestore caps every transaction at 20 get()/exists() calls
-              // made from WITHIN security rules — exceeding it is itself reported as
-              // permission-denied, on whichever operation tips it over. Every trx.get()/
-              // trx.update() in this transaction evaluates this project's rules, each of which
-              // calls myProfile() (an internal get()) to check isActive() — so each floor lot
-              // this loop reads costs 1 of that budget, and (if actually drawn from) costs
-              // another when written below. A med whose floor stock happens to be fragmented
-              // across many small lots could walk through enough of them here to exhaust the
-              // budget entirely — and because the REQUIRED writes right after this try/catch
-              // (the real floor deduction, the tx-log entry) run their OWN rule evaluations too,
-              // THOSE then fail with the exact same permission-denied once the budget is gone,
-              // which this try/catch can't catch (it's scoped to this loop only) — silently
-              // defeating this whole block's own "best-effort, never blocks the real deduction"
-              // promise for exactly the meds this best-effort tracking most needs to work for.
-              // Capped well under budget — reserves 1 (med read) + 1 (med write) + 1 (tx create)
-              // + up to 7 reads + up to 7 writes here = 17 of the 20 available, with margin to
-              // spare — rather than trying to track every last fragment, which the HOSxP number
-              // itself carries no batch detail for anyway (see this block's own comment above).
-              const FEFO_LOT_CAP = 7;
-              let need = r.qty;
-              for (const fl of ordered.slice(0, FEFO_LOT_CAP)) {
-                if (need <= 0) break;
-                const flSnap = await trx.get(floorLotRef(fl.id));
-                const curQty = (flSnap.data() as { qty?: number } | undefined)?.qty ?? 0;
-                if (curQty <= 0) continue;
-                const take = Math.min(need, curQty);
-                flTakes.push({ id: fl.id, qty: curQty, take });
-                need -= take;
-              }
-            } catch { /* best-effort — floor-lot tracking is a secondary signal, never blocks the real deduction below */ }
+            before = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
+            after = Math.max(0, before - r.qty);
             trx.update(ref, { floor: after });
-            for (const t of flTakes) trx.update(floorLotRef(t.id), { qty: t.qty - t.take });
             // Bug fix (data integrity): `qty` below is deliberately the REAL floor delta
             // (before-after), never r.qty directly — scripts/check-stock-drift.mjs replays every
             // tx's own `qty` to verify it against the live floor, so `qty` has to keep meaning
@@ -6082,6 +6033,63 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             } satisfies Omit<import('../types').Tx, 'id'>);
           });
           applied++;
+          // Floor-lot tracking (see FloorLot in types.ts): HOSxP's dispensed number carries no
+          // batch detail at all, so this is a best-effort FEFO guess across whatever floor lots
+          // exist for this med — never blocks or throws, since the real floor deduction above
+          // (already committed by this point) is the number that actually matters every day.
+          // Bug fix (real incident, recurring — 2026-10-13 first, 2026-10-30 again): this used to
+          // run inside the SAME transaction as the real deduction above, with only its READS
+          // wrapped in try/catch. That caught the FIRST incident's trigger (the 20 get()/exists()
+          // -per-transaction budget — see FEFO_LOT_CAP below), but a Firestore transaction's
+          // security rules are evaluated for every queued read AND write together, all at COMMIT
+          // time — not per individual trx.get()/trx.update() call — so ANY other reason a queued
+          // floor-lot WRITE gets rejected (a malformed historical floor-lot doc, or anything else
+          // this project's rules reject) still failed the WHOLE transaction, including the real
+          // deduction that had already been queued right alongside it, no matter how the reads
+          // were guarded. That's exactly the second incident: same "ตัดยอดไปแล้ว N รายการก่อนเกิด
+          // ปัญหา (permission-denied)" symptom, different trigger, because the underlying
+          // coupling was never actually removed — only one specific cause of it was. The real fix
+          // is structural: running this as its OWN, separate transaction, AFTER the real
+          // deduction has already committed, and wrapping the WHOLE thing (not just its reads) in
+          // try/catch means NO failure here — for any reason, known or not — can ever again reach
+          // back and block the real deduction, which by this point has already landed regardless.
+          try {
+            // Live query runs outside the transaction first (the client SDK can't query inside
+            // one, same reason commitTransfer's live lot query does) — fetchActiveFloorLotsByMedId
+            // (qty > 0 only) already skips every long-since-emptied floor-lot doc for this med, so
+            // reading every historical one on every single reconcile row was pure waste (see its
+            // own doc comment, floorLotsRepo.ts) — real report: "เติมหน้างานตอนเช้า...ใช้ได้
+            // แป๊ปเดียวก็ถึง limit". A med with no floor-lot data at all (never transferred to the
+            // floor, or long fully consumed) skips opening a transaction entirely — nothing for it
+            // to do, and no sense paying for an empty one.
+            const liveFloorLotDocs = await fetchActiveFloorLotsByMedId(m.id);
+            const ordered = liveFloorLotDocs
+              .map((d) => ({ id: d.id, exp: (d.data() as { exp?: number }).exp ?? Infinity }))
+              .sort((a, b) => a.exp - b.exp);
+            if (ordered.length) {
+              await runTx(async (trx) => {
+                // Each candidate doc is re-read fresh via trx.get before any writes — all reads
+                // before any writes, same ordering commitTransfer uses. Still capped (now purely
+                // to keep THIS transaction's own budget comfortably under 20, not to protect the
+                // real deduction above — that no longer shares a budget with this transaction at
+                // all): 1 med-doc read isn't needed here anymore, so up to 7 reads + up to 7
+                // writes leaves plenty of margin on its own.
+                const FEFO_LOT_CAP = 7;
+                let need = r.qty;
+                const flTakes: { id: string; qty: number; take: number }[] = [];
+                for (const fl of ordered.slice(0, FEFO_LOT_CAP)) {
+                  if (need <= 0) break;
+                  const flSnap = await trx.get(floorLotRef(fl.id));
+                  const curQty = (flSnap.data() as { qty?: number } | undefined)?.qty ?? 0;
+                  if (curQty <= 0) continue;
+                  const take = Math.min(need, curQty);
+                  flTakes.push({ id: fl.id, qty: curQty, take });
+                  need -= take;
+                }
+                for (const t of flTakes) trx.update(floorLotRef(t.id), { qty: t.qty - t.take });
+              });
+            }
+          } catch { /* best-effort — never blocks the real deduction, which already committed above */ }
         }));
       }
       // Bug fix (efficiency): a name that fails to match keeps failing every single day until
