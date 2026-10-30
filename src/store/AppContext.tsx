@@ -5650,11 +5650,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Bug fix (data integrity): tx-log write folded into the same transaction as the lot
       // writes — see commitCount's note on this exact class of gap.
       await runTx(async (trx) => {
-        const liveLots: { id: string; qty: number; exp: number }[] = [];
+        const liveLots: { id: string; qty: number; exp: number; lotNo: string | undefined }[] = [];
         for (const lotId of lotIds) {
           const snap = await trx.get(lotRef(lotId));
-          const data = snap.data() as { qty?: number; exp?: number } | undefined;
-          liveLots.push({ id: lotId, qty: data?.qty ?? 0, exp: data?.exp ?? Infinity }); // FEFO fix: unknown exp sorts last, not first (see commitTransfer's own note on this bug)
+          const data = snap.data() as { qty?: number; exp?: number; lotNo?: string } | undefined;
+          liveLots.push({ id: lotId, qty: data?.qty ?? 0, exp: data?.exp ?? Infinity, lotNo: data?.lotNo }); // FEFO fix: unknown exp sorts last, not first (see commitTransfer's own note on this bug)
         }
         const curSub = liveLots.reduce((s, l) => s + l.qty, 0);
         delta = q - curSub;
@@ -5667,11 +5667,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             need -= take;
           }
         } else if (delta > 0) {
-          const lotRef = newLotRef();
-          trx.set(lotRef, {
-            code: genLotCode(m.code, medId, lotRef.id), medId, lotNo: 'ปรับยอด (นับสต็อก)',
-            exp: Date.now() + 100 * 365 * DAY, qty: delta, loc: 'ปรับยอด',
-          });
+          // Bug fix (data integrity — unbounded lot growth): this used to ALWAYS create a brand
+          // new 'ปรับยอด (นับสต็อก)' lot on every over-count, even when this med already has one
+          // sitting active from a previous count — a med that regularly counts slightly over
+          // (normal variance, not a real event each time) accumulated one more placeholder lot
+          // per occurrence forever, with no consolidation. Beyond the clutter, every one of
+          // those extra lots is one more doc this same transaction (and commitAllSubCounts'
+          // sibling one) must read via trx.get() above on every future count of this med —
+          // exactly the Firestore 20-get-per-transaction rules budget this app already hit once
+          // for real (see commitReconcile's FEFO_LOT_CAP fix) — so letting this lot count grow
+          // without bound on a med that counts over repeatedly risks the same permission-denied
+          // failure, just from a different direction. Merges into the existing one instead, same
+          // "find by lotNo match among the already-read liveLots, trx.update if found" precedent
+          // commitReceive uses for a genuine duplicate delivery (see its own comment).
+          const existingAdj = liveLots.find((l) => l.lotNo === 'ปรับยอด (นับสต็อก)' && l.qty > 0);
+          if (existingAdj) {
+            trx.update(lotRef(existingAdj.id), { qty: existingAdj.qty + delta });
+          } else {
+            const lotRef = newLotRef();
+            trx.set(lotRef, {
+              code: genLotCode(m.code, medId, lotRef.id), medId, lotNo: 'ปรับยอด (นับสต็อก)',
+              exp: Date.now() + 100 * 365 * DAY, qty: delta, loc: 'ปรับยอด',
+            });
+          }
         }
         trx.update(medRef(medId), { lastSubCountTs: Date.now() });
         note = delta < 0
@@ -5732,11 +5750,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Bug fix (data integrity): tx-log write folded into the same transaction — see
         // commitCount's note on this exact class of gap.
         await runTx(async (trx) => {
-          const liveLots: { id: string; qty: number; exp: number }[] = [];
+          const liveLots: { id: string; qty: number; exp: number; lotNo: string | undefined }[] = [];
           for (const lotId of lotIds) {
             const snap = await trx.get(lotRef(lotId));
-            const data = snap.data() as { qty?: number; exp?: number } | undefined;
-            liveLots.push({ id: lotId, qty: data?.qty ?? 0, exp: data?.exp ?? Infinity }); // FEFO fix: unknown exp sorts last, not first (see commitTransfer's own note on this bug)
+            const data = snap.data() as { qty?: number; exp?: number; lotNo?: string } | undefined;
+            liveLots.push({ id: lotId, qty: data?.qty ?? 0, exp: data?.exp ?? Infinity, lotNo: data?.lotNo }); // FEFO fix: unknown exp sorts last, not first (see commitTransfer's own note on this bug)
           }
           const curSub = liveLots.reduce((s, l) => s + l.qty, 0);
           delta = q - curSub;
@@ -5749,11 +5767,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               need -= take;
             }
           } else if (delta > 0) {
-            const lotRef = newLotRef();
-            trx.set(lotRef, {
-              code: genLotCode(m.code, medId, lotRef.id), medId, lotNo: 'ปรับยอด (นับสต็อก)',
-              exp: Date.now() + 100 * 365 * DAY, qty: delta, loc: 'ปรับยอด',
-            });
+            // Bug fix (data integrity — unbounded lot growth): see commitSubCount's matching
+            // fix right above for the full explanation — same merge-into-existing-ปรับยอด-lot
+            // fix, applied to this sibling batch path.
+            const existingAdj = liveLots.find((l) => l.lotNo === 'ปรับยอด (นับสต็อก)' && l.qty > 0);
+            if (existingAdj) {
+              trx.update(lotRef(existingAdj.id), { qty: existingAdj.qty + delta });
+            } else {
+              const lotRef = newLotRef();
+              trx.set(lotRef, {
+                code: genLotCode(m.code, medId, lotRef.id), medId, lotNo: 'ปรับยอด (นับสต็อก)',
+                exp: Date.now() + 100 * 365 * DAY, qty: delta, loc: 'ปรับยอด',
+              });
+            }
           }
           trx.update(medRef(medId), { lastSubCountTs: Date.now() });
           const note = delta < 0

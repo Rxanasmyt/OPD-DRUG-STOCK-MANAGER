@@ -785,6 +785,71 @@ describe('commitCount / commitSubCount — silent-no-op regression', () => {
   });
 });
 
+function AllSubCountHarness() {
+  const { setSubCountInput, commitAllSubCounts } = useApp();
+  const id = asMedId('m1');
+  useEffect(() => { setSubCountInput(id, '10'); }, [setSubCountInput, id]);
+  return <button onClick={commitAllSubCounts}>commit-all-subcounts</button>;
+}
+
+// Real-world risk this closes off: a med whose counted substock comes in slightly over the
+// system total on a routine basis (normal counting variance, not a real one-off event) used to
+// get a BRAND NEW 'ปรับยอด (นับสต็อก)' lot every single time — commitSubCount/commitAllSubCounts
+// never checked for one already sitting active before calling newLotRef(). Left unbounded, this
+// is exactly the same shape of problem commitReconcile's FEFO_LOT_CAP fix addressed for floor
+// lots: both commitSubCount and commitAllSubCounts re-read EVERY active lot for the med via
+// trx.get() inside the same transaction (no cap, no try/catch), each read (and each write)
+// costing one unit of Firestore's 20-get-per-transaction rules budget — a med that has
+// accumulated enough of these placeholder lots over time can exhaust that budget purely from
+// counting it, failing with the exact same permission-denied this app already hit once for real.
+describe('commitSubCount / commitAllSubCounts — adjustment-lot-growth regression', () => {
+  it('commitSubCount merges a repeat over-count into the existing ปรับยอด lot instead of creating a new one', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><SubCountHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    const adjLot = { medId: MED.id, lotNo: 'ปรับยอด (นับสต็อก)', exp: Date.now() + 100 * 365 * 86400000, qty: 5, loc: 'ปรับยอด' };
+    fireCollection('lots', [{ id: 'lotAdj', ...adjLot }]);
+    seedCollection('lots', [{ id: 'lotAdj', ...adjLot }]);
+    seedDoc('lots/lotAdj', adjLot);
+
+    // SubCountHarness types '10' — curSub (the existing lotAdj alone) is 5, so this is a
+    // second, smaller over-count on top of an already-surplus med (delta = +5).
+    await user.click(screen.getByRole('button', { name: 'commit-subcount' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+    const lotWrites = getLastTransactionWrites().filter((w) => w.path.startsWith('lots/'));
+    // Without the fix this would be 1 write too, but to a brand-new randomly-generated lot
+    // doc — leaving the existing 'lotAdj' untouched instead of merging into it.
+    expect(lotWrites.length).toBe(1);
+    expect(lotWrites[0].path).toBe('lots/lotAdj');
+    expect(lotWrites[0].data).toEqual({ qty: 10 });
+  });
+
+  it('commitAllSubCounts merges a repeat over-count into the existing ปรับยอด lot instead of creating a new one', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><AllSubCountHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    const adjLot = { medId: MED.id, lotNo: 'ปรับยอด (นับสต็อก)', exp: Date.now() + 100 * 365 * 86400000, qty: 5, loc: 'ปรับยอด' };
+    fireCollection('lots', [{ id: 'lotAdj', ...adjLot }]);
+    seedCollection('lots', [{ id: 'lotAdj', ...adjLot }]);
+    seedDoc('lots/lotAdj', adjLot);
+
+    await user.click(screen.getByRole('button', { name: 'commit-all-subcounts' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+    const lotWrites = getLastTransactionWrites().filter((w) => w.path.startsWith('lots/'));
+    expect(lotWrites.length).toBe(1);
+    expect(lotWrites[0].path).toBe('lots/lotAdj');
+    expect(lotWrites[0].data).toEqual({ qty: 10 });
+  });
+});
+
 function LogoutHarness() {
   const { state, setAdjQty, setAdjNote, setRecvQty, logout } = useApp();
   return (
