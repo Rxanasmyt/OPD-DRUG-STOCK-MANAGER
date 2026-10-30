@@ -2471,9 +2471,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // including an expired lot — that warning is what makes this exclusion visible
           // *before* someone hits the shortage, not something this fix should hide.
           const now = Date.now();
-          const lotIds = liveLotDocs
+          const orderedLots = liveLotDocs
             .map((d) => ({ id: d.id, qty: (d.data() as { qty?: number }).qty ?? 0, exp: (d.data() as { exp?: number }).exp ?? Infinity }))
-            .filter((l) => l.qty > 0 && !(l.exp && l.exp <= now)).sort((a, b) => a.exp - b.exp).map((l) => l.id);
+            .filter((l) => l.qty > 0 && !(l.exp && l.exp <= now)).sort((a, b) => a.exp - b.exp);
+          // Bug fix (Firestore read-budget waste, same mechanism as commitReconcile's
+          // FEFO_LOT_CAP fix above): this used to trx.get() EVERY active substock lot this med
+          // has, no matter how many are actually needed to cover this cart line's qty — a med
+          // whose substock is spread across several partial-delivery lots (completely normal
+          // for a fast-moving item) cost far more of this transaction's shared 20 get()/
+          // exists()-call budget (every trx.get()/trx.update() here runs this project's rules,
+          // each of which calls myProfile() — see commitReconcile's own comment for the exact
+          // mechanism) than the transfer itself needs — and because this whole cart commits as
+          // ONE transaction (not one per med, unlike commitReconcile), that waste compounds
+          // across every item in the cart, not just one med. Walking the FEFO-sorted lots only
+          // until the live (pre-transaction) qty already covers this line's need — plus one
+          // extra lot as a margin against that live snapshot being slightly stale by the time
+          // trx.get() below re-reads it fresh — keeps the common case (a handful of lots) to
+          // exactly as many reads as it needs; a lot short of covering live qty by the time it's
+          // actually re-read just falls back to the existing, already-handled "insufficient"
+          // shortage toast below (someone else drew from it concurrently), same as today.
+          const need = cart[medId];
+          let runningQty = 0;
+          const lotIds: string[] = [];
+          for (let i = 0; i < orderedLots.length; i++) {
+            lotIds.push(orderedLots[i].id);
+            runningQty += orderedLots[i].qty;
+            if (runningQty >= need) {
+              const buffer = orderedLots[i + 1];
+              if (buffer) lotIds.push(buffer.id);
+              break;
+            }
+          }
           lotIdsByMed[medId] = lotIds;
           await Promise.all(lotIds.map(async (lotId) => {
             const lotSnap = await trx.get(lotRef(lotId));

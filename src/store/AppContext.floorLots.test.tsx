@@ -24,7 +24,7 @@ import { renderWithApp } from '../test-utils/renderWithApp';
 import Toast from '../components/Toast';
 import ConfirmDialog from '../components/ConfirmDialog';
 import {
-  signInAs, fireCollection, hasListener, seedDoc, seedCollection, getLastTransactionWrites,
+  signInAs, fireCollection, hasListener, seedDoc, seedCollection, getLastTransactionWrites, getLastTransactionReads,
 } from '../test-utils/firebaseTestDouble';
 import { asMedId, asFloorLotId } from '../types';
 
@@ -99,6 +99,57 @@ describe('commitTransfer — floor-lot creation regression', () => {
     const flWrite = writes.find((w) => w.path === 'floorLots/m1__LA__' + exp);
     // Without the merge fix this would be overwritten back down to just the newly-drawn 4.
     expect(flWrite?.data).toEqual({ medId: 'm1', lotNo: 'LA', exp, qty: 10 });
+  });
+});
+
+function SeedCart3() {
+  const { setCartQty, sub } = useApp();
+  const qty = sub(MED.id);
+  useEffect(() => { if (qty > 0) setCartQty(MED.id, '3'); }, [setCartQty, qty]);
+  return null;
+}
+
+// Real-world risk (same mechanism as commitReconcile's own FEFO_LOT_CAP fix above, see its doc
+// comment for the full Firestore-rules-budget mechanism): commitTransfer used to trx.get() EVERY
+// active substock lot a med has, no matter how few are actually needed to cover the cart's qty —
+// and because the whole cart commits as ONE transaction (not one per med), that waste compounds
+// across every item in the cart, not just one med.
+describe('commitTransfer — FEFO-lot-read-cap regression (Firestore read-budget waste)', () => {
+  it('only reads as many FEFO-ordered lots as needed to cover the cart qty (plus one margin lot), not every active lot the med has', async () => {
+    const user = userEvent.setup();
+    // 10 fragmented lots of 2 units each (20 total) — far more than the 3-unit cart line needs.
+    const lots = Array.from({ length: 10 }, (_, i) => ({
+      id: 'lot' + i, medId: MED.id, qty: 2, lotNo: 'L' + i, exp: Date.now() + (i + 1) * 86400000,
+    }));
+    renderWithApp(<><SeedCart3 /><TransferHarness /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', lots);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'confirm-transfer' })).toBeInTheDocument());
+
+    seedDoc('meds/m1', { floor: MED.floor });
+    seedCollection('lots', lots);
+    lots.forEach((l) => seedDoc('lots/' + l.id, { qty: l.qty, lotNo: l.lotNo, exp: l.exp }));
+    seedCollection('floorLots', []);
+
+    await user.click(screen.getByRole('button', { name: 'confirm-transfer' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+    // A 3-unit need is covered by the first 2 lots (2+2=4 >= 3); one extra lot (lot2) is read as
+    // a margin against the live snapshot above being stale by the time trx.get() re-reads it —
+    // never all 10, however fragmented this med's real substock is.
+    const lotReads = getLastTransactionReads().filter((p) => p.startsWith('lots/'));
+    expect(lotReads.sort()).toEqual(['lots/lot0', 'lots/lot1', 'lots/lot2']);
+
+    // The real transfer result is completely unaffected by the read cap: 3 units still drawn
+    // FEFO (2 from lot0, 1 from lot1), floor still credited the full 3.
+    const writes = getLastTransactionWrites();
+    expect(writes.find((w) => w.path === 'lots/lot0')?.data).toEqual({ qty: 0 });
+    expect(writes.find((w) => w.path === 'lots/lot1')?.data).toEqual({ qty: 1 });
+    expect(writes.find((w) => w.path === 'lots/lot2')).toBeUndefined();
+    expect(writes.find((w) => w.path === 'meds/m1')?.data).toEqual({ floor: MED.floor + 3 });
   });
 });
 
