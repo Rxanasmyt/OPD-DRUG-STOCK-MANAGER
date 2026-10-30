@@ -1187,6 +1187,71 @@ describe('commitReceive — lot duplication regression', () => {
   });
 });
 
+function ReceiveManyHarness({ medIds }: { medIds: string[] }) {
+  const { state, pickRecvMed, setRecvQty, addRecv, commitReceive } = useApp();
+  return (
+    <>
+      {medIds.map((id) => (
+        <button key={id} onClick={() => pickRecvMed(asMedId(id))}>{'pick-' + id}</button>
+      ))}
+      <button onClick={() => setRecvQty('10')}>set-qty</button>
+      <button onClick={() => addRecv()}>add-item</button>
+      <button disabled={!state.recvItems.length} onClick={commitReceive}>commit-receive</button>
+    </>
+  );
+}
+
+// Bug fix (real production incident, 2026-10-30): see commitReceive's own "Bug fix (real
+// production incident...)" comment. Before this fix, the whole cart (however many distinct
+// meds) committed as ONE shared Firestore transaction — a routine delivery of 8-10 distinct
+// meds (this function's own long-standing comment describing its normal case) could already
+// exceed Firestore's 20 get()/exists()-call-per-transaction budget purely from that cost (1
+// read + 2 writes per item, each one triggering this project's rules' own myProfile() read —
+// see commitReconcile's FEFO_LOT_CAP comment for the mechanism), throwing permission-denied on
+// a completely ordinary receive — exactly what this hospital hit on a real ใบรับ ("บันทึกใบรับ
+// ไม่สำเร็จ ... (permission-denied)" receiving a normal multi-drug delivery).
+describe('commitReceive — per-group transaction budget regression', () => {
+  it('commits a 9-distinct-med delivery as 9 separate small transactions instead of one shared one', async () => {
+    const user = userEvent.setup();
+    const medIds = Array.from({ length: 9 }, (_, i) => 'm' + (i + 1));
+    const meds = medIds.map((id, i) => ({ ...MED, id: asMedId(id), code: 'MED-000' + (i + 1), name: 'ยาทดสอบ ' + (i + 1) }));
+    renderWithApp(<><ReceiveManyHarness medIds={medIds} /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', meds);
+    // Each med already has one active substock lot with no lotNo/exp on file (matching a real
+    // "lot ไม่ทราบ lot" receive) — the common merge-into-existing path, the one that actually
+    // costs a trx.get() read under the old shared-transaction code.
+    for (const id of medIds) {
+      seedDoc('meds/' + id, {});
+      seedDoc('lots/lot-' + id, { medId: id, qty: 5 });
+    }
+    seedCollection('lots', medIds.map((id) => ({ id: 'lot-' + id, medId: id, qty: 5 })));
+
+    for (const id of medIds) {
+      await user.click(screen.getByRole('button', { name: 'pick-' + id }));
+      await user.click(screen.getByRole('button', { name: 'set-qty' }));
+      await user.click(screen.getByRole('button', { name: 'add-item' }));
+    }
+    await waitFor(() => expect(screen.getByRole('button', { name: 'commit-receive' })).not.toBeDisabled());
+    // mock.calls accumulates across every test in this file (nothing clears it between tests),
+    // so the count this commit itself adds is what matters, not the raw total.
+    const callsBefore = vi.mocked(runTransaction).mock.calls.length;
+
+    await user.click(screen.getByRole('button', { name: 'commit-receive' }));
+
+    // Without the fix, this would add exactly 1 (one shared transaction for the whole cart).
+    await waitFor(() => expect(vi.mocked(runTransaction).mock.calls.length - callsBefore).toBe(9));
+    // Each of those 9 transactions only ever reads/writes its OWN med's lot — never the other
+    // 8 — so even the one directly observable here (the module-level "most recent transaction"
+    // recorder) still shows exactly that bounded shape, not anything scaled by cart size.
+    expect(getLastTransactionReads().length).toBe(1);
+    const writes = getLastTransactionWrites();
+    expect(writes.filter((w) => w.kind === 'update' && w.path.startsWith('lots/')).length).toBe(1);
+    expect(writes.filter((w) => w.kind === 'set' && w.path.startsWith('txs/')).length).toBe(1);
+  });
+});
+
 const MED_BOTTLE = {
   id: 'm2', code: 'MED-0002', name: 'Ventolin inhaler', unit: 'ขวด', dosageForm: 'พ่น',
   price: 100, had: false, active: true, parSub: 20, parFloor: 5, floor: 3, bin: 'B1',

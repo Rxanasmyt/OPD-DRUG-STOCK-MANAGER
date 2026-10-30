@@ -2714,6 +2714,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // user at all. Same pre-write guard commitTransfer already has for its cart.
     const missingMed = items.some((it) => !state.meds.find((x) => x.id === it.medId));
     if (missingMed) { toast('มีรายการที่ถูกลบออกจากระบบไปแล้ว — กลับไปลบรายการนั้นออกจากรายการรับเข้าก่อน'); return; }
+    let committed = 0;
     try {
       // Bug fix (phantom stock): the missingMed check above only guards against state.meds (the
       // client cache) already being stale by the time this screen was opened — but the
@@ -2771,86 +2772,104 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // code decided merge-vs-create from a plain getDocs query and then wrote via a separate,
       // non-transactional writeBatch — two devices receiving the same med+lot at the same
       // moment could each run that query, each see no conflict yet, and each create their own
-      // duplicate lot doc. Moving the whole decide+write into runTx closes that for the common
-      // case (merging into an EXISTING lot): both transactions now read-then-write the SAME lot
-      // doc, so Firestore serializes them — the second one sees the first's increment and
-      // merges on top of it instead of racing. The live lot query itself still can't run inside
-      // the transaction (same query-then-get workaround approvePendingReceive already uses
-      // above), so it reruns fresh on every automatic retry; only merges into a lot that's
-      // still genuinely active (qty > 0), never resurrects an old zeroed-out lot kept around
-      // purely for its own history (see scrapLot's own comment on why depleted lots aren't
-      // deleted) — so fetchActiveLotsByMedId's own server-side qty filter changes nothing here
-      // except how much this reads (see its own doc comment, lotsRepo.ts).
+      // duplicate lot doc. Deciding+writing each med+lot+exp group inside its own transaction
+      // (see the next bug fix below for why one PER GROUP, not one shared transaction for the
+      // whole cart) closes that for the common case (merging into an EXISTING lot): both
+      // transactions now read-then-write the SAME lot doc, so Firestore serializes them — the
+      // second one sees the first's increment and merges on top of it instead of racing. The
+      // live lot query itself still can't run inside the transaction (same query-then-get
+      // workaround approvePendingReceive already uses above), so it reruns fresh on every
+      // automatic retry; only merges into a lot that's still genuinely active (qty > 0), never
+      // resurrects an old zeroed-out lot kept around purely for its own history (see scrapLot's
+      // own comment on why depleted lots aren't deleted) — so fetchActiveLotsByMedId's own
+      // server-side qty filter changes nothing here except how much this reads (see its own doc
+      // comment, lotsRepo.ts).
       const substockMedIds = [...new Set(items.filter((it) => !(liveMeds.get(it.medId)?.noSubstock)).map((it) => it.medId))];
-      await runTx(async (trx) => {
-        const liveLotEntries = await Promise.all(substockMedIds.map(async (medId) => {
-          const docs = await fetchActiveLotsByMedId(medId);
-          return [medId, docs.map((d) => ({ id: d.id, ...(d.data() as { lotNo?: string; exp?: number; qty?: number }) }))] as const;
-        }));
-        const liveLotsByMed = new Map(liveLotEntries);
-        // All of a Firestore transaction's reads must happen before any of its writes, so the
-        // per-item candidate confirmation (trx.get, making each candidate doc part of this
-        // transaction's tracked read set — the thing that actually causes the serialization
-        // above) runs as its own pass first, keyed the same way the write pass below groups
-        // items, before any trx.set/trx.update fires.
-        const candidateByKey = new Map<string, { id: string; qty: number } | null>();
-        for (const it of items) {
+      const liveLotEntries = await Promise.all(substockMedIds.map(async (medId) => {
+        const docs = await fetchActiveLotsByMedId(medId);
+        return [medId, docs.map((d) => ({ id: d.id, ...(d.data() as { lotNo?: string; exp?: number; qty?: number }) }))] as const;
+      }));
+      const liveLotsByMed = new Map(liveLotEntries);
+      // Bug fix (real production incident, 2026-10-30): this used to commit the WHOLE cart —
+      // every distinct med's lot write AND its own tx-log write, plus a trx.get() per med that
+      // already has a matching lot on the shelf — as ONE shared Firestore transaction. Every
+      // read/write inside a transaction runs this project's rules, each of which calls
+      // myProfile() (see commitReconcile's FEFO_LOT_CAP comment above for the exact mechanism
+      // and the hard 20 get()/exists()-call-per-transaction budget this draws from) — so a
+      // routine central-warehouse delivery of "8-10 distinct meds" (this function's own
+      // long-standing comment above, describing the NORMAL case here, not an edge case) could
+      // already cost 2-3 budget units per item (one read to confirm a merge candidate, one lot
+      // write, one tx-log write), blowing straight through 20 on an ordinary delivery — exactly
+      // the permission-denied wall this hospital hit on a real ใบรับ. Splitting into one
+      // transaction PER med+lot+exp group keeps each transaction's own budget bounded
+      // regardless of how many distinct drugs are in the delivery, and still serializes
+      // concurrent receives of the SAME lot (the race protection above only ever needed that
+      // one lot's read-then-write together, never the whole cart). noSubstock items need no
+      // read at all (floor: increment(it.qty) is a server-side transform, same reasoning
+      // writeReturnBatch's own fix above relies on) and no merge-vs-create decision, so they go
+      // through a plain writeBatch instead — not an interactive transaction, so it draws from no
+      // get()/exists() budget at all — while staying exactly as atomic with each other as
+      // before. A failure partway through a large delivery now leaves the groups already
+      // committed in place rather than rolling back everything already saved — same accepted
+      // partial-progress tradeoff commitReconcile's own per-med rewrite made, surfaced the same
+      // way (see `committed` and the catch block below).
+      const noSubItems = items.filter((it) => liveMeds.get(it.medId)?.noSubstock);
+      if (noSubItems.length) {
+        const b = writeBatch(db);
+        for (const it of noSubItems) {
           const m = liveMeds.get(it.medId);
-          if (m && m.noSubstock) continue;
-          const key = it.medId + '|' + it.lotNo + '|' + it.exp;
-          if (candidateByKey.has(key)) continue;
-          const existing = (liveLotsByMed.get(it.medId) || []).find((l) => l.lotNo === it.lotNo && l.exp === it.exp && (l.qty || 0) > 0);
-          if (!existing) { candidateByKey.set(key, null); continue; }
-          const lotSnap = await trx.get(lotRef(existing.id));
-          const data = lotSnap.data() as { qty?: number } | undefined;
-          candidateByKey.set(key, data && (data.qty || 0) > 0 ? { id: existing.id, qty: data.qty || 0 } : null);
-        }
-        // Also merges two rows of THIS SAME receipt sharing a lotNo/exp for one med — neither
-        // the live query nor the trx.get pass above can see a lot this same batch is about to
-        // create, so track it locally too.
-        const stagedLotRefs = new Map<string, DocumentReference>();
-        items.forEach((it) => {
-          // Liquids/inhalers/sprays — some meds skip substock entirely and go straight from
-          // the central warehouse to the shelf (see noSubstock on Med). No lot is created for
-          // these (the floor number already carries no per-lot expiry tracking of its own,
-          // same limitation the rest of the app already accepts for regular transferred
-          // stock) — just credit the shelf directly instead of a substock lot nobody would
-          // ever transfer out of.
-          const m = liveMeds.get(it.medId);
-          if (m && m.noSubstock) {
-            trx.update(medRef(it.medId), { floor: increment(it.qty) });
-            const noSubBoxLabel = m.packSize ? boxBreakdownLabel({ packSize: m.packSize, unit: it.unit }, it.qty) : undefined;
-            trx.set(newTxRef(), {
-              type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'floor',
-              note: 'ใบเบิก ' + state.recvNo + ' · lot ' + lotLabel(it.lotNo) + ' exp ' + expLabel(it.exp) + (noSubBoxLabel ? ' · ' + noSubBoxLabel : '') + ' — ไม่มี substock ขึ้นหน้างานทันที', by: userName(), ts: Date.now(),
-            });
-            return;
-          }
-          const key = it.medId + '|' + it.lotNo + '|' + it.exp;
-          const staged = stagedLotRefs.get(key);
-          const candidate = candidateByKey.get(key);
-          if (staged) {
-            trx.update(staged, { qty: increment(it.qty) });
-          } else if (candidate) {
-            const ref = lotRef(candidate.id);
-            trx.update(ref, { qty: increment(it.qty) });
-            stagedLotRefs.set(key, ref);
-          } else {
-            const lotRef = newLotRef();
-            // Bug fix: lotNo/exp are now optional (real-world request: "...ไม่ต้องบังคับให้ใส่
-            // Lot และวันหมดอายุ...") — Firestore throws on a field explicitly written as
-            // `undefined`, so a blank one is left out of the doc entirely rather than written as
-            // `lotNo: undefined`/`exp: undefined`.
-            trx.set(lotRef, { code: genLotCode(m?.code, asMedId(it.medId), lotRef.id), medId: it.medId, ...(it.lotNo ? { lotNo: it.lotNo } : {}), ...(it.exp != null ? { exp: it.exp } : {}), qty: it.qty, loc: 'ชั้น bulk' });
-            stagedLotRefs.set(key, lotRef);
-          }
-          const boxLabel = m?.packSize ? boxBreakdownLabel({ packSize: m.packSize, unit: it.unit }, it.qty) : undefined;
-          trx.set(newTxRef(), {
-            type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'substock',
-            note: 'ใบเบิก ' + state.recvNo + ' · lot ' + lotLabel(it.lotNo) + ' exp ' + expLabel(it.exp) + (boxLabel ? ' · ' + boxLabel : ''), by: userName(), ts: Date.now(),
+          b.update(medRef(it.medId), { floor: increment(it.qty) });
+          const noSubBoxLabel = m?.packSize ? boxBreakdownLabel({ packSize: m.packSize, unit: it.unit }, it.qty) : undefined;
+          b.set(newTxRef(), {
+            type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'floor',
+            note: 'ใบเบิก ' + state.recvNo + ' · lot ' + lotLabel(it.lotNo) + ' exp ' + expLabel(it.exp) + (noSubBoxLabel ? ' · ' + noSubBoxLabel : '') + ' — ไม่มี substock ขึ้นหน้างานทันที', by: userName(), ts: Date.now(),
           });
-        });
-      });
+        }
+        await withTimeout(b.commit());
+        committed += noSubItems.length;
+      }
+      const substockGroups = new Map<string, { medId: string; lotNo: string | undefined; exp: number | undefined; items: typeof items }>();
+      for (const it of items) {
+        if (liveMeds.get(it.medId)?.noSubstock) continue;
+        const key = it.medId + '|' + it.lotNo + '|' + it.exp;
+        const g = substockGroups.get(key);
+        if (g) g.items.push(it); else substockGroups.set(key, { medId: it.medId, lotNo: it.lotNo, exp: it.exp, items: [it] });
+      }
+      const groups = [...substockGroups.values()];
+      const CHUNK_SIZE = 15;
+      for (let i = 0; i < groups.length; i += CHUNK_SIZE) {
+        await Promise.all(groups.slice(i, i + CHUNK_SIZE).map(async (g) => {
+          await runTx(async (trx) => {
+            const existing = (liveLotsByMed.get(g.medId) || []).find((l) => l.lotNo === g.lotNo && l.exp === g.exp && (l.qty || 0) > 0);
+            const totalQty = g.items.reduce((s, it) => s + it.qty, 0);
+            let targetRef: DocumentReference | null = null;
+            if (existing) {
+              const lotSnap = await trx.get(lotRef(existing.id));
+              const data = lotSnap.data() as { qty?: number } | undefined;
+              if (data && (data.qty || 0) > 0) targetRef = lotRef(existing.id);
+            }
+            const m = liveMeds.get(g.medId);
+            if (targetRef) {
+              trx.update(targetRef, { qty: increment(totalQty) });
+            } else {
+              const newRef = newLotRef();
+              // Bug fix: lotNo/exp are now optional (real-world request: "...ไม่ต้องบังคับให้ใส่
+              // Lot และวันหมดอายุ...") — Firestore throws on a field explicitly written as
+              // `undefined`, so a blank one is left out of the doc entirely rather than written as
+              // `lotNo: undefined`/`exp: undefined`.
+              trx.set(newRef, { code: genLotCode(m?.code, asMedId(g.medId), newRef.id), medId: g.medId, ...(g.lotNo ? { lotNo: g.lotNo } : {}), ...(g.exp != null ? { exp: g.exp } : {}), qty: totalQty, loc: 'ชั้น bulk' });
+            }
+            for (const it of g.items) {
+              const boxLabel = m?.packSize ? boxBreakdownLabel({ packSize: m.packSize, unit: it.unit }, it.qty) : undefined;
+              trx.set(newTxRef(), {
+                type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'substock',
+                note: 'ใบเบิก ' + state.recvNo + ' · lot ' + lotLabel(it.lotNo) + ' exp ' + expLabel(it.exp) + (boxLabel ? ' · ' + boxLabel : ''), by: userName(), ts: Date.now(),
+              });
+            }
+          });
+          committed += g.items.length;
+        }));
+      }
       hapticSuccess();
       setState((st) => ({
         ...st, screen: 'done', navStack: pushNav(st.navStack, st.screen), doneKind: 'receive',
@@ -2858,7 +2877,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         recvItems: [], recvNo: genDefaultRecvNo(),
       }));
     } catch (e) {
-      toastErr(e, 'บันทึกใบรับไม่สำเร็จ ลองใหม่อีกครั้ง');
+      // A failure partway through now leaves the groups already committed above in place —
+      // same partial-progress behavior commitReconcile's own catch block already surfaces this
+      // way (see its own comment). `committed` counts cart ROWS (items), not groups, so this
+      // matches what the person actually typed in, not an internal implementation detail.
+      toastErr(e, 'บันทึกใบรับไม่สำเร็จ' + (committed > 0 ? ' — รับเข้าไปแล้ว ' + committed + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง'));
     }
   }), [state.recvItems, state.recvNo, state.myUid, state.meds, userName, toastErr, logAudit, guardOnce, runTx]);
 
