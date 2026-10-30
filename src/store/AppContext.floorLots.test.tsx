@@ -395,6 +395,34 @@ describe('commitReconcile — floor-lot FEFO deduction regression', () => {
     await screen.findByText('ตัดยอดหน้างานตามไฟล์แล้ว 1 รายการ — บันทึกลง discrepancy log');
     expect(getAllTransactionLogs()[0]?.writes.find((w) => w.path === 'meds/m1')?.data).toEqual({ floor: 33 });
   });
+
+  // Bug fix (debugging gap — real incident, 2026-10-30): when the REAL deduction transaction
+  // itself fails (not the separate floor-lot one — see the two regressions above), the error
+  // toast used to be a completely anonymous "ประมวลผลไม่สำเร็จ (permission-denied)" — on a ward
+  // tablet with no DevTools console, nobody could tell WHICH drug in a 20-150+ line HOSxP file
+  // actually triggered it. The toast must name the drug.
+  it('names which drug failed in the error toast when the real deduction transaction itself is rejected', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ReconcileHarness /><Toast /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    await waitFor(() => expect(hasListener('txs')).toBe(true));
+    fireCollection('txs', []);
+
+    await user.click(screen.getByRole('button', { name: 'process' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'commit-reconcile' })).not.toBeDisabled());
+    seedDoc('meds/m1', { floor: MED.floor });
+    seedCollection('floorLots', []);
+
+    // This time the real deduction's OWN transaction (the one writing to meds/) is the one
+    // rejected — a different failure point than the other two regressions in this block.
+    failNextTransactionCommitWritingPathPrefix('meds/');
+
+    await user.click(screen.getByRole('button', { name: 'commit-reconcile' }));
+
+    await screen.findByText('ประมวลผลไม่สำเร็จ (ยา: ' + MED.name + ') ลองใหม่อีกครั้ง (permission-denied)');
+  });
 });
 
 function ScrapFloorLotHarness() {
