@@ -1,0 +1,69 @@
+name: Deploy to Firebase Hosting
+
+# Real-world report: a hospital pharmacist found that hard-refreshing the GitHub Pages-hosted
+# app did not pick up a just-merged fix, sometimes for several minutes. GitHub Pages is served
+# through a CDN (Fastly) with no way for this repo to set its own Cache-Control headers — the
+# service worker script (sw.js) itself could sit cached at the CDN edge for a while, so even a
+# correct, cache-busting update check from the app's own code (see AppContext.tsx's
+# registration.update() calls) could keep finding the same stale sw.js. Firebase Hosting (this
+# project already runs on Firebase) DOES let a repo set explicit response headers (firebase.json)
+# — sw.js/index.html/manifest.webmanifest are marked no-cache there, so every update check is
+# guaranteed to reach the real origin, while the content-hashed JS/CSS chunks under /assets/ are
+# still cached for a year (safe — a changed file gets a new hash, never the same URL).
+#
+# This REPLACES GitHub Pages as the fast-path URL going forward (see firebase.json's own comment
+# for the header reasoning). It does not touch deploy-pages.yml — the old
+# rxanasmyt.github.io/OPD-DRUG-STOCK-MANAGER/ URL keeps working exactly as before (still slow to
+# notice updates) so nobody's already-installed home-screen icon breaks overnight; staff switch
+# over to the new Firebase Hosting URL (https://opd-drug-stock.web.app/) at their own pace by
+# re-adding the home-screen icon from that URL, then deploy-pages.yml can be retired once
+# everyone has.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Same reasoning as deploy-pages.yml's own concurrency block: queue (never cancel) so two quick
+# successive pushes can't race and leave the live site on a mismatched bundle.
+concurrency:
+  group: firebase-hosting
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # See ci.yml's own comment on this pin — Node 20 fails `npm test` on this repo's
+          # jsdom/undici combo.
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      # Same reasoning as deploy-pages.yml: a change that type-checks and builds but fails
+      # vitest must never still reach a live, safety-critical stock app.
+      - run: npm test
+      # No GITHUB_PAGES env var here (unlike deploy-pages.yml) — vite.config.ts's `base`
+      # defaults to '/', correct for Firebase Hosting serving from its own domain root rather
+      # than a GitHub Pages project-site subpath.
+      - run: npm run build
+      - name: Deploy to Firebase Hosting
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+        run: |
+          echo "$FIREBASE_SERVICE_ACCOUNT_KEY" > "$RUNNER_TEMP/firebase-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json"
+          npx --yes firebase-tools@13 deploy --only hosting --project opd-drug-stock --non-interactive
+          rm -f "$RUNNER_TEMP/firebase-sa.json"
+      # Same script, same reasoning as deploy-pages.yml's own copy of this step — pushes the
+      # new version to every tab already open on the NEW (Firebase Hosting) URL in real time via
+      # Firestore, instead of waiting on the service worker's own up-to-3-minute poll.
+      # continue-on-error: a hiccup here must never mark the deploy itself as failed — the real
+      # deploy already succeeded by this point.
+      - run: node scripts/publish-app-version.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+        continue-on-error: true

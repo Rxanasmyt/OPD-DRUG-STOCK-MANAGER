@@ -7,6 +7,35 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.234.0] - 2026-10-30
+
+### เปลี่ยนแปลง (infrastructure)
+- **[ย้าย hosting จาก GitHub Pages ไป Firebase Hosting — แก้ปัญหา "hard refresh แล้วไม่อัพเดตเวอร์ชันล่าสุด
+  นานหลายนาที" ที่ผู้ใช้งานจริงรายงาน]** — ผู้ใช้งานกด "ตรวจสอบเวอร์ชันล่าสุด" + "อัปเดตเลย" ตรงๆ แล้วก็ยัง
+  ไม่ได้เวอร์ชันล่าสุด แม้รอผ่าน deploy pipeline (test+build+publish ~3-4 นาที) ไปแล้วก็ตาม — ตรวจโค้ด
+  update-check (`AppContext.tsx`'s `registration.update()`/`checkForUpdateNow`) แล้วพบว่าทำถูกต้องอยู่แล้ว
+  ทุกจุด (ข้าม browser cache เองของ `updateViaCache` default "imports" อยู่แล้วทุกครั้งที่เช็ค)
+  - สาเหตุน่าจะอยู่ที่ **CDN ของ GitHub Pages (Fastly)** ซึ่งเป็นเลเยอร์ที่ repo นี้ควบคุม Cache-Control
+    header เองไม่ได้เลย (ข้อจำกัดที่ทราบกันดีของแพลตฟอร์มนี้) — ไฟล์ `sw.js` อาจถูกแคชค้างที่ CDN edge
+    นานกว่าที่ควร ทำให้ `registration.update()` เช็คไปเจอ sw.js เวอร์ชันเก่าซ้ำๆ แม้โค้ดแอปจะพยายาม
+    bypass cache ฝั่ง browser เองถูกต้องแล้วก็ตาม — จุดนี้ไม่สามารถยืนยัน 100% ได้จาก sandbox ของ session นี้
+    เพราะเข้าถึง URL จริงของเว็บที่ deploy แล้วไม่ได้ (นอก allowlist เครือข่าย) แต่ตรงกับพฤติกรรมที่รายงานมา
+    ครบทุกจุด
+  - แก้โดยย้ายไปใช้ **Firebase Hosting** (โปรเจกต์ Firebase มีอยู่แล้ว — `opd-drug-stock`) ซึ่งรองรับการตั้งค่า
+    response header เองได้ผ่าน `firebase.json` — ตั้ง `Cache-Control: no-cache, no-store, must-revalidate`
+    ให้ `index.html`/`sw.js`/`sw-custom.js`/`manifest.webmanifest` อย่างชัดเจน (บังคับให้ทุกการเช็คเวอร์ชัน
+    ไปถึง origin จริงเสมอ ไม่มีชั้น cache ใดๆแอบเก็บไฟล์เก่าไว้ให้) ส่วนไฟล์ JS/CSS ที่มี hash ติดชื่อไฟล์อยู่แล้ว
+    (`/assets/**`, `workbox-*.js`) ยังคง cache แบบ `immutable` 1 ปีได้ตามปกติ (ปลอดภัย เพราะไฟล์เปลี่ยนเนื้อหา
+    เมื่อไหร่ชื่อไฟล์ก็เปลี่ยนตามเสมอ)
+  - เพิ่ม workflow ใหม่ `.github/workflows/deploy-firebase-hosting.yml` (รัน lint+test+build เหมือนเดิมทุก
+    ขั้นตอนก่อน deploy) **ไม่ได้ลบ `deploy-pages.yml` เดิมออก** — URL เดิมของ GitHub Pages
+    (`rxanasmyt.github.io/OPD-DRUG-STOCK-MANAGER/`) ยังใช้งานได้ตามปกติ (แค่ยังอัพเดตช้าเหมือนเดิม) เพื่อไม่ให้
+    ไอคอนที่ติดตั้งไว้บนหน้าจอโฮมของแท็บเล็ตที่ใช้งานอยู่ตอนนี้พังทันที — **ต้องไปลบไอคอนเดิมแล้วเพิ่มใหม่จาก
+    URL ของ Firebase Hosting (`https://opd-drug-stock.web.app/`) ที่หน้างานทุกเครื่อง** ถึงจะได้ใช้เวอร์ชันที่
+    อัพเดตเร็วขึ้นจริง — เป็นงาน operational ที่ทำจากโค้ดฝ่ายเดียวให้ไม่ได้
+  - ไม่มีการเปลี่ยนแปลง logic ของแอปเอง (ไม่มีเทสต์ใหม่เพิ่ม เพราะเป็นการเปลี่ยน deploy target/hosting
+    config ล้วนๆ ไม่ใช่ application code) — ผ่าน lint/test (690/690)/build ครบตามมาตรฐานเดิม
+
 ## [3.233.0] - 2026-10-30
 
 ### แก้ไข
