@@ -55,6 +55,7 @@ export function resetFirebaseTestDouble() {
   docStore.clear();
   collectionStore.clear();
   lastTransactionWrites = [];
+  lastTransactionReads = [];
   batchWrites = [];
   autoIdCounter = 0;
 }
@@ -92,6 +93,15 @@ export type TrxWrite = { kind: 'update' | 'set'; path: string; data: Record<stri
 let lastTransactionWrites: TrxWrite[] = [];
 export function getLastTransactionWrites(): TrxWrite[] {
   return lastTransactionWrites;
+}
+
+// Same idea as lastTransactionWrites, but for trx.get() calls — needed to verify a fix caps how
+// many docs a transaction reads (not just what it writes), since a capped read set can still
+// write exactly the same docs an uncapped one would have (see commitTransfer's FEFO-lot-read-cap
+// regression test, AppContext.floorLots.test.tsx).
+let lastTransactionReads: string[] = [];
+export function getLastTransactionReads(): string[] {
+  return lastTransactionReads;
 }
 
 // Same idea as lastTransactionWrites, for writeBatch() — AppContext's non-transactional bulk/
@@ -237,9 +247,11 @@ vi.mock('firebase/firestore', () => ({
   // are recorded into lastTransactionWrites so a test can assert exactly what got written.
   runTransaction: vi.fn(async (_db: unknown, fn: (trx: unknown) => unknown) => {
     const writes: TrxWrite[] = [];
+    const reads: string[] = [];
     lastTransactionWrites = writes;
+    lastTransactionReads = reads;
     return fn({
-      get: vi.fn(async (target: { path: string }) => readSeededDoc(target.path)),
+      get: vi.fn(async (target: { path: string }) => { reads.push(target.path); return readSeededDoc(target.path); }),
       update: vi.fn((target: { path: string }, data: Record<string, unknown>) => { writes.push({ kind: 'update', path: target.path, data }); }),
       set: vi.fn((target: { path: string }, data: Record<string, unknown>) => { writes.push({ kind: 'set', path: target.path, data }); }),
     });
