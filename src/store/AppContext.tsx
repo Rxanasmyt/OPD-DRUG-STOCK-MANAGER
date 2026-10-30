@@ -5980,20 +5980,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let failedMedName: string | null = null;
     const skippedNames: string[] = [];
     try {
-      // Bug fix (flow latency): this used to run one `runTx` per row, one at a time, in a plain
-      // for-loop — a routine daily HOSxP file (commonly 50-150+ line items, nearly always
-      // distinct meds with no real write contention between them) meant 50-150+ sequential
-      // transaction round trips, tens of seconds a pharmacist had to sit and watch every single
-      // day for the single largest aggregate wait in the app. Unlike commitAllCounts/
-      // commitAllSubCounts/mergeAllWardPairs (which stay sequential on purpose — see their own
-      // comments), there's no such reason here: each row targets its own med. Running rows in
-      // concurrent chunks cuts this to a few seconds; the chunk size caps how many transactions
-      // are ever in flight at once rather than firing all of them simultaneously. On the rare
-      // case two rows in the same chunk resolve to the SAME med (a duplicate name in the source
-      // file), Firestore's own transaction retry (it already handles two admins racing the same
-      // doc, same guarantee here) makes the second one re-read the fresh floor and reapply
-      // correctly — concurrency here costs nothing in correctness, only removes dead waiting.
-      const CHUNK_SIZE = 15;
+      // Bug fix (flow latency, later partly reverted below — real incident, 2026-10-30): this
+      // used to run one `runTx` per row, one at a time, in a plain for-loop — a routine daily
+      // HOSxP file (commonly 50-150+ line items, nearly always distinct meds with no real write
+      // contention between them) meant 50-150+ sequential transaction round trips, tens of
+      // seconds a pharmacist had to sit and watch every single day for the single largest
+      // aggregate wait in the app. Running rows in concurrent chunks (CHUNK_SIZE below) cut this
+      // to a few seconds.
+      //
+      // Bug fix (real incident, 2026-10-30): after v3.228.0/v3.235.0 closed the two
+      // get()-budget/write-rejection-coupling mechanisms already found in this function (see
+      // FEFO_LOT_CAP's own comment below), `permission-denied` kept recurring anyway — on a
+      // DIFFERENT, unrelated drug nearly every retry (confirmed live: 10 mg. AMLODIPINE, then
+      // Adenosine 3 mg/ml Vial, then 20 mg.ENALAPRIL 20 MG เม็ด, same file, three retries in a
+      // row). A live data dump of all three meds' own doc fields (every field this project's
+      // rules actually check — see scripts/diagnose-reconcile-failure.mjs, run against this
+      // hospital's real project) came back completely clean — right types, nothing malformed,
+      // ruling out a data-integrity cause the same way the budget math already ruled out
+      // exhaustion. The one thing a random-different-med-every-retry failure pattern still fits
+      // is contention from firing up to CHUNK_SIZE real-deduction transactions at this med's own
+      // doc simultaneously — this session couldn't get far enough to prove the exact mechanism
+      // (no live access to this project to reproduce it under load), so rather than add another
+      // speculative guard for a cause that isn't confirmed, this drops concurrency entirely for
+      // the real deduction: one row's transaction finishes before the next one starts, removing
+      // the whole "multiple transactions touching meds docs at once" class of explanation outright
+      // instead of trying to patch whichever part of it turns out to be the real one. Slower on a
+      // big file (back to the multi-second-per-row wait the concurrency fix above was written to
+      // remove) is an acceptable cost against a safety-critical daily deduction that has now
+      // failed repeatedly in front of real pharmacy staff; revisit re-introducing concurrency only
+      // once there's a confirmed mechanism and a fix for it, not before.
+      const CHUNK_SIZE = 1;
       for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
         await Promise.all(rows.slice(i, i + CHUNK_SIZE).map(async (r) => {
           if (r.qty <= 0) { zeroQty++; return; }
