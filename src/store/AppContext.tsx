@@ -3138,35 +3138,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // separate commitAdjust-style calls — a dropped connection partway through a loop would leave
   // some of this one patient's drugs recorded as returned and others not, exactly the "ledger
   // drift" class of bug this codebase has fixed elsewhere (see commitReceive/commitAdjust's own
-  // notes on folding separate writes into one atomic transaction). All of a transaction's reads
-  // must happen before its writes (same constraint commitReceive's own multi-item commit works
-  // around), so every unique med's current floor is read first, then every item's floor/txs/
-  // returns triple is written from those already-read snapshots. Shared by commitSingleReturn
+  // notes on folding separate writes into one atomic transaction). Shared by commitSingleReturn
   // (ทีละตัว — one item, immediate commit) and commitReturnCart (ทีละหลายตัว — the queued cart)
   // below, both real-world request: "อยากให้เลือกคืนยาได้ทั้งแบบทีละตัวยา หรือทีละหลายๆตัวยา".
+  //
+  // Bug fix (Firestore read-budget waste, same mechanism as commitReconcile's FEFO_LOT_CAP and
+  // commitTransfer's FEFO-cap fixes above): this used to trx.get() every UNIQUE med in the cart
+  // first, purely to compute an absolute `after = before + qty` floor value to write — one real
+  // read per distinct drug, each a genuinely different document (unlike a repeated myProfile()
+  // check on the same signed-in user's own profile doc, these are never cached against each
+  // other). ตะกร้าคืนยา has no size cap — a single patient returning several discharge drugs in
+  // one visit is exactly the scenario this flow exists for — so that read count scaled directly
+  // with how many distinct drugs one patient returned, sharing the same transaction-wide
+  // Firestore 20 get()/exists()-call budget as every write below; a return of enough distinct
+  // drugs could hit the same permission-denied wall the #163 production incident did. Writing
+  // `floor: increment(it.qty)` instead needs no read at all — it's a server-side transform that
+  // correctly stacks even when the same med appears on more than one cart line (every other
+  // multi-write-per-doc transaction in this file already relies on that), so the logged qty for
+  // each line is always exactly `it.qty` regardless of any other line — nothing to read first.
   const writeReturnBatch = useCallback(async (items: ReturnCartItem[], hn: string) => {
     const now = Date.now();
-    const uniqueMedIds = [...new Set(items.map((it) => it.medId))];
     await runTx(async (trx) => {
-      const beforeByMed = new Map<string, number>();
-      for (const medId of uniqueMedIds) {
-        const snap = await trx.get(medRef(medId));
-        const m = state.meds.find((x) => x.id === medId);
-        beforeByMed.set(medId, (snap.data() as { floor?: number } | undefined)?.floor ?? m?.floor ?? 0);
-      }
       for (const it of items) {
         const m = state.meds.find((x) => x.id === it.medId)!;
-        const before = beforeByMed.get(it.medId)!;
-        const after = before + it.qty;
-        beforeByMed.set(it.medId, after); // a second line for the same drug in this batch stacks onto the first, not onto the stale pre-batch floor
-        trx.update(medRef(it.medId), { floor: after });
+        trx.update(medRef(it.medId), { floor: increment(it.qty) });
         trx.set(newTxRef(), {
-          type: 'return', name: m.name, medId: it.medId, qty: after - before, unit: it.unit,
+          type: 'return', name: m.name, medId: it.medId, qty: it.qty, unit: it.unit,
           reason: it.reason, note: it.note, loc: 'floor', by: userName(), ts: now,
         } satisfies Omit<import('../types').Tx, 'id'>);
         trx.set(newDrugReturnRef(), {
           medId: it.medId, medName: it.medName, medCode: it.medCode, unit: it.unit, category: categoryOf(m),
-          hn, qty: after - before, unitPrice: m.price, value: (after - before) * m.price,
+          hn, qty: it.qty, unitPrice: m.price, value: it.qty * m.price,
           reason: it.reason, note: it.note, date: isoDate(now), ts: now, by: userName(),
         } satisfies import('../types').DrugReturnRecord);
       }
