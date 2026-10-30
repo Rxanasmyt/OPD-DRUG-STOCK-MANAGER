@@ -78,7 +78,7 @@ import { TimeoutError } from '../utils/timeout';
 import * as printModule from '../utils/print';
 import {
   signInAs, fireCollection, hasListener, seedDoc, seedCollection, getLastTransactionWrites,
-  getLastBatchWrites,
+  getLastTransactionReads, getLastBatchWrites,
 } from '../test-utils/firebaseTestDouble';
 
 // printLabelSheet/printPickListSheet actually open a real browser print window — mocked here so
@@ -360,6 +360,11 @@ describe('commitAdjust — ledger-accuracy regression', () => {
 //     reusing the SAME writeReturnBatch transaction helper ตะกร้าคืนยา uses (so it still writes
 //     one full DrugReturnRecord, not a shortcut/less-detailed path) but clearing every return
 //     field afterward (including HN), unlike addToReturnCart's "keep HN for the next drug".
+// 22. writeReturnBatch's Firestore read-budget fix: committing a return cart must not trx.get()
+//     every unique med first (same budget-exhaustion mechanism as commitReconcile's FEFO_LOT_CAP
+//     and commitTransfer's FEFO cap) — the floor update uses increment() instead, needing no
+//     read at all, and must still stack correctly when the same med appears on two cart lines —
+//     see writeReturnBatch's own "Bug fix (Firestore read-budget waste)" comment.
 const MED2 = {
   id: asMedId('m2'), code: 'MED-0002', name: 'Amoxicillin 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
   price: 2, had: false, active: true, parSub: 500, parFloor: 100, floor: 20, bin: 'A2',
@@ -495,6 +500,81 @@ describe('ตะกร้าคืนยา (return cart) — commitReturnCart r
       expect(typeof w.data.category).toBe('string');
       expect(typeof w.data.date).toBe('string');
     }
+  });
+});
+
+// Two lines for the SAME drug in one cart (e.g. two different return reasons for the same med)
+// — writeReturnBatch must apply BOTH as independent floor increments, never read-then-overwrite.
+function ReturnCartSameMedHarness({ hn }: { hn: string }) {
+  const { state, pickAdjType, pickAdjMed, setAdjQty, setAdjReason, setAdjHn, addToReturnCart, commitReturnCart } = useApp();
+  useEffect(() => { if (!state.adjType) pickAdjType('return'); }, [state.adjType, pickAdjType]);
+  useEffect(() => { if (state.adjType && !state.adjHn && hn) setAdjHn(hn); }, [state.adjType, state.adjHn, setAdjHn, hn]);
+  useEffect(() => { if (!state.adjMed && state.returnCart.length < 2) pickAdjMed(MED.id); }, [state.adjMed, state.returnCart.length, pickAdjMed]);
+  useEffect(() => { if (state.adjMed && !state.adjQty) setAdjQty('7'); }, [state.adjMed, state.adjQty, setAdjQty]);
+  useEffect(() => { if (state.adjQty && !state.adjReason) setAdjReason('ผู้ป่วยคืนยา (ไม่เปิดซอง)'); }, [state.adjQty, state.adjReason, setAdjReason]);
+  return (
+    <>
+      <button onClick={addToReturnCart}>add-to-cart</button>
+      <button onClick={commitReturnCart}>commit-return-cart</button>
+    </>
+  );
+}
+
+describe('writeReturnBatch — Firestore read-budget regression', () => {
+  it('commits a multi-drug return cart without reading any med first, using increment() for the floor update', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<ReturnCartHarness hn="1234567" medIds={[MED.id, MED2.id]} />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED, MED2]);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'add-to-cart' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'add-to-cart' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'add-to-cart' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'add-to-cart' }));
+
+    await user.click(screen.getByRole('button', { name: 'commit-return-cart' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+    // The old code trx.get()'d every unique med in the cart before writing anything — a return
+    // of enough distinct drugs could exhaust the transaction's shared Firestore 20
+    // get()/exists()-call budget on its own, the same failure class as the #163 production
+    // incident. The fix needs no read at all.
+    expect(getLastTransactionReads()).toEqual([]);
+
+    const medWrites = getLastTransactionWrites().filter((w) => w.path.startsWith('meds/'));
+    expect(medWrites).toEqual(expect.arrayContaining([
+      { kind: 'update', path: 'meds/m1', data: { floor: 7 } },
+      { kind: 'update', path: 'meds/m2', data: { floor: 7 } },
+    ]));
+  });
+
+  it('applies two lines for the same drug as two independent increments, not a read-then-overwrite', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<ReturnCartSameMedHarness hn="1234567" />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'add-to-cart' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'add-to-cart' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'add-to-cart' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'add-to-cart' }));
+
+    await user.click(screen.getByRole('button', { name: 'commit-return-cart' }));
+    await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
+
+    expect(getLastTransactionReads()).toEqual([]);
+    const medWrites = getLastTransactionWrites().filter((w) => w.path === 'meds/m1');
+    // Two independent +7 increments, never a single +14 or an absolute overwrite — real
+    // Firestore composes multiple increment() transforms on the same doc within one commit.
+    expect(medWrites).toEqual([
+      { kind: 'update', path: 'meds/m1', data: { floor: 7 } },
+      { kind: 'update', path: 'meds/m1', data: { floor: 7 } },
+    ]);
+    const returnWrites = getLastTransactionWrites().filter((w) => w.path.startsWith('returns/'));
+    expect(returnWrites.length).toBe(2);
+    expect(returnWrites.every((w) => w.data.qty === 7)).toBe(true);
   });
 });
 
