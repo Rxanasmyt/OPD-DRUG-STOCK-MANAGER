@@ -1,0 +1,34 @@
+name: Diagnose reconcile-failure meds
+
+# Manual, one-off diagnostic — see scripts/diagnose-reconcile-failure.mjs's own header comment
+# for the real-world incident this exists to investigate. Not on a schedule; run it from the
+# Actions tab (or the API) with a comma-separated list of drug names (or partial names) copied
+# straight from the error toasts.
+
+on:
+  workflow_dispatch:
+    inputs:
+      drug_names:
+        description: 'Comma-separated drug names (or partial names) from the error toast(s)'
+        required: true
+        type: string
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: |
+          IFS=',' read -ra NAMES <<< "${{ inputs.drug_names }}"
+          ARGS=()
+          for n in "${NAMES[@]}"; do
+            ARGS+=("$(echo "$n" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')")
+          done
+          node scripts/diagnose-reconcile-failure.mjs "${ARGS[@]}"
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
