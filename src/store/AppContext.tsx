@@ -5970,6 +5970,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       'วันนี้ตัดยอด HOSxP ไปแล้ว 1 ครั้ง — ถ้าตัดซ้ำอีกครั้งจะหักสต็อกหน้างานซ้ำสอง (เกินจริง) ถ้ากำลังแก้ไฟล์ที่นำเข้าผิดไปก่อนหน้านี้ ทำต่อได้เลย แต่ถ้าไม่แน่ใจ ให้ยกเลิกแล้วตรวจสอบก่อน — ต้องการตัดยอดซ้ำต่อหรือไม่?'
     ))) return;
     let applied = 0, skipped = 0, zeroQty = 0;
+    // Bug fix (debugging gap — real incident, 2026-10-30): a failure here used to surface as a
+    // completely anonymous "ประมวลผลไม่สำเร็จ (permission-denied)" — on a ward tablet with no
+    // DevTools console (see toastErr's own comment on this exact gap), there was no way for
+    // either staff or whoever's troubleshooting with them to know WHICH drug in a 20-150+ line
+    // file actually triggered it, turning every such report into a guessing game. Set the moment
+    // a row's real-deduction transaction throws (see the per-row try/catch below); surfaced in
+    // the outer catch's toast if still set when it fires.
+    let failedMedName: string | null = null;
     const skippedNames: string[] = [];
     try {
       // Bug fix (flow latency): this used to run one `runTx` per row, one at a time, in a plain
@@ -6002,36 +6010,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // number this whole app exists to keep trustworthy — so it gets the same atomic
           // treatment every other stock-mutating flow already has.
           let before = 0, after = 0;
-          await runTx(async (trx) => {
-            const ref = medRef(m.id);
-            const snap = await trx.get(ref);
-            before = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
-            after = Math.max(0, before - r.qty);
-            trx.update(ref, { floor: after });
-            // Bug fix (data integrity): `qty` below is deliberately the REAL floor delta
-            // (before-after), never r.qty directly — scripts/check-stock-drift.mjs replays every
-            // tx's own `qty` to verify it against the live floor, so `qty` has to keep meaning
-            // "what actually happened to floor." When the floor clamp above caught a short
-            // balance (HOSxP reports dispensing more than this med's current floor holds — a
-            // stale count, or a big multi-day catch-up file against a fast-moving drug), that
-            // delta is SMALLER than what HOSxP actually reported — reportedQty carries the true
-            // number for recomputeUsageStats()/collect-daily-metrics.mjs to prefer instead, so
-            // usage stats (and the par suggestion they feed) never quietly understate exactly
-            // the meds running low enough to hit this clamp. See Tx.reportedQty's own doc
-            // comment (types.ts).
-            const deducted = before - after;
-            trx.set(newTxRef(), {
-              type: 'reconcile_hosxp', name: m.name, medId: m.id, qty: -deducted, unit: m.unit,
-              reason: 'นำเข้าจากไฟล์ HOSxP',
-              note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP' + (r.match.kind === 'fuzzy' ? ' (จับคู่ชื่อแบบไม่ตรงเป๊ะ — ยืนยันโดยผู้ใช้แล้ว)' : ''),
-              loc: 'floor', by: userName(), ts: Date.now(),
-              // The real dispensing period this qty represents (e.g. Fri-Sun on a Monday
-              // catch-up), separate from `ts` above (when the admin actually clicked commit —
-              // always "today"). See Tx.coveredFrom/coveredTo's own doc comment (types.ts).
-              coveredFrom: state.hosxpCoveredFrom, coveredTo: state.hosxpCoveredTo,
-              ...(deducted !== r.qty ? { reportedQty: r.qty } : {}),
-            } satisfies Omit<import('../types').Tx, 'id'>);
-          });
+          try {
+            await runTx(async (trx) => {
+              const ref = medRef(m.id);
+              const snap = await trx.get(ref);
+              before = (snap.data() as { floor?: number } | undefined)?.floor ?? m.floor;
+              after = Math.max(0, before - r.qty);
+              trx.update(ref, { floor: after });
+              // Bug fix (data integrity): `qty` below is deliberately the REAL floor delta
+              // (before-after), never r.qty directly — scripts/check-stock-drift.mjs replays
+              // every tx's own `qty` to verify it against the live floor, so `qty` has to keep
+              // meaning "what actually happened to floor." When the floor clamp above caught a
+              // short balance (HOSxP reports dispensing more than this med's current floor
+              // holds — a stale count, or a big multi-day catch-up file against a fast-moving
+              // drug), that delta is SMALLER than what HOSxP actually reported — reportedQty
+              // carries the true number for recomputeUsageStats()/collect-daily-metrics.mjs to
+              // prefer instead, so usage stats (and the par suggestion they feed) never quietly
+              // understate exactly the meds running low enough to hit this clamp. See
+              // Tx.reportedQty's own doc comment (types.ts).
+              const deducted = before - after;
+              trx.set(newTxRef(), {
+                type: 'reconcile_hosxp', name: m.name, medId: m.id, qty: -deducted, unit: m.unit,
+                reason: 'นำเข้าจากไฟล์ HOSxP',
+                note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP' + (r.match.kind === 'fuzzy' ? ' (จับคู่ชื่อแบบไม่ตรงเป๊ะ — ยืนยันโดยผู้ใช้แล้ว)' : ''),
+                loc: 'floor', by: userName(), ts: Date.now(),
+                // The real dispensing period this qty represents (e.g. Fri-Sun on a Monday
+                // catch-up), separate from `ts` above (when the admin actually clicked commit —
+                // always "today"). See Tx.coveredFrom/coveredTo's own doc comment (types.ts).
+                coveredFrom: state.hosxpCoveredFrom, coveredTo: state.hosxpCoveredTo,
+                ...(deducted !== r.qty ? { reportedQty: r.qty } : {}),
+              } satisfies Omit<import('../types').Tx, 'id'>);
+            });
+          } catch (e) {
+            failedMedName = m.name;
+            throw e;
+          }
           applied++;
           // Floor-lot tracking (see FloorLot in types.ts): HOSxP's dispensed number carries no
           // batch detail at all, so this is a best-effort FEFO guess across whatever floor lots
@@ -6156,7 +6169,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // same partial-progress behavior as before this change, just now also reachable via a
       // timeout instead of only a hard Firestore error. `applied` still reflects how many
       // rows actually landed, worth telling the person rather than implying nothing happened.
-      toastErr(e, 'ประมวลผลไม่สำเร็จ' + (applied > 0 ? ' — ตัดยอดไปแล้ว ' + applied + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง'));
+      toastErr(e, 'ประมวลผลไม่สำเร็จ' + (failedMedName ? ' (ยา: ' + failedMedName + ')' : '') + (applied > 0 ? ' — ตัดยอดไปแล้ว ' + applied + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง'));
     }
   }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpCoveredFrom, state.hosxpCoveredTo, state.meds, state.txs, userName, logAudit, toast, toastErr, patch, guardOnce, confirmAsync, recomputeUsageStats, analyzeWeekdayUsage]);
 
