@@ -3988,6 +3988,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Same widened charset as normBin/sanitizeBin — see normBin's doc comment.
     const val = v.toUpperCase().replace(/[^A-Z0-9\u0E00-\u0E7F-]/g, '').slice(0, 10);
     setState((st) => ({ ...st, meds: st.meds.map((x) => (x.id === medId ? { ...x, bin: val } : x)) }));
+    // Bug fix (patient safety, found auditing med add/edit form for "\u0E2B\u0E19\u0E49\u0E32\u0E07\u0E32\u0E19\u0E08\u0E23\u0E34\u0E07" use): addMed/
+    // updateMedFull both confirm-block before saving a bin code already used by another active
+    // med ("\u0E43\u0E0A\u0E49\u0E0B\u0E49\u0E33\u0E40\u0E2A\u0E35\u0E48\u0E22\u0E07\u0E2B\u0E22\u0E34\u0E1A\u0E22\u0E32\u0E1C\u0E34\u0E14\u0E15\u0E31\u0E27\u0E15\u0E2D\u0E19\u0E19\u0E31\u0E1A/\u0E40\u0E1A\u0E34\u0E01") \u2014 this debounced quick-edit path (MedsScreen's
+    // "\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E04\u0E23\u0E1A" quick-fix row, and the OPD/IPD sibling-bin editor inside the main edit
+    // form) never got that same check, silently saving a real shelf-code collision with zero
+    // warning. A blocking confirmAsync here (like addMed/updateMedFull use) isn't safe for THIS
+    // path specifically: `fire` below is also called synchronously, un-awaited, from the
+    // pagehide/visibilitychange flush effect (see pendingFlush's own comment) when the tab is
+    // closing \u2014 an unanswered confirm dialog at that moment would hang the write forever instead
+    // of saving it. A non-blocking warning toast still makes the collision impossible to miss,
+    // without that risk.
+    const normVal = normBin(val);
+    const conflict = normVal && state.meds.find((x) => x.id !== medId && x.active && normBin(x.bin) === normVal);
+    if (conflict) toast('\u26A0\uFE0F \u0E23\u0E2B\u0E31\u0E2A\u0E0A\u0E31\u0E49\u0E19\u0E27\u0E32\u0E07 "' + normVal + '" \u0E0B\u0E49\u0E33\u0E01\u0E31\u0E1A\u0E22\u0E32 "' + conflict.name + '" (' + conflict.code + ') \u2014 \u0E40\u0E2A\u0E35\u0E48\u0E22\u0E07\u0E2B\u0E22\u0E34\u0E1A\u0E22\u0E32\u0E1C\u0E34\u0E14\u0E15\u0E31\u0E27\u0E15\u0E2D\u0E19\u0E19\u0E31\u0E1A/\u0E40\u0E1A\u0E34\u0E01 \u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E01\u0E48\u0E2D\u0E19');
     const key = 'bin:' + medId;
     window.clearTimeout(binDebounce.current[medId]);
     const fire = () => {
@@ -4007,7 +4021,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     pendingFlush.current[key] = fire;
     binDebounce.current[medId] = window.setTimeout(fire, 500);
-  }, [canEditMeds, toast]);
+  }, [canEditMeds, toast, state.meds]);
 
   // Real-world request: "ข้อมูลยังไม่ครบ" diagnostic filter (MedsScreen) needs a fast way to fill
   // in a missing substock shelf code right from that filtered list, without opening the full

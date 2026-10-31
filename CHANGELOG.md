@@ -7,6 +7,29 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.243.0] - 2026-10-31
+
+### แก้ไข (บัคจริง — ตรวจสอบ "หน้างานจริง" ต่อรอบสุดท้าย: admin/auth/ฟอร์มยา)
+- **[setMedBin (แก้ไขด่วนจากแถว "ข้อมูลยังไม่ครบ" และตัวแก้ bin ของยาคู่ OPD/IPD) ไม่เช็กรหัสชั้นวาง
+  ซ้ำกับยาอื่นเลย — ต่างจาก addMed/updateMedFull ที่เช็กอยู่แล้ว]** — `addMed`/`updateMedFull` ทั้ง
+  คู่ยืนยันก่อนบันทึกถ้ารหัสชั้นวางซ้ำกับยาอื่นที่ active อยู่ ("ใช้ซ้ำเสี่ยงหยิบยาผิดตัวตอนนับ/เบิก")
+  แต่ `setMedBin` (ใช้โดย path แก้ไขด่วนจากหน้า "ข้อมูลยังไม่ครบ" และตัวแก้ bin ของยาคู่ OPD/IPD ใน
+  ฟอร์มแก้ไขหลัก) ไม่มีเช็กนี้เลย บันทึกรหัสชั้นวางซ้ำแบบเงียบๆ ไม่มีคำเตือน
+  - **ไม่ใช้ confirmAsync แบบบล็อก** เหมือน addMed/updateMedFull เพราะ `setMedBin`'s debounced write
+    (`fire`) ถูกเรียกแบบ synchronous ไม่รอ (un-awaited) จาก pagehide/visibilitychange flush effect
+    ตอนปิดแท็บ — ถ้าเป็น confirm ที่บล็อกจะค้างไม่มีวันบันทึกถ้าไม่มีใครตอบ dialog ทันเวลา — ใช้
+    **toast คำเตือนแบบไม่บล็อก** แทน (ยังบันทึกต่อตามปกติ แต่เห็นคำเตือนชัดเจน)
+
+### ตรวจสอบเพิ่มเติม (ไม่พบบัคจริง — ครบทุกจุดที่วางแผนตรวจรอบนี้แล้ว)
+- Admin bulk actions (resetAllQuantities/mergeWardMeds/mergeAllWardPairs/shareAllMeds/
+  toggleMedActive/startStockHold-endStockHold/deleteMed/deleteAllInactiveMeds/last-admin guard):
+  ตรวจละเอียดทุกจุด (partial-failure handling, confirmation gates, live-read vs stale cache,
+  budget/chunking) ไม่พบบัคใหม่ — fix จากรอบก่อนๆ ยังถูกต้องครบถ้วน
+- Auth/login flow (signup/login/logout, username→email translation, shared-device session,
+  pending-account approval race): ตรวจละเอียดทุกจุด ไม่พบบัค — ผ่านการแก้ไขหลายรอบมาแล้วจนแข็งแรง
+- Med add/edit form ที่เหลือ (duplicate code, numeric validation, par-write debounce race, unit
+  เปลี่ยนหลังมี stock จริง): ไม่พบบัคใหม่นอกจาก setMedBin ข้างต้น
+
 ## [3.242.0] - 2026-10-31
 
 ### แก้ไข (บัคจริง — ตรวจสอบ "หน้างานจริง" ต่อ: คืนยา + พิมพ์ใบเบิก, 4 จุด)
