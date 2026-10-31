@@ -437,6 +437,18 @@ service cloud.firestore {
       // `requestedBy` to the real caller's profile name (same forgery fix as txs/auditLog
       // above), and capped the field set with hasOnly() to the exact 11-field shape verified
       // against that write site.
+      // Bug fix (real bug, found auditing "เบิกยาจากคลังเข้า substock" for unexplained-failure
+      // reports): lotNo/exp were required unconditionally here, but commitReceive's own pending-
+      // path write (AppContext.tsx) and the PendingReceive type itself (types.ts) both treat them
+      // as OPTIONAL and omit them entirely from the write when left blank — the same "ไม่ต้องบังคับ
+      // ให้ใส่ Lot และวันหมดอายุ" real-world request that made `lots`/`floorLots` optional too (see
+      // those collections' own create-rule comments). This collection was never updated to match
+      // when that convention was introduced elsewhere, so any receive item submitted for approval
+      // with no lot/expiry typed — a fully supported, real workflow — got rejected outright with
+      // permission-denied the moment it tried to write. No live impact today (commitReceive's
+      // `approve` flag is hardcoded true, so this create path is currently dead code), but it was
+      // live-reachable the moment that's changed back — see commitReceive's own comment anticipating
+      // exactly that "with a one-line change if staffing recovers."
       allow create: if isActive()
                     && request.resource.data.keys().hasOnly(['recvNo', 'medId', 'name', 'unit', 'lotNo', 'exp', 'qty', 'requestedBy', 'requestedByUid', 'status', 'ts'])
                     && request.resource.data.requestedByUid == request.auth.uid
@@ -446,8 +458,8 @@ service cloud.firestore {
                     && request.resource.data.medId is string
                     && request.resource.data.name is string
                     && request.resource.data.unit is string
-                    && request.resource.data.lotNo is string
-                    && request.resource.data.exp is number
+                    && (!('lotNo' in request.resource.data) || request.resource.data.lotNo is string)
+                    && (!('exp' in request.resource.data) || request.resource.data.exp is number)
                     && isNonNegNum(request.resource.data.qty)
                     && request.resource.data.ts is number;
       // Bug fix (security audit, CRITICAL): this used to allow a pharm/admin to change ANY
@@ -462,13 +474,18 @@ service cloud.firestore {
       // created values, requiring the doc to still be 'pending', and blocking the requester from
       // resolving their own request closes the hole without affecting the real approve/reject
       // flow at all.
+      // lotNo/exp immutability guarded the same optional way as the create rule above (and as
+      // `lots`' own update rule) — unconditional equality against a field that's legitimately
+      // ABSENT on both sides throws in CEL rather than passing, which would have made
+      // approvePendingReceive()/rejectPendingReceive() fail with permission-denied on exactly the
+      // same blank-lot/exp requests the create-rule fix above lets through.
       allow update: if isPharmOrAdmin()
                     && resource.data.status == 'pending'
                     && request.auth.uid != resource.data.requestedByUid
                     && request.resource.data.medId == resource.data.medId
                     && request.resource.data.qty == resource.data.qty
-                    && request.resource.data.lotNo == resource.data.lotNo
-                    && request.resource.data.exp == resource.data.exp
+                    && (!('lotNo' in resource.data) || request.resource.data.lotNo == resource.data.lotNo)
+                    && (!('exp' in resource.data) || request.resource.data.exp == resource.data.exp)
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolvedBy', 'resolvedTs', 'rejectReason']);
       allow delete: if false;
     }
