@@ -7,6 +7,42 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.239.0] - 2026-10-31
+
+### แก้ไข (บัคจริง — ตรวจสอบด้วย Firestore emulator จริง)
+- **[เบิกยาจากคลังเข้า substock ค้างอนุมัติ ถ้าไม่ได้พิมพ์ lot/วันหมดอายุ — ตั้งแต่เปิดใช้ "ไม่ต้องบังคับ
+  ใส่ lot" แต่ pendingReceives rule ไม่ได้ปรับตาม]** — ตรวจทั้ง 3 flow ตามที่ขอ (ตัดยอดหน้างาน/เติมยา
+  หน้างาน/เบิกยาจากคลังเข้า substock) พบว่า `firestore.rules`'s `pendingReceives` create/update rule
+  ยังบังคับ `lotNo is string` และ `exp is number` แบบไม่มีเงื่อนไข ขณะที่ `commitReceive`'s เองและ
+  `PendingReceive` type (types.ts) ตั้งใจทำให้ทั้งสองฟิลด์เป็น optional ไปแล้ว (real-world request
+  "...ไม่ต้องบังคับให้ใส่ Lot และวันหมดอายุ...") — เหมือนกับที่ `lots`/`floorLots` ถูกแก้ไปแล้วแต่
+  `pendingReceives` หลุดไม่ได้แก้ตาม ปัจจุบันยังไม่กระทบจริง (commitReceive's `approve` flag ถูก hardcode
+  เป็น `true` ตอนนี้ — short-staffed) แต่จะพังทันทีถ้าเปลี่ยนกลับไปใช้ pending-approval
+  - ยืนยันด้วย Firestore emulator จริง (`@firebase/rules-unit-testing`) ไม่ใช่แค่อ่าน rule ด้วยตา —
+    สร้าง pendingReceives doc แบบไม่มี lotNo/exp จริง ยืนยันว่า **พังจริงก่อนแก้** (permission-denied)
+    และ **ผ่านปกติหลังแก้** ทั้ง create และ update (approve)
+  - แก้ด้วย pattern เดียวกับ `lots`/`floorLots`: `(!('lotNo' in request.resource.data) ||
+    request.resource.data.lotNo is string)` แทนการบังคับแบบไม่มีเงื่อนไข
+
+### เพิ่ม (diagnosability — ป้องกันไม่ให้เกิดซ้ำแบบเดามั่วอีก)
+- **[เติมยาหน้างาน/เบิกยาจากคลังเข้า substock พังแบบไม่รู้สาเหตุ — เพิ่มชื่อยาที่พังลงในข้อความแจ้งเตือน
+  เหมือนที่ตัดยอดหน้างานได้ไปแล้ว]** — commitTransfer/commitReceive มีช่องโหว่เดียวกับที่ commitReconcile
+  เจอมาแล้ว 3 รอบก่อนจะแก้ (failedMedName/failedDebug, v3.236.0/v3.238.0): ข้อความ error ตอนพังแบบไม่คาด
+  คิดเป็น "เติมหน้างานไม่สำเร็จ ลองใหม่อีกครั้ง (permission-denied)"/"บันทึกใบรับไม่สำเร็จ ลองใหม่อีกครั้ง
+  (permission-denied)" แบบไม่มีเบาะแสเลยว่ายา/lot ไหนที่พัง — หน้างาน (tablet) ไม่มี DevTools ให้เปิดดู
+  - commitReceive: ชื่อยาของ group ที่ transaction ถูก reject จะแสดงในข้อความ toast (เหมือน
+    commitReconcile's failedMedName)
+  - commitTransfer: เนื่องจากทั้งตะกร้าตัดเป็น transaction เดียวร่วมกัน (ไม่ได้แยกทีละยาเหมือน
+    commitReconcile/commitReceive) จึงไม่สามารถชี้เฉพาะยาตัวเดียวที่ทำให้พังได้ — แสดงรายชื่อยาทั้งหมดใน
+    ตะกร้าแทน ดีกว่าไม่มีเบาะแสเลย
+
+ตรวจสอบเพิ่มเติม (ไม่พบบัคจริง ไม่ได้แก้อะไร เพื่อไม่เดามั่ว):
+- commitTransfer: ทดสอบด้วย Firestore emulator จริงกับตะกร้า 4-10 ยา (60-230 client ops ใน transaction
+  เดียว) ไม่พบปัญหา budget เกิน 20 get()/exists() แม้ไม่มี cap แบบที่ commitReconcile ต้องเพิ่ม
+  (FEFO_LOT_CAP) — ไม่ได้เพิ่ม cap แบบเดาเอาเองเพราะยังไม่มีหลักฐานจริงว่าจำเป็น
+- commitReceive/approvePendingReceive: ตรวจ race condition, lot-merge, budget, ฟิลด์ type ครบทุกจุด
+  ไม่พบบัคอื่นเพิ่มเติม
+
 ## [3.238.0] - 2026-10-30
 
 ### เพิ่ม (diagnostic)

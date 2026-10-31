@@ -2623,7 +2623,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const msg = (e as Error)?.message || '';
       if (msg === 'missing-med') { toast('มีรายการในตะกร้าที่ถูกลบออกจากระบบไปแล้ว — กลับไปที่ตะกร้าแล้วลบรายการนั้นออกก่อน'); return; }
       if (msg.startsWith('insufficient:')) { toast('substock เหลือไม่พอสำหรับ ' + msg.slice('insufficient:'.length) + ' — น่าจะมีคนอื่นเบิกไปพร้อมกัน กลับไปปรับจำนวนในตะกร้าแล้วลองใหม่'); return; }
-      toastErr(e, 'เติมหน้างานไม่สำเร็จ ลองใหม่อีกครั้ง');
+      // Bug fix (debugging gap, same class as commitReconcile's failedMedName — v3.236.0): this
+      // whole cart commits as ONE shared transaction (unlike commitReconcile/commitReceive's
+      // per-item transactions), so there's no single med to blame for an unexpected failure —
+      // but naming every med actually in the cart is still strictly more than the fully
+      // anonymous "เติมหน้างานไม่สำเร็จ (permission-denied)" this used to show. Ward tablets have
+      // no DevTools (see toastErr's own comment on this exact gap), so this is the only
+      // diagnostic signal that would otherwise exist at all.
+      const cartNames = ids.map((id) => meds.find((x) => x.id === id)?.name || id).join(', ');
+      toastErr(e, 'เติมหน้างานไม่สำเร็จ' + (cartNames ? ' (รายการ: ' + cartNames + ')' : '') + ' ลองใหม่อีกครั้ง');
     }
   }), [state.cart, state.meds, userName, toast, toastErr, guardOnce]);
 
@@ -2715,6 +2723,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const missingMed = items.some((it) => !state.meds.find((x) => x.id === it.medId));
     if (missingMed) { toast('มีรายการที่ถูกลบออกจากระบบไปแล้ว — กลับไปลบรายการนั้นออกจากรายการรับเข้าก่อน'); return; }
     let committed = 0;
+    // Bug fix (debugging gap, same class as commitReconcile's failedMedName/failedDebug —
+    // v3.236.0/v3.238.0): a throw from inside the per-group Promise.all below used to propagate
+    // all the way to the outer catch with zero indication of WHICH med/lot group it came from —
+    // on a ward tablet with no DevTools, an unexplained "บันทึกใบรับไม่สำเร็จ" on a 8-10+ item
+    // delivery was exactly as blind a guessing game as commitReconcile's own permission-denied
+    // was before that fix. Set the moment a group's transaction throws; surfaced in the outer
+    // catch's toast if still set when it fires.
+    let failedMedName: string | null = null;
     try {
       // Bug fix (phantom stock): the missingMed check above only guards against state.meds (the
       // client cache) already being stale by the time this screen was opened — but the
@@ -2839,34 +2855,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const CHUNK_SIZE = 15;
       for (let i = 0; i < groups.length; i += CHUNK_SIZE) {
         await Promise.all(groups.slice(i, i + CHUNK_SIZE).map(async (g) => {
-          await runTx(async (trx) => {
-            const existing = (liveLotsByMed.get(g.medId) || []).find((l) => l.lotNo === g.lotNo && l.exp === g.exp && (l.qty || 0) > 0);
-            const totalQty = g.items.reduce((s, it) => s + it.qty, 0);
-            let targetRef: DocumentReference | null = null;
-            if (existing) {
-              const lotSnap = await trx.get(lotRef(existing.id));
-              const data = lotSnap.data() as { qty?: number } | undefined;
-              if (data && (data.qty || 0) > 0) targetRef = lotRef(existing.id);
-            }
-            const m = liveMeds.get(g.medId);
-            if (targetRef) {
-              trx.update(targetRef, { qty: increment(totalQty) });
-            } else {
-              const newRef = newLotRef();
-              // Bug fix: lotNo/exp are now optional (real-world request: "...ไม่ต้องบังคับให้ใส่
-              // Lot และวันหมดอายุ...") — Firestore throws on a field explicitly written as
-              // `undefined`, so a blank one is left out of the doc entirely rather than written as
-              // `lotNo: undefined`/`exp: undefined`.
-              trx.set(newRef, { code: genLotCode(m?.code, asMedId(g.medId), newRef.id), medId: g.medId, ...(g.lotNo ? { lotNo: g.lotNo } : {}), ...(g.exp != null ? { exp: g.exp } : {}), qty: totalQty, loc: 'ชั้น bulk' });
-            }
-            for (const it of g.items) {
-              const boxLabel = m?.packSize ? boxBreakdownLabel({ packSize: m.packSize, unit: it.unit }, it.qty) : undefined;
-              trx.set(newTxRef(), {
-                type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'substock',
-                note: 'ใบเบิก ' + state.recvNo + ' · lot ' + lotLabel(it.lotNo) + ' exp ' + expLabel(it.exp) + (boxLabel ? ' · ' + boxLabel : ''), by: userName(), ts: Date.now(),
-              });
-            }
-          });
+          try {
+            await runTx(async (trx) => {
+              const existing = (liveLotsByMed.get(g.medId) || []).find((l) => l.lotNo === g.lotNo && l.exp === g.exp && (l.qty || 0) > 0);
+              const totalQty = g.items.reduce((s, it) => s + it.qty, 0);
+              let targetRef: DocumentReference | null = null;
+              if (existing) {
+                const lotSnap = await trx.get(lotRef(existing.id));
+                const data = lotSnap.data() as { qty?: number } | undefined;
+                if (data && (data.qty || 0) > 0) targetRef = lotRef(existing.id);
+              }
+              const m = liveMeds.get(g.medId);
+              if (targetRef) {
+                trx.update(targetRef, { qty: increment(totalQty) });
+              } else {
+                const newRef = newLotRef();
+                // Bug fix: lotNo/exp are now optional (real-world request: "...ไม่ต้องบังคับให้ใส่
+                // Lot และวันหมดอายุ...") — Firestore throws on a field explicitly written as
+                // `undefined`, so a blank one is left out of the doc entirely rather than written as
+                // `lotNo: undefined`/`exp: undefined`.
+                trx.set(newRef, { code: genLotCode(m?.code, asMedId(g.medId), newRef.id), medId: g.medId, ...(g.lotNo ? { lotNo: g.lotNo } : {}), ...(g.exp != null ? { exp: g.exp } : {}), qty: totalQty, loc: 'ชั้น bulk' });
+              }
+              for (const it of g.items) {
+                const boxLabel = m?.packSize ? boxBreakdownLabel({ packSize: m.packSize, unit: it.unit }, it.qty) : undefined;
+                trx.set(newTxRef(), {
+                  type: 'receive_from_central', name: it.name, medId: it.medId, qty: it.qty, unit: it.unit, from: 'คลังยาใหญ่', to: 'substock',
+                  note: 'ใบเบิก ' + state.recvNo + ' · lot ' + lotLabel(it.lotNo) + ' exp ' + expLabel(it.exp) + (boxLabel ? ' · ' + boxLabel : ''), by: userName(), ts: Date.now(),
+                });
+              }
+            });
+          } catch (e) {
+            failedMedName = g.items[0]?.name ?? g.medId;
+            throw e;
+          }
           committed += g.items.length;
         }));
       }
@@ -2881,7 +2902,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // same partial-progress behavior commitReconcile's own catch block already surfaces this
       // way (see its own comment). `committed` counts cart ROWS (items), not groups, so this
       // matches what the person actually typed in, not an internal implementation detail.
-      toastErr(e, 'บันทึกใบรับไม่สำเร็จ' + (committed > 0 ? ' — รับเข้าไปแล้ว ' + committed + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง'));
+      toastErr(e, 'บันทึกใบรับไม่สำเร็จ' + (failedMedName ? ' (ยา: ' + failedMedName + ')' : '') + (committed > 0 ? ' — รับเข้าไปแล้ว ' + committed + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง'));
     }
   }), [state.recvItems, state.recvNo, state.myUid, state.meds, userName, toastErr, logAudit, guardOnce, runTx]);
 
