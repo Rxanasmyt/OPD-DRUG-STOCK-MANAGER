@@ -1,7 +1,12 @@
 rules_version = '2';
 
-// Paste this whole file into: Firebase Console → your project → Firestore Database
-// → Rules tab → replace everything → Publish.
+// Auto-deployed by .github/workflows/deploy-firebase-hosting.yml on every push to main
+// (`firebase deploy --only hosting,firestore:rules`) — a merged change here goes live within
+// the same few minutes the app code does, no manual step required. (Before 2026-10-31 this had
+// to be copy-pasted by hand into Firebase Console → Firestore Database → Rules → Publish, and a
+// real incident that day was eventually traced to exactly that manual step having been skipped
+// for a long stretch — see the deploy workflow's own comment on this.) A manual publish from
+// Firebase Console still works as a one-off/emergency override if ever needed.
 //
 // Model: every signed-in Firebase Auth user gets a profile doc at
 // users/{uid}. New accounts are created with role:'tech', active:false

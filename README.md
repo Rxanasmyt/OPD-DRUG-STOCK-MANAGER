@@ -23,9 +23,13 @@ Implementation ของดีไซน์ `ระบบสต็อกยา OP
 
 ## ตั้งค่า Firebase (ต้องทำก่อนแอปจะใช้งานได้)
 
-1. **Publish security rules** — ไปที่ [Firebase Console](https://console.firebase.google.com) → เลือก
-   project → Firestore Database → แท็บ **Rules** → copy เนื้อหาทั้งหมดใน `firestore.rules` ไปวางแทนของเดิม →
-   **Publish** (ถ้าไม่ทำขั้นตอนนี้ แอปจะใช้งานไม่ได้เลย เพราะ Firestore เริ่มต้นปฏิเสธ read/write ทั้งหมด)
+1. **Publish security rules (ครั้งแรกเท่านั้น)** — ไปที่ [Firebase Console](https://console.firebase.google.com)
+   → เลือก project → Firestore Database → แท็บ **Rules** → copy เนื้อหาทั้งหมดใน `firestore.rules` ไปวางแทนของเดิม →
+   **Publish** (ถ้าไม่ทำขั้นตอนนี้ แอปจะใช้งานไม่ได้เลย เพราะ Firestore เริ่มต้นปฏิเสธ read/write ทั้งหมด) — ทำมือครั้ง
+   เดียวตอน set up โปรเจกต์ใหม่เท่านั้น จากนั้น `.github/workflows/deploy-firebase-hosting.yml` จะ deploy
+   `firestore.rules` อัตโนมัติทุกครั้งที่ merge เข้า `main` (real-world incident, 2026-10-31: รอบก่อนหน้านี้ไม่มี
+   ขั้นตอนนี้ ต้อง publish มือทุกครั้งที่แก้ rules แล้วมีครั้งหนึ่งลืม ทำให้ rules จริงที่ deploy อยู่เก่ากว่าโค้ดในนี้
+   เป็นเวลานาน — ดู CHANGELOG v3.240.0)
 2. **สมัครบัญชีแรกผ่านแอป** — เปิดแอป → แท็บ "สมัครสมาชิก" → ตั้งชื่อผู้ใช้ (username) ของตัวเอง (จะเข้าสถานะ
    "รออนุมัติ" อัตโนมัติ) — ระบบนี้ล็อกอินด้วย username ไม่ใช่อีเมล (ข้างในแปลงเป็นอีเมลปลอมให้ Firebase Auth
    เองอัตโนมัติ ผู้ใช้ไม่ต้องรู้/ไม่เห็นอีเมลนี้เลย)
@@ -64,7 +68,7 @@ actually builds + publishes to GitHub Pages, and only runs on pushes to `main`.
 ## โครงสร้าง
 
 - `src/firebase.ts` — เริ่มต้น Firebase app/Auth/Firestore
-- `firestore.rules` — security rules (ต้อง publish เข้า Firebase Console เอง ดูด้านบน)
+- `firestore.rules` — security rules, deploy อัตโนมัติผ่าน GitHub Actions ทุก merge เข้า `main` (ดูด้านบน)
 - `src/data/` — CSV ต้นฉบับ + ตัวสร้างข้อมูลตั้งต้น (seed), `seedFirestore.ts` เขียนข้อมูลตั้งต้นลง Firestore
 - `src/store/AppContext.tsx` — auth state + live Firestore sync + action ทั้งหมด (เติมหน้างาน/FEFO,
   รับเข้า substock, ปรับยอด/คืนยา/ยาหมดอายุ, นำเข้า HOSxP, นับสต็อก, รายงาน, ฉลาก QR, จัดการผู้ใช้ + audit log)

@@ -1,5 +1,18 @@
 name: Deploy to Firebase Hosting
 
+# Real-world incident, 2026-10-31: `firestore.rules` is this project's actual security boundary
+# (see the file's own header comment), but — unlike every other part of this app — it was never
+# deployed by anything automated. It had to be copy-pasted by hand into Firebase Console →
+# Firestore Database → Rules → Publish, every single time it changed. That manual step was
+# apparently skipped for a long stretch: a live incident (commitReconcile's real-deduction
+# transaction throwing permission-denied on a write this session had independently verified, via
+# a real Firestore emulator running the actual firestore.rules file, as VALID) turned out to be
+# exactly this — the deployed rules were stale, not the app code or the rules file itself. Once
+# the person manually re-published the current file, the live incident this comment's own commit
+# was written to fix stopped recurring. Deploying `firestore:rules` here, on every push to main
+# alongside Hosting, closes that gap for good: from now on, a merged `firestore.rules` change is
+# live within the same few minutes the app code is, with no separate manual step to forget.
+#
 # Real-world report: a hospital pharmacist found that hard-refreshing the GitHub Pages-hosted
 # app did not pick up a just-merged fix, sometimes for several minutes. GitHub Pages is served
 # through a CDN (Fastly) with no way for this repo to set its own Cache-Control headers — the
@@ -50,13 +63,13 @@ jobs:
       # defaults to '/', correct for Firebase Hosting serving from its own domain root rather
       # than a GitHub Pages project-site subpath.
       - run: npm run build
-      - name: Deploy to Firebase Hosting
+      - name: Deploy to Firebase Hosting + Firestore rules
         env:
           FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
         run: |
           echo "$FIREBASE_SERVICE_ACCOUNT_KEY" > "$RUNNER_TEMP/firebase-sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json"
-          npx --yes firebase-tools@13 deploy --only hosting --project opd-drug-stock --non-interactive
+          npx --yes firebase-tools@13 deploy --only hosting,firestore:rules --project opd-drug-stock --non-interactive
           rm -f "$RUNNER_TEMP/firebase-sa.json"
       # Same script, same reasoning as deploy-pages.yml's own copy of this step — pushes the
       # new version to every tab already open on the NEW (Firebase Hosting) URL in real time via
