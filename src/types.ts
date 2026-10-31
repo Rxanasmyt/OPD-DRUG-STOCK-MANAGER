@@ -551,6 +551,13 @@ export interface ReturnCartItem {
   qty: number;
   reason: string;
   note: string;
+  // Captured at add-to-cart time (same vintage as medName/medCode/unit above), not re-read at
+  // commit time — see writeReturnBatch's own doc comment (AppContext.tsx) for why: avoids both
+  // the crash-on-deleted-med risk of a non-null-asserted client-cache lookup inside the
+  // transaction AND the Firestore read-budget cost of a live trx.get() per cart line, the same
+  // "no read needed" design this whole batch write was built around.
+  category: string;
+  unitPrice: number;
 }
 
 /** A receive submitted by a ผู้ช่วยเภสัชกร (tech) — doesn't touch stock until a pharmacist/

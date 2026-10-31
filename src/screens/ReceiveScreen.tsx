@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useApp } from '../store/AppContext';
-import { usesSubstock, needsWarehouseRequest, subTone, daysOfStockLeft, packStep, boxBreakdownLabel } from '../store/selectors';
+import { usesSubstock, needsWarehouseRequest, subTone, daysOfStockLeft, packStep, boxBreakdownLabel, reqCategoryOf } from '../store/selectors';
 import { nf, lotLabel, expLabel, thDate, thTime, isoDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty, DaysLeftBadge, PackSizeBadge, UsageRateBadge, PAR_LABEL_COLOR } from '../components/Qty';
@@ -135,6 +135,22 @@ export default function ReceiveScreen() {
     return counts;
   }, [state.recvItems]);
 
+  // Bug fix (real incident risk, found auditing "หน้างานจริง" use): a med with no `reqCategory`
+  // set (an optional field on the add/edit form — easy to miss, and never enforced by anything)
+  // silently falls out of ALL 4 category sheets below (printWarehouseRequestByCategory's own
+  // filter, AppContext.tsx, matches on `reqCategoryOf(m) === categoryFilter` — `undefined` never
+  // equals any real category id). It still appears on the combined "พิมพ์รวมทุกหมวดในใบเดียว"
+  // sheet, but that's explicitly the legacy fallback, not what staff actually carry to the
+  // warehouse day to day (the 4-category split is the real-world request that created this
+  // screen's main buttons) — so this med is never actually requested via the normal path, with
+  // zero warning, a real stock-out risk for exactly the item class this feature exists to
+  // prevent. Surfacing the count here (not silently fixing it — only an admin editing the med can
+  // actually pick the right category) at least makes it visible before someone relies on the
+  // sheets being complete.
+  const missingCategoryCount = useMemo(
+    () => state.meds.filter((m) => m.active && !reqCategoryOf(m)).length,
+    [state.meds]
+  );
   const canApprove = state.role !== 'tech';
   const pending = state.pendingReceives.filter((r) => r.status === 'pending');
   const myPending = pending.filter((r) => r.requestedByUid === state.myUid);
@@ -161,6 +177,12 @@ export default function ReceiveScreen() {
           </button>
         ))}
       </div>
+      {missingCategoryCount > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--amber-ink)', background: 'var(--amber-bg)', borderRadius: 10, padding: '8px 10px', marginBottom: 8 }}>
+          ⚠️ มียา {missingCategoryCount} รายการที่ยังไม่ได้ตั้งหมวดใบเบิก — จะไม่ขึ้นในใบเบิกแยกหมวดทั้ง 4 ด้านบน
+          (ยังขึ้นในใบรวมทุกหมวดด้านล่าง) ไปตั้งหมวดได้ที่หน้ารายการยา → แก้ไขยา → "หมวดใบเบิก"
+        </div>
+      )}
       <button
         onClick={printWarehouseRequestList}
         className="btn-outline"

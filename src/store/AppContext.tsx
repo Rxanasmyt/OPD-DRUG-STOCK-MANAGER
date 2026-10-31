@@ -473,7 +473,7 @@ export interface AppCtx {
   setAdjHn: (v: string) => void;
   commitAdjust: () => void;
   commitSingleReturn: () => void;
-  addToReturnCart: () => void;
+  addToReturnCart: () => Promise<void>;
   removeReturnCartItem: (i: number) => void;
   commitReturnCart: () => void;
   fetchDrugReturns: (fromDate: string, toDate: string) => Promise<import('../types').DrugReturnRecord[]>;
@@ -3190,14 +3190,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // commitAdjust's own flow-friction fix uses, mirrored the other way: here it's the DRUG that
   // changes between adds and the HN that stays, so adjHn is deliberately the one field this
   // does NOT touch.
-  const addToReturnCart = useCallback(() => {
+  const addToReturnCart = useCallback(async () => {
     const m = state.meds.find((x) => x.id === state.adjMed);
     const q = parseIntSafe(state.adjQty);
     if (!m || !q || !state.adjReason) { toast('ต้องเลือกยา จำนวน และเหตุผลให้ครบ'); return; }
-    const item: ReturnCartItem = { medId: m.id, medName: m.name, medCode: m.code, unit: m.unit, qty: q, reason: state.adjReason, note: state.adjNote || '—' };
+    // Bug fix (typo safety net, found auditing "หน้างานจริง" use): every other manually-typed-
+    // quantity floor-mutating action (commitCount/commitAllCounts/commitAllSubCounts, addRecv,
+    // commitWardMove/commitAdjust — the last two fixed this session) flags a quantity implausible
+    // relative to the med's own par level before committing — the return-cart path shares the
+    // same `state.adjQty` field and UI as commitAdjust but is a structurally separate function, so
+    // that fix never carried over here. A fat-fingered return quantity (e.g. "500" instead of
+    // "50") used to silently add unverified excess stock via `increment()` with zero warning —
+    // arguably worse than commitAdjust's own gap, since there's no "insufficient" ceiling possible
+    // on an increment at all.
+    if (q > Math.max(m.parFloor, 20) * 8 && !(await confirmAsync(
+      'จำนวนที่กรอก (' + nf(q) + ' ' + m.unit + ') มากผิดปกติเมื่อเทียบกับ par (' + nf(m.parFloor) + ') ของ '
+      + m.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
+    ))) return;
+    const item: ReturnCartItem = { medId: m.id, medName: m.name, medCode: m.code, unit: m.unit, qty: q, reason: state.adjReason, note: state.adjNote || '—', category: categoryOf(m), unitPrice: m.price };
     patch((st) => ({ returnCart: [...st.returnCart, item], adjMed: null, adjSearch: '', adjQty: '', adjReason: '', adjNote: '' }));
     hapticSuccess();
-  }, [state.meds, state.adjMed, state.adjQty, state.adjReason, state.adjNote, toast, patch]);
+  }, [state.meds, state.adjMed, state.adjQty, state.adjReason, state.adjNote, toast, patch, confirmAsync]);
 
   const removeReturnCartItem = useCallback((i: number) => patch((st) => ({ returnCart: st.returnCart.filter((_, j) => j !== i) })), [patch]);
 
@@ -3223,24 +3236,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // correctly stacks even when the same med appears on more than one cart line (every other
   // multi-write-per-doc transaction in this file already relies on that), so the logged qty for
   // each line is always exactly `it.qty` regardless of any other line — nothing to read first.
+  // Bug fix (data integrity, found auditing "หน้างานจริง" use): this used to read `m` from
+  // state.meds (the client cache) via a non-null-asserted `.find()!` INSIDE the transaction — a
+  // med deleted between opening the return screen and confirming (a real window: picking the
+  // drug, typing qty/reason/HN) made that assertion throw a bare TypeError with no `.code`,
+  // surfaced as an unhelpful generic toast — worse than the already-fixed "รายการถูกลบ" message
+  // commitReceive/commitTransfer give for the same class of gap. Fixed WITHOUT adding a live
+  // trx.get() per item (which would reintroduce exactly the Firestore read-budget risk this
+  // function's own FEFO_LOT_CAP-style fix above deliberately eliminated — a return of several
+  // distinct drugs could cost a read each, same failure class as the #163 production incident):
+  // `category`/`unitPrice` are now captured into the cart item at ADD time (addToReturnCart/
+  // commitSingleReturn, same vintage as medName/medCode/unit, which were already captured that
+  // way), so this needs no med lookup — live, cached, or otherwise — at all. A med deleted after
+  // being added to the cart is still caught, just one level up: commitReturnCart's own
+  // `missingMed` pre-check (and the `!m` guard commitSingleReturn already has) before this even
+  // runs, not inside the transaction.
   const writeReturnBatch = useCallback(async (items: ReturnCartItem[], hn: string) => {
     const now = Date.now();
     await runTx(async (trx) => {
       for (const it of items) {
-        const m = state.meds.find((x) => x.id === it.medId)!;
         trx.update(medRef(it.medId), { floor: increment(it.qty) });
         trx.set(newTxRef(), {
-          type: 'return', name: m.name, medId: it.medId, qty: it.qty, unit: it.unit,
+          type: 'return', name: it.medName, medId: it.medId, qty: it.qty, unit: it.unit,
           reason: it.reason, note: it.note, loc: 'floor', by: userName(), ts: now,
         } satisfies Omit<import('../types').Tx, 'id'>);
         trx.set(newDrugReturnRef(), {
-          medId: it.medId, medName: it.medName, medCode: it.medCode, unit: it.unit, category: categoryOf(m),
-          hn, qty: it.qty, unitPrice: m.price, value: it.qty * m.price,
+          medId: it.medId, medName: it.medName, medCode: it.medCode, unit: it.unit, category: it.category,
+          hn, qty: it.qty, unitPrice: it.unitPrice, value: it.qty * it.unitPrice,
           reason: it.reason, note: it.note, date: isoDate(now), ts: now, by: userName(),
         } satisfies import('../types').DrugReturnRecord);
       }
     });
-  }, [state.meds, userName, runTx]);
+  }, [userName, runTx]);
 
   // ทีละตัว (single) — real-world request: "อยากให้เลือกคืนยาได้ทั้งแบบทีละตัวยา หรือทีละหลายๆ
   // ตัวยา" — the ตะกร้าคืนยา flow (addToReturnCart/commitReturnCart) is genuinely better for one
@@ -3256,8 +3283,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const q = parseIntSafe(state.adjQty);
     if (!m || !q || !state.adjReason) { toast('ต้องเลือกยา จำนวน และเหตุผลให้ครบ'); return; }
     if (!state.adjHn.trim()) { toast('ต้องกรอก HN ผู้ป่วยสำหรับการคืนยา'); return; }
+    // Bug fix (typo safety net, found auditing "หน้างานจริง" use): same gap as addToReturnCart's
+    // own fix right above — this direct single-item commit path never went through that check.
+    if (q > Math.max(m.parFloor, 20) * 8 && !(await confirmAsync(
+      'จำนวนที่กรอก (' + nf(q) + ' ' + m.unit + ') มากผิดปกติเมื่อเทียบกับ par (' + nf(m.parFloor) + ') ของ '
+      + m.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
+    ))) return;
     const hn = state.adjHn.trim();
-    const item: ReturnCartItem = { medId: m.id, medName: m.name, medCode: m.code, unit: m.unit, qty: q, reason: state.adjReason, note: state.adjNote || '—' };
+    const item: ReturnCartItem = { medId: m.id, medName: m.name, medCode: m.code, unit: m.unit, qty: q, reason: state.adjReason, note: state.adjNote || '—', category: categoryOf(m), unitPrice: m.price };
     try {
       await writeReturnBatch([item], hn);
       patch({ adjMed: null, adjSearch: '', adjQty: '', adjReason: '', adjNote: '', adjHn: '' });
@@ -3266,7 +3299,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [state.meds, state.adjMed, state.adjQty, state.adjReason, state.adjNote, state.adjHn, writeReturnBatch, toast, toastErr, patch, guardOnce]);
+  }), [state.meds, state.adjMed, state.adjQty, state.adjReason, state.adjNote, state.adjHn, writeReturnBatch, toast, toastErr, patch, guardOnce, confirmAsync]);
 
   const commitReturnCart = useCallback(guardOnce('returnCart', async () => {
     const items = state.returnCart;
@@ -3285,7 +3318,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       hapticSuccess();
       toast('บันทึกรับคืนแล้ว · HN ' + hn + ' · ' + items.length + ' รายการ');
     } catch (e) {
-      toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
+      // Bug fix (debugging gap, found auditing "หน้างานจริง" use): this whole cart commits as ONE
+      // shared transaction (same shape as commitTransfer's own cart), so there's no single item
+      // to blame for an unexpected failure — but naming every item actually in the cart is still
+      // strictly more than the fully anonymous fallback this used to show, same fix commitTransfer
+      // already got this session.
+      toastErr(e, 'บันทึกไม่สำเร็จ (รายการ: ' + items.map((i) => i.medName).join(', ') + ') ลองใหม่อีกครั้ง');
     }
   }), [state.returnCart, state.adjHn, state.meds, writeReturnBatch, toast, toastErr, patch, guardOnce]);
 
