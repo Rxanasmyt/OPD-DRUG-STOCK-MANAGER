@@ -7,6 +7,61 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.241.0] - 2026-10-31
+
+### แก้ไข (บัคจริง — ตรวจสอบ "หน้างานจริง" ตามที่ขอ, 4 จุด)
+- **[สแกน QR ยาที่ถูกปิดใช้งานแล้ว (ยังมีฉลากติดอยู่จริงบนชั้น) รับ/เติมยาเข้าไปได้แบบไม่มีคำเตือน]**
+  — `resolveMed()` (ที่ใช้ตอนสแกน QR สำหรับรับ/เติมหน้างาน) ไม่เช็ก `.active` เลย ต่างจาก location-scan
+  branch ข้างๆ กัน `toggleMedActive` ปิดแค่ flag ไม่แตะยอด floor/substock เลย ยาที่ถูกปิดใช้งานทั้งที่ยัง
+  มีสต็อกจริงบนชั้น (เช่น ยาที่เลิกใช้แล้ว หรือแก้ข้อมูลผิดพลาด) จะหายไปจากทุกหน้าจอที่กรองแต่ active แต่
+  ฉลาก QR บนชั้นไม่ได้หายไปด้วย — สแกนแล้วรับ/เติมยาเข้าไปได้เงียบๆ กลายเป็นสต็อกที่มองไม่เห็นทั้งระบบ —
+  เพิ่มเช็ก `.active` ตรงจุดที่สแกนเพื่อรับ/เติมหน้างานโดยเฉพาะ (ไม่แตะ `resolveMed()` เอง เพราะ viewMed
+  ยังต้องค้นหายาที่ปิดใช้งานได้ตามปกติ เช่น ไว้เปิดดูเพื่อเปิดใช้งานกลับ) พร้อมข้อความแจ้งเตือนเฉพาะ
+- **[บันทึกนับสต็อก/substock แบบ "ทั้งหมด" (บันทึกทั้งชุด) ถ้าบางแถวพัง ไม่บอกว่าแถวไหน/เพราะอะไร]** —
+  `commitAllCounts`/`commitAllSubCounts` (ปุ่ม "บันทึกทั้งหมด" หลังเดินนับสต็อก 20-40 รายการ) เดิม
+  swallow error ด้วย `console.error(e)` แล้วบวก counter เฉยๆ ข้อความสุดท้ายบอกแค่ "ไม่สำเร็จ N รายการ"
+  ไม่มีชื่อยา ไม่มี error code เลย — หน้างาน (tablet) ไม่มี DevTools ให้เปิดดู เท่ากับต้องไล่เช็คทุกแถวเอง
+  ว่าแถวไหนพัง — ตอนนี้แสดงชื่อยา (+error code ถ้ามี) ของแถวที่พังในข้อความ toast โดยตรง (สูงสุด 5 รายการ
+  ถ้าเกินบอกจำนวนที่เหลือ) เหมือนที่ commitReconcile/commitReceive ได้รับการแก้ไปแล้วก่อนหน้านี้
+- **[ย้ายยาระหว่างวอร์ด (commitWardMove) และปรับยอด/ยาเสีย (commitAdjust) ไม่มี typo safety net —
+  จุดเดียวที่ยังไม่มีทั้งที่ทุก flow พิมพ์จำนวนเองตัวอื่นมีหมด]** — commitCount/commitAllCounts/
+  commitAllSubCounts/addRecv ทุกตัวมีการเช็ก "จำนวนที่พิมพ์ผิดปกติมากเทียบกับ par" แล้วถามยืนยันก่อน
+  บันทึก แต่ commitWardMove (ย้ายยาระหว่างวอร์ด) และ commitAdjust (ยาเสีย/ปรับยอด — action ที่กระทบ
+  ความปลอดภัยผู้ป่วยพอๆ กัน) ไม่มีเช็กนี้เลย — พิมพ์เลขเกินโดยไม่ตั้งใจ (เช่น "900" แทน "90") จะ clamp
+  floor เหลือ 0 เงียบๆ (commitAdjust) หรือย้ายยาผิดจำนวนแบบไม่มีคำเตือน (commitWardMove) ตราบใดที่ยัง
+  ไม่เกินยอดที่มีอยู่จริง (ซึ่งเช็ก "insufficient" เดิมจับไม่ได้ถ้ายอดต้นทางมีเยอะพอ) — เพิ่มเช็กแบบเดียว
+  กับ commitCount ให้ทั้งสองฟังก์ชัน
+
+### ตรวจสอบเพิ่มเติม (ไม่พบบัคจริง ไม่ได้แก้อะไร เพื่อไม่เดามั่ว)
+- commitSubCount/commitAllSubCounts: ทดสอบ budget การอ่าน lot จำนวนมาก (5-30 lots ใน transaction
+  เดียว) กับ Firestore emulator จริง ไม่พบปัญหา เกิน 20 get()/exists() แม้ไม่มี FEFO_LOT_CAP
+- scrapLot/scrapFloorLot: ตรวจ field shape กับ rules ครบ ไม่พบปัญหา
+- writeReturnBatch (คืนยา ไม่มี cap จำนวนรายการในตะกร้า): ทดสอบ 20 รายการ (60 writes) ใน transaction
+  เดียวกับ emulator จริง ไม่พบปัญหา budget
+- QR encode/decode round-trip, กล้อง/สิทธิ์กล้อง, double-scan race, lifecycle cleanup: ตรวจครบ
+  ไม่พบบัค (ป้องกันไว้ดีอยู่แล้วจากการแก้ก่อนหน้านี้)
+
+## [3.240.1] - 2026-10-31
+
+### แก้ไข (CRITICAL — hotfix ด่วน, v3.240.0 ทำ Hosting deploy พังไปชั่วคราว)
+- **[`deploy --only hosting,firestore:rules` รวมกันคำสั่งเดียว ทำให้ Hosting deploy พังไปด้วยตอนที่
+  firestore:rules deploy ไม่ผ่าน (service account ไม่มีสิทธิ์) — แยกเป็นคนละ step]** — ยืนยันจาก
+  log ของ GitHub Actions run จริงที่พังหลัง merge v3.240.0: `firebase deploy` ตรวจสอบ (validate)
+  ทุก target ที่ขอ **ก่อน** deploy target ไหนเลย ทำให้ firestore:rules's permission error
+  ("Request to https://firebaserules.googleapis.com/v1/projects/opd-drug-stock:test had HTTP
+  Error: 403, The caller does not have permission") ทำให้ **Hosting ก็ไม่ได้ deploy ไปด้วย** ทั้งที่
+  ไม่เกี่ยวกันเลย — Hosting pipeline ที่ใช้งานได้ปกติมาตลอดพังไปทันทีตั้งแต่ merge v3.240.0 จนกว่าจะ
+  แก้รอบนี้
+  - แยก `deploy-firebase-hosting.yml` เป็น 2 step คนละคำสั่ง: Hosting deploy ก่อน (ต้องผ่านเสมอ ไม่
+    ขึ้นกับอะไรอื่น) แล้วค่อย Firestore rules deploy แยกต่างหาก — ถ้า rules deploy พัง จะเห็นแค่ step
+    นั้น step เดียวขึ้นแดงใน Actions tab ไม่ดึง Hosting ลงไปด้วยอีกต่อไป
+  - **ยังต้องทำเพิ่ม**: service account ที่ใช้ (ใน secret `FIREBASE_SERVICE_ACCOUNT_KEY`) ยังไม่มีสิทธิ์
+    deploy Firestore rules อยู่ดี (มีแค่สิทธิ์ Hosting + อ่าน/เขียนข้อมูล Firestore) — ต้องไปเพิ่ม role
+    **"Firebase Rules Admin"** (หรือกว้างกว่านั้นเช่น "Editor") ให้ service account ตัวนี้ใน Google
+    Cloud Console → IAM & Admin → IAM ก่อน ถึงจะ deploy rules อัตโนมัติได้จริง — ระหว่างที่ยังไม่ได้
+    เพิ่มสิทธิ์ Hosting จะ deploy ได้ปกติ (ไม่กระทบแล้วหลัง fix นี้) แต่ rules step จะยังคงแดงอยู่
+    เป็นการเตือนเฉยๆ ไม่บล็อกอะไร — ยัง publish rules มือผ่าน Firebase Console ได้ตามปกติระหว่างนี้
+
 ## [3.240.0] - 2026-10-31
 
 ### แก้ไข (CRITICAL — สาเหตุจริงของ permission-denied ที่เกิดซ้ำทั้งวัน)
