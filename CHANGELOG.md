@@ -7,6 +7,27 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.240.1] - 2026-10-31
+
+### แก้ไข (CRITICAL — hotfix ด่วน, v3.240.0 ทำ Hosting deploy พังไปชั่วคราว)
+- **[`deploy --only hosting,firestore:rules` รวมกันคำสั่งเดียว ทำให้ Hosting deploy พังไปด้วยตอนที่
+  firestore:rules deploy ไม่ผ่าน (service account ไม่มีสิทธิ์) — แยกเป็นคนละ step]** — ยืนยันจาก
+  log ของ GitHub Actions run จริงที่พังหลัง merge v3.240.0: `firebase deploy` ตรวจสอบ (validate)
+  ทุก target ที่ขอ **ก่อน** deploy target ไหนเลย ทำให้ firestore:rules's permission error
+  ("Request to https://firebaserules.googleapis.com/v1/projects/opd-drug-stock:test had HTTP
+  Error: 403, The caller does not have permission") ทำให้ **Hosting ก็ไม่ได้ deploy ไปด้วย** ทั้งที่
+  ไม่เกี่ยวกันเลย — Hosting pipeline ที่ใช้งานได้ปกติมาตลอดพังไปทันทีตั้งแต่ merge v3.240.0 จนกว่าจะ
+  แก้รอบนี้
+  - แยก `deploy-firebase-hosting.yml` เป็น 2 step คนละคำสั่ง: Hosting deploy ก่อน (ต้องผ่านเสมอ ไม่
+    ขึ้นกับอะไรอื่น) แล้วค่อย Firestore rules deploy แยกต่างหาก — ถ้า rules deploy พัง จะเห็นแค่ step
+    นั้น step เดียวขึ้นแดงใน Actions tab ไม่ดึง Hosting ลงไปด้วยอีกต่อไป
+  - **ยังต้องทำเพิ่ม**: service account ที่ใช้ (ใน secret `FIREBASE_SERVICE_ACCOUNT_KEY`) ยังไม่มีสิทธิ์
+    deploy Firestore rules อยู่ดี (มีแค่สิทธิ์ Hosting + อ่าน/เขียนข้อมูล Firestore) — ต้องไปเพิ่ม role
+    **"Firebase Rules Admin"** (หรือกว้างกว่านั้นเช่น "Editor") ให้ service account ตัวนี้ใน Google
+    Cloud Console → IAM & Admin → IAM ก่อน ถึงจะ deploy rules อัตโนมัติได้จริง — ระหว่างที่ยังไม่ได้
+    เพิ่มสิทธิ์ Hosting จะ deploy ได้ปกติ (ไม่กระทบแล้วหลัง fix นี้) แต่ rules step จะยังคงแดงอยู่
+    เป็นการเตือนเฉยๆ ไม่บล็อกอะไร — ยัง publish rules มือผ่าน Firebase Console ได้ตามปกติระหว่างนี้
+
 ## [3.240.0] - 2026-10-31
 
 ### แก้ไข (CRITICAL — สาเหตุจริงของ permission-denied ที่เกิดซ้ำทั้งวัน)
