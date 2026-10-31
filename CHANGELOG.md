@@ -7,6 +7,28 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.240.0] - 2026-10-31
+
+### แก้ไข (CRITICAL — สาเหตุจริงของ permission-denied ที่เกิดซ้ำทั้งวัน)
+- **[firestore.rules ไม่เคย deploy อัตโนมัติ — ต้อง publish มือทุกครั้ง แล้วมีครั้งหนึ่งลืม ทำให้ rules จริงที่
+  ใช้งานอยู่เก่ากว่าโค้ดในนี้มานาน — นี่คือสาเหตุจริงของ Adenosine permission-denied ที่ตามหากันมาทั้งวัน]**
+  — หลังจากยืนยันด้วย Firestore emulator จริงว่า commitReconcile's การตัดยอด Adenosine (floor เดิม=0,
+  ตัดซ้ำเป็น 0 — no-op write) **ผ่านปกติ** ภายใต้ rules เวอร์ชันล่าสุดในโค้ด แต่ production ยัง reject
+  อยู่ด้วยข้อมูลชุดเดียวกันเป๊ะ (ยืนยันได้จาก `failedDebug` ใหม่ที่เพิ่งเพิ่มใน v3.238.0: `medId=M001
+  reportedQty=2 floorBefore=0 floorAfter=0`) ข้อสรุปเดียวที่เหลือคือ **rules ที่ deploy อยู่จริงใน
+  Firebase ไม่ตรงกับไฟล์ `firestore.rules` ในโค้ดแล้ว**
+  - สาเหตุ: `firestore.rules` ไม่เคยมี automation ใดๆ เลยตั้งแต่ต้นโปรเจกต์ (ต่างจากตัวแอปเองที่ deploy
+    อัตโนมัติทุก merge ผ่าน GitHub Actions) — ไฟล์เองก็เขียนไว้ตรงๆ ว่า "Paste this whole file into:
+    Firebase Console...Publish" และ README ก็บอกแบบเดียวกัน หลัง 18 commits ที่แก้ไฟล์นี้ตลอดอายุ
+    โปรเจกต์ ถ้าขั้นตอน publish มือถูกข้ามไปแม้แค่ครั้งเดียว rules จริงจะค้างอยู่ที่เวอร์ชันเก่านั้นต่อไป
+    เรื่อยๆ โดยไม่มีใครรู้ตัว — ผู้ใช้ยืนยันแล้วว่า publish ไฟล์ล่าสุดที่ส่งให้ด้วยมือ แก้ปัญหาได้ทันที
+  - **แก้ถาวร**: เพิ่ม `firestore` key ใน `firebase.json` (ชี้ไปที่ `firestore.rules`) และเพิ่ม
+    `firestore:rules` เข้าไปใน `deploy-firebase-hosting.yml`'s deploy step เดียวกับที่ deploy Hosting
+    อยู่แล้ว (`firebase deploy --only hosting,firestore:rules`) — จากนี้ไป merge เข้า `main` แล้ว rules
+    จะ live ภายในไม่กี่นาทีเดียวกับที่แอปเอง deploy เสร็จ ไม่ต้องพึ่งขั้นตอนมือที่ลืมได้อีกต่อไป
+  - อัปเดต README/`firestore.rules`'s header comment ให้ตรงกับความจริงใหม่ (publish มือเหลือแค่ตอน
+    setup โปรเจกต์ใหม่ครั้งแรกเท่านั้น)
+
 ## [3.239.0] - 2026-10-31
 
 ### แก้ไข (บัคจริง — ตรวจสอบด้วย Firestore emulator จริง)
