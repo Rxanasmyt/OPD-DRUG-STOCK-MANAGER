@@ -3041,6 +3041,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // destination's unit to catch it by eye (only fromMed.unit is displayed).
     if (from.unit !== to.unit) { toast('หน่วยยาไม่ตรงกัน (' + from.unit + ' ≠ ' + to.unit + ') — ย้ายข้ามหน่วยไม่ได้'); return; }
     if (!state.wmReason.trim()) { toast('กรอกเหตุผลก่อนบันทึก'); return; }
+    // Bug fix (typo safety net, found auditing "หน้างานจริง" use): every other manually-typed-
+    // quantity floor-mutating action in this app (commitCount/commitAllCounts/commitAllSubCounts,
+    // addRecv) flags a quantity implausible relative to the med's own par level before committing
+    // — this one never did, despite moving real floor stock between two wards exactly like those
+    // do. The only existing guard is "can't move more than what's actually there" (the
+    // `insufficient` check below), which a fat-fingered extra digit can easily still clear (e.g.
+    // typing "500" instead of "50" when the source floor happens to hold 600) — silently moving
+    // the wrong amount with zero warning.
+    if (q > Math.max(from.parFloor, 20) * 8 && !(await confirmAsync(
+      'จำนวนที่กรอก (' + nf(q) + ' ' + from.unit + ') มากผิดปกติเมื่อเทียบกับ par (' + nf(from.parFloor) + ') ของ '
+      + from.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
+    ))) return;
     // Escapes the transaction closure below so the "ไม่พอ" error message can report the
     // real just-read floor instead of the stale value from before the transaction ran —
     // matters when someone else's transfer/adjust landed on this same med in between.
@@ -3078,7 +3090,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if ((e as Error)?.message === 'insufficient') { toast('ต้นทางมีไม่พอ — เหลือ ' + nf(latestFloor) + ' ' + from.unit); return; }
       toastErr(e, 'ย้ายไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [state.meds, state.wmFromMed, state.wmToMed, state.wmQty, state.wmReason, userName, toast, toastErr, patch, guardOnce]);
+  }), [state.meds, state.wmFromMed, state.wmToMed, state.wmQty, state.wmReason, userName, toast, toastErr, patch, guardOnce, confirmAsync]);
 
   // ---------- adjust ----------
   // Bug fix (flow friction): re-tapping the already-active type chip (e.g. confirming "ปรับยอด"
@@ -3118,6 +3130,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // this at all, a cross-file invariant non-null assertions don't actually check at runtime.
     if (!m || !q || !state.adjReason || !state.adjType) { toast('ต้องเลือกยา จำนวน และเหตุผลให้ครบ'); return; }
     const t = state.adjType;
+    // Bug fix (typo safety net, found auditing "หน้างานจริง" use): every other manually-typed-
+    // quantity floor-deducting action (commitCount/commitAllCounts/commitAllSubCounts, addRecv)
+    // flags a quantity implausible relative to the med's own par level before committing —
+    // commitAdjust ("ยาเสีย"/"ปรับยอด", an equally patient-safety-adjacent write-off) never did. A
+    // fat-fingered extra digit (e.g. "500" instead of "50") used to silently clamp the floor to 0
+    // (`after = Math.max(0, before - q)` below) with zero warning — worse than the typo flows
+    // already guarded, since there's no "insufficient" rejection here to catch it by accident.
+    if (q > Math.max(m.parFloor, 20) * 8 && !(await confirmAsync(
+      'จำนวนที่กรอก (' + nf(q) + ' ' + m.unit + ') มากผิดปกติเมื่อเทียบกับ par (' + nf(m.parFloor) + ') ของ '
+      + m.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
+    ))) return;
     // Bug fix (ledger accuracy): a 'damaged'/'adjust' deduction used to log qty as a flat `-q`
     // regardless of what actually happened to floor — but the write below clamps at 0
     // (Math.max(0, ...)), same guard commitReconcile already needed for the exact same reason.
@@ -3158,7 +3181,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [state, userName, toast, toastErr, patch, guardOnce]);
+  }), [state, userName, toast, toastErr, patch, guardOnce, confirmAsync]);
 
   // ---------- ตะกร้าคืนยา (return cart) — see ReturnCartItem's own doc comment (types.ts) for
   // the real-world request this answers ----------
@@ -5624,6 +5647,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let ok = 0;
     let diffs = 0;
     let failed = 0;
+    // Bug fix (debugging gap, found auditing "หน้างานจริง" use — same class as commitReconcile's
+    // failedMedName/failedDebug and commitReceive's equivalent, both fixed earlier this session):
+    // a per-row failure here used to be swallowed into `console.error(e)` plus an incremented
+    // counter, with the final toast only ever saying "ไม่สำเร็จ N รายการ" — no med name, no error
+    // code at all. Ward tablets have no DevTools console, so a real failure partway through a
+    // 20-40 row shelf-walk batch left staff no way to tell WHICH rows failed or why, weaker
+    // diagnosability than this same function's own single-row sibling commitCount (which at
+    // least calls toastErr, appending the raw Firestore code).
+    const failedNames: string[] = [];
     for (const { medId, q } of entries) {
       const m = state.meds.find((x) => x.id === medId);
       // Bug fix (silent no-op): this used to `continue` here with no record at all — a deleted
@@ -5638,7 +5670,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // the moment it goes inactive) still silently landed, with the "บันทึกทั้งหมด" button's own
       // displayed count having already dropped by one to reflect the disappearance — the write
       // that happens disagrees with what the UI just told the operator would happen.
-      if (!m || !m.active) { failed++; continue; }
+      if (!m || !m.active) { failed++; failedNames.push((m?.name ?? medId) + ' (ไม่มีในระบบ/ปิดใช้งาน)'); continue; }
       try {
         let delta = 0;
         // Bug fix (data integrity): tx-log write folded into the same per-med transaction —
@@ -5660,13 +5692,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         patch((st) => { const ci = { ...st.countInputs }; delete ci[medId]; return { countInputs: ci }; });
         ok++;
         if (delta !== 0) diffs++;
-      } catch (e) { console.error(e); failed++; }
+      } catch (e) {
+        console.error(e);
+        failed++;
+        failedNames.push(m.name + ((e as { code?: string } | null)?.code ? ' (' + (e as { code?: string }).code + ')' : ''));
+      }
     }
     // A partial failure leaves the rows it couldn't save still filled in on screen (they're
     // only cleared per-med on success above), so retrying is just tapping the button again.
     if (ok > 0) hapticSuccess();
     toast(failed > 0
-      ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
+      ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ: ' + failedNames.slice(0, 5).join(', ')
+        + (failedNames.length > 5 ? ' และอีก ' + (failedNames.length - 5) + ' รายการ' : '') + ' (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
       : 'บันทึกครบ ' + ok + ' รายการ' + (diffs > 0 ? ' · มีส่วนต่าง ' + diffs + ' รายการ (ดูได้ใน Discrepancy log)' : ' · ตรงกับระบบทุกรายการ'));
   }), [state.countInputs, state.meds, toast, patch, guardOnce, confirmAsync]);
 
@@ -5804,6 +5841,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let ok = 0;
     let diffs = 0;
     let failed = 0;
+    // Bug fix (debugging gap, found auditing "หน้างานจริง" use): same class of gap as
+    // commitAllCounts's own fix above — a per-row failure here used to be swallowed into
+    // `console.error(e)` plus an incremented counter, with the final toast only ever saying
+    // "ไม่สำเร็จ N รายการ", no med name or error code. See commitAllCounts's own comment for the
+    // full reasoning (ward tablets have no DevTools).
+    const failedNames: string[] = [];
     for (const { medId, q } of entries) {
       const m = state.meds.find((x) => x.id === medId);
       // Bug fix (silent no-op): same fix as commitAllCounts's own sibling gap — a deleted med's
@@ -5811,7 +5854,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Bug fix (data integrity): same sibling gap as commitAllCounts's own fix above — a med
       // DEACTIVATED (not deleted) mid-batch still passed the old `!m` check alone and got a real
       // lot write for a drug no longer visible on the operator's own screen.
-      if (!m || !m.active) { failed++; continue; }
+      if (!m || !m.active) { failed++; failedNames.push((m?.name ?? medId) + ' (ไม่มีในระบบ/ปิดใช้งาน)'); continue; }
       try {
         let delta = 0;
         // Bug fix (data integrity — fabricated stock): see commitSubCount's matching note
@@ -5867,11 +5910,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         patch((st) => { const ci = { ...st.subCountInputs }; delete ci[medId]; return { subCountInputs: ci }; });
         ok++;
         if (delta !== 0) diffs++;
-      } catch (e) { console.error(e); failed++; }
+      } catch (e) {
+        console.error(e);
+        failed++;
+        failedNames.push(m.name + ((e as { code?: string } | null)?.code ? ' (' + (e as { code?: string }).code + ')' : ''));
+      }
     }
     if (ok > 0) hapticSuccess();
     toast(failed > 0
-      ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
+      ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ: ' + failedNames.slice(0, 5).join(', ')
+        + (failedNames.length > 5 ? ' และอีก ' + (failedNames.length - 5) + ' รายการ' : '') + ' (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
       : 'บันทึกครบ ' + ok + ' รายการ' + (diffs > 0 ? ' · มีส่วนต่าง ' + diffs + ' รายการ (ดูได้ใน Discrepancy log)' : ' · ตรงกับระบบทุกรายการ'));
   }), [state, userName, toast, patch, guardOnce, confirmAsync]);
 
@@ -6505,6 +6553,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // substock rack position already belongs to exactly one known drug.
         med = resolveMed(payload);
         if (!med) { toast('ไม่พบรายการนี้ในระบบ — QR อาจมาจากฉลากรุ่นเก่า ลองพิมพ์ฉลากใหม่'); return; }
+        // Bug fix (real incident risk, found auditing "หน้างานจริง" use): resolveMed() has no
+        // `.active` filter of its own (viewMed's own use of it, below, legitimately needs to find
+        // an INACTIVE med too — e.g. looking one up in order to reactivate it), but receiving/
+        // transferring real stock must never silently land on one. `toggleMedActive` only flips
+        // the flag — it never touches floor/substock lot quantities — so a med deactivated while
+        // real stock still sits on the shelf (an ordinary admin action: discontinuing a drug, a
+        // data-entry correction) keeps that stock in the database, hidden from every active-
+        // filtered screen (MedsScreen's default list, HomeScreen's "ต้องเติมหน้างาน", ReportScreen).
+        // The physical QR label doesn't disappear when the med is deactivated — scanning it here
+        // used to silently accept it, adding/moving real stock into a med that's now invisible
+        // system-wide.
+        if (!med.active) { toast(med.name + ' ถูกปิดใช้งานแล้ว — ติดต่อแอดมินก่อนรับ/เติมยานี้'); return; }
       }
       if (manual && purpose) logAudit({ type: 'qr_manual', note: 'กรอกรหัส QR ด้วยมือแทนการสแกน (' + med.name + ') — เหตุผล: ' + (state.qrManualReason.trim() || 'ไม่ระบุ') });
       if (purpose === 'receive') {
