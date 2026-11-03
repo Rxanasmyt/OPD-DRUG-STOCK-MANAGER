@@ -7,7 +7,7 @@ import {
   daysOfStockLeft, fefoLot, toneFor, subTone, roundStep, suggestTransferQty, matchHosxpMed, suggestPar,
   categoryOf, categoryStats, parAnomaliesFor, packStep, isOnStockHold, routeOf, effectiveRouteOf,
   topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes,
-  discrepancyByCategory, repeatAdrReturns, frequentFloorRefills,
+  discrepancyByCategory, repeatAdrReturns, frequentFloorRefills, replenishByMed,
   monthlyDaySplits, boxBreakdownLabel, halfOfMaxRounded, isNewerVersionAvailable, hosxpMissReasons,
   isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays,
 } from './selectors';
@@ -603,6 +603,59 @@ describe('frequentFloorRefills', () => {
     const rows = [dm({ date: '2026-01-01', floorRefillCounts: { m1: 1 } }), dm({ date: '2026-01-02' })]; // 0.5/day
     expect(frequentFloorRefills(rows, meds, 0.5)).toEqual([{ med: meds[0], eventCount: 1, totalDays: 2, perDay: 0.5 }]);
     expect(frequentFloorRefills(rows, meds, 0.6)).toEqual([]);
+  });
+});
+
+describe('replenishByMed', () => {
+  function tx(overrides: Partial<Tx> = {}): Tx {
+    return { id: 't1', type: 'transfer_to_floor', name: 'Test Drug', qty: -1, unit: 'เม็ด', by: 'ทดสอบ', ts: Date.now(), ...overrides };
+  }
+
+  it('aggregates event count/qty/value per med, sorted by total value descending', () => {
+    const meds = [
+      med({ id: 'cheap', name: 'Cheap Drug', price: 1, category: 'pain' }),
+      med({ id: 'expensive', name: 'Expensive Drug', price: 100, category: 'antimicrobial' }),
+    ];
+    const rows = [
+      tx({ id: 't1', medId: 'cheap', name: 'Cheap Drug', qty: -500 }),
+      tx({ id: 't2', medId: 'expensive', name: 'Expensive Drug', qty: -10 }),
+      tx({ id: 't3', medId: 'expensive', name: 'Expensive Drug', qty: -5 }),
+    ];
+    const out = replenishByMed(rows, meds, 5);
+    // expensive: 2 events, qty 15, value 1500 — outranks cheap (1 event, qty 500, value 500)
+    // despite the smaller raw quantity, since value (not qty) is what this is sorted on.
+    expect(out).toEqual([
+      { medId: 'expensive', medName: 'Expensive Drug', unit: 'เม็ด', category: 'antimicrobial', eventCount: 2, totalQty: 15, totalValue: 1500, perDay: 2 / 5 },
+      { medId: 'cheap', medName: 'Cheap Drug', unit: 'เม็ด', category: 'pain', eventCount: 1, totalQty: 500, totalValue: 500, perDay: 1 / 5 },
+    ]);
+  });
+
+  it('uses the absolute qty even when a row was logged with a negative sign', () => {
+    const meds = [med({ id: 'm1', name: 'Test Drug', price: 2 })];
+    const rows = [tx({ medId: 'm1', qty: -30 })];
+    const out = replenishByMed(rows, meds, 1);
+    expect(out[0].totalQty).toBe(30);
+    expect(out[0].totalValue).toBe(60);
+  });
+
+  it('falls back to matching by name when medId is absent, only if the name is unambiguous', () => {
+    const meds = [med({ id: 'a', name: 'Paracetamol', price: 1 })];
+    const rows = [tx({ name: 'Paracetamol', qty: -1 })];
+    expect(replenishByMed(rows, meds, 1)).toEqual([
+      { medId: 'a', medName: 'Paracetamol', unit: 'เม็ด', category: expect.any(String), eventCount: 1, totalQty: 1, totalValue: 1, perDay: 1 },
+    ]);
+  });
+
+  it('skips a row with no medId whose name matches two different active meds — same disambiguation discrepancyByCategory already uses', () => {
+    const meds = [med({ id: 'a', name: 'Same Name' }), med({ id: 'b', name: 'Same Name' })];
+    const rows = [tx({ name: 'Same Name', qty: -1 })];
+    expect(replenishByMed(rows, meds, 1)).toEqual([]);
+  });
+
+  it('clamps totalDays to at least 1 so perDay never divides by zero', () => {
+    const meds = [med({ id: 'm1', name: 'Test Drug' })];
+    const rows = [tx({ medId: 'm1', qty: -1 })];
+    expect(replenishByMed(rows, meds, 0)[0].perDay).toBe(1);
   });
 });
 

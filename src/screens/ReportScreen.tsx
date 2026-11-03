@@ -1,8 +1,8 @@
 import { useApp } from '../store/AppContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes, discrepancyByCategory, repeatAdrReturns, frequentFloorRefills } from '../store/selectors';
+import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes, discrepancyByCategory, repeatAdrReturns, frequentFloorRefills, replenishByMed } from '../store/selectors';
 import { nf, isoDate, fiscalYearStartIso, DAY } from '../utils/format';
-import type { DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, DrugReturnRecord, MedId } from '../types';
+import type { DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, DrugReturnRecord, Tx, MedId } from '../types';
 import { TABS, REPORT_NAMES, AGING_BUCKETS, DISC_TYPES, chip } from './report/shared';
 import { ExecTab } from './report/ExecTab';
 import { AgingTab } from './report/AgingTab';
@@ -14,11 +14,12 @@ import { KpiTab } from './report/KpiTab';
 import { UsageTab } from './report/UsageTab';
 import { ReturnsTab } from './report/ReturnsTab';
 import { StockAsOfTab } from './report/StockAsOfTab';
+import { ReplenishTab } from './report/ReplenishTab';
 
 export default function ReportScreen() {
   const {
     state, setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary, goSubstockCardFor, fetchExecTxsThisMonth,
-    fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, fetchStockAsOf, exportStockAsOfCsv, fetchDrugReturns, exportDrugReturnsCsv, userName, toast,
+    fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, fetchStockAsOf, exportStockAsOfCsv, fetchDrugReturns, exportDrugReturnsCsv, fetchFloorRefills, exportFloorRefillsCsv, userName, toast,
   } = useApp();
   // Discrepancy log had no way to narrow it down — always the same fixed most-recent-30 slice
   // of state.txs, with no type filter and no way to find one specific drug's history, unlike
@@ -344,6 +345,45 @@ export default function ReportScreen() {
   const rtnTotalQty = rtnRecords.reduce((s, r) => s + r.qty, 0);
   const rtnTotalValue = rtnRecords.reduce((s, r) => s + Math.round(r.value), 0);
 
+  // ---------- 🔄 เติมหน้างาน (replenish tab) ----------
+  // Real-world request: "สร้าง dashboard สรุปผลการเติมยา" — same "own date range + fetched
+  // rows, local to this screen" shape as the returns tab right above. Defaults to the last 30
+  // days (an operational trend reviewed often, same default as the kpi tab) rather than the
+  // returns tab's "current month" (a reviewed-less-often reconciliation log).
+  const [replFrom, setReplFrom] = useState(() => isoDate(Date.now() - 29 * DAY));
+  const [replTo, setReplTo] = useState(() => isoDate(Date.now()));
+  const [replRecords, setReplRecords] = useState<Tx[]>([]);
+  const [replLoading, setReplLoading] = useState(false);
+  const [replLoaded, setReplLoaded] = useState(false);
+  const replReqId = useRef(0);
+  const loadReplenish = () => {
+    const reqId = ++replReqId.current;
+    setReplLoading(true);
+    fetchFloorRefills(replFrom, replTo).then((rows) => {
+      if (reqId !== replReqId.current) return;
+      setReplRecords(rows); setReplLoaded(true);
+    }).catch((e) => {
+      // Same resilience fix every other tab's own fetch already has — no .catch here would
+      // leave this tab silently empty forever with no toast on a timeout/offline error.
+      if (reqId !== replReqId.current) return;
+      toast((e as Error)?.message || 'โหลดข้อมูลเติมหน้างานไม่สำเร็จ ลองเปิดแท็บนี้ใหม่อีกครั้ง');
+      setReplLoaded(false);
+    }).finally(() => { if (reqId === replReqId.current) setReplLoading(false); });
+  };
+  useEffect(() => {
+    if (state.reportTab === 'replenish' && !replLoaded) loadReplenish();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.reportTab]);
+  const replByMed = useMemo(() => {
+    const fromMs = new Date(replFrom + 'T00:00:00').getTime();
+    const toMs = new Date(replTo + 'T23:59:59.999').getTime();
+    const totalDays = Math.max(1, Math.round((toMs - fromMs) / DAY) + 1);
+    return replenishByMed(replRecords, meds, totalDays);
+  }, [replRecords, meds, replFrom, replTo]);
+  // Same footer-matches-rows rounding convention catTotalValue/usageTotalValue/rtnTotalValue
+  // above already use — summing the already-rounded per-row values the table itself displays.
+  const replTotalValue = replByMed.reduce((s, r) => s + Math.round(r.totalValue), 0);
+
   // ---------- 📜 ยอดคงคลังย้อนหลัง (stockasof tab) ----------
   // Real-world request: "ดูยอดคงคลังย้อนหลังได้เสมอ เหมือน HOSxP" — a single-date fetch (not a
   // range like kpi/usage above), since this reconstructs a POINT-IN-TIME snapshot, not a trend
@@ -436,7 +476,7 @@ export default function ReportScreen() {
             (exportDailyMetricsCsv / exportUsageHistoryCsv / exportStockAsOfCsv on their own
             fetched rows) — the generic exportReportCsv here only ever knows how to export
             whatever's in state right now, which doesn't make sense for a historical range. */}
-        {state.reportTab !== 'kpi' && state.reportTab !== 'usage' && state.reportTab !== 'stockasof' && state.reportTab !== 'returns' && (
+        {state.reportTab !== 'kpi' && state.reportTab !== 'usage' && state.reportTab !== 'stockasof' && state.reportTab !== 'returns' && state.reportTab !== 'replenish' && (
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <button onClick={exportReportCsv} className="btn-outline" style={{ flex: 1, padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44 }}>
               ↓ Export CSV — {REPORT_NAMES[state.reportTab]}
@@ -530,6 +570,15 @@ export default function ReportScreen() {
             rtnFrom={rtnFrom} setRtnFrom={setRtnFrom} rtnTo={rtnTo} setRtnTo={setRtnTo}
             rtnRecords={rtnRecords} rtnLoading={rtnLoading} rtnLoaded={rtnLoaded} loadReturns={loadReturns}
             rtnTotalValue={rtnTotalValue} rtnTotalQty={rtnTotalQty} exportDrugReturnsCsv={exportDrugReturnsCsv}
+          />
+        )}
+
+        {state.reportTab === 'replenish' && (
+          <ReplenishTab
+            replFrom={replFrom} setReplFrom={setReplFrom} replTo={replTo} setReplTo={setReplTo}
+            replRecords={replRecords} replLoading={replLoading} replLoaded={replLoaded} loadReplenish={loadReplenish}
+            replByMed={replByMed} replTotalValue={replTotalValue} exportFloorRefillsCsv={exportFloorRefillsCsv}
+            goSubstockCardFor={goSubstockCardFor}
           />
         )}
 
