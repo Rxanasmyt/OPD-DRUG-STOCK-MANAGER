@@ -198,6 +198,22 @@ export function lastReconcileDateIso(txs: Tx[]): string | null {
   return last ? isoDate(last.ts) : null;
 }
 
+/** ISO date (YYYY-MM-DD) of the LAST REAL DISPENSING DAY the most recent 'reconcile_hosxp' tx
+ * actually covers — Tx.coveredTo when set (a multi-day catch-up file, e.g. a Monday file
+ * covering Fri-Sat-Sun), falling back to isoDate(last.ts) for an old tx row from before
+ * coveredFrom/coveredTo existed (where the tx's own ts IS the single day it covers).
+ * Deliberately NOT the same as lastReconcileDateIso() above, which answers "was a reconcile
+ * COMMITTED today" (ts-based) — this answers "what's the latest day already ACCOUNTED FOR,"
+ * the number ReconcileScreen/commitReconcile need to (1) default hosxpCoveredFrom to pick up
+ * exactly where the last file left off instead of a blind "yesterday" that silently drops a
+ * Fri/Sat catch-up range, and (2) warn before a NEW file's covered range leaves a gap or
+ * overlaps what's already been accounted for. See their own doc comments (AppContext.tsx). */
+export function lastReconcileCoveredToIso(txs: Tx[]): string | null {
+  const last = txs.find((t) => t.type === 'reconcile_hosxp');
+  if (!last) return null;
+  return last.coveredTo || isoDate(last.ts);
+}
+
 // Bug fix (perf): subQty() used to do a full linear scan of state.lots on every call — called
 // 2-4x per rendered row across HomeScreen/TransferScreen/MedsScreen/AdjustScreen (and several
 // more places in AppContext.tsx/ReportScreen), this made every list render O(meds × lots): at

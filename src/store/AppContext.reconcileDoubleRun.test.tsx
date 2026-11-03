@@ -13,6 +13,7 @@ import { renderWithApp } from '../test-utils/renderWithApp';
 import Toast from '../components/Toast';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { signInAs, fireCollection, hasListener, getLastTransactionWrites, seedDoc } from '../test-utils/firebaseTestDouble';
+import { isoDate } from '../utils/format';
 
 const MED = {
   id: 'm1', code: 'MED-0001', name: 'Paracetamol 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
@@ -60,8 +61,14 @@ describe('commitReconcile — double-run warning regression', () => {
     await waitFor(() => expect(hasListener('meds')).toBe(true));
     fireCollection('meds', [MED]);
     await waitFor(() => expect(hasListener('txs')).toBe(true));
-    // Yesterday's reconcile only — today's hasn't run yet, so no double-run risk.
-    fireCollection('txs', [{ id: 't1', type: 'reconcile_hosxp', medId: MED.id, ts: Date.now() - 86400000 }]);
+    // Yesterday's reconcile only, covering the day before that (2 days ago) — today's hasn't
+    // run yet, so no double-run risk, and (the real continuity-check scenario this fixture now
+    // also exercises) no gap either, since today's own default picks up right where this left
+    // off — see AppContext.reconcileContinuity.test.tsx for the gap/overlap cases themselves.
+    fireCollection('txs', [{
+      id: 't1', type: 'reconcile_hosxp', medId: MED.id, ts: Date.now() - 86400000,
+      coveredFrom: isoDate(Date.now() - 2 * 86400000), coveredTo: isoDate(Date.now() - 2 * 86400000),
+    }]);
 
     await user.click(screen.getByRole('button', { name: 'process' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'commit-reconcile' })).not.toBeDisabled());
