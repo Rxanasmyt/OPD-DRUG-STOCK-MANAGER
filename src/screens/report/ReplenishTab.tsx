@@ -77,7 +77,7 @@ export function ReplenishTab({
             ↓ Export CSV — {nf(replRecords.length)} รายการ
           </button>
 
-          <div className="grid-2 tablet-4" style={{ marginBottom: 16 }}>
+          <div className="grid-2 tablet-4 stagger" style={{ marginBottom: 16 }}>
             <ExecStat label="มูลค่ารวมที่เติมช่วงนี้" value={nf(replTotalValue) + ' บาท'} />
             <ExecStat label="ปริมาณรวม (คละหน่วย)" value={nf(replTotalQty)} note="รวมหน่วยต่างกันของยาคนละตัว ดูเป็นภาพรวมเท่านั้น" />
             <ExecStat label="จำนวนครั้งที่เติมหน้างาน" value={nf(replRecords.length)} />

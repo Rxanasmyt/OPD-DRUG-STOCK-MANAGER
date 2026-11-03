@@ -20,7 +20,7 @@ export function ExecTab({
 }) {
   return (
     <>
-      <div className="grid-2 tablet-4" style={{ marginBottom: 16 }}>
+      <div className="grid-2 tablet-4 stagger" style={{ marginBottom: 16 }}>
         <ExecStat label="มูลค่าคงคลังรวม" value={nf(Math.round(execTotalValue)) + ' บาท'} />
         <ExecStat label="สุขภาพคลังยาโดยรวม" value={execHealthyPct + '% ปกติ'} note={`วิกฤต ${nf(execCritical)} · เริ่มต่ำ ${nf(execWarn)}`} tone={execHealthyPct >= 80 ? 'var(--green)' : execHealthyPct >= 50 ? 'var(--amber)' : 'var(--red)'} />
         <ExecStat label={`มูลค่าเสี่ยงหมดอายุ ≤ ${expiryWarnDays} วัน`} value={nf(Math.round(riskValue)) + ' บาท'} tone={riskValue > 0 ? 'var(--amber)' : 'var(--green)'} />

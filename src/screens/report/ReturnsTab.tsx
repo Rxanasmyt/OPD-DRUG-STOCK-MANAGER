@@ -62,7 +62,7 @@ export function ReturnsTab({
             ↓ Export CSV — {nf(rtnRecords.length)} รายการ
           </button>
 
-          <div className="grid-2 tablet-4" style={{ marginBottom: 16 }}>
+          <div className="grid-2 tablet-4 stagger" style={{ marginBottom: 16 }}>
             <ExecStat label="มูลค่ายาคืนรวมช่วงนี้" value={nf(rtnTotalValue) + ' บาท'} />
             <ExecStat label="จำนวนรวม (คละหน่วย)" value={nf(rtnTotalQty)} note="รวมหน่วยต่างกันของยาคนละตัว ดูเป็นภาพรวมเท่านั้น" />
             <ExecStat label="จำนวนครั้งที่บันทึกคืนยา" value={nf(rtnRecords.length)} />

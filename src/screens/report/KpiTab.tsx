@@ -91,7 +91,7 @@ export function KpiTab({
             </button>
           </div>
 
-          <div className="grid-2 tablet-4" style={{ marginBottom: 16 }}>
+          <div className="grid-2 tablet-4 stagger" style={{ marginBottom: 16 }}>
             <ExecStat label="มูลค่าคงคลังล่าสุด" value={kpiLast ? nf(Math.round(kpiLast.totalStockValue)) + ' บาท' : '—'} note={kpiLast ? 'ณ ' + kpiLast.date : undefined} />
             {/* Bug fix (KPI clarity): these two sum a raw qty across the ENTIRE active
                 formulary — tablets + ml + vials + boxes for hundreds of different drugs
