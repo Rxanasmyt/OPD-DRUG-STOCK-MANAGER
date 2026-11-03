@@ -11,6 +11,11 @@ const ADMIN_TABS: [AdminTab, string][] = [['users', 'ผู้ใช้งาน
 const ROLES: Role[] = ['pharm', 'tech', 'admin'];
 const ROLE_COLOR: Record<Role, string> = { admin: 'var(--red)', pharm: 'var(--green)', tech: 'var(--amber-ink)' };
 const ROLE_BG: Record<Role, string> = { admin: 'var(--red-bg)', pharm: 'var(--green-tint)', tech: 'var(--amber-bg)' };
+// Same role→color meaning as ROLE_COLOR above, just mapped onto the app's gradient tiles
+// (see HomeScreen's toneGradient / report/shared.tsx's toneGradient) for the role-count stat
+// tiles below — these colors were never a severity scale here, just each role's own identity
+// color, so brightening them into a gradient doesn't change what they mean.
+const ROLE_GRADIENT: Record<Role, string> = { admin: 'var(--grad-red)', pharm: 'var(--grad-brand)', tech: 'var(--grad-amber)' };
 function initialsOf(name: string): string {
   const cleaned = name.replace(/^(ภญ\.|ภก\.|จพ\.|กภ\.|นาง|นางสาว|นาย)\s*/, '').trim();
   return (cleaned[0] || name[0] || '?').toUpperCase();
@@ -149,21 +154,18 @@ export default function AdminScreen() {
       <div style={{ padding: '12px 14px 24px' }}>
         {state.adminTab === 'users' && (
           <>
-            <div className="grid-2 tablet-4" style={{ marginBottom: 16 }}>
+            <div className="grid-2 tablet-4 stagger" style={{ marginBottom: 16 }}>
               {(['admin', 'pharm', 'tech'] as Role[]).map((r) => (
-                <div key={r} className="card stat-tile" style={{ padding: '12px 13px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
-                    <span className="muted" style={{ fontSize: 12 }}>{roleLabelOf(r)}</span>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: ROLE_COLOR[r], flex: 'none' }} />
-                  </div>
-                  <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, color: ROLE_COLOR[r] }}>{countByRole(r)}</div>
-                  <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>บัญชี</div>
+                <div key={r} className="stat-tile" style={{ border: 0, borderRadius: 16, padding: '12px 13px', background: ROLE_GRADIENT[r], boxShadow: 'var(--shadow-xs)' }}>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,.88)', marginBottom: 3 }}>{roleLabelOf(r)}</div>
+                  <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, color: '#fff' }}>{countByRole(r)}</div>
+                  <div style={{ fontSize: 11.5, marginTop: 3, color: 'rgba(255,255,255,.72)' }}>บัญชี</div>
                 </div>
               ))}
-              <div className="card stat-tile" style={{ padding: '12px 13px' }}>
-                <div className="muted" style={{ fontSize: 12, marginBottom: 3 }}>ทั้งหมด</div>
-                <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1 }}>{approvedAll.length}</div>
-                <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>บัญชีที่ใช้งานอยู่</div>
+              <div className="stat-tile" style={{ border: 0, borderRadius: 16, padding: '12px 13px', background: 'var(--grad-brand)', boxShadow: 'var(--shadow-xs)' }}>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,.88)', marginBottom: 3 }}>ทั้งหมด</div>
+                <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, color: '#fff' }}>{approvedAll.length}</div>
+                <div style={{ fontSize: 11.5, marginTop: 3, color: 'rgba(255,255,255,.72)' }}>บัญชีที่ใช้งานอยู่</div>
               </div>
             </div>
 
