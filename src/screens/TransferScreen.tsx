@@ -205,7 +205,7 @@ export default function TransferScreen() {
   const nonEmptyRouteGroupCount = useMemo(() => routeGroups.filter((g) => visibleRows.some((m) => effectiveRouteOf(m) === g.key)).length, [visibleRows]);
 
   const cartIds = Object.keys(state.cart);
-  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
+  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--grad-brand)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
 
   return (
     <div style={{ animation: 'fade .18s' }}>

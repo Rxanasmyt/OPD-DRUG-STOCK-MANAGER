@@ -407,6 +407,16 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 @media (min-width: 720px) {
   .app-shell { max-width: 900px; }
 }
+/* Real-world request: on an actual desktop monitor (not just a tablet), capping at 900px left a
+   very visible band of empty page on both sides — noticeably more than the "comfortable margin"
+   900px was meant to read as on a tablet. Widens the shell further past that, up to 1180px, so a
+   desktop window reads as "this app uses my screen" instead of "a phone app stretched onto a big
+   monitor". Still a capped single column (not full-bleed): unbounded width on an ultra-wide
+   monitor would stretch list rows into unreadably long lines with no 2nd column to fill the
+   space — this app's screens were never laid out for that. */
+@media (min-width: 1200px) {
+  .app-shell { max-width: 1180px; }
+}
 
 /* Confirmed live at 320px (iPhone SE / budget-Android class width, the narrowest this PWA
    still needs to support): the header's online/offline/syncing text label was the widest of
@@ -432,8 +442,12 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 .card {
   background: var(--bg-card);
   border: 1px solid var(--border-soft);
-  border-radius: 16px;
-  box-shadow: var(--shadow-xs);
+  border-radius: 18px;
+  /* Real-world request: screenshots of the live app showed every card reading as a flat white
+     box with almost no separation from the page background (--shadow-xs is only a 1px/2px, 5%
+     hairline) — bumped to --shadow-sm so the app's own already-defined "more lift" tier actually
+     shows, instead of introducing a new shadow value. */
+  box-shadow: var(--shadow-sm);
   transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease-out);
 }
 
@@ -456,13 +470,18 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
   min-height: 40px;
 }
 .btn { border: 0; border-radius: 14px; font-weight: 600; cursor: pointer; }
-.btn-primary { background: var(--green); color: var(--ink-soft); box-shadow: var(--shadow-sm); }
-.btn-primary:not(:disabled):hover { box-shadow: 0 8px 20px -8px rgba(var(--green-rgb), .55); }
+/* Real-world request: live-app screenshots showed every primary button as one flat, dead-flat
+   fill — no depth anywhere a pharmacist's thumb actually lands most often (confirm/submit is the
+   single most-tapped control on nearly every screen). Same gradient token the stat tiles already
+   use (--grad-brand), so the "brand" gradient now reads consistently on both a tile AND a button
+   instead of looking like two different design languages. */
+.btn-primary { background: var(--grad-brand); color: var(--ink-soft); box-shadow: var(--shadow-md); }
+.btn-primary:not(:disabled):hover { box-shadow: 0 10px 24px -8px rgba(var(--green-rgb), .6); }
 .btn-primary:not(:disabled):active { transform: scale(.95); transition: transform .08s var(--ease-spring); }
 /* Bug fix: literal #fff here stayed a bright white button inside an otherwise dark UI whenever
    dark mode was on — every other surface in the app themes off var(--bg-card) exactly so this
    doesn't happen; this one rule slipped through. */
-.btn-outline { background: var(--bg-card); border: 1px solid var(--green); color: var(--green); box-shadow: var(--shadow-xs); }
+.btn-outline { background: var(--bg-card); border: 1.5px solid var(--green); color: var(--green); box-shadow: var(--shadow-xs); }
 .muted { color: var(--muted); }
 
 /* UI polish (audit finding): the small-caps-style "section label above a card/list" look
@@ -515,7 +534,7 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
      of adding to it. Those rows also already carry their own permanent `borderLeft` accent
      (medColor), which paints over/hides the inset 3px — so this keeps exactly what that screen
      already had (the shadow lift) while costing nothing extra. */
-  .card.row-interactive:hover { box-shadow: var(--shadow-sm), inset 3px 0 0 0 var(--green); }
+  .card.row-interactive:hover { box-shadow: var(--shadow-md), inset 3px 0 0 0 var(--green); }
 }
 .row-interactive:active { transform: scale(.99); }
 .row-arrow { display: inline-block; transition: transform var(--dur) var(--ease-out); }
@@ -534,7 +553,7 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
   /* Gradient tiles now rest at --shadow-md (see .tile-sheen below) — --shadow-lg on hover keeps
      the lift growing the shadow instead of shrinking it back down to the old --shadow-sm. */
   .stat-tile:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
-  .card:hover { box-shadow: var(--shadow-sm); }
+  .card:hover { box-shadow: var(--shadow-md); }
 }
 
 /* Real-world request: match the reference dashboard's (rx-copdasthma-clinic) "hero" stat-card

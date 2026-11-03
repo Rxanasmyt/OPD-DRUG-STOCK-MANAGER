@@ -122,7 +122,7 @@ export default function AdjustScreen() {
             <button
               key={t}
               onClick={() => { setCustomReasonOpen(false); pickAdjType(t); }}
-              style={{ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)', padding: '13px 12px', borderRadius: 12, textAlign: 'left', minHeight: 64 }}
+              style={{ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--grad-brand)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)', padding: '13px 12px', borderRadius: 12, textAlign: 'left', minHeight: 64 }}
             >
               <div style={{ fontSize: 14.5, fontWeight: 600 }}>{label}</div>
               <div style={{ fontSize: 11.5, opacity: 0.72, lineHeight: 1.35 }}>{sub}</div>
