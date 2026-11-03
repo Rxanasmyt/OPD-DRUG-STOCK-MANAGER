@@ -502,6 +502,8 @@ export interface AppCtx {
   commitReturnCart: () => void;
   fetchDrugReturns: (fromDate: string, toDate: string) => Promise<import('../types').DrugReturnRecord[]>;
   exportDrugReturnsCsv: (records: import('../types').DrugReturnRecord[]) => Promise<void>;
+  fetchFloorRefills: (fromDate: string, toDate: string) => Promise<Tx[]>;
+  exportFloorRefillsCsv: (records: Tx[]) => Promise<void>;
   scrapLot: (lotId: LotId) => void;
   scrapFloorLot: (lotId: FloorLotId) => void;
 
@@ -3433,7 +3435,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // export button for all three in favor of their own date-range-scoped export
     // (exportDailyMetricsCsv / exportUsageHistoryCsv / exportStockAsOfCsv) — but the map still
     // needs every ReportTab key to satisfy state.reportTab's type below.
-    const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', exec: 'executive_summary.csv', kpi: 'kpi_metrics.csv', usage: 'usage_history.csv', stockasof: 'stock_as_of.csv', returns: 'drug_returns.csv' };
+    const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', exec: 'executive_summary.csv', kpi: 'kpi_metrics.csv', usage: 'usage_history.csv', stockasof: 'stock_as_of.csv', returns: 'drug_returns.csv', replenish: 'floor_refills.csv' };
     // Bug fix (report accuracy): ReportScreen.tsx dropped OPD/IPD ward tabs a while back ("reports
     // always cover the whole formulary" — see its own comment) and every on-screen computation
     // there (aging/category/turn/insights/exec/disc) reads straight from state.meds.filter(active)
@@ -5647,6 +5649,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await downloadCsv([header, ...body], 'คืนยา_' + (sorted[0]?.date || '') + '_ถึง_' + (sorted[sorted.length - 1]?.date || '') + '.csv');
   }, []);
 
+  // ---------- เติมหน้างาน (floor refill) — see ReportTab's own "replenish" tab, ReplenishTab.tsx ----------
+  // Real-world request: "สร้าง dashboard สรุปผลการเติมยา" — same "plain one-shot fetch over a
+  // caller-chosen date range, not a live listener" shape as fetchDrugReturns right above.
+  // Deliberately reads the live `txs` collection directly (same queryTxsByDateRange the exec
+  // tab's own fetchExecTxsThisMonth and fetchReconcileGaps already use) rather than
+  // dailyMetrics.floorRefillCounts — that map only ever carries a same-day EVENT COUNT per med,
+  // never a real qty/value, and frequentFloorRefills() (selectors.ts) already owns that narrower
+  // "too-frequent" signal off a fixed 30-day window. This fetch bounds the QUERY itself to the
+  // caller's own [fromDate, toDate] (inclusive, end-of-day) the same way fetchStockAsOf's own
+  // single-date bound does, then filters to transfer_to_floor client-side — queryTxsByDateRange
+  // has no type filter built in (a composite index tradeoff every other caller of it already
+  // accepts; see its own doc comment, txsRepo.ts).
+  const fetchFloorRefills = useCallback(async (fromDate: string, toDate: string): Promise<import('../types').Tx[]> => {
+    const fromMs = new Date(fromDate + 'T00:00:00').getTime();
+    const toMs = new Date(toDate + 'T23:59:59.999').getTime();
+    const snap = await withTimeout(getDocs(queryTxsByDateRange(fromMs, toMs)));
+    const rows: import('../types').Tx[] = [];
+    snap.docs.forEach((d) => {
+      const x = d.data() as Omit<import('../types').Tx, 'id'>;
+      if (x.type === 'transfer_to_floor') rows.push({ id: d.id, ...x });
+    });
+    return rows;
+  }, []);
+
+  const exportFloorRefillsCsv = useCallback(async (records: import('../types').Tx[]) => {
+    const header = ['วันที่', 'เวลา', 'ชื่อยา', 'จำนวนที่เติม', 'หน่วย', 'จากที่', 'ไปที่', 'ผู้บันทึก'];
+    const sorted = records.slice().sort((a, b) => a.ts - b.ts);
+    const body = sorted.map((r) => [isoDate(r.ts), thDate(r.ts), r.name, Math.abs(r.qty), r.unit, r.from || '—', r.to || '—', r.by]);
+    await downloadCsv([header, ...body], 'เติมหน้างาน_' + (sorted[0] ? isoDate(sorted[0].ts) : '') + '_ถึง_' + (sorted[sorted.length - 1] ? isoDate(sorted[sorted.length - 1].ts) : '') + '.csv');
+  }, []);
+
   // ---------- count ----------
   const setCountInput = useCallback((medId: MedId, v: string) => patch((st) => ({ countInputs: { ...st.countInputs, [medId]: digitsOnly(v) } })), [patch]);
 
@@ -6980,7 +7013,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     printWarehouseRequestByCategory,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
-    pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, commitSingleReturn, addToReturnCart, removeReturnCartItem, commitReturnCart, fetchDrugReturns, exportDrugReturnsCsv, scrapLot, scrapFloorLot,
+    pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, commitSingleReturn, addToReturnCart, removeReturnCartItem, commitReturnCart, fetchDrugReturns, exportDrugReturnsCsv, fetchFloorRefills, exportFloorRefillsCsv, scrapLot, scrapFloorLot,
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setAllMinSuggested, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, clearMedPeakDay, updateGlobalSettings,

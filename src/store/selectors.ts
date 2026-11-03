@@ -521,6 +521,52 @@ export function frequentFloorRefills(rows: DailyMetrics[], meds: Med[], minPerDa
   return out.sort((a, b) => b.perDay - a.perDay);
 }
 
+export interface ReplenishMedRow { medId: string; medName: string; unit: string; category: string; eventCount: number; totalQty: number; totalValue: number; perDay: number }
+
+/** Real-world request: "สร้าง dashboard สรุปผลการเติมยา" — a per-drug rollup of real
+ * transfer_to_floor history over a caller-chosen date range, for ReportScreen's "เติมหน้างาน"
+ * tab. Deliberately built from the LIVE `txs` collection (the caller fetches this range directly
+ * via queryTxsByDateRange, same shape as fetchDrugReturns/fetchUsageHistory), not from
+ * dailyMetrics' own floorRefillCounts map (which frequentFloorRefills above already uses for its
+ * narrower "too-frequent" flag, scoped to a fixed 30-day window and with no qty/value at all) —
+ * this needs real qty and a real บาท value PER DRUG, over whatever range the user actually picks,
+ * which the daily-aggregate map was never built to carry. `rows` should already be filtered to
+ * type === 'transfer_to_floor' (the caller's job, same "caller decides the input range/type"
+ * convention discrepancyByCategory/repeatAdrReturns above already use) — never re-filters by date
+ * here. Same medId-primary/name-fallback-if-unambiguous disambiguation as those two: a row is
+ * skipped entirely rather than risk crediting the wrong drug when two active meds share a name.
+ * `perDay` (eventCount / totalDays in range) is what a caller should sort/threshold "too frequent"
+ * on — same reasoning frequentFloorRefills' own perDay already uses, so a 7-day and a 90-day pull
+ * stay comparable. Sorted by totalValue desc — the single number this whole feature exists to
+ * surface (ประหยัดมูลค่า), not just a raw qty mixing units across unrelated drugs. */
+export function replenishByMed(rows: Tx[], meds: Med[], totalDays: number): ReplenishMedRow[] {
+  const medById = new Map(meds.map((m) => [m.id, m]));
+  const medsByName = new Map<string, Med[]>();
+  for (const m of meds) {
+    const arr = medsByName.get(m.name) || [];
+    arr.push(m);
+    medsByName.set(m.name, arr);
+  }
+  const byMed = new Map<string, ReplenishMedRow>();
+  for (const x of rows) {
+    let med = x.medId ? medById.get(asMedId(x.medId)) : undefined;
+    if (!med) {
+      const candidates = medsByName.get(x.name);
+      if (candidates && candidates.length === 1) med = candidates[0];
+    }
+    if (!med) continue;
+    const cur = byMed.get(med.id) || { medId: med.id, medName: med.name, unit: med.unit, category: categoryOf(med), eventCount: 0, totalQty: 0, totalValue: 0, perDay: 0 };
+    cur.eventCount += 1;
+    cur.totalQty += Math.abs(x.qty);
+    cur.totalValue += Math.abs(x.qty) * med.price;
+    byMed.set(med.id, cur);
+  }
+  const days = Math.max(1, totalDays);
+  return Array.from(byMed.values())
+    .map((r) => ({ ...r, perDay: r.eventCount / days }))
+    .sort((a, b) => b.totalValue - a.totalValue);
+}
+
 export type ParAdjustmentStatus = 'too_recent' | 'stable' | 'still_volatile' | 'med_gone';
 export interface ParAdjustmentOutcome { record: ParAdjustmentRecord; med: Med | undefined; daysSinceAdjust: number; status: ParAdjustmentStatus }
 
