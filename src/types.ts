@@ -950,6 +950,23 @@ export interface AppState {
   // attributing all of it to the one day the admin happened to click the button.
   hosxpCoveredFrom: string;
   hosxpCoveredTo: string;
+  // Real-world request: "แนบไฟล์ไปแล้ว ยืนยันตัดจ่าย แต่เหมือนมีข้อผิดพลาด...ถ้ายาถูกตัดไปแล้ว มียา
+  // บางตัวที่ยังไม่ถูกตัด แล้วแนบไฟล์เพื่อตัดอีกครั้ง แล้วยาที่ถูกตัดไปแล้ว จะถูกตัดซ้ำมั้ย" — a real,
+  // confirmed gap: commitReconcile() (AppContext.tsx) processes hosxpRows sequentially, one
+  // Firestore transaction per row; a failure partway through (a timeout, permission-denied on
+  // one specific row) leaves every EARLIER row already deducted for real, but hosxpRows itself
+  // was never updated to reflect that — clicking the same "ตัดยอดหน้างานตามไฟล์นี้" button again
+  // to retry used to re-run EVERY row from the top, double-deducting every row that had already
+  // succeeded. Tracks which row INDEXES of the CURRENT hosxpRows batch have already been
+  // committed for real, by position — not by medId, since one HOSxP file can legitimately carry
+  // two separate rows for the same drug (two package-size lines) that both still need their own
+  // deduction even after the first one succeeds. commitReconcile() skips (without re-deducting)
+  // any index already in this list on a retry, and ReconcileScreen shows exactly which rows are
+  // done vs still pending so there's never any doubt about what was actually deducted. Reset to
+  // [] whenever hosxpRows is freshly (re)loaded via processHosxp/processHosxpFile — a genuinely
+  // NEW file/paste always starts clean — and persisted alongside hosxpRows itself so this survives
+  // a tab crash/reload mid-retry, not just an in-memory retry in the same session.
+  hosxpAppliedRowIndexes: number[];
 
   // Import usage totals from a file (a real HOSxP "รายงานการใช้ยา" export, .xls/.xlsx, or a
   // plain "ชื่อยา,จำนวน" CSV) to seed used30 — see suggestPar()/importUsageFile() in
