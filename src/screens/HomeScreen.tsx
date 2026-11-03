@@ -34,6 +34,19 @@ function toneTint(tone?: string): string {
   return 'var(--bg-subtle)';
 }
 
+// Real-world request: "ปรับสีสันให้ดูน่าใช้งาน" — StatTile's own gradient companion to toneTint()
+// above, used for its solid-filled background instead of the pale tint (which stays reserved
+// for the small icon badge sitting on top of it — see StatTile below). Same severity meaning as
+// every tone everywhere else in this app (never decorative) — just a bolder treatment for the
+// FIRST thing a pharmacist sees logging in. No tone (the neutral "ธุรกรรมวันนี้" case) gets the
+// app's own brand gradient, not a grey/neutral one — a neutral count isn't bad news, so it reads
+// as calm/on-brand rather than washed out next to its red/amber/green siblings.
+function toneGradient(tone?: string): string {
+  if (tone === 'var(--red)') return 'var(--grad-red)';
+  if (tone === 'var(--amber)') return 'var(--grad-amber)';
+  return 'var(--grad-brand)'; // covers both explicit var(--green) and "no tone"
+}
+
 // Shared "elevated, borderless" surface style for this screen's cards — shadow does the job a
 // flat 1px border used to do, which is most of what made the previous layout read as a grid of
 // plain boxes rather than a designed dashboard. Kept local to HomeScreen (not a global .card
@@ -209,7 +222,7 @@ export default function HomeScreen() {
         </div>
       </div>
 
-      <div className="grid-2 tablet-4" style={{ marginBottom: 16 }}>
+      <div className="grid-2 tablet-4 stagger" style={{ marginBottom: 16 }}>
         <StatTile icon="🔻" label="ต่ำกว่าจุดต้องเติม (Min)" value={low.length} tone={low.length ? 'var(--red)' : 'var(--green)'} note="ควรเติมวันนี้" onClick={low.length ? () => go('transfer') : undefined} />
         <StatTile icon="⏳" label={`ใกล้หมดอายุ < ${W} วัน`} value={expLots.length} tone={expLots.length ? 'var(--amber)' : 'var(--green)'} note={`รวมที่หมดแล้ว ${expiredCount}`} onClick={expLots.length ? () => expRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) : undefined} />
         <StatTile icon="📋" label="ธุรกรรมวันนี้" value={txToday} note="audit trail ครบ" />
@@ -393,24 +406,29 @@ export default function HomeScreen() {
 // the list behind it instead of making them scroll to find the same information again.
 function StatTile({ icon, label, value, tone, note, onClick }: { icon?: string | undefined; label: string; value: number; tone?: string | undefined; note: string; onClick?: (() => void) | undefined }) {
   const Tag = onClick ? 'button' : 'div';
-  const t = tone || 'var(--ink)';
   return (
     <Tag
       className={'stat-tile' + (onClick ? ' press-spring' : '')}
       onClick={onClick}
-      style={{ ...surface, border: 0, padding: '14px 14px 13px', textAlign: 'left', width: '100%', cursor: onClick ? 'pointer' : 'default' }}
+      style={{
+        border: 0, borderRadius: 18, padding: '14px 14px 13px', textAlign: 'left', width: '100%', cursor: onClick ? 'pointer' : 'default',
+        background: toneGradient(tone), boxShadow: 'var(--shadow-sm)',
+      }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 }}>
         {icon && (
-          <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: 10, background: toneTint(tone), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flex: 'none' }}>
+          // White-on-tint icon badge (not toneTint's own pale severity tint, which would
+          // disappear against a same-hue gradient behind it) — same "icon in a soft circle"
+          // language the reference dashboard uses for its own colored stat cards.
+          <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: 10, background: 'rgba(255,255,255,.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flex: 'none' }}>
             {icon}
           </span>
         )}
-        {onClick && <span style={{ color: 'var(--muted)', fontSize: 13 }}>→</span>}
+        {onClick && <span style={{ color: 'rgba(255,255,255,.85)', fontSize: 13 }}>→</span>}
       </div>
-      <div style={{ fontSize: 25, fontWeight: 800, lineHeight: 1, color: t, letterSpacing: '-.01em', transition: 'color var(--dur) var(--ease)' }}>{value.toLocaleString('en-US')}</div>
-      <div className="muted" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
-      <div className="muted" style={{ fontSize: 10.5, marginTop: 1, lineHeight: 1.4 }}>{note}</div>
+      <div style={{ fontSize: 25, fontWeight: 800, lineHeight: 1, color: '#fff', letterSpacing: '-.01em' }}>{value.toLocaleString('en-US')}</div>
+      <div style={{ fontSize: 11, marginTop: 6, lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'rgba(255,255,255,.88)' }}>{label}</div>
+      <div style={{ fontSize: 10.5, marginTop: 1, lineHeight: 1.4, color: 'rgba(255,255,255,.72)' }}>{note}</div>
     </Tag>
   );
 }
