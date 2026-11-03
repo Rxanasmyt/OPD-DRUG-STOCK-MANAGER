@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { subQty, daysUntil, toneFor, subTone } from '../store/selectors';
 import { nf, lotLabel, expLabel } from '../utils/format';
@@ -94,6 +94,25 @@ export default function AdjustScreen() {
     .map((l) => ({ l, m: meds.find((x) => x.id === l.medId) }))
     .filter((x): x is { l: typeof x.l; m: NonNullable<typeof x.m> } => !!x.m);
 
+  // UI polish (real-world request: "พัฒนาในเรื่องการบันทึกข้อมูล ให้ดูสวยงามน่าใช้งาน") — the
+  // ตะกร้าคืนยา list showed each item's qty/reason but never the มูลค่า (value) they add up to,
+  // even though every item already carries its own unitPrice (captured at add-time — see
+  // ReturnCartItem's own doc comment, types.ts). Reinforces the "ประหยัดมูลค่า" framing this
+  // whole feature exists for, right at the point of entry instead of only in a report tab.
+  const cartTotalValue = state.returnCart.reduce((s, it) => s + it.qty * it.unitPrice, 0);
+  // UI polish ("animation css"): same scale-pop-on-real-change pattern Qty.tsx already uses for
+  // a live stock figure — never on first mount, only on an actual value change — so adding/
+  // removing a cart item reads as "that number just moved" instead of silently updating.
+  const cartValuePrevRef = useRef(cartTotalValue);
+  const [cartValuePulsing, setCartValuePulsing] = useState(false);
+  useEffect(() => {
+    if (cartValuePrevRef.current === cartTotalValue) return;
+    cartValuePrevRef.current = cartTotalValue;
+    setCartValuePulsing(true);
+    const t = window.setTimeout(() => setCartValuePulsing(false), 550);
+    return () => window.clearTimeout(t);
+  }, [cartTotalValue]);
+
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
       <div className="grid-2" style={{ marginBottom: 13 }}>
@@ -157,7 +176,8 @@ export default function AdjustScreen() {
 
       {state.adjType && state.adjType !== 'expired' && (
         <div className="card" style={{ padding: 12, marginBottom: 13 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 9 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 9, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span aria-hidden="true">{state.adjType === 'adjust' ? '🔢' : state.adjType === 'return' ? '↩️' : '🗑'}</span>
             {state.adjType === 'adjust' ? 'ปรับยอดตามที่นับได้' : state.adjType === 'return' ? 'รับคืนยาเข้าหน้างาน' : 'ตัดยาเสีย / ชำรุด'}
           </div>
 
@@ -189,7 +209,9 @@ export default function AdjustScreen() {
             // drugs as this one patient is returning before one final batch commit, or (ทีละตัว)
             // commit each drug immediately and move on to the next patient.
             <label style={{ display: 'block', marginBottom: 9 }}>
-              <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>HN ผู้ป่วย (บังคับ — กรอกครั้งเดียวต่อผู้ป่วย 1 คน)</span>
+              <span className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, marginBottom: 4 }}>
+                <span aria-hidden="true">👤</span> HN ผู้ป่วย (บังคับ — กรอกครั้งเดียวต่อผู้ป่วย 1 คน)
+              </span>
               <input
                 value={state.adjHn}
                 onChange={(e) => setAdjHn(e.target.value)}
@@ -199,22 +221,62 @@ export default function AdjustScreen() {
             </label>
           )}
 
+          {/* UI polish: nothing used to render here at all until HN was typed — a blank gap
+              that can read as "the screen isn't doing anything" rather than "type something to
+              continue." Same EmptyState component this file already uses for the scrap-rows
+              list (see its own import), so the guidance reads as a natural part of the app
+              instead of a bolted-on tooltip. */}
+          {state.adjType === 'return' && !state.adjHn.trim() && (
+            <EmptyState icon="🧾" title="กรอก HN ผู้ป่วยก่อน" sub="กรอกครั้งเดียวต่อผู้ป่วย 1 คน แล้วค้นหา/เลือกยาที่จะคืนต่อได้เลย — คืนได้หลายตัวภายใต้ HN เดียวกัน" />
+          )}
+
           {state.adjType === 'return' && state.returnCart.length > 0 && (
-            <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, overflow: 'hidden', marginBottom: 9 }}>
-              {state.returnCart.map((it, i) => (
-                <div key={i} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-soft)', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 600 }}>{it.medName}</div>
-                    <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>{nf(it.qty)} {it.unit} · {it.reason}</div>
+            <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, overflow: 'hidden', marginBottom: 9, animation: 'pop .24s var(--ease-spring) both' }}>
+              {/* UI polish: a running count + มูลค่า total reinforces the "ประหยัดมูลค่า" framing
+                  this feature exists for, visible right where the data is entered — same
+                  header-bar convention ReturnsTab/ReplenishTab's own tables already use.
+                  green-tint (not the neutral --bg-subtle every other list header uses) ties this
+                  specifically to the "✓ สามารถใช้งานได้" green language the rest of คืนยา already
+                  uses (the selected-med confirmation box, the active ทีละตัว/ทีละหลายตัว chip). */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: 'var(--green-tint)', borderBottom: '1px solid var(--border-soft)' }}>
+                <span style={{ fontSize: 12.5, fontWeight: 700 }}>🧺 ตะกร้าคืนยา</span>
+                <span className="muted" style={{ fontSize: 11 }}>{state.returnCart.length} รายการ</span>
+                <span
+                  style={{
+                    marginLeft: 'auto', fontSize: 12.5, fontWeight: 700, color: 'var(--green)',
+                    display: 'inline-block', animation: cartValuePulsing ? 'qtyPulse .55s var(--ease-spring)' : undefined,
+                  }}
+                >
+                  {nf(cartTotalValue)} บาท
+                </span>
+              </div>
+              <div className="stagger">
+                {state.returnCart.map((it, i) => (
+                  <div key={i} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-soft)', display: 'flex', gap: 9, alignItems: 'flex-start' }}>
+                    <span style={{ marginTop: 5 }}><MedDot code={it.medCode} /></span>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 600 }}>{it.medName}</div>
+                      <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>{nf(it.qty)} {it.unit} · {it.reason}</div>
+                    </div>
+                    {/* Same pill language DeficitBadge/UsageRateBadge (Qty.tsx) already use for a
+                        small secondary figure next to a row's main content. */}
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 20, padding: '2.5px 8px', flex: 'none', marginTop: 1, whiteSpace: 'nowrap' }}>
+                      {nf(it.qty * it.unitPrice)} บาท
+                    </span>
+                    <button onClick={() => removeReturnCartItem(i)} style={{ border: 0, background: 'transparent', color: 'var(--red)', fontSize: 12.5, flex: 'none', minHeight: 44, minWidth: 44 }}>ลบ</button>
                   </div>
-                  <button onClick={() => removeReturnCartItem(i)} style={{ border: 0, background: 'transparent', color: 'var(--red)', fontSize: 12.5, flex: 'none', minHeight: 44, minWidth: 44 }}>ลบ</button>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           )}
 
           {(state.adjType !== 'return' || !!state.adjHn.trim()) && (
           <>
+          {state.adjType === 'return' && !adjMed && (
+            <div className="muted" style={{ fontSize: 12, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span aria-hidden="true">💊</span> เลือกยาที่จะคืน
+            </div>
+          )}
           <SearchInput
             value={state.adjSearch}
             onChange={setAdjSearch}
@@ -266,7 +328,9 @@ export default function AdjustScreen() {
                     which now defaults to box-primary entry (see NumberStepper's packSize prop). */}
                 <NumberStepper value={state.adjQty} onChange={setAdjQty} unit={adjMed.unit} />
               </label>
-              <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>เหตุผล (บังคับ)</div>
+              <div className="muted" style={{ fontSize: 12, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                {state.adjType === 'return' && <span aria-hidden="true">📝</span>} เหตุผล (บังคับ)
+              </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 9 }}>
                 {REASONS[state.adjType].map((r) => {
                   const active = !customReasonOpen && state.adjReason === r;
