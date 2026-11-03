@@ -51,18 +51,27 @@
      small text on a light background on their own (same rule --green-bright already follows).
      Dark enough at both gradient stops that white text stays legible across the whole tile, not
      just at one end. */
-  --red-bright: #d1463a;
-  --amber-bright: #cc8420;
+  --red-bright: #e2554a;
+  --amber-bright: #e8992e;
   /* One shared gradient per severity tone, reused by any "big colorful stat tile" surface across
      the app (HomeScreen's StatTile first, see its own comment) — defined once here so every
      screen's gradient stays pixel-identical and themes correctly together, instead of each
      screen inlining its own linear-gradient() with slightly different stops. --grad-brand is the
      DEFAULT/neutral case (no tone — not "the opposite of bad news," genuinely neutral info,
      using the app's own primary brand teal) — never repurposed for an unrelated feature the way
-     --ipd/--fridge/--ai are reserved for their own specific meanings elsewhere in this file. */
-  --grad-brand: linear-gradient(135deg, var(--green-bright), var(--green-dark));
-  --grad-red: linear-gradient(135deg, var(--red-bright), var(--red));
-  --grad-amber: linear-gradient(135deg, var(--amber-bright), var(--amber));
+     --ipd/--fridge/--ai are reserved for their own specific meanings elsewhere in this file.
+     Real-world request (live-app screenshots, "สดเข้มขึ้นอีก ใกล้เคียงภาพตัวอย่าง" — more vivid,
+     closer to a reference dashboard's bold flat-colored stat cards): the first version of these
+     gradients ran from each tone's bright stop down to its small-text-safe dark/base token
+     (--green-dark/--red/--amber) — correct for contrast, but visually read as "bright corner
+     fading into near-black" rather than "vivid card," since those dark tokens are tuned for text
+     legibility, not for being a big colorful surface. The dark stop below is a dedicated,
+     gradient-only color (never used for text, so it doesn't need to carry a WCAG-small-text
+     obligation) — brighter/more saturated than the text-safe tokens, so both ends of the tile
+     read as equally vivid instead of one end draining toward black. */
+  --grad-brand: linear-gradient(135deg, var(--green-bright), #0b9490);
+  --grad-red: linear-gradient(135deg, var(--red-bright), #c4382b);
+  --grad-amber: linear-gradient(135deg, var(--amber-bright), #d1850f);
   --had: #8f1f4f;
   --had-rgb: 143, 31, 79;
   --ipd: #5a4fcf;
