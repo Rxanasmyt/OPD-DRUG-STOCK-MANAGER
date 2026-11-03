@@ -40,7 +40,9 @@ function toneGradient(tone?: string): string {
  * look across the app. */
 export function ExecStat({ label, value, note, tone }: { label: string; value: string; note?: string | undefined; tone?: string | undefined }) {
   return (
-    <div className="card" style={{ border: 0, padding: '13px 13px 12px', background: toneGradient(tone) }}>
+    <div className="card" style={{ position: 'relative', overflow: 'hidden', border: 0, padding: '13px 13px 12px', background: toneGradient(tone), boxShadow: 'var(--shadow-md)' }}>
+      <div className="tile-sheen" />
+      <div className="tile-shimmer" />
       <div style={{ fontSize: 19, fontWeight: 800, lineHeight: 1.15, color: '#fff', letterSpacing: '-.01em' }}>{value}</div>
       <div style={{ fontSize: 11, marginTop: 5, lineHeight: 1.4, color: 'rgba(255,255,255,.88)' }}>{label}</div>
       {note && <div style={{ fontSize: 10.5, marginTop: 1, lineHeight: 1.4, color: 'rgba(255,255,255,.72)' }}>{note}</div>}
