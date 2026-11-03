@@ -110,7 +110,7 @@ function PickerCard({ label, med, search, onSearch, options, onPick }: {
     <div className="card" style={{ padding: 12, marginBottom: 4 }}>
       <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 8 }}>{label}</div>
       {med ? (
-        <div style={{ background: 'var(--green-tint)', borderRadius: 10, padding: '9px 11px', fontSize: 13.5, fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <div style={{ background: 'var(--green-tint)', borderRadius: 10, padding: '9px 11px', fontSize: 13.5, fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, animation: 'pop .22s var(--ease-spring) both' }}>
           <span style={{ minWidth: 0 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}><MedDot code={med.code} /> {med.name}</span>
             <span className="muted" style={{ display: 'block', fontSize: 11, fontWeight: 400, marginTop: 1 }}>
@@ -123,9 +123,9 @@ function PickerCard({ label, med, search, onSearch, options, onPick }: {
         <>
           <SearchInput value={search} onChange={onSearch} placeholder="ค้นหาชื่อยา" onEnter={options.length === 1 ? () => onPick(options[0].id) : undefined} />
           {options.length > 0 && (
-            <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 158, overflowY: 'auto', marginTop: 8 }}>
+            <div className="stagger" style={{ border: '1px solid var(--border-soft)', borderRadius: 10, maxHeight: 158, overflowY: 'auto', marginTop: 8 }}>
               {options.map((m) => (
-                <button key={m.id} onClick={() => onPick(m.id)} style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
+                <button key={m.id} onClick={() => onPick(m.id)} className="row-interactive" style={{ width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-soft)', background: 'var(--bg-card)', padding: '10px 12px', minHeight: 44 }}>
                   <span style={{ fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}><MedDot code={m.code} /> {m.name} <WardBadge med={m} /></span>
                   <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>ชั้น {m.bin || '—'} · หน้างาน <Qty value={m.floor} unit={m.unit} tone={toneFor(m)} size={11} /></span>
                 </button>
