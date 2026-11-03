@@ -38,6 +38,6 @@ describe('MedsScreen — add/edit form route chips regression', () => {
     const eyeChip = screen.getByRole('button', { name: '👁️ ยาหยอดตา' });
     expect(eyeChip).toHaveStyle({ background: 'var(--bg-card)' }); // not yet selected
     await user.click(eyeChip);
-    expect(eyeChip).toHaveStyle({ background: 'var(--green)' }); // selected after one tap
+    expect(eyeChip).toHaveStyle({ background: 'var(--grad-brand)' }); // selected after one tap
   });
 });

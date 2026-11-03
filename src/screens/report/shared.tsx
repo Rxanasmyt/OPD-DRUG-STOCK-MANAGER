@@ -21,7 +21,7 @@ export const DISC_TYPE_LABEL: Record<string, string> = {
   adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'หมดอายุ', count: 'นับสต็อก', reconcile_hosxp: 'นำเข้า HOSxP',
 };
 
-export const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
+export const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--grad-brand)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
 
 // Same tone→gradient mapping as HomeScreen's toneGradient() — kept as its own local copy (this
 // module's own convention, see chip() above) rather than a shared import, since each screen's

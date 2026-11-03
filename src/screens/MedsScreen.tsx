@@ -199,7 +199,7 @@ function parseHosxpAliases(raw: string, name: string): string[] {
  */
 function IncompleteQuickFix({ med, missing }: { med: Med; missing: MissingField[] }) {
   const { setMedBin, setMedBinSub, setMedCategory, setMedRoute } = useApp();
-  const routeChip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
+  const routeChip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--grad-brand)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
   // Bug fix (reported live while testing): missing's live value tracks "is this STILL
   // missing right now" — if the bin input's own presence were driven by that same live value,
   // typing a single non-blank character into it (bin.trim() is now truthy) would make the
@@ -444,7 +444,7 @@ export default function MedsScreen() {
       .filter((g) => g.items.length > 0)
     : null), [catTab, meds]);
 
-  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
+  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--grad-brand)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
 
   if (!canEdit) {
     return (
@@ -897,7 +897,7 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
   const floorMinTyped = v.floorMin.trim() !== '' ? parseInt(v.floorMin, 10) || 0 : null;
   const minExceedsMax = floorMinTyped !== null && parFloorNum > 0 && floorMinTyped > parFloorNum;
   const setShared = (on: boolean) => setV((s) => ({ ...s, shared: on, binIpd: on ? s.binIpd : '' }));
-  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
+  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--grad-brand)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
 
   return (
     <div className="card" style={{ padding: 13, marginBottom: 14, animation: 'fade .16s var(--ease-out)' }}>

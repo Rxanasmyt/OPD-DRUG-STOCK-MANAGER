@@ -133,7 +133,7 @@ export default function LabelsScreen() {
   const selectedIds = Object.keys(state.labelSelected).filter((id) => state.labelSelected[id]);
   const selectedSet = new Set(selectedIds);
   const meds = selectedSet.size === 0 ? activeMeds : activeMeds.filter((m) => selectedSet.has(m.id));
-  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
+  const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--grad-brand)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
   // The real physical shelf sides this med prints a label for — mirrors printLabels()'s own
   // sides/scoping logic in AppContext.tsx exactly (see labelWardScope's doc comment there). A
   // shared med with a distinct binIpd has TWO real sides (OPD + IPD); a non-shared med has
