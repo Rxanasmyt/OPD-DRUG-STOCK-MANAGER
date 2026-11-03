@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { subQty, daysUntil, toneFor, subTone } from '../store/selectors';
 import { nf, lotLabel, expLabel } from '../utils/format';
@@ -100,6 +100,18 @@ export default function AdjustScreen() {
   // ReturnCartItem's own doc comment, types.ts). Reinforces the "ประหยัดมูลค่า" framing this
   // whole feature exists for, right at the point of entry instead of only in a report tab.
   const cartTotalValue = state.returnCart.reduce((s, it) => s + it.qty * it.unitPrice, 0);
+  // UI polish ("animation css"): same scale-pop-on-real-change pattern Qty.tsx already uses for
+  // a live stock figure — never on first mount, only on an actual value change — so adding/
+  // removing a cart item reads as "that number just moved" instead of silently updating.
+  const cartValuePrevRef = useRef(cartTotalValue);
+  const [cartValuePulsing, setCartValuePulsing] = useState(false);
+  useEffect(() => {
+    if (cartValuePrevRef.current === cartTotalValue) return;
+    cartValuePrevRef.current = cartTotalValue;
+    setCartValuePulsing(true);
+    const t = window.setTimeout(() => setCartValuePulsing(false), 550);
+    return () => window.clearTimeout(t);
+  }, [cartTotalValue]);
 
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
@@ -219,26 +231,42 @@ export default function AdjustScreen() {
           )}
 
           {state.adjType === 'return' && state.returnCart.length > 0 && (
-            <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, overflow: 'hidden', marginBottom: 9 }}>
+            <div style={{ border: '1px solid var(--border-soft)', borderRadius: 10, overflow: 'hidden', marginBottom: 9, animation: 'pop .24s var(--ease-spring) both' }}>
               {/* UI polish: a running count + มูลค่า total reinforces the "ประหยัดมูลค่า" framing
                   this feature exists for, visible right where the data is entered — same
-                  header-bar convention ReturnsTab/ReplenishTab's own tables already use. */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-soft)' }}>
+                  header-bar convention ReturnsTab/ReplenishTab's own tables already use.
+                  green-tint (not the neutral --bg-subtle every other list header uses) ties this
+                  specifically to the "✓ สามารถใช้งานได้" green language the rest of คืนยา already
+                  uses (the selected-med confirmation box, the active ทีละตัว/ทีละหลายตัว chip). */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: 'var(--green-tint)', borderBottom: '1px solid var(--border-soft)' }}>
                 <span style={{ fontSize: 12.5, fontWeight: 700 }}>🧺 ตะกร้าคืนยา</span>
                 <span className="muted" style={{ fontSize: 11 }}>{state.returnCart.length} รายการ</span>
-                <span style={{ marginLeft: 'auto', fontSize: 12.5, fontWeight: 700, color: 'var(--green)' }}>{nf(cartTotalValue)} บาท</span>
+                <span
+                  style={{
+                    marginLeft: 'auto', fontSize: 12.5, fontWeight: 700, color: 'var(--green)',
+                    display: 'inline-block', animation: cartValuePulsing ? 'qtyPulse .55s var(--ease-spring)' : undefined,
+                  }}
+                >
+                  {nf(cartTotalValue)} บาท
+                </span>
               </div>
-              {state.returnCart.map((it, i) => (
-                <div key={i} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-soft)', display: 'flex', gap: 9, alignItems: 'flex-start' }}>
-                  <span style={{ marginTop: 5 }}><MedDot code={it.medCode} /></span>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 600 }}>{it.medName}</div>
-                    <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>{nf(it.qty)} {it.unit} · {it.reason}</div>
+              <div className="stagger">
+                {state.returnCart.map((it, i) => (
+                  <div key={i} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-soft)', display: 'flex', gap: 9, alignItems: 'flex-start' }}>
+                    <span style={{ marginTop: 5 }}><MedDot code={it.medCode} /></span>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 600 }}>{it.medName}</div>
+                      <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>{nf(it.qty)} {it.unit} · {it.reason}</div>
+                    </div>
+                    {/* Same pill language DeficitBadge/UsageRateBadge (Qty.tsx) already use for a
+                        small secondary figure next to a row's main content. */}
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--green)', background: 'var(--green-tint)', borderRadius: 20, padding: '2.5px 8px', flex: 'none', marginTop: 1, whiteSpace: 'nowrap' }}>
+                      {nf(it.qty * it.unitPrice)} บาท
+                    </span>
+                    <button onClick={() => removeReturnCartItem(i)} style={{ border: 0, background: 'transparent', color: 'var(--red)', fontSize: 12.5, flex: 'none', minHeight: 44, minWidth: 44 }}>ลบ</button>
                   </div>
-                  <span className="muted" style={{ fontSize: 11.5, flex: 'none', marginTop: 3, whiteSpace: 'nowrap' }}>{nf(it.qty * it.unitPrice)} บาท</span>
-                  <button onClick={() => removeReturnCartItem(i)} style={{ border: 0, background: 'transparent', color: 'var(--red)', fontSize: 12.5, flex: 'none', minHeight: 44, minWidth: 44 }}>ลบ</button>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           )}
 
