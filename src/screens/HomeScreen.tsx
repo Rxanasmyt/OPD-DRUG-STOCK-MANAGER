@@ -411,10 +411,13 @@ function StatTile({ icon, label, value, tone, note, onClick }: { icon?: string |
       className={'stat-tile' + (onClick ? ' press-spring' : '')}
       onClick={onClick}
       style={{
+        position: 'relative', overflow: 'hidden',
         border: 0, borderRadius: 18, padding: '14px 14px 13px', textAlign: 'left', width: '100%', cursor: onClick ? 'pointer' : 'default',
-        background: toneGradient(tone), boxShadow: 'var(--shadow-sm)',
+        background: toneGradient(tone), boxShadow: 'var(--shadow-md)',
       }}
     >
+      <div className="tile-sheen" />
+      <div className="tile-shimmer" />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 }}>
         {icon && (
           // White-on-tint icon badge (not toneTint's own pale severity tint, which would

@@ -156,13 +156,17 @@ export default function AdminScreen() {
           <>
             <div className="grid-2 tablet-4 stagger" style={{ marginBottom: 16 }}>
               {(['admin', 'pharm', 'tech'] as Role[]).map((r) => (
-                <div key={r} className="stat-tile" style={{ border: 0, borderRadius: 16, padding: '12px 13px', background: ROLE_GRADIENT[r], boxShadow: 'var(--shadow-xs)' }}>
+                <div key={r} className="stat-tile" style={{ position: 'relative', overflow: 'hidden', border: 0, borderRadius: 16, padding: '12px 13px', background: ROLE_GRADIENT[r], boxShadow: 'var(--shadow-md)' }}>
+                  <div className="tile-sheen" />
+                  <div className="tile-shimmer" />
                   <div style={{ fontSize: 12, color: 'rgba(255,255,255,.88)', marginBottom: 3 }}>{roleLabelOf(r)}</div>
                   <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, color: '#fff' }}>{countByRole(r)}</div>
                   <div style={{ fontSize: 11.5, marginTop: 3, color: 'rgba(255,255,255,.72)' }}>บัญชี</div>
                 </div>
               ))}
-              <div className="stat-tile" style={{ border: 0, borderRadius: 16, padding: '12px 13px', background: 'var(--grad-brand)', boxShadow: 'var(--shadow-xs)' }}>
+              <div className="stat-tile" style={{ position: 'relative', overflow: 'hidden', border: 0, borderRadius: 16, padding: '12px 13px', background: 'var(--grad-brand)', boxShadow: 'var(--shadow-md)' }}>
+                <div className="tile-sheen" />
+                <div className="tile-shimmer" />
                 <div style={{ fontSize: 12, color: 'rgba(255,255,255,.88)', marginBottom: 3 }}>ทั้งหมด</div>
                 <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, color: '#fff' }}>{approvedAll.length}</div>
                 <div style={{ fontSize: 11.5, marginTop: 3, color: 'rgba(255,255,255,.72)' }}>บัญชีที่ใช้งานอยู่</div>
