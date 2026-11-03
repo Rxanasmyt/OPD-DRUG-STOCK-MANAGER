@@ -9,7 +9,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
-  AppState, Med, Role, Screen, AdjType, RecvItem, ReturnCartItem, TxType, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, MedId, LotId, FloorLotId, ReconcileGapDay, MedCountTsIssue,
+  AppState, Med, Role, Screen, AdjType, RecvItem, ReturnCartItem, TxType, Tx, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, MedId, LotId, FloorLotId, ReconcileGapDay, MedCountTsIssue,
 } from '../types';
 import { asMedId, asLotId, asFloorLotId } from '../types';
 import { seedInitialData } from '../data/seedFirestore';
@@ -27,7 +27,7 @@ import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetch
 import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchAllTxs, fetchTxsByName, fetchTxsByNameSince, fetchTxsAfter, queryTxsByDateRange } from './repositories/txsRepo';
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
 import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays, reqCategoryOf } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, lastReconcileCoveredToIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays, reqCategoryOf } from './selectors';
 import { nf, thDate, lotLabel, expLabel, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -85,6 +85,27 @@ function adjStorageKey(uid: string): string { return 'opd-adj-' + uid; }
 function wmStorageKey(uid: string): string { return 'opd-wm-' + uid; }
 function hosxpStorageKey(uid: string): string { return 'opd-hosxp-' + uid; }
 function usageImportStorageKey(uid: string): string { return 'opd-usageimport-' + uid; }
+
+// Real-world request: "ป้องกันการแนบไฟล์ผิดวัน...ตอนนี้ไม่รู้อะไรเลย" — hosxpCoveredFrom used to
+// default to a blind "yesterday only" no matter what the LAST reconcile actually covered,
+// relying entirely on the admin noticing and manually widening it for a catch-up (the "เช้าวัน
+// จันทร์...ศุกร์ เสาร์และอาทิตย์" case documented throughout this file's commitReconcile/
+// fetchReconcileGaps comments) — a real, easy slip that silently drops Friday/Saturday's
+// coverage the moment nobody remembers to widen the range by hand. Picks up exactly where the
+// last reconcile's own covered range left off instead, so the ordinary Monday case needs zero
+// extra taps to get right — matches lastReconcileCoveredToIso()'s own doc comment (selectors.ts).
+// Clamped to HOSXP_AUTO_CATCHUP_MAX_DAYS so a very old/long-unreconciled gap doesn't silently
+// propose auto-covering weeks of history in one file — that needs a deliberate, manual decision
+// by whoever's fixing it, not a guess this function makes on their behalf.
+const HOSXP_AUTO_CATCHUP_MAX_DAYS = 14;
+function smartHosxpCoveredFrom(txs: Tx[], yesterdayIso: string): string {
+  const lastCoveredTo = lastReconcileCoveredToIso(txs);
+  if (!lastCoveredTo) return yesterdayIso;
+  const nextDayTs = new Date(lastCoveredTo + 'T00:00:00').getTime() + DAY;
+  if (nextDayTs < Date.now() - HOSXP_AUTO_CATCHUP_MAX_DAYS * DAY) return yesterdayIso;
+  const nextDayIso = isoDate(nextDayTs);
+  return nextDayIso <= yesterdayIso ? nextDayIso : yesterdayIso; // already caught up (or ahead) — normal case
+}
 // Bug fix (audit finding): adjHn (the patient's HN — real identifying info, not just a UI
 // field) used to be included here, written to plaintext localStorage for up to
 // PERSIST_MAX_AGE_MS (8h) same as everything else in this crash-recovery snapshot. Everything
@@ -6009,11 +6030,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ? 'ข้อมูลที่วางดูเหมือนถูกวางซ้ำ 2 รอบ (' + nf(rows.length) + ' แถว) — วางซ้ำโดยไม่ตั้งใจหรือไม่? กด "ตกลง" เพื่อประมวลผลต่อตามที่วางไว้จริง'
         : 'ข้อมูลที่วางมี ' + nf(rows.length) + ' แถว มากกว่าปกติมาก (ยาทั้งฟอร์มูลารีมีประมาณ 580 รายการ) — ตรวจสอบว่าวางถูกไฟล์/ถูกช่วงวันที่ (ควรเป็นวันเดียว) แล้วใช่ไหม?'
     ))) return;
-    // Defaults to yesterday-only (the normal case — zero extra taps most days); the admin widens
-    // hosxpCoveredFrom backward for a catch-up (see its own doc comment, types.ts).
+    // Defaults to yesterday-only for a brand-new deployment with no reconcile history yet, or
+    // picks up right where the last reconcile's own covered range left off otherwise (see
+    // smartHosxpCoveredFrom's own doc comment just above) — zero extra taps for the ordinary
+    // single-day case, and no longer silently wrong for the real Monday-catch-up case either.
     const yesterdayIso = isoDate(Date.now() - DAY);
-    patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpCoveredFrom: yesterdayIso, hosxpCoveredTo: yesterdayIso });
-  }, [state.hosxpText, state.meds, patch, toast, confirmAsync]);
+    const coveredFrom = smartHosxpCoveredFrom(state.txs, yesterdayIso);
+    patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpCoveredFrom: coveredFrom, hosxpCoveredTo: yesterdayIso });
+  }, [state.hosxpText, state.meds, state.txs, patch, toast, confirmAsync]);
 
   // Lets the daily floor-deduction workflow attach the actual HOSxP "รายงานการใช้ยา" export
   // (.xls/.xlsx) directly instead of hand-copying it into the "ชื่อยา,จำนวน" textarea above —
@@ -6046,8 +6070,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       if (!raw.length) { toast('ไม่พบข้อมูลที่อ่านได้ในไฟล์นี้'); return; }
       const rows = raw.map((r) => ({ name: r.name, qty: Math.round(r.qty), match: matchHosxpMed(state.meds, r.name) }));
+      // Same smart default as processHosxp above (see smartHosxpCoveredFrom's own doc comment).
       const yesterdayIso = isoDate(Date.now() - DAY);
-      patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpCoveredFrom: yesterdayIso, hosxpCoveredTo: yesterdayIso, hosxpText: '' });
+      const coveredFrom = smartHosxpCoveredFrom(state.txs, yesterdayIso);
+      patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpCoveredFrom: coveredFrom, hosxpCoveredTo: yesterdayIso, hosxpText: '' });
       // Bug fix (silent data loss): a malformed line (no comma, empty/unparseable qty cell) used
       // to be dropped with zero trace — nothing here distinguished "this file had exactly N
       // rows" from "this file had more, and some were silently unreadable". Only worth
@@ -6058,7 +6084,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     if (isSpreadsheet) reader.readAsArrayBuffer(file);
     else reader.readAsText(file);
-  }, [state.meds, patch, toast]);
+  }, [state.meds, state.txs, patch, toast]);
 
   const setHosxpConfirmFuzzy = useCallback((v: boolean) => patch({ hosxpConfirmFuzzy: v }), [patch]);
   const setHosxpCoveredFrom = useCallback((v: string) => patch({ hosxpCoveredFrom: v }), [patch]);
@@ -6087,9 +6113,54 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // double-deduct the floor with no error at all. Warn, don't block (same "routine but
     // risky" convention as guardOnce's own timeout-retry confirm above) — a deliberate re-run
     // (correcting a botched first import) is also a real, legitimate case this must not stop.
-    if (lastReconcileDateIso(state.txs) === isoDate(Date.now()) && !(await confirmAsync(
+    const alreadyRanToday = lastReconcileDateIso(state.txs) === isoDate(Date.now());
+    if (alreadyRanToday && !(await confirmAsync(
       'วันนี้ตัดยอด HOSxP ไปแล้ว 1 ครั้ง — ถ้าตัดซ้ำอีกครั้งจะหักสต็อกหน้างานซ้ำสอง (เกินจริง) ถ้ากำลังแก้ไฟล์ที่นำเข้าผิดไปก่อนหน้านี้ ทำต่อได้เลย แต่ถ้าไม่แน่ใจ ให้ยกเลิกแล้วตรวจสอบก่อน — ต้องการตัดยอดซ้ำต่อหรือไม่?'
     ))) return;
+    // Real-world request: "ป้องกันการแนบไฟล์ผิดวัน หรือสามารถรู้ได้ว่าวันไหนที่ทำการแนบไฟล์ไปแล้ว
+    // วันไหนยังไม่แนบ" — the double-run check above only ever catches a reconcile ALREADY
+    // committed today; it says nothing about whether THIS file's own coveredFrom actually
+    // continues from where the last one left off. Two real failure shapes that check misses
+    // entirely: (1) a GAP — the admin forgot to widen hosxpCoveredFrom backward for a catch-up
+    // (the "ศุกร์ เสาร์ อาทิตย์" case), leaving real dispensing days never reconciled at all; (2)
+    // an OVERLAP — this file's range reaches back into days a previous file already covered,
+    // which would double-deduct the floor for every day they share. smartHosxpCoveredFrom
+    // already defaults coveredFrom correctly for the ordinary case, but the admin can always
+    // still edit the date pickers by hand — this is the same-spirit "routine but risky" confirm
+    // guardOnce's own timeout-retry and the double-run check above already use, not a hard
+    // block, since both a genuine backlog correction and a deliberate re-cover are real cases
+    // this must not stop. Skipped entirely when alreadyRanToday already fired its own confirm —
+    // that one case IS this same overlap risk by construction (today's own range can only reach
+    // back to yesterday at the latest, so a same-day double-run is always also a same-range
+    // overlap), and stacking a second dialog for the identical risk would just be noise.
+    if (!alreadyRanToday) {
+      const lastCoveredTo = lastReconcileCoveredToIso(state.txs);
+      if (lastCoveredTo) {
+        if (state.hosxpCoveredFrom <= lastCoveredTo) {
+          const overlapDays = Math.round((new Date(lastCoveredTo + 'T00:00:00').getTime() - coveredFromTs) / DAY) + 1;
+          if (!(await confirmAsync(
+            'ไฟล์นี้ระบุว่าครอบคลุมตั้งแต่วันที่ ' + thDate(coveredFromTs) + ' แต่ครั้งก่อนตัดยอด HOSxP ไปถึงวันที่ '
+            + thDate(new Date(lastCoveredTo + 'T00:00:00').getTime()) + ' แล้ว (ทับซ้อนกัน ' + overlapDays
+            + ' วัน) — ตัดยอดต่อไปจะหักสต็อกซ้ำสองในช่วงที่ทับซ้อน ตรวจสอบไฟล์/ช่วงวันที่ให้ถูกก่อน ยังต้องการตัดยอดต่อหรือไม่?'
+          ))) return;
+        } else {
+          // Weekday-only count (bangkokWeekday skip for Sat/Sun), matching fetchReconcileGaps'
+          // own convention — this hospital's files never cover a weekend on its own, only ever
+          // folded into the next business day's combined range, so a plain calendar-day gap
+          // would false-positive every single Monday otherwise.
+          let missingWeekdays = 0;
+          for (let ts = new Date(lastCoveredTo + 'T00:00:00').getTime() + DAY; ts < coveredFromTs; ts += DAY) {
+            const wd = bangkokWeekday(ts);
+            if (wd !== 0 && wd !== 6) missingWeekdays++;
+          }
+          if (missingWeekdays > 0 && !(await confirmAsync(
+            'ครั้งก่อนตัดยอด HOSxP ครอบคลุมถึงวันที่ ' + thDate(new Date(lastCoveredTo + 'T00:00:00').getTime()) + ' แล้ว แต่ไฟล์นี้เริ่มจากวันที่ '
+            + thDate(coveredFromTs) + ' — มีวันทำการที่ยังไม่ถูกตัดยอดเลยอยู่ระหว่างนั้น ' + missingWeekdays
+            + ' วัน ถ้ายังมีไฟล์ของวันที่ขาดอยู่ ควรกลับไปแนบให้ครบก่อน ต้องการตัดยอดต่อโดยข้ามช่วงนี้ไปหรือไม่?'
+          ))) return;
+        }
+      }
+    }
     let applied = 0, skipped = 0, zeroQty = 0;
     // Bug fix (debugging gap — real incident, 2026-10-30): a failure here used to surface as a
     // completely anonymous "ประมวลผลไม่สำเร็จ (permission-denied)" — on a ward tablet with no

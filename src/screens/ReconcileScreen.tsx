@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { wardOf, hosxpMissReasons, isRegularlyDispensed } from '../store/selectors';
-import { nf, thDate, isoDate } from '../utils/format';
+import { wardOf, hosxpMissReasons, isRegularlyDispensed, lastReconcileCoveredToIso } from '../store/selectors';
+import { nf, thDate, isoDate, bangkokWeekday } from '../utils/format';
 import type { HosxpMatch, Med, MedId, ReconcileGapDay } from '../types';
 import { Badge } from '../components/Badge';
 
@@ -36,6 +36,26 @@ export default function ReconcileScreen() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const medById = (id: string) => state.meds.find((x) => x.id === id);
+
+  // Real-world request: "ป้องกันการแนบไฟล์ผิดวัน หรือสามารถรู้ได้ว่าวันไหนที่ทำการแนบไฟล์ไปแล้ว
+  // วันไหนยังไม่แนบ ตอนนี้ไม่รู้อะไรเลย" — gapDays below already answers this, but only AFTER its
+  // own async fetchReconcileGaps() round trip resolves, and only for the last
+  // RECONCILE_GAP_LOOKBACK_DAYS. This instead reads straight off state.txs (already loaded, no
+  // extra Firestore read) for an instant, always-visible answer the moment this screen opens —
+  // "ตัดยอดล่าสุดถึงวันที่เท่าไร" — before anyone's even attached a file yet. Same
+  // lastReconcileCoveredToIso()/weekday-skip convention commitReconcile's own continuity check
+  // and fetchReconcileGaps use (see their own doc comments, selectors.ts/AppContext.tsx).
+  const lastCoveredTo = useMemo(() => lastReconcileCoveredToIso(state.txs), [state.txs]);
+  const missingWeekdaysSoFar = useMemo(() => {
+    if (!lastCoveredTo) return 0;
+    const yesterdayTs = new Date(isoDate(Date.now() - DAY) + 'T00:00:00').getTime();
+    let count = 0;
+    for (let ts = new Date(lastCoveredTo + 'T00:00:00').getTime() + DAY; ts <= yesterdayTs; ts += DAY) {
+      const wd = bangkokWeekday(ts);
+      if (wd !== 0 && wd !== 6) count++;
+    }
+    return count;
+  }, [lastCoveredTo]);
 
   // Bug fix: `before` used to read `med.floor` fresh off live app state for every row
   // independently — correct for the common case (one line per drug), but commitReconcile()
@@ -184,6 +204,28 @@ export default function ReconcileScreen() {
       <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 12 }}>
         วิธีหลักในการตัดยอดหน้างาน — ใช้เป็นประจำทุกวัน เร็วกว่าการนับสต็อกจริง แนบไฟล์รายงานการใช้ยาจาก HOSxP (.xls/.xlsx) ของ<b>เมื่อวาน</b>โดยตรง (ถ้าเป็นเช้าวันจันทร์หลังวันหยุดสุดสัปดาห์ ครอบคลุมศุกร์-เสาร์-อาทิตย์ได้ตามจริง — ระบุช่วงวันที่ด้านล่างให้ตรง) หรือวางข้อมูล CSV รูปแบบ "ชื่อยา,จำนวนจ่าย" ในช่องด้านล่าง — ระบบจะตัดยอดหน้างานให้ตรงกับที่จ่ายจริงโดยตรง
       </div>
+
+      {lastCoveredTo ? (
+        missingWeekdaysSoFar > 0 ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 13px', background: 'var(--red-bg)', borderRadius: 10, marginBottom: 12 }}>
+            <span style={{ fontSize: 13 }}>⚠</span>
+            <span style={{ fontSize: 12.5, color: 'var(--red)', fontWeight: 600, lineHeight: 1.5 }}>
+              ตัดยอด HOSxP ล่าสุดถึงวันที่ {thDate(new Date(lastCoveredTo + 'T00:00:00').getTime())} — ค้างอีก {missingWeekdaysSoFar} วันทำการที่ยังไม่ตัดยอด (รวมไฟล์ที่กำลังจะแนบนี้ด้วย ตรวจสอบให้ครอบคลุมช่วงที่ขาด)
+            </span>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 13px', background: 'var(--green-tint)', borderRadius: 10, marginBottom: 12 }}>
+            <span style={{ fontSize: 13 }}>✓</span>
+            <span style={{ fontSize: 12.5, color: 'var(--green)', fontWeight: 600 }}>ตัดยอด HOSxP ล่าสุดถึงวันที่ {thDate(new Date(lastCoveredTo + 'T00:00:00').getTime())} — ล่าสุดเท่าที่ควรแล้ว</span>
+          </div>
+        )
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 13px', background: 'var(--amber-bg)', borderRadius: 10, marginBottom: 12 }}>
+          <span style={{ fontSize: 13 }}>ℹ</span>
+          <span style={{ fontSize: 12.5, color: 'var(--amber-ink)', fontWeight: 600 }}>ยังไม่มีประวัติการตัดยอด HOSxP ในระบบนี้เลย</span>
+        </div>
+      )}
+
       <input
         ref={fileInputRef}
         type="file"
