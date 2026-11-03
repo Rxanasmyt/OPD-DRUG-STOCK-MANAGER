@@ -68,16 +68,33 @@ export default function ReconcileScreen() {
   // preview's own rows, mirroring commitReconcile()'s real sequential behavior exactly, so the
   // second (and any later) row for the same med previews against what the first row actually
   // left behind.
+  // Real-world request: "แนบไฟล์ไปแล้ว ยืนยันตัดจ่าย แต่เหมือนมีข้อผิดพลาด แล้วจะมีความมั่นใจได้
+  // อย่างไรว่าจำนวนถูกตัดไปแล้วหรือยัง" — see state.hosxpAppliedRowIndexes' own doc comment
+  // (types.ts) for the retry-safety mechanism this surfaces. A row already in that set was
+  // committed for real in an EARLIER attempt on this same loaded file (a partial failure, now
+  // safely resumable) — shown as done rather than fed back into the running before/after preview
+  // below, which would otherwise visually suggest it's about to be deducted a SECOND time.
+  const appliedRowSet = useMemo(() => new Set(state.hosxpAppliedRowIndexes || []), [state.hosxpAppliedRowIndexes]);
   const reconcileRows = (() => {
     const running = new Map<string, number>();
-    return (state.hosxpRows || []).map((r) => {
+    return (state.hosxpRows || []).map((r, idx) => {
       const med = r.match.kind === 'exact' || r.match.kind === 'fuzzy' ? medById(r.match.medId) : undefined;
+      if (appliedRowSet.has(idx)) {
+        // med.floor already reflects this row's real deduction live — deliberately NOT seeded
+        // into `running`, so the next row for the same med (if any, and if not itself already
+        // applied) still starts from that real, already-reduced floor instead of double-counting.
+        return { fileText: r.name, qty: r.qty, match: r.match, med, before: med?.floor ?? 0, after: med?.floor ?? 0, applied: true };
+      }
       const before = med ? (running.has(med.id) ? running.get(med.id)! : med.floor) : 0;
       const after = med ? Math.max(0, before - r.qty) : 0;
       if (med) running.set(med.id, after);
-      return { fileText: r.name, qty: r.qty, match: r.match, med, before, after };
+      return { fileText: r.name, qty: r.qty, match: r.match, med, before, after, applied: false };
     });
   })();
+  const appliedCount = reconcileRows.filter((r) => r.applied).length;
+  // A resume (some rows done, some not) skips the same confirms commitReconcile() itself skips
+  // for the identical reason — see its own isResuming doc comment (AppContext.tsx).
+  const isResuming = appliedCount > 0 && appliedCount < reconcileRows.length;
 
   // Real-world request: "ต้องมีรายละเอียดบอกให้ชัดเจนเลยครับว่ายาในแอพตัวใดไม่ได้ถูกตัดจ่าย ต้องมี
   // เหตุผลกำกับ" — see hosxpMissReasons' own doc comment (selectors.ts) for the full design; runs
@@ -258,6 +275,14 @@ export default function ReconcileScreen() {
 
       {reconcileRows.length > 0 && (
         <>
+          {isResuming && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 13px', background: 'var(--amber-bg)', borderRadius: 10, marginBottom: 12 }}>
+              <span style={{ fontSize: 13 }}>↻</span>
+              <span style={{ fontSize: 12.5, color: 'var(--amber-ink)', fontWeight: 600, lineHeight: 1.5 }}>
+                ตัดยอดไปแล้ว {appliedCount} จาก {reconcileRows.length} รายการ (รอบที่แล้วเกิดปัญหาระหว่างทาง) — รายการที่ทำไปแล้วจะไม่ถูกตัดซ้ำ กดปุ่มด้านล่างเพื่อทำส่วนที่เหลือต่อ
+              </span>
+            </div>
+          )}
           <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 13 }}>
             {/* Bug fix (audit finding): width: 70 (below, both here and on the value row) clips a
                 large quantity (e.g. a 4-5 digit จ่ายจริง or ก่อน→หลัง pair) on a narrow phone
@@ -267,15 +292,21 @@ export default function ReconcileScreen() {
               <span style={{ flex: 1 }}>รายการยา</span><span style={{ minWidth: 70, textAlign: 'right', flex: 'none', whiteSpace: 'nowrap' }}>จ่ายจริง</span><span style={{ minWidth: 70, textAlign: 'right', flex: 'none', whiteSpace: 'nowrap' }}>ก่อน → หลัง</span>
             </div>
             {reconcileRows.map((r, i) => (
-              <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)' }}>
+              <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', opacity: r.applied ? 0.6 : 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.3, fontWeight: r.match.kind === 'exact' ? 400 : 600 }}>
                     {r.med ? r.med.name : r.fileText}
                   </span>
-                  <span style={{ minWidth: 70, textAlign: 'right', flex: 'none', fontSize: 13, fontWeight: 600, color: 'var(--red)', whiteSpace: 'nowrap' }}>{r.med ? '−' + nf(r.qty) : '—'}</span>
-                  <span className="muted" style={{ minWidth: 70, textAlign: 'right', flex: 'none', fontSize: 12.5, whiteSpace: 'nowrap' }}>{r.med ? nf(r.before) + '→' + nf(r.after) : '—'}</span>
+                  {r.applied ? (
+                    <Badge flexNone size={10.5} padding="2px 7px" color="var(--green)" bg="var(--green-tint)">✓ ตัดยอดแล้ว</Badge>
+                  ) : (
+                    <>
+                      <span style={{ minWidth: 70, textAlign: 'right', flex: 'none', fontSize: 13, fontWeight: 600, color: 'var(--red)', whiteSpace: 'nowrap' }}>{r.med ? '−' + nf(r.qty) : '—'}</span>
+                      <span className="muted" style={{ minWidth: 70, textAlign: 'right', flex: 'none', fontSize: 12.5, whiteSpace: 'nowrap' }}>{r.med ? nf(r.before) + '→' + nf(r.after) : '—'}</span>
+                    </>
+                  )}
                 </div>
-                <MatchBadge match={r.match} fileText={r.fileText} medById={medById} />
+                {!r.applied && <MatchBadge match={r.match} fileText={r.fileText} medById={medById} />}
               </div>
             ))}
           </div>
@@ -347,7 +378,11 @@ export default function ReconcileScreen() {
           </div>
 
           <button onClick={commitReconcile} disabled={!canCommit || !!state.busy['reconcile']} className="btn-primary" style={{ width: '100%', padding: 15, borderRadius: 12, fontSize: 15, minHeight: 52, opacity: canCommit && !state.busy['reconcile'] ? 1 : 0.5 }}>
-            {state.busy['reconcile'] ? 'กำลังตัดยอด…' : `ตัดยอดหน้างานตามไฟล์นี้ และบันทึก discrepancy log${skippedCount > 0 ? ' (ข้าม ' + skippedCount + ' รายการที่จับคู่ไม่ได้)' : ''}`}
+            {state.busy['reconcile']
+              ? 'กำลังตัดยอด…'
+              : isResuming
+                ? `ตัดยอดส่วนที่เหลือต่อ (${reconcileRows.length - appliedCount} รายการ)`
+                : `ตัดยอดหน้างานตามไฟล์นี้ และบันทึก discrepancy log${skippedCount > 0 ? ' (ข้าม ' + skippedCount + ' รายการที่จับคู่ไม่ได้)' : ''}`}
           </button>
         </>
       )}

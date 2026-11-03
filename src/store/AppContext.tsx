@@ -117,7 +117,10 @@ function smartHosxpCoveredFrom(txs: Tx[], yesterdayIso: string): string {
 // without one.
 type AdjPersisted = { adjType: AppState['adjType']; adjSearch: string; adjMed: string | null; adjQty: string; adjReason: string; adjNote: string };
 type WmPersisted = { wmFromSearch: string; wmFromMed: string | null; wmToSearch: string; wmToMed: string | null; wmQty: string; wmReason: string };
-type HosxpPersisted = { hosxpText: string; hosxpRows: AppState['hosxpRows']; hosxpConfirmFuzzy: boolean; hosxpCoveredFrom: string; hosxpCoveredTo: string };
+type HosxpPersisted = {
+  hosxpText: string; hosxpRows: AppState['hosxpRows']; hosxpConfirmFuzzy: boolean; hosxpCoveredFrom: string; hosxpCoveredTo: string;
+  hosxpAppliedRowIndexes: number[];
+};
 type UsageImportPersisted = { usageDateFrom: string; usageDateTo: string; usageFileName: string | null; usageRows: AppState['usageRows']; usageConfirmFuzzy: boolean };
 function writePersisted<T>(key: string, value: T): void {
   try {
@@ -311,7 +314,7 @@ function freshState(): AppState {
 
     doneKind: null, doneRows: [], toast: null,
 
-    countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '',
+    countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [],
 
     usageDateFrom: '', usageDateTo: '', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
 
@@ -1080,7 +1083,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!hasCart && !hasRecv && !hasReturnCart && !hasAdj && !hasWm && !hasHosxp && !hasUsageImport) return;
     patch({
       ...(hasCart ? { cart: cart! } : {}), ...(hasRecv ? { recvItems: recvItems! } : {}), ...(hasReturnCart ? { returnCart: returnCart! } : {}),
-      ...(hasAdj ? adj! : {}), ...(hasWm ? wm! : {}), ...(hasHosxp ? hosxp! : {}), ...(hasUsageImport ? usageImport! : {}),
+      ...(hasAdj ? adj! : {}), ...(hasWm ? wm! : {}),
+      // Bug fix (self-healing field transition): a blob persisted before hosxpAppliedRowIndexes
+      // existed has no such key at all — `undefined` here (not `[]`) would make commitReconcile's
+      // own retry-skip check silently never match anything, which is harmless (worst case: one
+      // extra re-run of an already-interrupted batch, not a double-deduction) but still worth
+      // defaulting cleanly rather than leaving a stale `undefined` sitting in state.
+      ...(hasHosxp ? { ...hosxp!, hosxpAppliedRowIndexes: hosxp!.hosxpAppliedRowIndexes || [] } : {}),
+      ...(hasUsageImport ? usageImport! : {}),
     });
     const parts = [
       hasCart && 'ตะกร้าเติมหน้างาน', hasRecv && 'รายการรับเข้า', hasReturnCart && 'ตะกร้าคืนยา',
@@ -1118,9 +1128,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.myUid, state.wmFromSearch, state.wmFromMed, state.wmToSearch, state.wmToMed, state.wmQty, state.wmReason]);
   useEffect(() => {
     if (!state.myUid) return;
-    const v: HosxpPersisted = { hosxpText: state.hosxpText, hosxpRows: state.hosxpRows, hosxpConfirmFuzzy: state.hosxpConfirmFuzzy, hosxpCoveredFrom: state.hosxpCoveredFrom, hosxpCoveredTo: state.hosxpCoveredTo };
+    const v: HosxpPersisted = {
+      hosxpText: state.hosxpText, hosxpRows: state.hosxpRows, hosxpConfirmFuzzy: state.hosxpConfirmFuzzy,
+      hosxpCoveredFrom: state.hosxpCoveredFrom, hosxpCoveredTo: state.hosxpCoveredTo, hosxpAppliedRowIndexes: state.hosxpAppliedRowIndexes,
+    };
     writePersisted(hosxpStorageKey(state.myUid), v);
-  }, [state.myUid, state.hosxpText, state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpCoveredFrom, state.hosxpCoveredTo]);
+  }, [state.myUid, state.hosxpText, state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpCoveredFrom, state.hosxpCoveredTo, state.hosxpAppliedRowIndexes]);
   useEffect(() => {
     if (!state.myUid) return;
     const v: UsageImportPersisted = { usageDateFrom: state.usageDateFrom, usageDateTo: state.usageDateTo, usageFileName: state.usageFileName, usageRows: state.usageRows, usageConfirmFuzzy: state.usageConfirmFuzzy };
@@ -1834,7 +1847,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
       adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [],
       qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: null, scanConfirmMedId: null, hadOk: {},
-      countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '',
+      countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [],
       usageDateFrom: '', usageDateTo: '', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
       labelSelected: {}, medsFocusId: null, substockFocusId: null, doneKind: null, doneRows: [],
     });
@@ -6036,7 +6049,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // single-day case, and no longer silently wrong for the real Monday-catch-up case either.
     const yesterdayIso = isoDate(Date.now() - DAY);
     const coveredFrom = smartHosxpCoveredFrom(state.txs, yesterdayIso);
-    patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpCoveredFrom: coveredFrom, hosxpCoveredTo: yesterdayIso });
+    patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpCoveredFrom: coveredFrom, hosxpCoveredTo: yesterdayIso, hosxpAppliedRowIndexes: [] });
   }, [state.hosxpText, state.meds, state.txs, patch, toast, confirmAsync]);
 
   // Lets the daily floor-deduction workflow attach the actual HOSxP "รายงานการใช้ยา" export
@@ -6073,7 +6086,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Same smart default as processHosxp above (see smartHosxpCoveredFrom's own doc comment).
       const yesterdayIso = isoDate(Date.now() - DAY);
       const coveredFrom = smartHosxpCoveredFrom(state.txs, yesterdayIso);
-      patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpCoveredFrom: coveredFrom, hosxpCoveredTo: yesterdayIso, hosxpText: '' });
+      patch({ hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpCoveredFrom: coveredFrom, hosxpCoveredTo: yesterdayIso, hosxpText: '', hosxpAppliedRowIndexes: [] });
       // Bug fix (silent data loss): a malformed line (no comma, empty/unparseable qty cell) used
       // to be dropped with zero trace — nothing here distinguished "this file had exactly N
       // rows" from "this file had more, and some were silently unreadable". Only worth
@@ -6093,6 +6106,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const commitReconcile = useCallback(guardOnce('reconcile', async () => {
     const rows = state.hosxpRows || [];
     const meds = state.meds;
+    // Real-world request: "แนบไฟล์ไปแล้ว ยืนยันตัดจ่าย แต่เหมือนมีข้อผิดพลาด...ถ้ายาถูกตัดไปแล้ว มียา
+    // บางตัวที่ยังไม่ถูกตัด แล้วแนบไฟล์เพื่อตัดอีกครั้ง แล้วยาที่ถูกตัดไปแล้ว จะถูกตัดซ้ำมั้ย" — see
+    // state.hosxpAppliedRowIndexes' own doc comment (types.ts) for the full gap this closes.
+    // `isResuming` (a partial batch, not a fresh or fully-finished one) also means the double-run
+    // and continuity confirms below would just be re-asking the SAME question the first attempt
+    // already got a "yes" to — skipped for that one case only (see where they're used below).
+    const appliedIdx = new Set(state.hosxpAppliedRowIndexes || []);
+    const isResuming = appliedIdx.size > 0 && appliedIdx.size < rows.length;
     const hasFuzzy = rows.some((r) => r.match.kind === 'fuzzy');
     if (hasFuzzy && !state.hosxpConfirmFuzzy) { toast('กรุณายืนยันว่าตรวจสอบรายการที่จับคู่แบบไม่ตรงชื่อเป๊ะแล้ว ก่อนตัดยอด'); return; }
     // Real-world explanation: "เช้าวันจันทร์จะตัดยอดหน้างานโดยแนบไฟล์ ของวันศุกร์ เสาร์และอาทิตย์
@@ -6113,7 +6134,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // double-deduct the floor with no error at all. Warn, don't block (same "routine but
     // risky" convention as guardOnce's own timeout-retry confirm above) — a deliberate re-run
     // (correcting a botched first import) is also a real, legitimate case this must not stop.
-    const alreadyRanToday = lastReconcileDateIso(state.txs) === isoDate(Date.now());
+    const alreadyRanToday = !isResuming && lastReconcileDateIso(state.txs) === isoDate(Date.now());
     if (alreadyRanToday && !(await confirmAsync(
       'วันนี้ตัดยอด HOSxP ไปแล้ว 1 ครั้ง — ถ้าตัดซ้ำอีกครั้งจะหักสต็อกหน้างานซ้ำสอง (เกินจริง) ถ้ากำลังแก้ไฟล์ที่นำเข้าผิดไปก่อนหน้านี้ ทำต่อได้เลย แต่ถ้าไม่แน่ใจ ให้ยกเลิกแล้วตรวจสอบก่อน — ต้องการตัดยอดซ้ำต่อหรือไม่?'
     ))) return;
@@ -6132,8 +6153,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // this must not stop. Skipped entirely when alreadyRanToday already fired its own confirm —
     // that one case IS this same overlap risk by construction (today's own range can only reach
     // back to yesterday at the latest, so a same-day double-run is always also a same-range
-    // overlap), and stacking a second dialog for the identical risk would just be noise.
-    if (!alreadyRanToday) {
+    // overlap), and stacking a second dialog for the identical risk would just be noise. Also
+    // skipped when isResuming — same reasoning as alreadyRanToday's own skip above.
+    if (!alreadyRanToday && !isResuming) {
       const lastCoveredTo = lastReconcileCoveredToIso(state.txs);
       if (lastCoveredTo) {
         if (state.hosxpCoveredFrom <= lastCoveredTo) {
@@ -6215,7 +6237,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // once there's a confirmed mechanism and a fix for it, not before.
       const CHUNK_SIZE = 1;
       for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-        await Promise.all(rows.slice(i, i + CHUNK_SIZE).map(async (r) => {
+        await Promise.all(rows.slice(i, i + CHUNK_SIZE).map(async (r, j) => {
+          const rowIdx = i + j;
+          // Real-world request: "ยาที่ถูกตัดไปแล้ว จะถูกตัดซ้ำมั้ย" — this exact row index already
+          // landed for real in an earlier (failed-partway) attempt on this SAME loaded batch
+          // (see appliedIdx's own doc comment above) — counted toward `applied` for an accurate
+          // final summary, but never re-run through runTx, which would double-deduct it.
+          if (appliedIdx.has(rowIdx)) { applied++; return; }
           if (r.qty <= 0) { zeroQty++; return; }
           // Only 'exact' and 'fuzzy' (human-confirmed above) resolve to a single med —
           // 'ambiguous' and 'none' never touch stock, so a bad name in the source file can't
@@ -6267,6 +6295,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             throw e;
           }
           applied++;
+          // Recorded (and persisted — see hosxpAppliedRowIndexes' own doc comment) immediately,
+          // right after the real deduction above actually committed — if a LATER row in this
+          // same run throws, this row's own success must already be safe from a double-deduction
+          // on retry, not just "safe once the whole loop finishes."
+          appliedIdx.add(rowIdx);
+          patch({ hosxpAppliedRowIndexes: Array.from(appliedIdx) });
           // Floor-lot tracking (see FloorLot in types.ts): HOSxP's dispensed number carries no
           // batch detail at all, so this is a best-effort FEFO guess across whatever floor lots
           // exist for this med — never blocks or throws, since the real floor deduction above
@@ -6359,7 +6393,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             + missEntries.map((e) => '[' + e.reason.kind + '] ' + e.med.name).join(' | '),
         });
       }
-      patch({ hosxpRows: null, hosxpText: '', hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '' });
+      patch({ hosxpRows: null, hosxpText: '', hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [] });
       // Rows with qty <= 0 were previously silently dropped from this summary entirely —
       // applied + skipped could undercount rows.length with no explanation, which reads as
       // a miscount when a pharmacist checks the math. Named separately from "จับคู่ไม่ได้"
@@ -6393,7 +6427,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (failedDebug) console.error('commitReconcile failure debug:', failedDebug);
       toastErr(e, 'ประมวลผลไม่สำเร็จ' + (failedMedName ? ' (ยา: ' + failedMedName + ')' : '') + (applied > 0 ? ' — ตัดยอดไปแล้ว ' + applied + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง') + (failedDebug ? ' [' + failedDebug + ']' : ''));
     }
-  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpCoveredFrom, state.hosxpCoveredTo, state.meds, state.txs, userName, logAudit, toast, toastErr, patch, guardOnce, confirmAsync, recomputeUsageStats, analyzeWeekdayUsage]);
+  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpCoveredFrom, state.hosxpCoveredTo, state.hosxpAppliedRowIndexes, state.meds, state.txs, userName, logAudit, toast, toastErr, patch, guardOnce, confirmAsync, recomputeUsageStats, analyzeWeekdayUsage]);
 
   // Real-world request: "ป้องกันการหลุดยาที่มีในระบบแต่ไม่ได้ถูกตัดจำนวนยา และป้องกันการหลุดวันที่
   // ยังไม่ได้แนบไฟล์" — ReconcileScreen's own notDeductedLatestDay only ever checks the single
