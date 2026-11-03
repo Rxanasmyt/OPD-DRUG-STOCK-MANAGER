@@ -23,15 +23,27 @@ export const DISC_TYPE_LABEL: Record<string, string> = {
 
 export const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
 
-/** One headline number for the ภาพรวมผู้บริหาร tab — deliberately plainer than HomeScreen's
- * StatTile (no icon, no click target): this screen is meant to be scanned/printed as a report,
- * not tapped through as a dashboard. */
+// Same tone→gradient mapping as HomeScreen's toneGradient() — kept as its own local copy (this
+// module's own convention, see chip() above) rather than a shared import, since each screen's
+// tone helper is tiny and screen-local by design in this codebase. "no tone" and explicit
+// var(--green) both read as --grad-brand: a neutral figure isn't bad news, so it stays calm/
+// on-brand instead of looking washed out next to the red/amber tiles beside it.
+function toneGradient(tone?: string): string {
+  if (tone === 'var(--red)') return 'var(--grad-red)';
+  if (tone === 'var(--amber)') return 'var(--grad-amber)';
+  return 'var(--grad-brand)';
+}
+
+/** One headline number for the ภาพรวมผู้บริหาร tab (and the other report tabs that share it) —
+ * still no icon or click target (this screen is scanned as a report, not tapped through as a
+ * dashboard), but now the same gradient-tile treatment as HomeScreen's StatTile for a consistent
+ * look across the app. */
 export function ExecStat({ label, value, note, tone }: { label: string; value: string; note?: string | undefined; tone?: string | undefined }) {
   return (
-    <div className="card" style={{ padding: '13px 13px 12px' }}>
-      <div style={{ fontSize: 19, fontWeight: 800, lineHeight: 1.15, color: tone || 'var(--ink)', letterSpacing: '-.01em' }}>{value}</div>
-      <div className="muted" style={{ fontSize: 11, marginTop: 5, lineHeight: 1.4 }}>{label}</div>
-      {note && <div className="muted" style={{ fontSize: 10.5, marginTop: 1, lineHeight: 1.4 }}>{note}</div>}
+    <div className="card" style={{ border: 0, padding: '13px 13px 12px', background: toneGradient(tone) }}>
+      <div style={{ fontSize: 19, fontWeight: 800, lineHeight: 1.15, color: '#fff', letterSpacing: '-.01em' }}>{value}</div>
+      <div style={{ fontSize: 11, marginTop: 5, lineHeight: 1.4, color: 'rgba(255,255,255,.88)' }}>{label}</div>
+      {note && <div style={{ fontSize: 10.5, marginTop: 1, lineHeight: 1.4, color: 'rgba(255,255,255,.72)' }}>{note}</div>}
     </div>
   );
 }

@@ -80,7 +80,7 @@ export function UsageTab({
             ↓ Export CSV — {nf(usageRecords.length)} รายการ
           </button>
 
-          <div className="grid-2 tablet-4" style={{ marginBottom: 16 }}>
+          <div className="grid-2 tablet-4 stagger" style={{ marginBottom: 16 }}>
             <ExecStat label="มูลค่าการใช้ยารวมช่วงนี้" value={nf(Math.round(usageTotalValue)) + ' บาท'} />
             <ExecStat label="ปริมาณรวม (คละหน่วย)" value={nf(usageTotalQty)} note="รวมหน่วยต่างกันของยาคนละตัว ดูเป็นภาพรวมเท่านั้น" />
             <ExecStat label="จำนวนรายการยาที่มีการใช้" value={nf(usageMedCount)} />
