@@ -43,10 +43,11 @@ export default function LoginScreen() {
       title={state.online ? 'เชื่อมต่ออินเทอร์เน็ตอยู่' : 'ออฟไลน์ — เข้าสู่ระบบไม่ได้จนกว่าจะกลับมาออนไลน์'}
       style={{ position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', left: 20, zIndex: 2, border: 0, background: state.online ? 'rgba(255,255,255,.14)' : 'var(--amber-bg)', color: state.online ? 'var(--login-ink)' : 'var(--amber-ink)', padding: '7px 10px', borderRadius: 9, fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
     >
-      {/* Bug fix (real-world request: "อยากปรับให้หน้า login ดูทางการสำหรับใช้ในรพ."): used to
-          pulse continuously (glowPulse) — a blinking status light reads as a live consumer-app
-          cue, not the steady, document-like status indicator a hospital record system wants. */}
-      <span style={{ width: 6, height: 6, borderRadius: '50%', background: state.online ? '#5adc8c' : 'var(--amber)', display: 'inline-block', flex: 'none' }} />
+      {/* Real-world request: "ปรับหน้า LOGIN ให้ดูสวยงามที่สุด เพิ่ม Animation CSS ล้ำสมัย" —
+          reverses an earlier "no pulse, too consumer-app" pass. Pulses only while genuinely
+          online (a reassuring "live" cue); offline stays a steady amber dot — a dead connection
+          shouldn't look alive. */}
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: state.online ? '#5adc8c' : 'var(--amber)', display: 'inline-block', flex: 'none', animation: state.online ? 'pulse 2s ease-in-out infinite' : undefined }} />
       {state.online ? 'ออนไลน์' : 'ออฟไลน์'}
     </div>
   );
@@ -54,7 +55,7 @@ export default function LoginScreen() {
   if (state.authStatus === 'loading') {
     return (
       <div className="app-shell" style={{ justifyContent: 'center', alignItems: 'center', background: 'var(--login-bg)', overflowY: 'auto' }}>
-        <div className="mesh-bg mesh-bg--static" aria-hidden="true" />
+        <div className="mesh-bg" aria-hidden="true" />
         <div className="login-pattern" aria-hidden="true" />
         <div style={{ position: 'relative', color: 'var(--login-ink)', opacity: 0.8, fontSize: 13 }}>กำลังเชื่อมต่อ…</div>
       </div>
@@ -64,7 +65,7 @@ export default function LoginScreen() {
   if (state.authStatus === 'pendingApproval') {
     return (
       <div className="app-shell" style={{ justifyContent: 'center', padding: 'calc(env(safe-area-inset-top, 0px) + 32px) 26px calc(env(safe-area-inset-bottom, 0px) + 32px)', background: 'var(--login-bg)', color: 'var(--login-ink)', textAlign: 'center', overflowY: 'auto' }}>
-        <div className="mesh-bg mesh-bg--static" aria-hidden="true" />
+        <div className="mesh-bg" aria-hidden="true" />
         <div className="login-pattern" aria-hidden="true" />
         {OnlineBadge}
         {ThemeToggleBtn}
@@ -87,7 +88,7 @@ export default function LoginScreen() {
 
   return (
     <div className="app-shell" style={{ background: 'var(--login-bg)', overflowY: 'auto' }}>
-      <div className="mesh-bg mesh-bg--static" aria-hidden="true" />
+      <div className="mesh-bg" aria-hidden="true" />
       <div className="login-pattern" aria-hidden="true" />
       {OnlineBadge}
       {ThemeToggleBtn}
@@ -97,13 +98,13 @@ export default function LoginScreen() {
           column, since a split layout only makes sense wider than this app is ever opened). */}
       <div style={{ position: 'relative', padding: 'calc(env(safe-area-inset-top, 0px) + 26px) 26px 6px', maxWidth: 440, margin: '0 auto', width: '100%' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 14, animation: 'fade .4s var(--ease-out) both' }}>
-          {/* Bug fix (real-world request: "อยากปรับให้หน้า login ดูทางการสำหรับใช้ในรพ."): used to
-              play a bouncy spring "pop" entrance plus an ongoing pulsing glow ring around the
-              crest — a springy overshoot and an ambient pulse both read as playful consumer-app
-              motion. A plain fade-in (same .fade keyframe already used for every other block on
-              this screen) still gives the crest an entrance, just a dignified one — no bounce, no
-              looping glow. */}
-          <div style={{ width: 68, height: 68, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, #ffffff, #f4f2ec)', border: '1px solid rgba(255,255,255,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 11, flex: 'none', animation: 'fade .5s var(--ease-out) both', boxShadow: '0 10px 26px -8px rgba(0,0,0,.4), 0 0 0 6px rgba(var(--brand-coral-rgb),.14)' }}><HospitalCrest size={42} /></div>
+          {/* Real-world request: "ปรับหน้า LOGIN ให้ดูสวยงามที่สุด เพิ่ม Animation CSS ล้ำสมัย" —
+              reverses an earlier formality-driven pass (see LoginScreen.formal.test.tsx's own
+              updated comment) that had flattened this to a plain one-time fade. Back to a spring
+              "pop" entrance, followed by a slow ambient glow-pulse ring once it settles
+              (animation-delay staggers the glow to start only after the pop finishes, ~0.5s in,
+              so the two don't fight each other visually). */}
+          <div style={{ width: 68, height: 68, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, #ffffff, #f4f2ec)', border: '1px solid rgba(255,255,255,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 11, flex: 'none', animation: 'pop .5s var(--ease-spring) both, glowPulse 2.6s ease-in-out .5s infinite', boxShadow: '0 10px 26px -8px rgba(0,0,0,.4), 0 0 0 6px rgba(var(--brand-coral-rgb),.14)' }}><HospitalCrest size={42} /></div>
           {/* Formal wordmark lockup: hospital abbreviation as the primary mark (large, tight
               tracking, the weight a logotype carries), the module name as a letter-spaced
               uppercase eyebrow underneath, then the full Thai name/ward line last — same info
@@ -119,13 +120,19 @@ export default function LoginScreen() {
 
       <div style={{ position: 'relative', maxWidth: 440, margin: '0 auto', width: '100%', padding: '0 20px calc(env(safe-area-inset-bottom, 0px) + 28px)' }}>
         <div style={{ position: 'relative', overflow: 'hidden', background: 'rgba(255,255,255,.075)', backdropFilter: 'blur(18px)', border: '1px solid rgba(255,255,255,.16)', borderRadius: 24, padding: '26px 24px 24px', marginTop: 22, animation: 'fade .4s var(--ease-out) both', animationDelay: '60ms', boxShadow: '0 24px 60px -18px rgba(0,0,0,.5), var(--shadow-lg)' }}>
-          {/* Bug fix (real-world request: "อยากปรับให้หน้า login ดูทางการสำหรับใช้ในรพ."): used to
-              be a slowly-shifting shimmer (the same ai-gradient cue the app uses elsewhere to
-              flag "this is inferring something"), which doesn't fit a login card and reads as
-              trendy/SaaS rather than official. A fixed two-tone bar — still echoing the crest's
-              own teal→coral palette — reads as a letterhead accent instead: present, on-brand,
-              not moving. */}
-          <div aria-hidden="true" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg, var(--green-bright), rgba(var(--brand-coral-rgb),.9), var(--green-bright))' }} />
+          {/* Same glossy-glass sheen + slow light sweep the gradient stat tiles use (.tile-sheen/
+              .tile-shimmer, see styles.css) — reused here for its own sake: a frosted-glass login
+              card is exactly the surface that look was designed for. */}
+          <div className="tile-sheen" />
+          <div className="tile-shimmer" />
+          {/* Real-world request: "ปรับหน้า LOGIN ให้ดูสวยงามที่สุด เพิ่ม Animation CSS ล้ำสมัย" —
+              reverses the earlier "freeze this to a static letterhead bar" pass. Deliberately
+              NOT the app's aiGradientShift keyframe (that one is reserved specifically for
+              on-device "smart"/inferred features elsewhere — see styles.css's own --ai-1/--ai-2
+              doc comment — a login card isn't one), so this reuses the plain `shimmer` keyframe
+              instead (already used by skeleton loaders) purely for its left-right drift, on the
+              crest's own teal→coral palette. */}
+          <div aria-hidden="true" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg, var(--green-bright), rgba(var(--brand-coral-rgb),.9), var(--green-bright), rgba(var(--brand-coral-rgb),.9))', backgroundSize: '200% 100%', animation: 'shimmer 3.2s linear infinite' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 5 }}>
             <div style={{ width: 40, height: 40, borderRadius: 12, background: 'linear-gradient(140deg, var(--login-ink), #d8e6dc)', color: 'var(--green-dark)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, flex: 'none', boxShadow: '0 4px 14px -4px rgba(0,0,0,.35)' }}>🔒</div>
             <div style={{ minWidth: 0 }}>
@@ -187,8 +194,11 @@ export default function LoginScreen() {
               type="submit"
               disabled={state.authBusy}
               className="login-btn press-spring"
-              style={{ border: 0, background: 'linear-gradient(135deg, var(--login-ink), #dfe9e1)', color: 'var(--login-ink-contrast)', padding: '15px 18px', borderRadius: 14, fontSize: 15, fontWeight: 700, letterSpacing: '.01em', marginTop: 4, minHeight: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 14px 30px -12px rgba(0,0,0,.5)' }}
+              style={{ position: 'relative', overflow: 'hidden', border: 0, background: 'linear-gradient(135deg, var(--login-ink), #dfe9e1)', color: 'var(--login-ink-contrast)', padding: '15px 18px', borderRadius: 14, fontSize: 15, fontWeight: 700, letterSpacing: '.01em', marginTop: 4, minHeight: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 14px 30px -12px rgba(0,0,0,.5)' }}
             >
+              {/* Same light-sweep as the card/stat tiles — the submit button is the single most-
+                  tapped control on this screen, so it earns the same "alive" surface treatment. */}
+              <div className="tile-shimmer" />
               {state.authBusy ? (
                 <>
                   <span className="spin" aria-hidden="true" style={{ width: 15, height: 15, border: '2px solid rgba(18,33,26,.25)', borderTopColor: 'var(--login-ink-contrast)', borderRadius: '50%' }} />

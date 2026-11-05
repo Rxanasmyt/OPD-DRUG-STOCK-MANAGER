@@ -1,34 +1,45 @@
-// Real-world request: "อยากปรับให้หน้า login ดูทางการสำหรับใช้ในรพ." — LoginScreen.tsx used four
-// ambient/looping motion cues (a bouncy spring "pop" on the crest, a pulsing glow ring around it,
-// a continuously-shifting shimmer on the card's top hairline, a pulsing "online" status dot, plus
-// the shared .mesh-bg blobs drifting) that read as playful consumer-app chrome rather than the
-// steady, document-like tone a hospital record system wants. Fixed by switching the crest to a
-// plain one-time fade (no bounce, no looping glow), freezing the card's top accent to a static
-// two-tone bar, removing the online dot's pulse, and adding a login-only .mesh-bg--static modifier
-// (the shared .mesh-bg class is also App.tsx's header on every other screen, which keeps its
-// drift — this fix is scoped to Login only, per the request). This test locks in that none of
-// these elements reference the old looping animation names.
+// Real-world request: "ปรับหน้า LOGIN ให้ดูสวยงามที่สุด เพิ่ม Animation CSS ล้ำสมัย" — reverses an
+// earlier formality-driven pass (see git history: that version removed a bouncy crest entrance, a
+// pulsing glow ring, a shimmering top accent bar, and the online-status dot's pulse, and scoped
+// a `.mesh-bg--static` modifier to Login specifically, because "อยากปรับให้หน้า login ดูทางการ
+// สำหรับใช้ในรพ." asked for a steadier, more document-like tone). The new request explicitly asks
+// for the opposite — maximum polish, modern motion — so this test now locks in the ANIMATED
+// state instead: the crest pops in and keeps a slow ambient glow, the top accent bar and the
+// glass card both carry a light-sweep shimmer, the online dot pulses while connected, and the
+// shared .mesh-bg blobs drift on Login the same way they already do in App.tsx's header.
 import { describe, it, expect } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import LoginScreen from './LoginScreen';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import { fireAuth } from '../test-utils/firebaseTestDouble';
 
-describe('LoginScreen — formal/institutional tone regression', () => {
-  it('never references the old bouncy/pulsing/shimmering animation names, and scopes the static mesh-bg to Login only', async () => {
+describe('LoginScreen — polished/animated tone regression', () => {
+  it('uses the animated crest, accent bar, card sheen and drifting mesh-bg instead of the old static tone', async () => {
     const { container } = renderWithApp(<LoginScreen />);
     fireAuth(null); // settles authStatus: 'loading' -> 'signedOut'
     await waitFor(() => expect(screen.getByText('KPNHOS')).toBeInTheDocument());
 
     const html = container.innerHTML;
-    expect(html).not.toContain('glowPulse');
-    expect(html).not.toContain('aiGradientShift');
-    // "pop" as an animation NAME (not inside unrelated words like "สมัคร" or "ยืนยันตัวตน") — the
-    // crest used to run 'pop .5s ...' specifically.
-    expect(html).not.toMatch(/animation[^"]*:\s*['"]?pop /);
+    // Crest: spring "pop" entrance + ambient glow ring.
+    expect(html).toMatch(/animation[^"]*:\s*['"]?pop /);
+    expect(html).toContain('glowPulse');
+    // Top accent bar + glass card both carry the shared tile-sheen/tile-shimmer treatment.
+    expect(container.querySelectorAll('.tile-sheen').length).toBeGreaterThan(0);
+    expect(container.querySelectorAll('.tile-shimmer').length).toBeGreaterThan(0);
 
+    // mesh-bg now drifts on Login too — no --static modifier scoping it down anymore.
     const meshLayers = container.querySelectorAll('.mesh-bg');
     expect(meshLayers.length).toBeGreaterThan(0);
-    meshLayers.forEach((el) => expect(el.className).toContain('mesh-bg--static'));
+    meshLayers.forEach((el) => expect(el.className).not.toContain('mesh-bg--static'));
+  });
+
+  it("pulses the online-status dot while connected, but keeps it steady when offline (a dead connection shouldn't look alive)", async () => {
+    renderWithApp(<LoginScreen />);
+    fireAuth(null);
+    await waitFor(() => expect(screen.getByText('KPNHOS')).toBeInTheDocument());
+
+    const onlineBadge = screen.getByTitle('เชื่อมต่ออินเทอร์เน็ตอยู่');
+    const onlineDot = onlineBadge.querySelector('span') as HTMLElement;
+    expect(onlineDot).toHaveStyle({ animation: 'pulse 2s ease-in-out infinite' });
   });
 });
