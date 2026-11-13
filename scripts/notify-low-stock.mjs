@@ -29,8 +29,19 @@ const MAX_ROWS_PER_SECTION = 15; // keeps the broadcast readable — the app its
 // Kept in sync BY HAND with src/store/selectors.ts (floorMinOf/isUrgentLow/usesSubstock) — this
 // script runs outside the TS/Vite build, so it can't import those directly. If those formulas
 // change, update this block too.
+//
+// Bug fix (audit finding — false LINE alert): this used to trust ANY stored `m.floorMin`, even
+// one greater than the med's own `parFloor` (Max) — a real, reachable data state (legacy data,
+// a manual Firestore edit, or an old pre-guard write; see AppContext.tsx's applyOnePar/
+// applyAllSuggested, which both explicitly re-derive floorMin whenever applying a par suggestion
+// would otherwise leave it above the new Max, precisely because this state is known to happen).
+// selectors.ts's real floorMinOf() guards against it (`m.floorMin <= m.parFloor`), falling back
+// to the 50%-of-Max default — this copy didn't, so a med sitting in that stale state would get a
+// too-high Min here while the app itself (and its "ต่ำกว่า Min" screens) already uses the
+// correct, lower one, producing a false "ต่ำกว่า Min" broadcast to every LINE OA follower for a
+// med the app itself does not consider low.
 function floorMinOf(m) {
-  if (typeof m.floorMin === 'number') return m.floorMin;
+  if (typeof m.floorMin === 'number' && m.floorMin <= m.parFloor) return m.floorMin;
   const raw = (m.parFloor || 0) * 0.5;
   if (raw <= 0) return 0;
   const step = raw >= 500 ? 100 : raw >= 100 ? 10 : raw >= 10 ? 5 : 1;
@@ -50,7 +61,7 @@ async function lineBroadcast(token, text) {
   }
 }
 
-async function main() {
+export async function main() {
   const dryRun = process.argv.includes('--dry-run');
   const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   const lineToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
@@ -110,7 +121,12 @@ async function main() {
   console.log(`Sent — ${belowMin.length} below Min, ${belowSubPar.length} below substock par.`);
 }
 
-main().catch((err) => {
-  console.error('Low-stock notify failed:', err);
-  process.exit(1);
-});
+// Only auto-run when this file is actually run as a script — NOT when it's imported, which lets
+// notify-low-stock.test.mjs import `main` and drive it with mocked firebase-admin/fetch. Same
+// guard scripts/backfill-warehouse-codes.mjs and scripts/restore-firestore.mjs already use.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((err) => {
+    console.error('Low-stock notify failed:', err);
+    process.exit(1);
+  });
+}
