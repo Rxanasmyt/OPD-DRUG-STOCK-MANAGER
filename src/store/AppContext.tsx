@@ -273,12 +273,27 @@ async function mergeWardPairTx(
     const merged = freshOpdFloor + freshIpdFloor;
     lotSnap.docs.forEach((d) => trx.update(d.ref, { medId: opdMed.id }));
     floorLotSnap.docs.forEach((d) => trx.update(d.ref, { medId: opdMed.id }));
+    // Bug fix (audit finding — undersized reorder point after merge): this used to leave
+    // opdMed's own parFloor/parSub untouched — fine while each side only had to cover its own
+    // ward's demand, but floor/used30/usedPrev30 above are now POOLED OPD+IPD numbers, so a
+    // parFloor/parSub sized for OPD-only demand silently undersizes Max for the combined shelf.
+    // "ต้องเติมหน้างาน"/urgent-refill thresholds (floorMinOf() is based on parFloor) would then
+    // under-alert relative to the drug's real combined usage until someone happens to separately
+    // run a par re-suggestion — with nothing here telling anyone that's now needed. Summing both
+    // sides' par (same treatment floor/used30/usedPrev30 already get) keeps Max/par sized for the
+    // demand it must now cover, with no guessing involved. floorMin is deliberately left as-is:
+    // it's always an explicit hand override (never auto-derived) and a wider parFloor can only
+    // make an existing floorMin MORE valid relative to it (floorMinOf()'s own stale-floorMin
+    // guard — `floorMin <= parFloor` — only gets easier to satisfy as parFloor grows), so there's
+    // no new staleness to fix here, and overwriting someone's explicit Min would be presumptuous.
     trx.update(medRef(opdMed.id), {
       shared: true,
       binIpd: ipdMed.bin,
       floor: merged,
       used30: opdMed.used30 + ipdMed.used30,
       usedPrev30: opdMed.usedPrev30 + ipdMed.usedPrev30,
+      parFloor: opdMed.parFloor + ipdMed.parFloor,
+      parSub: opdMed.parSub + ipdMed.parSub,
       ward: 'opd',
     });
     // Records WHICH surviving med this merge folded into — see Med.mergedInto's own doc comment
