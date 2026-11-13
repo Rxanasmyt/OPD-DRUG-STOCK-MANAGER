@@ -6766,6 +6766,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         toast('สแกนพบ ' + med.name + ' ที่ substock — กรอก lot วันหมดอายุ และจำนวนที่รับ');
         patch({ qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '' });
       } else {
+        // Bug fix (user-reported pattern — real-world หน้างานจริง risk, same business rule
+        // already enforced in TransferScreen's own med list (line ~140), HomeScreen's low-stock
+        // lists, and fillAll(), all with their own "Bug fix (user-reported)" comments): scanning
+        // a held med's shelf/med-label QR during a transfer resolved `med` above and fed it
+        // straight into bump() below with no isOnStockHold() check at all — every OTHER way of
+        // putting a med into the transfer cart already excludes a held med, but this QR path
+        // resolves medId independently of those filtered lists, so it silently bypassed the rule
+        // entirely. A held med is "ยาขาดชั่วคราว" precisely because its supply chain is broken —
+        // letting a scan add it to the cart anyway lets staff commit to handing it out to the
+        // floor as if supply were normal.
+        if (isOnStockHold(med)) {
+          toast(med.name + ' ถูกทำเครื่องหมายขาดชั่วคราว — ยกเลิกสถานะที่หน้ายา (เมนูยา) ก่อนเติมหน้างานรายการนี้');
+          return;
+        }
         // Real-world request: reverted from "camera stays open, silently keeps bumping every
         // scan" (this branch's own prior speed-focused fix) back to one-scan-at-a-time with an
         // explicit confirm step — see ScanConfirmSheet.tsx. Scanning a whole shelf run with no
