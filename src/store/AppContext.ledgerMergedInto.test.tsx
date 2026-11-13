@@ -25,6 +25,10 @@ const MERGED_LOSER = { ...SURVIVOR, id: 'ipd1', active: false, mergedInto: 'opd1
 // An UNRELATED duplicate: happens to share the exact same name, deactivated for some other
 // reason entirely (e.g. a data-entry mistake later cleaned up) — never merged into SURVIVOR.
 const UNRELATED_DUP = { ...SURVIVOR, id: 'dup1', active: false, bin: 'C1' };
+// A former merge-loser later REACTIVATED (toggleMedActive only flips `active` — it never clears
+// `mergedInto`) — now operating independently again, logging its own real activity under its
+// own medId, exactly the live-ambiguity case narrowing exists to catch.
+const REACTIVATED_LOSER = { ...SURVIVOR, id: 'ipd1', active: true, mergedInto: 'opd1', bin: 'B1' };
 
 function LedgerHarness({ medId }: { medId: MedId }) {
   const { fetchSubstockLedger } = useApp();
@@ -80,5 +84,22 @@ describe('fetchSubstockLedger — mergedInto disambiguation regression', () => {
     // The binary "narrow or don't" filter this replaced could only ever get ONE of these right
     // at a time once both a trusted merge-loser and an untrusted duplicate shared the name.
     await waitFor(() => expect(screen.getByTestId('total').textContent).toBe('15'));
+  });
+
+  it('excludes a former merge-loser\'s activity once reactivated, even with mergedInto still set', async () => {
+    renderWithApp(<LedgerHarness medId={asMedId('opd1')} />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [SURVIVOR, REACTIVATED_LOSER]);
+    seedCollection('txs', [
+      { id: 't1', name: SURVIVOR.name, medId: 'opd1', type: 'receive_from_central', to: 'substock', qty: 10, ts: 1, by: 'x' },
+      // Logged AFTER reactivation — ipd1's own independent activity, not SURVIVOR's.
+      { id: 't2', name: SURVIVOR.name, medId: 'ipd1', type: 'receive_from_central', to: 'substock', qty: 5, ts: 2, by: 'x' },
+    ]);
+
+    // Without the fix, mergedFromIds still trusts ipd1 (mergedInto === 'opd1', active ignored),
+    // so this would wrongly read 15 — blending the reactivated med's own post-reactivation
+    // activity into the survivor's balance.
+    await waitFor(() => expect(screen.getByTestId('total').textContent).toBe('10'));
   });
 });

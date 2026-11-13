@@ -5453,7 +5453,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // merged-in history would wrongly disappear the moment some OTHER unrelated duplicate also
     // shares the name. (SubstockCardScreen's own hasNameTwin applies the same mergedInto check
     // for its warning banner, though it only needs the boolean, not this id set.)
-    const mergedFromIds = new Set(state.meds.filter((x) => x.id !== m.id && x.name === m.name && x.mergedInto === m.id).map((x) => x.id));
+    // Bug fix (audit finding): used to trust `mergedInto === m.id` alone, with no `!x.active`
+    // check — toggleMedActive() only flips `active`, it never clears `mergedInto`, so
+    // reactivating a merge-loser (an ordinary, exposed "เปิดใช้งาน" action — e.g. to undo a
+    // merge) leaves it `active: true` with a stale `mergedInto` still pointing here. From then
+    // on it's independent again and logs its own real transactions under its own medId — exactly
+    // the "live ambiguity" this whole narrowing exists to catch — but the old check kept it in
+    // mergedFromIds forever, so hasNameTwin read false and this ledger applied NO medId
+    // narrowing at all, blending the reactivated med's own ongoing activity into this one's
+    // balance. SubstockCardScreen's own hasNameTwin already excludes an active med via
+    // `(x.active || x.mergedInto !== med.id)` — must match that exactly.
+    const mergedFromIds = new Set(state.meds.filter((x) => x.id !== m.id && x.name === m.name && x.mergedInto === m.id && !x.active).map((x) => x.id));
     const hasNameTwin = state.meds.some((x) => x.id !== m.id && x.name === m.name && !mergedFromIds.has(x.id));
     const snap = await withTimeout(mode === 'full' ? fetchTxsByName(m.name) : fetchTxsByNameSince(m.name, Date.now() - LEDGER_RECENT_DAYS * DAY));
     const rows = snap.docs
@@ -5494,7 +5504,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Same OPD/IPD name-twin hazard, and same mergedInto refinement, as fetchSubstockLedger
     // above — see its own comment for the full reasoning. Same 'recent'-vs-'full' cost/
     // correctness tradeoff too — see LEDGER_RECENT_DAYS' own comment above fetchSubstockLedger.
-    const mergedFromIds = new Set(state.meds.filter((x) => x.id !== m.id && x.name === m.name && x.mergedInto === m.id).map((x) => x.id));
+    // Bug fix (audit finding): used to trust `mergedInto === m.id` alone, with no `!x.active`
+    // check — toggleMedActive() only flips `active`, it never clears `mergedInto`, so
+    // reactivating a merge-loser (an ordinary, exposed "เปิดใช้งาน" action — e.g. to undo a
+    // merge) leaves it `active: true` with a stale `mergedInto` still pointing here. From then
+    // on it's independent again and logs its own real transactions under its own medId — exactly
+    // the "live ambiguity" this whole narrowing exists to catch — but the old check kept it in
+    // mergedFromIds forever, so hasNameTwin read false and this ledger applied NO medId
+    // narrowing at all, blending the reactivated med's own ongoing activity into this one's
+    // balance. SubstockCardScreen's own hasNameTwin already excludes an active med via
+    // `(x.active || x.mergedInto !== med.id)` — must match that exactly.
+    const mergedFromIds = new Set(state.meds.filter((x) => x.id !== m.id && x.name === m.name && x.mergedInto === m.id && !x.active).map((x) => x.id));
     const hasNameTwin = state.meds.some((x) => x.id !== m.id && x.name === m.name && !mergedFromIds.has(x.id));
     const snap = await withTimeout(mode === 'full' ? fetchTxsByName(m.name) : fetchTxsByNameSince(m.name, Date.now() - LEDGER_RECENT_DAYS * DAY));
     const rows = snap.docs
