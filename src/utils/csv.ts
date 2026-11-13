@@ -40,7 +40,22 @@ export type DownloadOutcome = 'saved' | 'declined' | 'unavailable';
  */
 export async function downloadCsv(rows: (string | number)[][], filename: string): Promise<DownloadOutcome> {
   const body = rows
-    .map((r) => r.map((c) => (/[",\n]/.test(String(c)) ? '"' + String(c).replace(/"/g, '""') + '"' : c)).join(','))
+    .map((r) => r.map((c) => {
+      // Bug fix (audit finding — CSV/formula injection, OWASP): a free-text cell (med name,
+      // adjust/return/stock-hold reason, audit note — none of these restrict what characters a
+      // user can type) that happens to start with =, +, - or @ gets opened by Excel/Sheets as a
+      // live formula instead of displayed as text — the classic CSV-injection vector, up to and
+      // including DDE/HYPERLINK-based exfiltration. Only applies to actual STRING cells: a
+      // genuine negative number this app computes itself (e.g. a qty delta) is passed as a real
+      // JS `number`, which Excel's CSV import always parses as a plain number regardless of
+      // sign — sanitizing only strings protects every typed free-text field without touching
+      // legitimate numeric columns. Prefixing with a single quote is the standard mitigation
+      // (OWASP CSV Injection cheat sheet): it forces text interpretation, at the cost of that
+      // literal quote char showing up in the opened cell — an acceptable, visible trade for not
+      // silently executing a formula.
+      const s = typeof c === 'string' && /^[=+\-@]/.test(c) ? "'" + c : String(c);
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }).join(','))
     .join('\r\n');
   const csvText = '﻿' + body;
 
