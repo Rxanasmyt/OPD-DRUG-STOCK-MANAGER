@@ -36,7 +36,7 @@ const BATCH_LIMIT = 450; // Firestore's hard cap is 500 writes per batch commit.
 // project is ever renamed/migrated.
 const EXPECTED_PROJECT_ID = 'opd-drug-stock';
 
-async function main() {
+export async function main() {
   const args = process.argv.slice(2);
   const filePath = args.find((a) => !a.startsWith('--'));
   const confirm = args.includes('--confirm');
@@ -97,15 +97,19 @@ async function main() {
   initializeApp({ credential: cert(serviceAccount) });
   const db = getFirestore();
 
-  // Bug fix (operational safety): this script had ZERO automated coverage before — a dry run
-  // only ever parsed the JSON and printed counts, so a real bug in the actual write logic below
-  // (a bad arg, a row shape this version of the Admin SDK rejects, a doc id that isn't a valid
-  // Firestore id) would stay invisible until the one day someone runs this for real during an
-  // actual incident, --confirm and all. Validating every row's `id` here — unconditionally, dry
-  // run included — exercises the exact same `{ id, ...fields } = row` destructuring the real
-  // write loop below uses, so a malformed backup file (or a future change to backup-firestore.mjs
-  // that stops writing `id`) gets caught by firestore-backup.yml's own daily dry-run step (see
-  // that workflow) well before anyone needs this script in anger.
+  // Bug fix (operational safety — audit finding): this validation used to run INSIDE the same
+  // per-collection loop as the actual writes, with the `malformedRows.length` check only AFTER
+  // that whole loop finished. With --confirm, that meant a malformed row in, say, collection #3
+  // of 8 didn't stop anything — collections #1-2 had already been fully written (live overwrites,
+  // per this script's own set()-with-no-merge semantics) by the time the loop even reached #3, and
+  // the malformed row itself still went into collection #3's own write loop (`.doc(undefined)`
+  // silently creates a random-ID document instead of the intended one; `.doc('')` throws, which
+  // only then aborted the script — but #1-2 stayed written, and #4-8 never ran at all). The one
+  // safety net this script has (validate every row's `id` before trusting it) has to run to
+  // completion across the ENTIRE file before any write starts, exactly the way a dry run already
+  // behaves — not interleaved with writes one collection at a time. Two passes now: validate +
+  // print counts for every collection first (unconditionally, dry run included, same as before),
+  // then — only once that whole pass comes back clean — write, if --confirm was passed.
   let totalDocs = 0;
   const malformedRows = [];
   for (const name of collections) {
@@ -113,29 +117,41 @@ async function main() {
     for (const row of rows) {
       if (typeof row.id !== 'string' || !row.id) malformedRows.push(`${name}/${JSON.stringify(row.id)}`);
     }
-    console.log(`  ${name}: ${rows.length} docs${confirm ? ' — writing...' : ''}`);
+    console.log(`  ${name}: ${rows.length} docs`);
     totalDocs += rows.length;
-    if (!confirm) continue;
-
-    for (let i = 0; i < rows.length; i += BATCH_LIMIT) {
-      const batch = db.batch();
-      for (const row of rows.slice(i, i + BATCH_LIMIT)) {
-        const { id, ...fields } = row;
-        batch.set(db.collection(name).doc(id), fields);
-      }
-      await batch.commit();
-    }
   }
 
   if (malformedRows.length) {
     throw new Error(`${malformedRows.length} row(s) have no valid string "id" field and cannot be restored (collection/id): ${malformedRows.slice(0, 10).join(', ')}${malformedRows.length > 10 ? ', ...' : ''}`);
   }
 
+  if (confirm) {
+    for (const name of collections) {
+      const rows = data[name];
+      console.log(`  ${name}: writing ${rows.length} docs...`);
+      for (let i = 0; i < rows.length; i += BATCH_LIMIT) {
+        const batch = db.batch();
+        for (const row of rows.slice(i, i + BATCH_LIMIT)) {
+          const { id, ...fields } = row;
+          batch.set(db.collection(name).doc(id), fields);
+        }
+        await batch.commit();
+      }
+    }
+  }
+
   console.log(`\n${confirm ? 'Restored' : 'Would restore'} ${totalDocs} docs across ${collections.length} collections.`);
   if (!confirm) console.log('Re-run with --confirm to actually write these.');
 }
 
-main().catch((err) => {
-  console.error('Restore failed:', err);
-  process.exit(1);
-});
+// Only auto-run (which requires FIREBASE_SERVICE_ACCOUNT_KEY and connects to Firestore) when this
+// file is actually run as a script — NOT when it's imported, which lets restore-firestore.test.mjs
+// import `main` and drive it with mocked firebase-admin/fs to verify the validate-before-write
+// ordering, without touching real credentials or Firestore. Same guard scripts/backfill-warehouse-
+// codes.mjs already uses for the same reason.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((err) => {
+    console.error('Restore failed:', err);
+    process.exit(1);
+  });
+}
