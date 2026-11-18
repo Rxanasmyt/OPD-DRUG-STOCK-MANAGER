@@ -69,9 +69,9 @@
      gradient-only color (never used for text, so it doesn't need to carry a WCAG-small-text
      obligation) — brighter/more saturated than the text-safe tokens, so both ends of the tile
      read as equally vivid instead of one end draining toward black. */
-  --grad-brand: linear-gradient(135deg, var(--green-bright), #0b9490);
-  --grad-red: linear-gradient(135deg, var(--red-bright), #c4382b);
-  --grad-amber: linear-gradient(135deg, var(--amber-bright), #d1850f);
+  --grad-brand: linear-gradient(135deg, #0b9490, #0a7f7b);
+  --grad-red: linear-gradient(135deg, #c4382b, #a32b22);
+  --grad-amber: linear-gradient(135deg, #d1850f, #b9740b);
   --had: #8f1f4f;
   --had-rgb: 143, 31, 79;
   --ipd: #5a4fcf;
@@ -574,14 +574,15 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
    rounded corners instead of spilling past them. */
 .tile-sheen {
   position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
-  background: linear-gradient(135deg, rgba(255, 255, 255, .22), rgba(255, 255, 255, 0) 60%);
+  background: linear-gradient(135deg, rgba(255, 255, 255, .08), rgba(255, 255, 255, 0) 60%);
 }
 @keyframes heroSheenSweep { from { background-position: -200% 0; } to { background-position: 200% 0; } }
 .tile-shimmer {
   position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
   background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, .18) 50%, transparent 70%);
   background-size: 200% 100%;
-  animation: heroSheenSweep 3s linear infinite;
+  animation: none;
+  opacity: 0;
 }
 
 /* Auto-staggers the fade-in of a list's direct children on mount — a cheap alternative to
@@ -619,13 +620,13 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: aiGradientShift 3.2s ease-in-out infinite;
+  animation: none;
 }
 
 /* A soft, slowly breathing violet glow ring — marks a button/card as a smart-feature entry
    point (OCR capture, the insights tab chip) without relying on color alone: always paired
    with the 🧠/📷 icon and label text already on that element. */
-.ai-glow { animation: aiGlowPulse 2.6s ease-in-out infinite; }
+.ai-glow { box-shadow: 0 0 0 1px rgba(var(--ai-rgb), .45); }
 
 @media (prefers-reduced-motion: reduce) {
   .ai-text { animation: none; background-position: 0 0; }
@@ -693,7 +694,7 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 .mesh-bg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; contain: layout paint; }
 .mesh-bg::before, .mesh-bg::after {
   content: ''; position: absolute; width: 140%; height: 140%; border-radius: 50%;
-  filter: blur(40px); opacity: .55; animation: meshDrift 14s ease-in-out infinite;
+  filter: blur(40px); opacity: .35; animation: none;
   will-change: transform;
 }
 /* Real-world request: "อยากปรับให้หน้า login ดูทางการสำหรับใช้ในรพ." — a slowly drifting glow
