@@ -65,6 +65,16 @@ export function NumberStepper({ value, onChange, unit, step, min = 0, max, input
   const boxLabel = boxed && !focused ? boxBreakdownLabel({ packSize, unit: unit || '' }, curNum, true) : undefined;
 
   const startHold = (dir: 1 | -1) => {
+    // Bug fix (audit finding): a second pointerdown landing on the same button before the first
+    // press's pointerup/pointerleave/pointercancel ever fires (two fingers briefly on the same
+    // button — realistic with gloved hands at a busy counter, or a stray double-fire from some
+    // input devices) used to overwrite held.current with the new press's timers, orphaning the
+    // first press's still-pending setTimeout. That orphaned timeout still fires later and starts
+    // its OWN setInterval, overwriting held.current yet again — possibly AFTER a stopHold() call
+    // already ran and nulled it out, leaving an interval nothing can ever clear, silently
+    // bumping the value forever until the component unmounts. Clearing any in-progress hold
+    // before starting a new one closes this regardless of what caused the overlap.
+    stopHold();
     bump(dir);
     // First repeat after a real pause (so a normal tap never double-fires), then speeds up —
     // matches native stepper/volume-button feel instead of firing at one flat rate.
