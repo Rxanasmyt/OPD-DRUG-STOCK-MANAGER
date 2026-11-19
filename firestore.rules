@@ -58,7 +58,14 @@ service cloud.firestore {
                          && (!('role' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.role in ['admin', 'pharm', 'tech'])
                          && (!('active' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.active is bool))
                     || (signedIn() && request.auth.uid == uid
-                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastLogin']));
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastLogin']))
+                    // After an admin's password reset (see functions/index.js) the account carries
+                    // mustChangePassword:true; the owner clears it — and ONLY it, and only to false —
+                    // once they've set a new password of their own.
+                    || (signedIn() && request.auth.uid == uid
+                        && resource.data.get('mustChangePassword', false) == true
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChangePassword'])
+                        && request.resource.data.mustChangePassword == false);
 
       allow delete: if false;
     }

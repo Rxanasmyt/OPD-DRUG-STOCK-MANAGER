@@ -22,9 +22,9 @@ function initialsOf(name: string): string {
   return (cleaned[0] || name[0] || '?').toUpperCase();
 }
 const AUDIT_FILTERS: [AuditFilter, string][] = [['all', 'ทั้งหมด'], ['users', 'บัญชีผู้ใช้'], ['stock', 'สต็อก/ธุรกรรม']];
-const USER_TYPES = ['login', 'idle_logout', 'user_registered', 'user_approved', 'user_rejected', 'user_role_changed', 'user_status_changed'];
+const USER_TYPES = ['login', 'idle_logout', 'user_registered', 'user_approved', 'user_rejected', 'user_password_reset', 'user_role_changed', 'user_status_changed'];
 const TYPE_LABEL: Record<string, string> = {
-  login: 'เข้าสู่ระบบ', idle_logout: 'ออกจากระบบอัตโนมัติ (ไม่มีการใช้งานนาน)', user_registered: 'สมัครสมาชิก', user_approved: 'อนุมัติบัญชี', user_rejected: 'ปฏิเสธคำขอสมัคร', user_role_changed: 'เปลี่ยนบทบาท', user_status_changed: 'เปิด/ปิดบัญชี', par_updated: 'ปรับ par level', qr_manual: 'กรอกรหัส QR ด้วยมือ',
+  login: 'เข้าสู่ระบบ', idle_logout: 'ออกจากระบบอัตโนมัติ (ไม่มีการใช้งานนาน)', user_registered: 'สมัครสมาชิก', user_approved: 'อนุมัติบัญชี', user_rejected: 'ปฏิเสธคำขอสมัคร', user_password_reset: 'รีเซ็ตรหัสผ่านผู้ใช้', user_role_changed: 'เปลี่ยนบทบาท', user_status_changed: 'เปิด/ปิดบัญชี', par_updated: 'ปรับ par level', qr_manual: 'กรอกรหัส QR ด้วยมือ',
   med_added: 'เพิ่มยาใหม่', med_edited: 'แก้ไขข้อมูลยา', med_status_changed: 'เปิด/ปิดใช้งานยา', med_deleted: 'ลบยาถาวร',
   receive_from_central: 'รับเข้า substock', receive_pending: 'รับเข้า (รออนุมัติ)', receive_rejected: 'ปฏิเสธคำขอรับเข้า', transfer_to_floor: 'เติมหน้างาน',
   adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP',
@@ -55,7 +55,7 @@ const APP_URL = window.location.origin + import.meta.env.BASE_URL;
 
 export default function AdminScreen() {
   const {
-    state, setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, exportAudit, roleLabelOf, toast,
+    state, setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, resetUserPassword, exportAudit, roleLabelOf, toast,
     setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, resetAllStockLedgers, resetAllQuantities,
     scanMedCountTsIssues, repairMedCountTsIssues,
   } = useApp();
@@ -63,6 +63,20 @@ export default function AdminScreen() {
   const [userQuery, setUserQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<Role | 'all'>('all');
   const [inactiveOpen, setInactiveOpen] = useState(false);
+  // The temporary password is shown exactly once (the server never stores it); cleared on dismiss.
+  const [resetResult, setResetResult] = useState<{ name: string; username: string; password: string } | null>(null);
+  const [resettingId, setResettingId] = useState<string | null>(null);
+  const doReset = async (u: User) => {
+    setResettingId(u.id);
+    try {
+      const pw = await resetUserPassword(u.id);
+      if (pw) setResetResult({ name: u.name, username: u.username, password: pw });
+    } finally { setResettingId(null); }
+  };
+  const copyTemp = async () => {
+    if (!resetResult) return;
+    try { await navigator.clipboard.writeText(resetResult.password); toast('คัดลอกรหัสชั่วคราวแล้ว'); } catch { toast('คัดลอกไม่สำเร็จ — จดรหัสจากหน้าจอแทน'); }
+  };
   // Real-world request: a floor-count commit kept failing with a generic error for one specific
   // med — see scanMedCountTsIssues' own doc comment (AppContext.tsx) for the root cause. `null`
   // (not yet scanned) is distinct from `[]` (scanned, nothing found), so the UI below can tell
@@ -225,6 +239,18 @@ export default function AdminScreen() {
               )}
             </div>
 
+            {resetResult && (
+              <div role="alert" className="card" style={{ padding: 13, marginBottom: 16, border: '1px solid var(--amber)', background: 'var(--amber-bg)', animation: 'fade .18s var(--ease-out)' }} data-testid="reset-result">
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--amber-ink)', marginBottom: 4 }}>🔑 รหัสผ่านชั่วคราวของ {resetResult.name} (@{resetResult.username})</div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+                  <code style={{ fontSize: 20, fontWeight: 800, letterSpacing: '.08em', background: 'var(--bg-card)', borderRadius: 9, padding: '8px 12px', userSelect: 'all' }}>{resetResult.password}</code>
+                  <button onClick={copyTemp} className="btn-primary" style={{ minHeight: 44, padding: '8px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600 }}>คัดลอก</button>
+                </div>
+                <div style={{ fontSize: 11.5, lineHeight: 1.6, color: 'var(--amber-ink)' }}>แจ้งรหัสนี้ให้ผู้ใช้โดยตรง — <b>แสดงครั้งเดียว</b> ปิดแล้วดูซ้ำไม่ได้ (ถ้าหายให้รีเซ็ตใหม่) ผู้ใช้ต้องตั้งรหัสผ่านใหม่ของตัวเองเมื่อเข้าสู่ระบบ</div>
+                <button onClick={() => setResetResult(null)} className="btn-outline" style={{ marginTop: 8, minHeight: 40, padding: '6px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600 }}>ปิด (จดรหัสแล้ว)</button>
+              </div>
+            )}
+
             {pending.length > 0 && (
               <>
                 <div style={{ fontSize: 13.5, fontWeight: 700, margin: '0 2px 8px', color: 'var(--amber-ink)' }}>🔔 รออนุมัติ ({pending.length})</div>
@@ -285,6 +311,11 @@ export default function AdminScreen() {
                           triggers — so this destructive-ish action (deactivates someone else's
                           account) used to be unreadable at a glance. Text label now, not just
                           an icon; aria-label kept for screen readers. */}
+                      {!isMe && (
+                        <button onClick={() => void doReset(u)} disabled={resettingId === u.id} aria-label={'รีเซ็ตรหัสผ่าน ' + u.name} className="btn-outline" style={{ flex: '1 1 100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44, marginTop: 4 }}>
+                          <span aria-hidden="true">🔑</span> {resettingId === u.id ? 'กำลังรีเซ็ต…' : 'รีเซ็ตรหัสผ่าน (ลืมรหัส)'}
+                        </button>
+                      )}
                       <button onClick={() => toggleUserActive(u.id)} title="ปิดใช้งานบัญชี" aria-label={'ปิดใช้งานบัญชี ' + u.name} className="btn-danger" style={{ flex: '1 1 100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44, marginTop: 4 }}>
                         <span aria-hidden="true">⏻</span> ปิดใช้งานบัญชี
                       </button>

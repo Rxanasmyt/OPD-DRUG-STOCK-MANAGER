@@ -1,13 +1,13 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
+  onAuthStateChanged, updatePassword, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
   setPersistence, browserLocalPersistence, browserSessionPersistence,
 } from 'firebase/auth';
 import {
   onSnapshot, writeBatch, addDoc, updateDoc, setDoc,
   runTransaction, getDocs, getDoc, getCountFromServer, increment, deleteField, serverTimestamp, waitForPendingWrites, type Transaction, type Query, type DocumentData, type DocumentReference,
 } from 'firebase/firestore';
-import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
+import { app, auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, ReturnCartItem, TxType, Tx, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, MedId, LotId, FloorLotId, ReconcileGapDay, ReconcileMonthDay, MedCountTsIssue,
 } from '../types';
@@ -172,7 +172,7 @@ function normBin(v: string): string {
 // spreadsheet actually understands) so a newly added type only ever needs a label added once,
 // in one place. Module-scope (not per-render state) since it's a pure constant.
 const EVENT_TYPE_LABEL: Record<string, string> = {
-  login: 'เข้าสู่ระบบ', user_registered: 'สมัครสมาชิก', user_approved: 'อนุมัติบัญชี', user_rejected: 'ปฏิเสธคำขอสมัคร', user_role_changed: 'เปลี่ยนบทบาท', user_status_changed: 'เปิด/ปิดบัญชี', par_updated: 'ปรับ par level', qr_manual: 'กรอกรหัส QR ด้วยมือ',
+  login: 'เข้าสู่ระบบ', user_registered: 'สมัครสมาชิก', user_approved: 'อนุมัติบัญชี', user_rejected: 'ปฏิเสธคำขอสมัคร', user_password_reset: 'รีเซ็ตรหัสผ่านผู้ใช้', user_role_changed: 'เปลี่ยนบทบาท', user_status_changed: 'เปิด/ปิดบัญชี', par_updated: 'ปรับ par level', qr_manual: 'กรอกรหัส QR ด้วยมือ',
   med_added: 'เพิ่มยาใหม่', med_edited: 'แก้ไขข้อมูลยา', med_status_changed: 'เปิด/ปิดใช้งานยา', med_deleted: 'ลบยาถาวร',
   receive_from_central: 'รับเข้า substock', receive_pending: 'รับเข้า (รออนุมัติ)', receive_rejected: 'ปฏิเสธคำขอรับเข้า', transfer_to_floor: 'เติมหน้างาน',
   adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP',
@@ -751,6 +751,12 @@ export interface AppCtx {
   setUserRole: (id: string, r: Role) => void;
   toggleUserActive: (id: string) => void;
   rejectUser: (id: string) => Promise<void>;
+  /** Admin-only. Asks the adminResetPassword Cloud Function (functions/index.js) to set a random
+   * temporary password for `id`. Resolves with it (shown once to the admin), or null on any
+   * failure (a toast explains; "not deployed yet" is called out specifically). */
+  resetUserPassword: (id: string) => Promise<string | null>;
+  /** The signed-in user sets their own new password (the forced change after an admin reset). */
+  changeMyPassword: (newPassword: string) => Promise<boolean>;
   /** Admin-only. Adds `alias` to the med's hosxpAliases (the HOSxP spelling of this drug) so the
    * next file with that name deducts it. Refuses a name that already resolves to some med. */
   addHosxpAlias: (medId: MedId, alias: string) => Promise<boolean>;
@@ -7176,6 +7182,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [canEditMeds, state.meds, runTx, logAudit, toast, toastErr]);
 
+  const resetUserPassword = useCallback(async (id: string): Promise<string | null> => {
+    if (state.role !== 'admin') return null;
+    const u = state.users.find((x) => x.id === id);
+    if (!u || id === state.myUid) return null;
+    if (!(await confirmAsync('รีเซ็ตรหัสผ่านของ ' + u.name + ' (@' + u.username + ')?\nรหัสเดิมจะใช้ไม่ได้ทันที และเขาจะถูกออกจากระบบ — ต้องตั้งรหัสใหม่เมื่อเข้าสู่ระบบครั้งถัดไป'))) return null;
+    try {
+      // Loaded on demand: the functions SDK is only needed for this rare admin action.
+      const { getFunctions, httpsCallable } = await import('firebase/functions');
+      const call = httpsCallable<{ uid: string }, { tempPassword: string }>(getFunctions(app, 'asia-southeast1'), 'adminResetPassword');
+      const res = await withTimeout(call({ uid: id }));
+      const pw = res.data?.tempPassword;
+      if (!pw) throw new Error('empty-response');
+      return pw;
+    } catch (e) {
+      const code = (e as { code?: string })?.code || '';
+      if (code === 'functions/not-found' || code === 'functions/unavailable' || code === 'functions/internal') {
+        toast('ฟังก์ชันรีเซ็ตรหัสผ่านยังไม่ได้เปิดใช้งานบนเซิร์ฟเวอร์ — ดูขั้นตอนใน docs/ADMIN_PASSWORD_RESET.md');
+      } else if (code === 'functions/permission-denied') {
+        toast('เซิร์ฟเวอร์ไม่อนุญาต — เฉพาะ Admin ที่ใช้งานอยู่เท่านั้น');
+      } else {
+        toastErr(e, 'รีเซ็ตรหัสผ่านไม่สำเร็จ');
+      }
+      return null;
+    }
+  }, [state.role, state.users, state.myUid, confirmAsync, toast, toastErr]);
+
+  const changeMyPassword = useCallback(async (newPassword: string): Promise<boolean> => {
+    const cu = auth.currentUser;
+    if (!cu || !state.myUid) return false;
+    if (newPassword.length < 6) { toast('รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร'); return false; }
+    try {
+      await withTimeout(updatePassword(cu, newPassword));
+      // Clearing the flag is allowed by firestore.rules only for the owner, only to false.
+      await withTimeout(setDoc(userRef(state.myUid), { mustChangePassword: false }, { merge: true }));
+      toast('เปลี่ยนรหัสผ่านแล้ว');
+      return true;
+    } catch (e) {
+      const code = (e as { code?: string })?.code || '';
+      if (code === 'auth/requires-recent-login') toast('เซสชันเก่าเกินไป — ออกจากระบบแล้วเข้าสู่ระบบใหม่ด้วยรหัสชั่วคราว จากนั้นตั้งรหัสใหม่ทันที');
+      else if (code === 'auth/weak-password') toast('รหัสผ่านง่ายเกินไป — ใช้อย่างน้อย 6 ตัวอักษร');
+      else toastErr(e, 'เปลี่ยนรหัสผ่านไม่สำเร็จ');
+      return false;
+    }
+  }, [state.myUid, toast, toastErr]);
+
   const exportAudit = useCallback(async () => {
     // Same reasoning as exportReportCsv — the live subscriptions are capped at 300 each for
     // the on-screen "recent activity" feed; a real audit export needs the full history.
@@ -7257,7 +7308,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     confirmScanAndNext, confirmScanAndStop, cancelScanConfirm,
     doneAgain,
-    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, addHosxpAlias, exportAudit,
+    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, addHosxpAlias, resetUserPassword, changeMyPassword, exportAudit,
     setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, fetchExecTxsThisMonth,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [state, myProfile, theme, toggleTheme]);

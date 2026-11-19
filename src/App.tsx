@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from 'react';
 import { useApp } from './store/AppContext';
 import LoginScreen from './screens/LoginScreen';
+import ForcePasswordScreen from './screens/ForcePasswordScreen';
 import HomeScreen from './screens/HomeScreen';
 import TransferScreen from './screens/TransferScreen';
 import TConfirmScreen from './screens/TConfirmScreen';
@@ -75,7 +76,7 @@ const NAV_DEF: [Screen, string, string][] = [
 ];
 
 export default function App() {
-  const { state, roleLabel, go, theme, toggleTheme, openScanSearch } = useApp();
+  const { state, myProfile, roleLabel, go, theme, toggleTheme, openScanSearch } = useApp();
 
   // Direction-aware screen transition — every screen already fades itself in on mount, but
   // that read identical whether you'd just drilled into a screen or backed out of one. Nav
@@ -130,6 +131,11 @@ export default function App() {
 
   if (state.authStatus !== 'signedIn') {
     return <LoginScreen />;
+  }
+
+  // An admin just reset this account's password — nothing else is usable until they pick their own.
+  if (myProfile?.mustChangePassword) {
+    return <ForcePasswordScreen />;
   }
 
   if (!state.dbReady) {
