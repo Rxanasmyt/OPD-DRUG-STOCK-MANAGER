@@ -53,7 +53,10 @@ function halfOfMaxRounded(parFloor) {
 }
 // A stored floorMin above parFloor is never plausible — same guard as selectors.ts's floorMinOf().
 function floorMinOf(m) {
-  return typeof m.floorMin === 'number' && m.floorMin <= m.parFloor ? m.floorMin : halfOfMaxRounded(m.parFloor);
+  // Same as selectors.ts: a stored number is honoured; the unset fallback is floored at 1 for Max >= 1.
+  if (typeof m.floorMin === 'number' && m.floorMin <= m.parFloor) return m.floorMin;
+  const half = halfOfMaxRounded(m.parFloor);
+  return m.parFloor >= 1 ? Math.max(1, half) : half;
 }
 // Mirrors selectors.ts's isOnStockHold() — held meds are excluded from the app's low-stock lists.
 function isOnStockHold(m) { return typeof m.outOfStockSince === 'number'; }

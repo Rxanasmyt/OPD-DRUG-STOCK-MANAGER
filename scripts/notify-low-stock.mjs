@@ -41,12 +41,15 @@ const MAX_ROWS_PER_SECTION = 15; // keeps the broadcast readable — the app its
 // correct, lower one, producing a false "ต่ำกว่า Min" broadcast to every LINE OA follower for a
 // med the app itself does not consider low.
 function floorMinOf(m) {
+  // Same as selectors.ts: a stored Min <= 0 means "never set"; the fallback is floored at 1 for Max >= 1
+  // so an empty shelf is always "low".
   if (typeof m.floorMin === 'number' && m.floorMin <= m.parFloor) return m.floorMin;
   const raw = (m.parFloor || 0) * 0.5;
   if (raw <= 0) return 0;
   const step = raw >= 500 ? 100 : raw >= 100 ? 10 : raw >= 10 ? 5 : 1;
   // Clamp to at most one below parFloor, same as selectors.ts (a tiny parFloor rounds back up).
-  return Math.min(Math.round(raw / step) * step, m.parFloor - 1);
+  const half = Math.min(Math.round(raw / step) * step, m.parFloor - 1);
+  return m.parFloor >= 1 ? Math.max(1, half) : half;
 }
 function usesSubstock(m) { return !m.noSubstock; }
 // Mirrors selectors.ts's isOnStockHold(): a med flagged "ยาขาดชั่วคราว" is never worth a LINE

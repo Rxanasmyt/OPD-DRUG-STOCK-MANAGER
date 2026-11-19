@@ -604,7 +604,7 @@ export interface AppCtx {
   // med" form used to close (discarding every field just typed) right after firing this,
   // regardless of outcome, since it had no way to tell a failure apart from a success without
   // awaiting a real signal back.
-  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number | undefined; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined; reqCategory?: ReqCategory | undefined }) => Promise<boolean | undefined>;
+  addMed: (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin?: number | undefined; ward: Ward; noSubstock: boolean; volatility?: number | undefined; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined; reqCategory?: ReqCategory | undefined }) => Promise<boolean | undefined>;
   // Bug fix (flow friction): same shape as addMed above — MedsScreen's edit-med sheet used to
   // close (discarding every edited field) right after firing this, regardless of outcome.
   // `baseline`: the med record as it looked when the edit form was first opened (frozen by the
@@ -613,7 +613,7 @@ export interface AppCtx {
   // catch). Pass null when there's no meaningful baseline to compare against (there shouldn't
   // be a legitimate caller of updateMedFull without one, but it's optional rather than required
   // so a future caller can't be forced to fabricate one).
-  updateMedFull: (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined; reqCategory?: ReqCategory | undefined }, baseline: Med | null) => Promise<boolean | undefined>;
+  updateMedFull: (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin?: number | undefined; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined; reqCategory?: ReqCategory | undefined }, baseline: Med | null) => Promise<boolean | undefined>;
   /** Merges an existing OPD/IPD ward-pair (same name, one 'opd' one 'ipd' record) into a
    * single pooled record — see Med.binIpd. Survives as the OPD-ward record with the IPD
    * record's bin code carried over as `binIpd`; floor/used30/usedPrev30 are summed (not
@@ -4056,12 +4056,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // usage statistics yet (suggestPar() returns null for those — same "never suggest off no data"
   // guard every other suggestion flow in this file already respects), leaving its Min untouched
   // rather than guessing.
+  // suggestPar()'s Min is sized against the SUGGESTED Max; applied on its own it can land at/above the med's
+  // CURRENT Max (then floorMinOf() ignores it and falls back — the toast said "set" but the effective Min was a
+  // different number, and the same rows were re-listed every run). Keep it strictly below the current Max.
+  const minFromSuggestion = (m: Med, sugMin: number): number => (sugMin < m.parFloor ? sugMin : halfOfMaxRounded(m.parFloor));
   const setAllMinSuggested = useCallback(guardOnce('setAllMinSuggested', async () => {
     if (!canEditMeds) return;
     const effSub = effectiveSubCoverDays(state.parSubCoverDays, state.effectiveLeadTimeDays);
     const targets = state.meds
       .map((m) => ({ m, sug: m.active ? suggestPar(m, state.parFloorCoverDays, effSub) : null }))
-      .filter((x): x is { m: Med; sug: NonNullable<ReturnType<typeof suggestPar>> } => !!x.sug && x.sug.min !== floorMinOf(x.m));
+      .filter((x): x is { m: Med; sug: NonNullable<ReturnType<typeof suggestPar>> } => !!x.sug && minFromSuggestion(x.m, x.sug.min) !== floorMinOf(x.m));
     if (!targets.length) { toast('ยาทุกตัวที่มีสถิติการใช้ มี Min ตรงกับค่าแนะนำจากอัตราการใช้จริงอยู่แล้ว'); return; }
     if (!(await confirmAsync(
       'ตั้งค่า Min ของยาทุกตัวตามอัตราการใช้จริง?\n\n'
@@ -4073,7 +4077,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       for (let i = 0; i < targets.length; i += 400) {
         const batch = writeBatch(db);
         targets.slice(i, i + 400).forEach(({ m, sug }) => {
-          batch.update(medRef(m.id), { floorMin: sug.min });
+          batch.update(medRef(m.id), { floorMin: minFromSuggestion(m, sug.min) });
         });
         await withTimeout(batch.commit());
       }
@@ -4670,7 +4674,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [canEditMeds, logAudit, toast, toastErr]);
 
   // ---------- meds (formulary) management ----------
-  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number | undefined; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined; reqCategory?: ReqCategory | undefined }): Promise<boolean> => {
+  const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin?: number | undefined; ward: Ward; noSubstock: boolean; volatility?: number | undefined; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined; reqCategory?: ReqCategory | undefined }): Promise<boolean> => {
     // Data-entry safety: a blank unit used to be saved silently as the placeholder "หน่วย" — which then
     // makes unrelated meds compare as the same unit (ward-move equality guard) and prints a meaningless
     // label. Require a real unit.
@@ -4757,7 +4761,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           price: Math.max(0, input.price || 0), had: input.had, active: true,
           ...(input.fridge ? { fridge: true } : {}),
           parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0), floor: 0,
-          floorMin: Math.max(0, input.floorMin || 0),
+          // Blank Min stays UNSET (floorMinOf's 50%-of-Max default applies) — it used to be saved as 0,
+          // which silently meant "never flag low".
+          ...(input.floorMin !== undefined ? { floorMin: Math.max(0, input.floorMin || 0) } : {}),
           bin: normBin(input.bin),
           used30: 0, usedPrev30: 0, volatility: clampVolatility(input.volatility ?? 1.1), lastCountTs: Date.now(),
           ward: input.ward, noSubstock: input.noSubstock,
@@ -4801,7 +4807,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     shared: 'ใช้ยอดร่วมกัน', binIpd: 'ชั้นวาง IPD', category: 'หมวดยา', packSize: 'ขนาดแพ็ค',
     route: 'ประเภทการให้ยา', hosxpAliases: 'ชื่อ HOSxP ที่รู้จัก', whCode: 'รหัสยาคลัง', reqCategory: 'หมวดใบเบิกจากคลัง',
   };
-  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined; reqCategory?: ReqCategory | undefined }, baseline: Med | null): Promise<boolean> => {
+  const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin?: number | undefined; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined; reqCategory?: ReqCategory | undefined }, baseline: Med | null): Promise<boolean> => {
     // Data-entry safety: a blank unit used to be saved silently as the placeholder "หน่วย" — which then
     // makes unrelated meds compare as the same unit (ward-move equality guard) and prints a meaningless
     // label. Require a real unit.
@@ -4885,7 +4891,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       fridge: input.fridge ? true : deleteField(),
       bin: normBin(input.bin),
       parSub: Math.max(0, input.parSub || 0), parFloor: Math.max(0, input.parFloor || 0),
-      floorMin: Math.max(0, input.floorMin || 0),
+      floorMin: input.floorMin !== undefined ? Math.max(0, input.floorMin || 0) : deleteField(),
       ward: input.ward, noSubstock: input.noSubstock,
       volatility: clampVolatility(input.volatility),
       // Toggling the form's "ใช้ยอดร่วมกัน" checkbox off un-shares a med with no separate-stock
