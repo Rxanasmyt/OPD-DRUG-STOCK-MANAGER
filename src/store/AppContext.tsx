@@ -1972,9 +1972,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (idleMs >= logoutAtMs) {
         if (idleFiredRef.current) return;
         idleFiredRef.current = true;
-        logAudit({ type: 'idle_logout', note: 'ไม่มีการใช้งานเกิน ' + state.idleLogoutMinutes + ' นาที' });
-        logout();
-        toast('ออกจากระบบอัตโนมัติ เนื่องจากไม่มีการใช้งานเป็นเวลานาน');
+        // The audit write needs the still-signed-in credentials (firestore.rules: isActive()), and
+        // logout() drops them immediately — so the row was fired and then orphaned. Give it a brief
+        // head start (capped at 3s so an offline tablet still logs out promptly), then sign out.
+        void Promise.race([
+          logAudit({ type: 'idle_logout', note: 'ไม่มีการใช้งานเกิน ' + state.idleLogoutMinutes + ' นาที' }),
+          new Promise<void>((resolve) => window.setTimeout(resolve, 3000)),
+        ]).finally(() => {
+          logout();
+          toast('ออกจากระบบอัตโนมัติ เนื่องจากไม่มีการใช้งานเป็นเวลานาน');
+        });
       } else {
         const shouldWarn = idleMs >= warnAtMs;
         patch((st) => (st.idleWarnVisible === shouldWarn ? st : { idleWarnVisible: shouldWarn }));

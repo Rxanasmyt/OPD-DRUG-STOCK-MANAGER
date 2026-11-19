@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act, screen, waitFor, fireEvent } from '@testing-library/react';
 import { signOut } from 'firebase/auth';
+import { addDoc } from 'firebase/firestore';
 import IdleLogoutWarning from '../components/IdleLogoutWarning';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import { signInAs, fireDoc, hasListener } from '../test-utils/firebaseTestDouble';
@@ -49,6 +50,11 @@ describe('AppContext — idle-timeout auto-logout regression', () => {
     await setup(5);
     await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 15000); });
     expect(signOut).toHaveBeenCalledTimes(1);
+    // The audit row must be WRITTEN before the credentials are dropped (firestore.rules needs a signed-in
+    // active user) — it used to be fired and orphaned by the immediate signOut.
+    const audit = vi.mocked(addDoc).mock.calls.findIndex((c) => (c[1] as { type?: string })?.type === 'idle_logout');
+    expect(audit).toBeGreaterThanOrEqual(0);
+    expect(vi.mocked(addDoc).mock.invocationCallOrder[audit]).toBeLessThan(vi.mocked(signOut).mock.invocationCallOrder[0]);
   });
 
   it('does not keep calling signOut again on later ticks for the same idle period', async () => {

@@ -24,7 +24,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: |
-          IFS=',' read -ra NAMES <<< "${{ inputs.drug_names }}"
+          IFS=',' read -ra NAMES <<< "$DRUG_NAMES"
           ARGS=()
           for n in "${NAMES[@]}"; do
             ARGS+=("$(echo "$n" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')")
@@ -32,3 +32,6 @@ jobs:
           node scripts/diagnose-reconcile-failure.mjs "${ARGS[@]}"
         env:
           FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+          # Passed via env (never interpolated into the script text): a workflow input containing
+          # shell metacharacters must not be able to run commands with the service-account key in scope.
+          DRUG_NAMES: ${{ inputs.drug_names }}

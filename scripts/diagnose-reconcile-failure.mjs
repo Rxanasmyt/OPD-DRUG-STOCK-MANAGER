@@ -95,10 +95,15 @@ async function main() {
   try {
     const usersSnap = await db.collection('users').get();
     console.log(`users collection: ${usersSnap.size} doc(s) total.`);
+    // This repo is PUBLIC, so Actions logs are world-readable — print only aggregate counts, never
+    // uids or names.
+    const tally = {};
     for (const d of usersSnap.docs) {
       const u = d.data();
-      console.log(`  ${d.id}: active=${describeValue(u.active)}, role=${describeValue(u.role)}, name=${describeValue(u.name)}`);
+      const k = `active=${describeValue(u.active)}, role=${describeValue(u.role)}`;
+      tally[k] = (tally[k] || 0) + 1;
     }
+    for (const [k, n] of Object.entries(tally)) console.log(`  ${n} user(s): ${k}`);
   } catch (e) {
     console.log(`Could not read users collection: ${e.message}`);
   }
