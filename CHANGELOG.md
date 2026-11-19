@@ -7,6 +7,17 @@
 > และไม่มีเครื่องมือสำหรับสร้าง GitHub Release ในชุดเครื่องมือที่ใช้งานได้ จึงใช้ไฟล์นี้ + `VERSION`
 > เป็นแหล่งความจริงของเลขเวอร์ชันแทน จนกว่าจะแก้ข้อจำกัดนั้นได้
 
+## [3.275.0] - 2026-11-19
+
+### Admin รีเซ็ตรหัสผ่านผู้ใช้ผ่าน GitHub Action (แทน Cloud Function ที่ต้องใช้แผน Blaze)
+
+ตามที่เลือก: ไม่ใช้ Cloud Functions/แผน Blaze — เปลี่ยนจาก 3.274.0 ที่ต้อง deploy Function เป็น GitHub Action สั่งรันเอง
+
+- `scripts/reset-user-password.mjs` + `.github/workflows/reset-user-password.yml`: Run workflow → กรอก username → ระบบสุ่มรหัสชั่วคราว (ลง Job summary เท่านั้น ไม่ลง log), ยกเลิก session เดิม, ตั้ง `mustChangePassword`, บันทึก audit
+- หน้า Admin: ปุ่ม "🔑 รีเซ็ตรหัสผ่าน (ลืมรหัส)" เปิดขั้นตอนทีละข้อ + ลิงก์ไปหน้า workflow + คัดลอก username (ไม่ได้รีเซ็ตในแอพเอง — Firebase ไม่อนุญาตจากฝั่งไคลเอนต์)
+- คงหน้า "ตั้งรหัสผ่านใหม่" ที่บังคับผู้ใช้ตั้งรหัสเองหลังเข้าด้วยรหัสชั่วคราว และกฎ `firestore.rules` ของมัน
+- ลบ `functions/` และโค้ดเรียก Cloud Function ออก; คู่มือ `docs/ADMIN_PASSWORD_RESET.md` เขียนใหม่ (รวมข้อควรระวัง: รหัสชั่วคราวเห็นได้โดยผู้มีสิทธิ์ดู Actions ของ repo → ลบการรันหลังจดรหัส)
+
 ## [3.274.0] - 2026-11-19
 
 ### Admin รีเซ็ตรหัสผ่านผู้ใช้ได้ (กรณีลืมรหัส) — ต้อง deploy Cloud Function ก่อนใช้งานจริง

@@ -7,7 +7,7 @@ import {
   onSnapshot, writeBatch, addDoc, updateDoc, setDoc,
   runTransaction, getDocs, getDoc, getCountFromServer, increment, deleteField, serverTimestamp, waitForPendingWrites, type Transaction, type Query, type DocumentData, type DocumentReference,
 } from 'firebase/firestore';
-import { app, auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
+import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, ReturnCartItem, TxType, Tx, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, MedId, LotId, FloorLotId, ReconcileGapDay, ReconcileMonthDay, MedCountTsIssue,
 } from '../types';
@@ -751,10 +751,6 @@ export interface AppCtx {
   setUserRole: (id: string, r: Role) => void;
   toggleUserActive: (id: string) => void;
   rejectUser: (id: string) => Promise<void>;
-  /** Admin-only. Asks the adminResetPassword Cloud Function (functions/index.js) to set a random
-   * temporary password for `id`. Resolves with it (shown once to the admin), or null on any
-   * failure (a toast explains; "not deployed yet" is called out specifically). */
-  resetUserPassword: (id: string) => Promise<string | null>;
   /** The signed-in user sets their own new password (the forced change after an admin reset). */
   changeMyPassword: (newPassword: string) => Promise<boolean>;
   /** Admin-only. Adds `alias` to the med's hosxpAliases (the HOSxP spelling of this drug) so the
@@ -7182,32 +7178,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [canEditMeds, state.meds, runTx, logAudit, toast, toastErr]);
 
-  const resetUserPassword = useCallback(async (id: string): Promise<string | null> => {
-    if (state.role !== 'admin') return null;
-    const u = state.users.find((x) => x.id === id);
-    if (!u || id === state.myUid) return null;
-    if (!(await confirmAsync('รีเซ็ตรหัสผ่านของ ' + u.name + ' (@' + u.username + ')?\nรหัสเดิมจะใช้ไม่ได้ทันที และเขาจะถูกออกจากระบบ — ต้องตั้งรหัสใหม่เมื่อเข้าสู่ระบบครั้งถัดไป'))) return null;
-    try {
-      // Loaded on demand: the functions SDK is only needed for this rare admin action.
-      const { getFunctions, httpsCallable } = await import('firebase/functions');
-      const call = httpsCallable<{ uid: string }, { tempPassword: string }>(getFunctions(app, 'asia-southeast1'), 'adminResetPassword');
-      const res = await withTimeout(call({ uid: id }));
-      const pw = res.data?.tempPassword;
-      if (!pw) throw new Error('empty-response');
-      return pw;
-    } catch (e) {
-      const code = (e as { code?: string })?.code || '';
-      if (code === 'functions/not-found' || code === 'functions/unavailable' || code === 'functions/internal') {
-        toast('ฟังก์ชันรีเซ็ตรหัสผ่านยังไม่ได้เปิดใช้งานบนเซิร์ฟเวอร์ — ดูขั้นตอนใน docs/ADMIN_PASSWORD_RESET.md');
-      } else if (code === 'functions/permission-denied') {
-        toast('เซิร์ฟเวอร์ไม่อนุญาต — เฉพาะ Admin ที่ใช้งานอยู่เท่านั้น');
-      } else {
-        toastErr(e, 'รีเซ็ตรหัสผ่านไม่สำเร็จ');
-      }
-      return null;
-    }
-  }, [state.role, state.users, state.myUid, confirmAsync, toast, toastErr]);
-
   const changeMyPassword = useCallback(async (newPassword: string): Promise<boolean> => {
     const cu = auth.currentUser;
     if (!cu || !state.myUid) return false;
@@ -7308,7 +7278,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     confirmScanAndNext, confirmScanAndStop, cancelScanConfirm,
     doneAgain,
-    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, addHosxpAlias, resetUserPassword, changeMyPassword, exportAudit,
+    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, addHosxpAlias, changeMyPassword, exportAudit,
     setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, fetchExecTxsThisMonth,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [state, myProfile, theme, toggleTheme]);

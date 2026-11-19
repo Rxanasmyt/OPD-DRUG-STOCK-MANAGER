@@ -1,65 +1,38 @@
-// Admin-initiated password reset: the button calls the adminResetPassword Cloud Function and shows
-// the temporary password once; a "not deployed yet" failure says so; the reset account is then
-// forced to choose its own password.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+// Forgot-password help: Firebase only lets a server change someone else's password and this project
+// has no Cloud Functions, so the admin button opens step-by-step instructions for the manually-run
+// GitHub Action (with the username to paste). The reset account is then forced to choose its own
+// password on next login.
+import { describe, it, expect } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AdminScreen from './AdminScreen';
 import ForcePasswordScreen from './ForcePasswordScreen';
-import { useApp } from '../store/AppContext';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import { updatePassword } from 'firebase/auth';
 import { signInAs, fireCollection, hasListener } from '../test-utils/firebaseTestDouble';
-
-const callMock = vi.fn();
-vi.mock('firebase/functions', () => ({
-  getFunctions: () => ({}),
-  httpsCallable: () => (data: unknown) => callMock(data),
-}));
-
-function Dialogs() {
-  const { state, respondConfirm } = useApp() as unknown as { state: { confirmDialog?: unknown }; respondConfirm: (v: boolean) => void };
-  return state.confirmDialog ? <button onClick={() => respondConfirm(true)}>yes-confirm</button> : null;
-}
 
 const USERS = [
   { id: 'admin0', role: 'admin', name: 'แอดมิน หนึ่ง', username: 'admin0', dept: 'ห้องยา', active: true, createdAt: 1, lastLogin: Date.now() },
   { id: 'u2', role: 'tech', name: 'ผู้ใช้ ลืมรหัส', username: 'forgot', dept: 'ห้องยา', active: true, createdAt: 2, lastLogin: Date.now() },
 ];
 
-async function setup() {
-  const user = userEvent.setup();
-  renderWithApp(<><AdminScreen /><Dialogs /></>);
-  await signInAs('admin0', { role: 'admin', name: 'แอดมิน หนึ่ง', username: 'admin0' });
-  await waitFor(() => expect(hasListener('users')).toBe(true));
-  fireCollection('users', USERS);
-  return user;
-}
+describe('AdminScreen — forgot-password help', () => {
+  it('offers it for other users only, and shows the username + link to the reset workflow', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<AdminScreen />);
+    await signInAs('admin0', { role: 'admin', name: 'แอดมิน หนึ่ง', username: 'admin0' });
+    await waitFor(() => expect(hasListener('users')).toBe(true));
+    fireCollection('users', USERS);
 
-describe('AdminScreen — reset a user password', () => {
-  beforeEach(() => callMock.mockReset());
-
-  it('offers the reset button for other users only, and shows the temporary password once', async () => {
-    callMock.mockResolvedValue({ data: { tempPassword: 'Abcd2345wxyz' } });
-    const user = await setup();
     expect(screen.queryByRole('button', { name: /รีเซ็ตรหัสผ่าน แอดมิน หนึ่ง/ })).toBeNull();
     await user.click(await screen.findByRole('button', { name: /รีเซ็ตรหัสผ่าน ผู้ใช้ ลืมรหัส/ }));
-    await user.click(await screen.findByRole('button', { name: 'yes-confirm' }));
-    const box = await screen.findByTestId('reset-result');
-    expect(box).toHaveTextContent('Abcd2345wxyz');
-    expect(box).toHaveTextContent('แสดงครั้งเดียว');
-    expect(callMock).toHaveBeenCalledWith({ uid: 'u2' });
-    await user.click(screen.getByRole('button', { name: /ปิด \(จดรหัสแล้ว\)/ }));
-    expect(screen.queryByTestId('reset-result')).toBeNull();
-  });
-
-  it('says plainly when the server function has not been deployed', async () => {
-    callMock.mockRejectedValueOnce(Object.assign(new Error('not found'), { code: 'functions/not-found' }));
-    const user = await setup();
-    await user.click(await screen.findByRole('button', { name: /รีเซ็ตรหัสผ่าน ผู้ใช้ ลืมรหัส/ }));
-    await user.click(await screen.findByRole('button', { name: 'yes-confirm' }));
-    await waitFor(() => expect(callMock).toHaveBeenCalled());
-    expect(screen.queryByTestId('reset-result')).toBeNull();
+    const box = await screen.findByTestId('reset-help');
+    expect(box).toHaveTextContent('forgot');
+    expect(box).toHaveTextContent('Run workflow');
+    const link = screen.getByRole('link', { name: /เปิดหน้ารีเซ็ต/ });
+    expect(link).toHaveAttribute('href', expect.stringContaining('/actions/workflows/reset-user-password.yml'));
+    await user.click(screen.getByRole('button', { name: 'ปิด' }));
+    expect(screen.queryByTestId('reset-help')).toBeNull();
   });
 });
 
