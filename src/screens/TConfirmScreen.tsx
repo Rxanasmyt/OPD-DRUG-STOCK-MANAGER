@@ -30,7 +30,11 @@ export default function TConfirmScreen() {
       if (!m) return null;
       let need = state.cart[id];
       const used = state.lots
-        .filter((l) => l.medId === id && l.qty > 0)
+        // Bug fix (audit finding): commitTransfer never draws from an already-expired lot
+        // (`!(l.exp && l.exp <= now)`), but this "what will be drawn" preview used to list one
+        // FIRST (soonest exp) — a pharmacist could physically pull the expired lot while the commit
+        // logs/deducts the next one. Mirror the commit's own filter so the preview matches reality.
+        .filter((l) => l.medId === id && l.qty > 0 && !(l.exp && l.exp <= Date.now()))
         // Bug fix (FEFO correctness): matches commitTransfer's own fallback — a lot missing
         // `exp` used to produce NaN here (Array.sort with a NaN comparator is unspecified), which
         // could make this "what will be drawn" preview silently disagree with what the commit

@@ -63,3 +63,23 @@ describe('TConfirmScreen — empty-cart dead end', () => {
     expect(screen.queryByRole('button', { name: /ยืนยันการเติมหน้างาน/ })).not.toBeInTheDocument();
   });
 });
+
+describe('TConfirmScreen — FEFO preview skips expired lots like commitTransfer does', () => {
+  it('previews the next valid lot instead of an already-expired one that sorts first', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><SeedCart /><TConfirmScreen /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    await waitFor(() => expect(hasListener('lots')).toBe(true));
+    fireCollection('lots', [
+      { id: 'lExpired', medId: MED.id, qty: 50, lotNo: 'EXPIRED-LOT', exp: Date.now() - 86400000 },
+      { id: 'lGood', medId: MED.id, qty: 100, lotNo: 'GOOD-LOT', exp: Date.now() + 90 * 86400000 },
+    ]);
+    await screen.findByText(MED.name);
+    void user;
+    // Without the fix the expired lot sorts first and is shown as the source of the draw.
+    expect(screen.getByText(/GOOD-LOT/)).toBeInTheDocument();
+    expect(screen.queryByText(/EXPIRED-LOT/)).not.toBeInTheDocument();
+  });
+});

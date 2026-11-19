@@ -2740,6 +2740,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (expMs != null && daysUntil(expMs) < 0 && !(await confirmAsync(
       'วันหมดอายุที่กรอก (' + thDate(expMs) + ') เป็นวันที่ผ่านไปแล้ว — ยานี้เพิ่งรับเข้าใหม่วันนี้ พิมพ์วันถูกต้องแล้วใช่ไหม?'
     ))) return;
+    // Bug fix (audit finding): the check above only catches a date in the PAST. A transposed or
+    // extra-digit year the other way (2072 for 2027, or a 5-digit year the date input accepts)
+    // sailed through with no prompt — that lot then sorts LAST in FEFO forever, never shows as
+    // near-expiry, and drops out of every expiry-risk report, while the real batch behind it is
+    // picked later than it should be. No drug's shelf life is anywhere near 10 years.
+    if (expMs != null && !Number.isNaN(expMs) && daysUntil(expMs) > 3650 && !(await confirmAsync(
+      'วันหมดอายุที่กรอก (' + thDate(expMs) + ') อีกเกิน 10 ปีข้างหน้า — น่าจะพิมพ์ปีผิด พิมพ์วันถูกต้องแล้วใช่ไหม?'
+    ))) return;
     // Same typo-safety-net idea as the expiry check above, sized off this med's own par — a
     // fat-fingered extra digit in the quantity (digitsOnly only caps total length, not
     // plausibility) sails into a committed lot otherwise, unlike the equivalent count flows.
@@ -2786,6 +2794,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const missingMed = items.some((it) => !state.meds.find((x) => x.id === it.medId));
     if (missingMed) { toast('มีรายการที่ถูกลบออกจากระบบไปแล้ว — กลับไปลบรายการนั้นออกจากรายการรับเข้าก่อน'); return; }
     let committed = 0;
+    // Bug fix (audit finding — retry double-receive): the rows that have already landed in
+    // Firestore. On a partial failure state.recvItems used to stay intact, so pressing "บันทึก"
+    // again re-committed EVERY group — doubling the stock of every group that had succeeded the
+    // first time. The catch block below prunes exactly these rows from the cart so a retry only
+    // sends what is genuinely still missing.
+    const committedItems: typeof items = [];
     // Bug fix (debugging gap, same class as commitReconcile's failedMedName/failedDebug —
     // v3.236.0/v3.238.0): a throw from inside the per-group Promise.all below used to propagate
     // all the way to the outer catch with zero indication of WHICH med/lot group it came from —
@@ -2906,6 +2920,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         await withTimeout(b.commit());
         committed += noSubItems.length;
+        committedItems.push(...noSubItems);
       }
       const substockGroups = new Map<string, { medId: string; lotNo: string | undefined; exp: number | undefined; items: typeof items }>();
       for (const it of items) {
@@ -2917,7 +2932,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const groups = [...substockGroups.values()];
       const CHUNK_SIZE = 15;
       for (let i = 0; i < groups.length; i += CHUNK_SIZE) {
-        await Promise.all(groups.slice(i, i + CHUNK_SIZE).map(async (g) => {
+        // allSettled (not all): Promise.all rejects on the FIRST failure while the other groups'
+        // transactions are still in flight, so the catch below would run (and prune the cart)
+        // before those late successes were recorded — a retry would then double-receive them.
+        const settled = await Promise.allSettled(groups.slice(i, i + CHUNK_SIZE).map(async (g) => {
           try {
             await runTx(async (trx) => {
               const existing = (liveLotsByMed.get(g.medId) || []).find((l) => l.lotNo === g.lotNo && l.exp === g.exp && (l.qty || 0) > 0);
@@ -2952,7 +2970,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             throw e;
           }
           committed += g.items.length;
+          committedItems.push(...g.items);
         }));
+        const firstFailure = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+        if (firstFailure) throw firstFailure.reason;
       }
       hapticSuccess();
       setState((st) => ({
@@ -2965,7 +2986,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // same partial-progress behavior commitReconcile's own catch block already surfaces this
       // way (see its own comment). `committed` counts cart ROWS (items), not groups, so this
       // matches what the person actually typed in, not an internal implementation detail.
-      toastErr(e, 'บันทึกใบรับไม่สำเร็จ' + (failedMedName ? ' (ยา: ' + failedMedName + ')' : '') + (committed > 0 ? ' — รับเข้าไปแล้ว ' + committed + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง'));
+      if (committedItems.length) setState((st) => ({ ...st, recvItems: st.recvItems.filter((it) => !committedItems.includes(it)) }));
+      toastErr(e, 'บันทึกใบรับไม่สำเร็จ' + (failedMedName ? ' (ยา: ' + failedMedName + ')' : '') + (committed > 0 ? ' — รับเข้าไปแล้ว ' + committed + ' รายการ (ตัดออกจากรายการนี้ให้แล้ว กดบันทึกซ้ำจะส่งเฉพาะรายการที่เหลือ) ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง'));
     }
   }), [state.recvItems, state.recvNo, state.myUid, state.meds, userName, toastErr, logAudit, guardOnce, runTx]);
 

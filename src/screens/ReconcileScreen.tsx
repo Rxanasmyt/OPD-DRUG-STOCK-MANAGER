@@ -24,7 +24,7 @@ const MISS_REASON_BADGE: Record<'not_in_file' | 'ambiguous', { label: string; co
 };
 
 export default function ReconcileScreen() {
-  const { state, setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, toast, go, setMedsFocusId } = useApp();
+  const { state, processHosxpFile, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, toast, go, setMedsFocusId } = useApp();
 
   // Real-world request: "เพื่อนำไปสู่การแก้ไขปัญหายาที่อาจจะยังมีปัญหาครับ"/"สามารถเชื่อมโยงปัญหานั่น
   // ไปแก้ปัญหาจริงได้" — a miss-reasons row used to just explain what's wrong with no way to act
@@ -219,7 +219,7 @@ export default function ReconcileScreen() {
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
       <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 12 }}>
-        วิธีหลักในการตัดยอดหน้างาน — ใช้เป็นประจำทุกวัน เร็วกว่าการนับสต็อกจริง แนบไฟล์รายงานการใช้ยาจาก HOSxP (.xls/.xlsx) ของ<b>เมื่อวาน</b>โดยตรง (ถ้าเป็นเช้าวันจันทร์หลังวันหยุดสุดสัปดาห์ ครอบคลุมศุกร์-เสาร์-อาทิตย์ได้ตามจริง — ระบุช่วงวันที่ด้านล่างให้ตรง) หรือวางข้อมูล CSV รูปแบบ "ชื่อยา,จำนวนจ่าย" ในช่องด้านล่าง — ระบบจะตัดยอดหน้างานให้ตรงกับที่จ่ายจริงโดยตรง
+        วิธีหลักในการตัดยอดหน้างาน — ใช้เป็นประจำทุกวัน เร็วกว่าการนับสต็อกจริง แนบไฟล์รายงานการใช้ยาจาก HOSxP (.xls/.xlsx) ของ<b>เมื่อวาน</b>โดยตรง (ถ้าเป็นเช้าวันจันทร์หลังวันหยุดสุดสัปดาห์ ครอบคลุมศุกร์-เสาร์-อาทิตย์ได้ตามจริง — ระบุช่วงวันที่ด้านล่างให้ตรง) — ระบบจะตัดยอดหน้างานให้ตรงกับที่จ่ายจริงโดยตรง
       </div>
 
       {lastCoveredTo ? (
@@ -257,21 +257,10 @@ export default function ReconcileScreen() {
       <button
         onClick={() => fileInputRef.current?.click()}
         className="btn-primary"
-        style={{ width: '100%', padding: 11, borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 46, marginBottom: 10 }}
+        style={{ width: '100%', padding: 11, borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 46, marginBottom: 14 }}
       >
         📎 แนบไฟล์ HOSxP ของเมื่อวาน (.xls/.xlsx)
       </button>
-      <div className="muted" style={{ fontSize: 11, textAlign: 'center', marginBottom: 10 }}>— หรือวางข้อความด้านล่าง —</div>
-      <textarea
-        value={state.hosxpText}
-        onChange={(e) => setHosxpText(e.target.value)}
-        placeholder={'วางข้อมูลจากไฟล์ HOSxP รูปแบบ "ชื่อยา,จำนวนที่จ่าย" บรรทัดละ 1 รายการ เช่น\nPARACETAMOL 500 mg,340\namlodipine 5 mg,120'}
-        // Bug fix (mobile fit): under 16px, iOS Safari zooms the whole page in the moment
-        // this textarea is focused — pasting/typing HOSxP data on a phone is exactly the
-        // moment the layout should stay put, not zoom out from under the person typing.
-        style={{ width: '100%', minHeight: 120, border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 16, fontFamily: 'ui-monospace, monospace', resize: 'vertical', marginBottom: 10 }}
-      />
-      <button onClick={processHosxp} className="btn-primary" style={{ width: '100%', padding: 11, borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 46, marginBottom: 14 }}>ประมวลผล</button>
 
       {reconcileRows.length > 0 && (
         <>
