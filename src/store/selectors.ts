@@ -1,4 +1,4 @@
-import type { AppState, HosxpMatch, Lot, Med, MedId, Role, Ward, Tx, TxType, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord } from '../types';
+import type { AppState, HosxpMatch, Lot, Med, MedId, Role, Ward, Tx, TxType, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord, DayMissKind, ReconcileMonthDay } from '../types';
 import { asMedId } from '../types';
 import { DAY, daysUntil, isoDate, nf } from '../utils/format';
 import { UNCATEGORIZED, DRUG_CATEGORIES, categoryLabel } from '../data/categories';
@@ -1121,6 +1121,67 @@ export function hosxpMissReasons(meds: Med[], rows: { name: string; qty: number;
     result.push({ med: m, reason: { kind: 'not_in_file' } });
   }
   return result;
+}
+
+/** One parsed 'hosxp_day_report' audit entry (see AuditType in types.ts for the note format). */
+export interface HosxpDayReport {
+  ts: number;
+  fromIso: string;
+  toIso: string;
+  reasons: Map<string, DayMissKind>; // key: med name
+  unmatchedNames: string[];
+  /** Row count : total qty : first name of the file this run committed ('' for a pasted batch). */
+  fingerprint: string;
+}
+
+export function parseHosxpDayReport(note: string, ts: number): HosxpDayReport | null {
+  const lines = note.split('\n');
+  const range = /^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/.exec((lines[1] || '').trim());
+  if (!range) return null;
+  const reasons = new Map<string, DayMissKind>();
+  for (const entry of (lines[2] || '').split(' | ').map((x) => x.trim()).filter(Boolean)) {
+    const m = /^\[(zero_qty|not_in_file|ambiguous)\]\s*(.+)$/.exec(entry);
+    if (m) reasons.set(m[2], m[1] as DayMissKind);
+  }
+  const unmatchedNames = (lines[3] || '').split(' | ').map((x) => x.trim()).filter(Boolean);
+  return { ts, fromIso: range[1], toIso: range[2], reasons, unmatchedNames, fingerprint: (lines[4] || '').trim() };
+}
+
+/** Builds every calendar day of `monthIso` ('YYYY-MM') for ReconcileScreen's attach calendar:
+ * which days a HOSxP file covers, which have none, and — for days where a regularly-dispensed med
+ * got no deduction — WHY (from the persisted per-run reports; 'unknown' when none explains it).
+ * Weekends with no coverage are 'weekend' (this hospital never reconciles them); a weekend a
+ * Monday catch-up file DID cover shows as attached like any other day. `deductedByDay` maps a
+ * calendar day to the med ids deducted for it (every day a tx's coveredFrom..coveredTo spans). */
+export function buildReconcileMonth(args: {
+  monthIso: string;
+  todayIso: string;
+  deductedByDay: Map<string, Set<string>>;
+  regularMeds: Med[];
+  reports: HosxpDayReport[];
+}): ReconcileMonthDay[] {
+  const { monthIso, todayIso, deductedByDay, regularMeds, reports } = args;
+  const [y, mo] = monthIso.split('-').map(Number);
+  const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  const out: ReconcileMonthDay[] = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateIso = monthIso + '-' + String(d).padStart(2, '0');
+    const wd = new Date(dateIso + 'T12:00:00+07:00').getUTCDay();
+    const isWeekend = wd === 0 || wd === 6;
+    if (dateIso > todayIso) { out.push({ dateIso, status: 'future', deductedCount: 0, missing: [], unmatchedNames: [] }); continue; }
+    const deducted = deductedByDay.get(dateIso);
+    if (dateIso === todayIso && !deducted) { out.push({ dateIso, status: 'today', deductedCount: 0, missing: [], unmatchedNames: [] }); continue; }
+    if (!deducted) {
+      out.push({ dateIso, status: isWeekend ? 'weekend' : 'missing', deductedCount: 0, missing: [], unmatchedNames: [] });
+      continue;
+    }
+    const covering = reports.filter((r) => r.fromIso <= dateIso && dateIso <= r.toIso).sort((a, b) => b.ts - a.ts)[0];
+    const missing = regularMeds
+      .filter((m) => !deducted.has(m.id))
+      .map((m) => ({ med: m, reason: (covering?.reasons.get(m.name) ?? 'unknown') as DayMissKind }));
+    out.push({ dateIso, status: missing.length ? 'partial' : 'attached', deductedCount: deducted.size, missing, unmatchedNames: covering?.unmatchedNames ?? [] });
+  }
+  return out;
 }
 
 // Real-world request (this round): "การโชว์แสดง min max par ให้โชว์ตัวเลขจริงๆที่คำนวนได้จริง แต่

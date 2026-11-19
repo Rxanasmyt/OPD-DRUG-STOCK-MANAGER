@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as XLSX from 'xlsx';
-import { parseUsageCsvText, parseUsageCsvTextWithSkipped, parseHosxpUsageWorkbook } from './usageImport';
+import { parseUsageCsvText, parseUsageCsvTextWithSkipped, parseHosxpUsageWorkbook, detectDateRange } from './usageImport';
 
 // Builds a minimal in-memory .xlsx workbook (same shape parseHosxpUsageWorkbook reads via
 // XLSX.read) from plain header/data rows, so these tests exercise the real header-detection
@@ -141,5 +141,33 @@ describe('parseHosxpUsageWorkbook', () => {
     const { rows, skipped } = await parseHosxpUsageWorkbook(buf);
     expect(rows).toEqual([{ name: 'Drug B 20 mg แคปซูล', qty: 15 }]);
     expect(skipped).toBe(2);
+  });
+});
+
+describe('detectDateRange — the date a HOSxP report states about itself', () => {
+  it('reads a Buddhist-era dd/mm/yyyy range and converts it to CE ISO dates', () => {
+    expect(detectDateRange(['รายงานการใช้ยา ตั้งแต่วันที่ 18/11/2569 ถึงวันที่ 18/11/2569'])).toEqual({ from: '2026-11-18', to: '2026-11-18' });
+  });
+  it('returns min..max across several dates and several cells', () => {
+    expect(detectDateRange(['วันที่ 14-11-2569', 'ถึง 16.11.2569'])).toEqual({ from: '2026-11-14', to: '2026-11-16' });
+  });
+  it('accepts ISO and CE dates too', () => {
+    expect(detectDateRange(['2026-11-18'])).toEqual({ from: '2026-11-18', to: '2026-11-18' });
+    expect(detectDateRange(['18/11/2026'])).toEqual({ from: '2026-11-18', to: '2026-11-18' });
+  });
+  it('returns null when no date can be read, and ignores impossible dates', () => {
+    expect(detectDateRange(['รายงานการใช้ยา', 'หน้า 1/3'])).toBeNull();
+    expect(detectDateRange(['31/02/2569'])).toBeNull();
+  });
+});
+
+describe('parseHosxpUsageWorkbook — reports the date range from its title rows', () => {
+  it('finds the range above the header row, and null when the file states none', async () => {
+    const header = ['No.', 'รายการยา', 'ความแรง', 'หน่วย', 'จำนวนใบสั่งยา', 'จำนวนที่ใช้'];
+    const withDate = await parseHosxpUsageWorkbook(workbookBuffer([['รายงานการใช้ยา'], ['วันที่ 18/11/2569 - 18/11/2569'], header, [1, 'Paracetamol', '500 mg', 'เม็ด', 3, 40]]));
+    expect(withDate.dateRange).toEqual({ from: '2026-11-18', to: '2026-11-18' });
+    expect(withDate.rows).toHaveLength(1);
+    const without = await parseHosxpUsageWorkbook(workbookBuffer([['รายงานการใช้ยา'], header, [1, 'Paracetamol', '500 mg', 'เม็ด', 3, 40]]));
+    expect(without.dateRange).toBeNull();
   });
 });

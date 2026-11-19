@@ -4,6 +4,7 @@ import { wardOf, hosxpMissReasons, isRegularlyDispensed, lastReconcileCoveredToI
 import { nf, thDate, isoDate, bangkokWeekday } from '../utils/format';
 import type { HosxpMatch, Med, MedId, ReconcileGapDay } from '../types';
 import { Badge } from '../components/Badge';
+import ReconcileCalendar from './ReconcileCalendar';
 
 // Real-world request: "ป้องกันการหลุดยาที่มีในระบบแต่ไม่ได้ถูกตัดจำนวนยา และป้องกันการหลุดวันที่
 // ยังไม่ได้แนบไฟล์" — how far back fetchReconcileGaps (AppContext.tsx) looks every time this
@@ -261,6 +262,27 @@ export default function ReconcileScreen() {
       >
         📎 แนบไฟล์ HOSxP ของเมื่อวาน (.xls/.xlsx)
       </button>
+
+      {/* Wrong-day check: what the attached file says about itself next to the date range about to
+          be deducted. The same facts are asked again in commitReconcile's confirm dialog. */}
+      {state.hosxpFileInfo && (() => {
+        const fi = state.hosxpFileInfo!;
+        const fr = fi.dateRange;
+        const match = !!fr && fr.from === state.hosxpCoveredFrom && fr.to === state.hosxpCoveredTo;
+        const tone = !fr ? 'amber' : match ? 'green' : 'red';
+        const bg = tone === 'green' ? 'var(--green-tint)' : tone === 'amber' ? 'var(--amber-bg)' : 'var(--red-bg)';
+        const color = tone === 'green' ? 'var(--green)' : tone === 'amber' ? 'var(--amber-ink)' : 'var(--red)';
+        return (
+          <div data-testid="hosxp-file-verify" style={{ background: bg, color, borderRadius: 10, padding: '10px 13px', marginBottom: 12, fontSize: 12.5, lineHeight: 1.6, fontWeight: 600 }}>
+            <div>ไฟล์: {fi.name} · {nf(fi.rowCount)} รายการ</div>
+            {!fr && <div>ℹ ไฟล์นี้ไม่ได้ระบุวันที่ไว้ในตัวไฟล์ — ตรวจช่วงวันที่ด้านล่างให้ตรงกับรายงานที่ดึงมา ก่อนกดตัดยอด</div>}
+            {fr && match && <div>✓ วันที่ที่ไฟล์ระบุ ({fr.from === fr.to ? fr.from : fr.from + ' ถึง ' + fr.to}) ตรงกับช่วงที่จะตัดยอด</div>}
+            {fr && !match && <div>⚠ ไฟล์ระบุวันที่ {fr.from === fr.to ? fr.from : fr.from + ' ถึง ' + fr.to} แต่ช่วงที่จะตัดยอดคือ {state.hosxpCoveredFrom} ถึง {state.hosxpCoveredTo} — ไม่ตรงกัน ตรวจให้แน่ใจว่าเป็นไฟล์ของวันที่ถูกต้อง</div>}
+          </div>
+        );
+      })()}
+
+      <ReconcileCalendar onFixMed={goFixMed} />
 
       {reconcileRows.length > 0 && (
         <>
