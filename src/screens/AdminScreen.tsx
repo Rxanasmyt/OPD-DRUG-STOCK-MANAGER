@@ -81,8 +81,8 @@ export default function AdminScreen() {
     if (!countTsIssues?.length) return;
     setRepairingCountTs(true);
     try {
-      await repairMedCountTsIssues(countTsIssues);
-      setCountTsIssues([]);
+      // Only clear the list when the repair really landed — on failure keep it so the admin can retry.
+      if (await repairMedCountTsIssues(countTsIssues)) setCountTsIssues([]);
     } finally {
       setRepairingCountTs(false);
     }
