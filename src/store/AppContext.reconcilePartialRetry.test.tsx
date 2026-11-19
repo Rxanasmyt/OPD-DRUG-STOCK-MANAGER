@@ -109,19 +109,30 @@ describe('commitReconcile — partial-failure retry regression (no double-deduct
   });
 });
 
+// The paste-text box was removed from ReconcileScreen (only file attach is used in practice), so
+// this drives the same setHosxpText()/processHosxp() pair the file-attach path ends up in.
+function FeedHosxp() {
+  const { setHosxpText, processHosxp } = useApp();
+  return (
+    <>
+      <button onClick={() => setHosxpText('Amoxicillin 500mg,10\nParacetamol 500mg,5')}>feed-text</button>
+      <button onClick={processHosxp}>feed-process</button>
+    </>
+  );
+}
+
 describe('ReconcileScreen — already-applied row indicator regression', () => {
   it('shows "✓ ตัดยอดแล้ว" for the row that already succeeded, and the normal preview for the one still pending', async () => {
     const user = userEvent.setup();
-    renderWithApp(<><ReconcileScreen /><Toast /><ConfirmDialog /></>);
+    renderWithApp(<><FeedHosxp /><ReconcileScreen /><Toast /><ConfirmDialog /></>);
     await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
     fireCollection('meds', [MED_A, MED_B]);
     await waitFor(() => expect(hasListener('txs')).toBe(true));
     fireCollection('txs', []);
 
-    const textarea = screen.getByPlaceholderText(/วางข้อมูลจากไฟล์ HOSxP/);
-    await user.type(textarea, 'Amoxicillin 500mg,10{Enter}Paracetamol 500mg,5');
-    await user.click(screen.getByRole('button', { name: 'ประมวลผล' }));
+    await user.click(screen.getByRole('button', { name: 'feed-text' }));
+    await user.click(screen.getByRole('button', { name: 'feed-process' }));
     await screen.findByRole('button', { name: /ตัดยอดหน้างานตามไฟล์นี้/ });
     seedDoc('meds/m1', { floor: MED_A.floor });
     seedDoc('meds/m2', { floor: MED_B.floor });

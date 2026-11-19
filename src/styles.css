@@ -423,8 +423,12 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
    monitor". Still a capped single column (not full-bleed): unbounded width on an ultra-wide
    monitor would stretch list rows into unreadably long lines with no 2nd column to fill the
    space — this app's screens were never laid out for that. */
+/* Real-world request (desktop screenshot, "ปรับหน้าจอให้เต็มโปรแกรม"): even the 1180px cap above
+   still left wide empty bands on a 1920px monitor. At desktop widths the shell now fills the whole
+   window (header, content and the floating bottom nav all span it). BottomSheet keeps its own
+   560px max-width on purpose, so forms/dialogs don't stretch into unreadably long lines. */
 @media (min-width: 1200px) {
-  .app-shell { max-width: 1180px; }
+  .app-shell { max-width: none; margin: 0; box-shadow: none; }
 }
 
 /* Confirmed live at 320px (iPhone SE / budget-Android class width, the narrowest this PWA

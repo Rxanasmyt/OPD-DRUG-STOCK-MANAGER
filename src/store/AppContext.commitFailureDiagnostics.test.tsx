@@ -124,5 +124,10 @@ describe('commitReceive — unexpected-failure toast names the failing med', () 
     // the toast names medB specifically (the one actually rejected), not a fully anonymous
     // fallback and not medA (which never failed).
     await screen.findByText(new RegExp('บันทึกใบรับไม่สำเร็จ \\(ยา: ' + medB.name + '\\).*permission-denied'));
+
+    // Retry-double-receive regression: medA's group already landed in Firestore, so it must be
+    // pruned from the list — otherwise pressing "บันทึก" again would receive medA a second time.
+    // Only the row that actually failed (medB) stays for the retry.
+    await waitFor(() => expect(screen.getByTestId('recvItemCount').textContent).toBe('1'));
   });
 });

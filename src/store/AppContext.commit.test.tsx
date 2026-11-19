@@ -734,7 +734,11 @@ describe('commitReceive — recvNo reset regression', () => {
     // buckets). Two real-clock reads taken milliseconds apart in a fast test can
     // coincidentally land in the same bucket, so Date.now is pinned to two values
     // whose % 9 differ to make the before/after comparison deterministic.
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1000); // 1000 % 9 === 1
+    // Pinned near the REAL current time (not a tiny epoch-ish number): addRecv now also confirms an
+    // expiry more than 10 years away, and a 1970 "now" would make the harness's 2027 expiry look
+    // 57 years out. Rounded down to a multiple of 9, plus 1 / plus 2, to keep the % 9 buckets distinct.
+    const baseNow = Math.floor(Date.now() / 9) * 9;
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(baseNow + 1); // % 9 === 1
     const user = userEvent.setup();
     renderWithApp(<ReceiveHarness />);
     await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
@@ -746,7 +750,7 @@ describe('commitReceive — recvNo reset regression', () => {
 
     const recvNoBefore = screen.getByTestId('recvNo').textContent;
 
-    nowSpy.mockReturnValue(2000); // 2000 % 9 === 2, guaranteed different bucket
+    nowSpy.mockReturnValue(baseNow + 2); // % 9 === 2, guaranteed different bucket
     try {
       await user.click(screen.getByRole('button', { name: 'commit-receive' }));
       await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));
@@ -1581,6 +1585,23 @@ describe('addRecv — past-expiry-date regression', () => {
     await user.click(screen.getByRole('button', { name: 'add-recv' }));
     await waitFor(() => expect(screen.getByTestId('itemCount').textContent).toBe('1'));
     expect(screen.queryByText(/เป็นวันที่ผ่านไปแล้ว/)).not.toBeInTheDocument();
+  });
+});
+
+describe('addRecv — far-future-expiry-date regression', () => {
+  it('asks for confirmation before adding a lot whose expiry is more than 10 years away, and blocks on cancel', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ReceivePlausibilityHarness exp="2072-01-01" qty="10" /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED]);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'add-recv' })).not.toBeDisabled());
+
+    await user.click(screen.getByRole('button', { name: 'add-recv' }));
+    await screen.findByText(/อีกเกิน 10 ปีข้างหน้า/);
+    await user.click(screen.getByRole('button', { name: 'ยกเลิก' }));
+
+    expect(screen.getByTestId('itemCount').textContent).toBe('0');
   });
 });
 
