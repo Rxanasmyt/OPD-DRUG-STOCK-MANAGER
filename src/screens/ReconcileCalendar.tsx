@@ -3,6 +3,7 @@ import { useApp } from '../store/AppContext';
 import { isoDate } from '../utils/format';
 import type { DayMissKind, MedId, ReconcileMonthDay, ReconcileMonthStatus } from '../types';
 import { Badge } from '../components/Badge';
+import { MissDiagnosis } from './MissDiagnosis';
 
 const TH_MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
 const TH_WEEKDAYS = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
@@ -145,10 +146,16 @@ export function ReconcileDayDetail({ day, onFixMed }: { day: ReconcileMonthDay; 
                         <span style={{ fontSize: 13, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{med.name}</span>
                         <Badge flexNone size={10.5} padding="2px 7px" color={r.color} bg={r.bg}>{r.badge}</Badge>
                       </div>
-                      <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.55, marginTop: 4 }}>{r.text}</div>
-                      {r.fixable && (
-                        <button onClick={() => onFixMed(med.id)} className="btn-outline" style={{ marginTop: 6, minHeight: 36, padding: '6px 10px', borderRadius: 8, fontSize: 12 }}>ไปแก้ชื่อยานี้</button>
-                      )}
+                      {reason === 'not_in_file' || reason === 'unknown'
+                        ? <MissDiagnosis med={med} fileNames={day.unmatchedNames} onFixMed={onFixMed} />
+                        : (
+                          <>
+                            <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.55, marginTop: 4 }}>{r.text}</div>
+                            {r.fixable && (
+                              <button onClick={() => onFixMed(med.id)} className="btn-outline" style={{ marginTop: 6, minHeight: 36, padding: '6px 10px', borderRadius: 8, fontSize: 12 }}>ไปแก้ชื่อยานี้</button>
+                            )}
+                          </>
+                        )}
                     </div>
                   );
                 })}

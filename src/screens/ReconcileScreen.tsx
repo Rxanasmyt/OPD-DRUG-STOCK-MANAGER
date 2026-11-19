@@ -5,6 +5,7 @@ import { nf, thDate, isoDate, bangkokWeekday } from '../utils/format';
 import type { HosxpMatch, Med, MedId, ReconcileGapDay, ReconcileMonthDay } from '../types';
 import { Badge } from '../components/Badge';
 import ReconcileCalendar, { ReconcileDayDetail } from './ReconcileCalendar';
+import { MissDiagnosis } from './MissDiagnosis';
 
 // Real-world request: "ป้องกันการหลุดยาที่มีในระบบแต่ไม่ได้ถูกตัดจำนวนยา และป้องกันการหลุดวันที่
 // ยังไม่ได้แนบไฟล์" — how far back fetchReconcileGaps (AppContext.tsx) looks every time this
@@ -158,6 +159,21 @@ export default function ReconcileScreen() {
       }
     }
     return Array.from(counts.values()).sort((a, b) => b.count - a.count || b.lastTs - a.lastTs).slice(0, 10);
+  }, [state.authLog]);
+
+  // File names that matched no med in recent runs (from the 'hosxp_unmatched' audit entries) —
+  // the pool MissDiagnosis compares a missed med against, so "ไม่พบในไฟล์" can be explained as
+  // either "the file spells it differently (here's how)" or "nothing resembles it".
+  const recentUnmatchedNames = useMemo(() => {
+    const out: string[] = [];
+    const seenN = new Set<string>();
+    for (const e of state.authLog) {
+      if (e.type !== 'hosxp_unmatched') continue;
+      for (const n of (e.note.split('\n')[1] || '').split(' | ').map((x) => x.trim()).filter(Boolean)) {
+        if (!seenN.has(n)) { seenN.add(n); out.push(n); }
+      }
+    }
+    return out;
   }, [state.authLog]);
 
   // Real-world request: "ตรวจสอบว่าไหนที่ยังไม่ถูกตัดจำนวนยาที่ใช้ เนื่องจากอาจเกิดจากความผิดพลาด
@@ -355,18 +371,11 @@ export default function ReconcileScreen() {
                     </div>
                     <div className="muted" style={{ fontSize: 11, lineHeight: 1.5 }}>
                       {reason.kind === 'zero_qty' && 'พบในไฟล์ HOSxP แล้ว แต่จำนวนจ่าย = 0 จึงไม่ตัดยอด — ไม่ใช่ปัญหา'}
-                      {reason.kind === 'not_in_file' && 'ไม่พบชื่อยานี้ในไฟล์ HOSxP เลย (แม้แต่ชื่อใกล้เคียง) — ถ้าวันนี้มีจ่ายยาตัวนี้จริง ควรกลับไปตรวจสอบว่าไฟล์ดึงข้อมูลมาครบหรือไม่'}
                       {reason.kind === 'ambiguous' && reason.wardClash && `พบชื่อ "${reason.fileText}" ในไฟล์ แต่ยานี้มีทั้งชั้น OPD และ IPD ชื่อเดียวกัน — HOSxP บอกไม่ได้ว่าจ่ายจากฝั่งไหน ต้องปรับยอดด้วยมือแยกราย ward`}
                       {reason.kind === 'ambiguous' && !reason.wardClash && `พบชื่อ "${reason.fileText}" ในไฟล์ แต่ตรงกับยาหลายรายการ (${reason.otherNames.join(', ')}) — ระบบแยกไม่ได้ว่าหมายถึงตัวไหน ต้องปรับยอดด้วยมือ`}
                     </div>
                     {reason.kind === 'not_in_file' && (
-                      <button
-                        type="button"
-                        onClick={() => goFixMed(med.id)}
-                        style={{ marginTop: 6, fontSize: 11, fontWeight: 600, color: 'var(--green)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
-                      >
-                        แก้ไขชื่อยา/เพิ่มชื่อ HOSxP ที่รู้จัก →
-                      </button>
+                      <MissDiagnosis med={med} fileNames={reconcileRows.filter((r) => !r.med).map((r) => r.fileText)} onFixMed={goFixMed} />
                     )}
                   </div>
                 ))}
@@ -531,23 +540,16 @@ export default function ReconcileScreen() {
                         <Badge flexNone size={11} padding="2px 8px" color="var(--red)" bg="var(--red-bg)">{u.count} ครั้ง</Badge>
                         <span className="muted" style={{ flex: 'none', fontSize: 11 }}>ล่าสุด {thDate(u.lastTs)}</span>
                       </div>
-                      {liveMed && (
-                        <button
-                          type="button"
-                          onClick={() => goFixMed(liveMed.id)}
-                          style={{ marginTop: 4, fontSize: 11, fontWeight: 600, color: 'var(--green)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
-                        >
-                          แก้ไขชื่อยา/เพิ่มชื่อ HOSxP ที่รู้จัก →
-                        </button>
-                      )}
+                      {liveMed && <MissDiagnosis med={liveMed} fileNames={recentUnmatchedNames} onFixMed={goFixMed} />}
                     </div>
                   );
                 })}
               </div>
               <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 6 }}>
                 ยานี้มาจากประวัติการตัดยอดจริง (ไม่ใช่แค่ไฟล์ล่าสุด) — ตัวที่ขึ้น "ต้องตรวจสอบ" ซ้ำๆ มักเป็น
-                ยาชื่อเดียวกันระหว่าง OPD/IPD ที่จับคู่ไม่ได้ว่าเป็นฝั่งไหน ส่วนตัวที่ขึ้น "ไม่พบในไฟล์" ซ้ำๆ
-                ควรลองเช็คชื่อในไฟล์ HOSxP จริงกับชื่อในแอพอีกครั้ง
+                ยาชื่อเดียวกันระหว่าง OPD/IPD ที่จับคู่ไม่ได้ว่าเป็นฝั่งไหน ส่วนตัวที่ขึ้น "ไม่พบในไฟล์" ระบบเทียบชื่อ
+                กับรายชื่อที่จับคู่ไม่ได้ในไฟล์ล่าสุดให้แล้ว: ถ้ามีชื่อคล้ายจะบอกว่าต่างกันตรงไหนและเพิ่มชื่อได้ในคลิกเดียว
+                ถ้าไม่มีชื่อคล้ายเลย แปลว่าส่วนใหญ่วันนั้นไม่มีการจ่ายยานี้
               </div>
             </div>
           )}

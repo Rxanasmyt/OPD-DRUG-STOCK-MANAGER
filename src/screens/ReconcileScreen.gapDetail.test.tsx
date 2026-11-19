@@ -53,6 +53,6 @@ describe('ReconcileScreen — gap list per-med reasons', () => {
     const detail = await screen.findByTestId('reconcile-day-detail');
     expect(detail).toHaveTextContent('Amlodipine 5mg');
     expect(detail).toHaveTextContent('ไม่ทราบสาเหตุ');
-    expect(screen.getAllByRole('button', { name: 'ไปแก้ชื่อยานี้' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: /แก้ไขชื่อยา\/เพิ่มชื่อ HOSxP ที่รู้จัก/ }).length).toBeGreaterThan(0);
   });
 });
