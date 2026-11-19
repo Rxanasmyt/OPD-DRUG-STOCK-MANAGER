@@ -11,7 +11,7 @@ import { MedMiniCard } from '../components/MedMiniCard';
 import { EmptyState } from '../components/EmptyState';
 import { StepIndicator, TRANSFER_STEPS } from '../components/StepIndicator';
 import { SearchInput } from '../components/SearchInput';
-import { DRUG_CATEGORIES } from '../data/categories';
+import { CategoryPicker } from '../components/CategoryPicker';
 import { WEEKDAY_CLINICS } from '../data/clinics';
 import { ROUTES, routeGroupLabel } from '../data/routes';
 import StockHoldBanner from '../components/StockHoldBanner';
@@ -268,12 +268,7 @@ export default function TransferScreen() {
         </div>
         {/* หมวดกลุ่มยา — คนละมิติกับตัวกรอง low/all/had ด้านบน ใช้ร่วมกันได้ ให้เลือกดูเฉพาะกลุ่มที่
             จ่ายออกเยอะทุกวันแยกจากกลุ่มที่ใช้นาน ๆ ครั้งได้ ไม่ต้องไล่สายตาผ่านทั้งฟอร์มมิวลารี */}
-        <div className="scroll-fade-x" style={{ display: 'flex', gap: 7, marginTop: 8, overflowX: 'auto', paddingBottom: 2 }}>
-          <button className="chip" style={chip(catTab === 'all')} onClick={() => setCatTab('all')}>ทุกหมวด</button>
-          {DRUG_CATEGORIES.map((c) => catCounts[c.id] ? (
-            <button key={c.id} className="chip" style={chip(catTab === c.id)} onClick={() => setCatTab(c.id)}>{c.label} ({catCounts[c.id]})</button>
-          ) : null)}
-        </div>
+        <CategoryPicker value={catTab} onChange={setCatTab} counts={catCounts} total={Object.values(catCounts).reduce((a, b) => a + b, 0)} />
         {/* ลำดับการแสดง — "ตามชั้นวาง" คือลำดับสำหรับเดินหยิบของจริงรอบเดียวจบ ไม่ต้องเดินย้อนไปมา */}
         <div className="scroll-fade-x" style={{ display: 'flex', gap: 7, marginTop: 8, overflowX: 'auto', paddingBottom: 2 }}>
           <span className="muted" style={{ fontSize: 11, flex: 'none', alignSelf: 'center', paddingRight: 2 }}>เรียง:</span>

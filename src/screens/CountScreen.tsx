@@ -3,7 +3,7 @@ import { useApp } from '../store/AppContext';
 import { nf, digitsOnly, parseIntSafe } from '../utils/format';
 import { SearchInput } from '../components/SearchInput';
 import { categoryOf, subQty, usesSubstock, binDisplayAll, daysOfStockLeft } from '../store/selectors';
-import { DRUG_CATEGORIES } from '../data/categories';
+import { CategoryPicker } from '../components/CategoryPicker';
 import { EmptyState } from '../components/EmptyState';
 import { DaysLeftBadge, UsageRateBadge } from '../components/Qty';
 import type { Med, MedId } from '../types';
@@ -214,12 +214,7 @@ export default function CountScreen() {
         <button className="chip" style={{ ...chip(scope === 'never'), flex: 'none' }} onClick={() => setScope('never')}>ยังไม่เคยนับ ({nf(active.length - countedEver)})</button>
         <button className="chip" style={{ ...chip(scope === 'typed'), flex: 'none' }} onClick={() => setScope('typed')}>ที่กรอกไว้ ({nf(typedIds.length)})</button>
       </div>
-      <div className="scroll-fade-x" style={{ display: 'flex', gap: 7, marginBottom: 10, overflowX: 'auto', paddingBottom: 2 }}>
-        <button className="chip" style={{ ...chip(catTab === 'all'), flex: 'none' }} onClick={() => setCatTab('all')}>ทุกหมวด</button>
-        {DRUG_CATEGORIES.map((c) => catCounts[c.id] ? (
-          <button key={c.id} className="chip" style={{ ...chip(catTab === c.id), flex: 'none' }} onClick={() => setCatTab(c.id)}>{c.label} ({catCounts[c.id]})</button>
-        ) : null)}
-      </div>
+      <CategoryPicker value={catTab} onChange={setCatTab} counts={catCounts} total={Object.values(catCounts).reduce((a, b) => a + b, 0)} />
 
       {typedIds.length > 0 && (
         <button

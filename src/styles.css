@@ -777,3 +777,26 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 .rpt-all-info { margin-bottom: 10px; font-size: 11px; }
 .rpt-all-info summary { cursor: pointer; color: var(--muted); text-align: center; }
 @media (prefers-reduced-motion: reduce) { .rpt-tile, .rpt-cat { transition: none; } }
+
+/* ---- CategoryPicker (MedsScreen): one bar + a wrapping grid of colour-coded category tiles ---- */
+.catpick { margin-bottom: 10px; }
+.catpick-bar { display: flex; gap: 8px; align-items: stretch; }
+.catpick-btn { --c: var(--green); flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; text-align: left; min-height: 52px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--border); border-left: 4px solid var(--c); background: var(--bg-card); color: var(--ink); cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .12s; }
+.catpick-btn:hover { box-shadow: var(--shadow-md); }
+.catpick-btn:active { transform: scale(.99); }
+.catpick-ic { font-size: 22px; line-height: 1; flex: none; }
+.catpick-tx { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.catpick-tx small { font-size: 10.5px; color: var(--muted); line-height: 1.2; }
+.catpick-tx b { font-size: 13.5px; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
+.catpick-chev { flex: none; color: var(--muted); transition: transform .2s var(--ease-out, ease-out); }
+.catpick-chev[data-open="true"] { transform: rotate(180deg); }
+.catpick-clear { flex: none; border: 1px solid var(--border); background: var(--bg-card); color: var(--ink); border-radius: 12px; padding: 0 12px; font-size: 12px; font-weight: 600; min-height: 52px; cursor: pointer; }
+.catpick-panel { margin-top: 8px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-card); box-shadow: var(--shadow-md); animation: catpick-in .18s var(--ease-out, ease-out); }
+.catpick-tile { --c: var(--green); display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; text-align: left; min-height: 48px; padding: 7px 10px; border-radius: 11px; border: 1px solid var(--border); border-left: 4px solid var(--c); background: var(--bg-subtle, var(--bg-card)); color: var(--ink); cursor: pointer; transition: background .12s, transform .12s, border-color .12s; }
+.catpick-tile:hover { border-color: var(--c); }
+.catpick-tile:active { transform: scale(.97); }
+.catpick-tile.on { background: var(--c); border-color: var(--c); color: #fff; }
+.catpick-name { font-size: 12.5px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.catpick-n { font-size: 11.5px; font-weight: 700; opacity: .75; }
+@keyframes catpick-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .catpick-panel { animation: none; } .catpick-btn, .catpick-tile, .catpick-chev { transition: none; } }
