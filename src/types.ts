@@ -476,6 +476,13 @@ export type AuditType =
   // way it already does for hosxp_unmatched. See commitReconcile()'s own write site for the
   // exact note format.
   | 'hosxp_miss_reasons'
+  // Logged once per commitReconcile() run (when anything was left undeducted or unmatched): the
+  // covered date range plus EVERY reason a regularly-dispensed med got no deduction — including
+  // zero_qty (which hosxp_miss_reasons above deliberately leaves out) — so ReconcileScreen's month
+  // calendar can say WHY a day's med wasn't cut, long after the file itself is gone. Note format:
+  // line 1 summary, line 2 'YYYY-MM-DD..YYYY-MM-DD', line 3 '[kind] med name | ...', line 4 the raw
+  // file names that matched no med ' | '-joined.
+  | 'hosxp_day_report'
   // Logged once by resetAllStockLedgers() (AppContext.tsx) — the admin-only, typed-confirmation
   // "start the system over" action that permanently deletes every tx document (the substock
   // card ledger, report/turnover stats, usage-rate history for par suggestions) without
@@ -803,6 +810,23 @@ export type ReconcileGapDay =
   | { dateIso: string; kind: 'missing' }
   | { dateIso: string; kind: 'partial'; missingMeds: Med[] };
 
+/** Why a regularly-dispensed med got no deduction for a given calendar day — see
+ * hosxpMissReasons() (selectors.ts) for the first three; 'unknown' means no persisted record
+ * explains it (the run predates 'hosxp_day_report' logging, or the audit window rolled over). */
+export type DayMissKind = 'zero_qty' | 'not_in_file' | 'ambiguous' | 'unknown';
+export type ReconcileMonthStatus = 'attached' | 'partial' | 'missing' | 'weekend' | 'today' | 'future';
+/** One calendar day on ReconcileScreen's month calendar. */
+export interface ReconcileMonthDay {
+  dateIso: string;
+  status: ReconcileMonthStatus;
+  /** How many distinct meds received a HOSxP deduction covering this day. */
+  deductedCount: number;
+  /** Regularly-dispensed meds with no deduction this day, each with the best-known reason. */
+  missing: { med: Med; reason: DayMissKind }[];
+  /** Raw HOSxP file names from the run covering this day that matched NO med in the app. */
+  unmatchedNames: string[];
+}
+
 /** One med whose `lastCountTs` and/or `lastSubCountTs` is present but not a real number — see
  * scanMedCountTsIssues' own doc comment (AppContext.tsx) for how this happens and why it
  * silently breaks every future floor/substock-count commit for that med specifically. */
@@ -967,6 +991,13 @@ export interface AppState {
   // NEW file/paste always starts clean — and persisted alongside hosxpRows itself so this survives
   // a tab crash/reload mid-retry, not just an in-memory retry in the same session.
   hosxpAppliedRowIndexes: number[];
+  /** What the currently-loaded HOSxP FILE says about itself — used to verify it is the right
+   * day's file before it deducts stock (commitReconcile's pre-commit confirm + ReconcileScreen's
+   * verification card). null when the rows came from somewhere with no file (the legacy paste
+   * path) or nothing is loaded. `dateRange` is read from the report's own title rows (null when
+   * the file states no date); `fingerprint` (row count : total qty : first name) lets a re-attach
+   * of the SAME file be recognised against earlier runs' 'hosxp_day_report' audit entries. */
+  hosxpFileInfo: { name: string; rowCount: number; totalQty: number; dateRange: { from: string; to: string } | null; fingerprint: string } | null;
 
   // Import usage totals from a file (a real HOSxP "รายงานการใช้ยา" export, .xls/.xlsx, or a
   // plain "ชื่อยา,จำนวน" CSV) to seed used30 — see suggestPar()/importUsageFile() in

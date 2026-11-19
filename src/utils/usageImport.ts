@@ -16,6 +16,33 @@ function cellText(v: unknown): string {
   return String(v ?? '').trim();
 }
 
+/** The date range a HOSxP report states in its own title rows (above the column header), as ISO
+ * 'YYYY-MM-DD' strings, or null when no date could be read. Accepts dd/mm/yyyy, dd-mm-yyyy and
+ * dd.mm.yyyy (Buddhist-era years like 2569 are converted to CE) and ISO yyyy-mm-dd. With several
+ * distinct dates the range is min..max; a single date means from === to. Used to cross-check the
+ * file against the covered date range the pharmacist chose, so a file from the wrong day is caught
+ * before it deducts stock for the wrong day. */
+export function detectDateRange(texts: string[]): { from: string; to: string } | null {
+  const found = new Set<string>();
+  const re = /(\d{4})-(\d{1,2})-(\d{1,2})|(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})/g;
+  const norm = (y: number, mo: number, d: number): string | null => {
+    const year = y > 2400 ? y - 543 : y;
+    if (year < 2000 || year > 2100 || mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    const dt = new Date(Date.UTC(year, mo - 1, d));
+    if (dt.getUTCMonth() !== mo - 1) return null;
+    return year + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  };
+  for (const t of texts) {
+    for (const m of t.matchAll(re)) {
+      const iso = m[1] ? norm(+m[1], +m[2], +m[3]) : norm(+m[6], +m[5], +m[4]);
+      if (iso) found.add(iso);
+    }
+  }
+  if (!found.size) return null;
+  const sorted = [...found].sort();
+  return { from: sorted[0], to: sorted[sorted.length - 1] };
+}
+
 /**
  * Parses a real HOSxP "รายงานการใช้ยา" export (.xls/.xlsx) — the report a pharmacist actually
  * pulls from HOSxP, not a hand-built CSV. Columns observed in practice: No. / รายการยา /
@@ -35,11 +62,11 @@ function cellText(v: unknown): string {
  * used import path needs — dynamically imported here instead of at module scope, so it's a
  * separate lazily-fetched chunk rather than weight every single page load pays up front.
  */
-export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<{ rows: RawUsageRow[]; skipped: number }> {
+export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<{ rows: RawUsageRow[]; skipped: number; dateRange: { from: string; to: string } | null }> {
   const XLSX = await import('xlsx');
   const wb = XLSX.read(buf, { type: 'array' });
   const sheet = wb.Sheets[wb.SheetNames[0]];
-  if (!sheet) return { rows: [], skipped: 0 };
+  if (!sheet) return { rows: [], skipped: 0, dateRange: null };
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
 
   // Find the header row and its columns by matching label substrings — searched in this
@@ -73,6 +100,8 @@ export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<{ rows:
   // Fall back to the exact layout this parser was written against if no header row matched
   // (a differently-shaped export) — still better than refusing to import anything.
   if (headerIdx < 0) { headerIdx = 0; nameCol = 1; strengthCol = 2; unitCol = 3; qtyCol = 5; }
+  // Title rows above the header (a real HOSxP report states its own date range there).
+  const dateRange = detectDateRange(rows.slice(0, headerIdx).flatMap((r) => (r || []).map((c) => cellText(c))));
 
   // Bug fix (silent data loss): this used to just `continue` on an empty name or an
   // unparseable/zero qty cell, exactly like the CSV path's own equivalent before
@@ -102,7 +131,7 @@ export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<{ rows:
     if (qty <= 0) { skipped++; continue; }
     out.push({ name, qty });
   }
-  return { rows: out, skipped };
+  return { rows: out, skipped, dateRange };
 }
 
 // Bug fix (data integrity): a plain `lastIndexOf(',')` split (the previous approach here and

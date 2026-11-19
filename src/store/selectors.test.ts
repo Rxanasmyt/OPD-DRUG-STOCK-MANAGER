@@ -10,6 +10,7 @@ import {
   discrepancyByCategory, repeatAdrReturns, frequentFloorRefills, replenishByMed,
   monthlyDaySplits, boxBreakdownLabel, halfOfMaxRounded, isNewerVersionAvailable, hosxpMissReasons,
   isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays,
+  buildReconcileMonth, parseHosxpDayReport,
 } from './selectors';
 import { categoryLabel } from '../data/categories';
 import { DAY } from '../utils/format';
@@ -1646,5 +1647,48 @@ describe('isNewerVersionAvailable', () => {
   it('is false when the field has never been published yet (undefined) or is blank', () => {
     expect(isNewerVersionAvailable(undefined, '3.128.1')).toBe(false);
     expect(isNewerVersionAvailable('', '3.128.1')).toBe(false);
+  });
+});
+
+describe('buildReconcileMonth / parseHosxpDayReport — month calendar of HOSxP attachment', () => {
+  const regular = (id: string, name: string) => med({ id, name, active: true, used30: 100, dispenseDays30: 20 });
+  const A = regular('a', 'Paracetamol 500mg');
+  const B = regular('b', 'Amlodipine 5mg');
+  const base = { monthIso: '2026-11', todayIso: '2026-11-19', regularMeds: [A, B], reports: [] as NonNullable<ReturnType<typeof parseHosxpDayReport>>[] };
+
+  it('classifies attached / partial / missing / weekend / today / future', () => {
+    const deductedByDay = new Map<string, Set<string>>([
+      ['2026-11-17', new Set(['a', 'b'])], // attached
+      ['2026-11-18', new Set(['a'])],      // partial: b missing
+    ]);
+    const days = buildReconcileMonth({ ...base, deductedByDay });
+    const by = (iso: string) => days.find((d) => d.dateIso === iso)!;
+    expect(by('2026-11-17').status).toBe('attached');
+    expect(by('2026-11-18').status).toBe('partial');
+    expect(by('2026-11-18').missing.map((m) => m.med.name)).toEqual(['Amlodipine 5mg']);
+    expect(by('2026-11-16').status).toBe('missing');   // Monday, nothing attached
+    expect(by('2026-11-15').status).toBe('weekend');   // Sunday, nothing attached
+    expect(by('2026-11-19').status).toBe('today');
+    expect(by('2026-11-20').status).toBe('future');
+    expect(days).toHaveLength(30);
+  });
+
+  it('a weekend covered by a Monday catch-up file shows as attached, not weekend', () => {
+    const deductedByDay = new Map([['2026-11-14', new Set(['a', 'b'])]]); // Saturday
+    expect(buildReconcileMonth({ ...base, deductedByDay }).find((d) => d.dateIso === '2026-11-14')!.status).toBe('attached');
+  });
+
+  it('attaches the persisted reason (including zero_qty) to each undeducted med, else "unknown"', () => {
+    const report = parseHosxpDayReport('สรุป\n2026-11-18..2026-11-18\n[zero_qty] Amlodipine 5mg | [not_in_file] Other\nSOME RAW NAME | ANOTHER\n5:100:Paracetamol', 1000)!;
+    expect(report.fingerprint).toBe('5:100:Paracetamol');
+    expect(report.unmatchedNames).toEqual(['SOME RAW NAME', 'ANOTHER']);
+    const deductedByDay = new Map([['2026-11-18', new Set(['a'])], ['2026-11-17', new Set(['a'])]]);
+    const days = buildReconcileMonth({ ...base, deductedByDay, reports: [report] });
+    expect(days.find((d) => d.dateIso === '2026-11-18')!.missing[0].reason).toBe('zero_qty');
+    expect(days.find((d) => d.dateIso === '2026-11-17')!.missing[0].reason).toBe('unknown'); // no report covers it
+  });
+
+  it('returns null for a note without a date-range line', () => {
+    expect(parseHosxpDayReport('no range here', 1)).toBeNull();
   });
 });
