@@ -54,9 +54,9 @@ describe('notify-low-stock — stale floorMin (Min above Max) regression', () =>
     await main();
 
     // Without the fix, floor=40 < stale floorMin=50 would be (wrongly) flagged "ต่ำกว่า Min".
-    // With the fix, the real Min is halfOfMaxRounded(60)=30, and floor=40 is not below that, so
-    // nothing in this single-med fixture is low at all.
-    expect(logSpy.mock.calls.some((c) => String(c[0]).includes('Nothing below par today'))).toBe(true);
+    // With the fix, the real Min is halfOfMaxRounded(60)=30, and floor=40 is not below that.
+    // (This no-substock fixture is below its parFloor, so it may still appear in the separate
+    // "ควรเบิกจากคลังใหญ่" section — what matters here is that it is NOT flagged below Min.)
     expect(logSpy.mock.calls.some((c) => String(c[0]).includes('(Min)'))).toBe(false);
     logSpy.mockRestore();
   });
@@ -70,6 +70,27 @@ describe('notify-low-stock — stale floorMin (Min above Max) regression', () =>
     const printed = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
     expect(printed).toContain('(Min)');
     expect(printed).toContain(GENUINELY_LOW_MED.name);
+    logSpy.mockRestore();
+  });
+
+  it('never lists a med flagged "ยาขาดชั่วคราว" (stock hold), matching the app\'s own low-stock lists', async () => {
+    mockFirestoreWith([{ ...GENUINELY_LOW_MED, outOfStockSince: Date.now() }]);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { main } = await import('./notify-low-stock.mjs');
+    await main();
+    expect(logSpy.mock.calls.some((c) => String(c[0]).includes('Nothing below par today'))).toBe(true);
+    logSpy.mockRestore();
+  });
+
+  it('judges a no-substock med against parFloor for the warehouse-request section, like needsWarehouseRequest()', async () => {
+    // floor 40 is above its Min (30) so not "below Min", but below parFloor 60 -> needs requesting.
+    mockFirestoreWith([{ ...STALE_MIN_MED, floorMin: undefined }]);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { main } = await import('./notify-low-stock.mjs');
+    await main();
+    const printed = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(printed).toContain('ควรเบิกจากคลังใหญ่');
+    expect(printed).not.toContain('(Min)');
     logSpy.mockRestore();
   });
 });
