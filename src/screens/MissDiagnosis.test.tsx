@@ -42,7 +42,9 @@ describe('MissDiagnosis', () => {
     await waitFor(() => expect(getLastTransactionWrites().some((w) => w.path === 'meds/1')).toBe(true));
     const w = getLastTransactionWrites().find((x) => x.path === 'meds/1')!;
     expect(w.data.hosxpAliases).toEqual(['เดิม', 'RISPERIDONE 1 MG TAB (Risperdal)']);
-    await screen.findByText('✓ เพิ่มแล้ว');
+    // the analysis is replaced by the outcome (it must NOT flip to "probably not dispensed" once the name resolves)
+    await screen.findByText(/เพิ่มชื่อ "RISPERIDONE 1 MG TAB \(Risperdal\)" ให้ยานี้แล้ว/);
+    expect(screen.queryByTestId('miss-diagnosis')).toBeNull();
   });
 
   it('does not offer an alias when only the strength differs', async () => {

@@ -7,7 +7,7 @@ import {
   onSnapshot, writeBatch, addDoc, updateDoc, setDoc,
   runTransaction, getDocs, getDoc, getCountFromServer, increment, deleteField, serverTimestamp, waitForPendingWrites, type Transaction, type Query, type DocumentData, type DocumentReference,
 } from 'firebase/firestore';
-import { app, auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
+import { auth, db, usernameToEmail, normalizeUsername, USERNAME_RE } from '../firebase';
 import type {
   AppState, Med, Role, Screen, AdjType, RecvItem, ReturnCartItem, TxType, Tx, AuditType, User, AuthMode, PendingReceive, Ward, DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, MedId, LotId, FloorLotId, ReconcileGapDay, ReconcileMonthDay, MedCountTsIssue,
 } from '../types';
@@ -22,7 +22,7 @@ import { fetchDrugReturnsByDateRange, newDrugReturnRef } from './repositories/re
 import { subscribeRecentPendingReceives, newPendingReceiveRef, pendingReceiveRef } from './repositories/pendingReceivesRepo';
 import { settingsRef, subscribeSettings, medSeqRef } from './repositories/metaRepo';
 import { floorLotRef, subscribeFloorLots, fetchAllFloorLots, fetchFloorLotsByMedId, fetchActiveFloorLotsByMedId } from './repositories/floorLotsRepo';
-import { userRef, usersCollection, queryAdminUsers } from './repositories/usersRepo';
+import { userRef, usersCollection, queryAdminUsers, passwordResetRef } from './repositories/usersRepo';
 import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetchLotsByMedIds, fetchActiveLotsByMedId } from './repositories/lotsRepo';
 import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchAllTxs, fetchTxsByName, fetchTxsByNameSince, fetchTxsAfter, queryTxsByDateRange } from './repositories/txsRepo';
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
@@ -751,12 +751,12 @@ export interface AppCtx {
   setUserRole: (id: string, r: Role) => void;
   toggleUserActive: (id: string) => void;
   rejectUser: (id: string) => Promise<void>;
-  /** Admin-only. Asks the adminResetPassword Cloud Function (functions/index.js) to set a random
-   * temporary password for `id`. Resolves with it (shown once to the admin), or null on any
-   * failure (a toast explains; "not deployed yet" is called out specifically). */
-  resetUserPassword: (id: string) => Promise<string | null>;
   /** The signed-in user sets their own new password (the forced change after an admin reset). */
   changeMyPassword: (newPassword: string) => Promise<boolean>;
+  /** Admin-only. Reads the temporary password the reset workflow stored for `uid` (null if none yet). */
+  fetchTempPassword: (uid: string) => Promise<{ tempPassword: string; createdAt: number } | null>;
+  /** Admin-only. Deletes that stored temporary password (do this once the user has been told). */
+  clearTempPassword: (uid: string) => Promise<boolean>;
   /** Admin-only. Adds `alias` to the med's hosxpAliases (the HOSxP spelling of this drug) so the
    * next file with that name deducts it. Refuses a name that already resolves to some med. */
   addHosxpAlias: (medId: MedId, alias: string) => Promise<boolean>;
@@ -1972,9 +1972,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (idleMs >= logoutAtMs) {
         if (idleFiredRef.current) return;
         idleFiredRef.current = true;
-        logAudit({ type: 'idle_logout', note: 'ไม่มีการใช้งานเกิน ' + state.idleLogoutMinutes + ' นาที' });
-        logout();
-        toast('ออกจากระบบอัตโนมัติ เนื่องจากไม่มีการใช้งานเป็นเวลานาน');
+        // The audit write needs the still-signed-in credentials (firestore.rules: isActive()), and
+        // logout() drops them immediately — so the row was fired and then orphaned. Give it a brief
+        // head start (capped at 3s so an offline tablet still logs out promptly), then sign out.
+        void Promise.race([
+          logAudit({ type: 'idle_logout', note: 'ไม่มีการใช้งานเกิน ' + state.idleLogoutMinutes + ' นาที' }),
+          new Promise<void>((resolve) => window.setTimeout(resolve, 3000)),
+        ]).finally(() => {
+          logout();
+          toast('ออกจากระบบอัตโนมัติ เนื่องจากไม่มีการใช้งานเป็นเวลานาน');
+        });
       } else {
         const shouldWarn = idleMs >= warnAtMs;
         patch((st) => (st.idleWarnVisible === shouldWarn ? st : { idleWarnVisible: shouldWarn }));
@@ -3265,6 +3272,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       'จำนวนที่กรอก (' + nf(q) + ' ' + m.unit + ') มากผิดปกติเมื่อเทียบกับ par (' + nf(m.parFloor) + ') ของ '
       + m.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
     ))) return;
+    // Data-entry safety: deducting MORE than the floor holds silently clamps to 0 — e.g. floor 40,
+    // "damaged 100" books −40 and nobody learns that 60 units never existed (a mistyped qty, or a
+    // stale on-screen floor). Say so before committing, with the real applied number.
+    if (q > m.floor && !(await confirmAsync(
+      'ยอดหน้างานของ ' + m.name + ' ในระบบมี ' + nf(m.floor) + ' ' + m.unit + ' แต่จะตัด ' + nf(q) + ' — ระบบจะตัดได้จริงแค่ ' + nf(m.floor)
+      + ' (ยอดเหลือ 0) ตรวจจำนวนที่กรอกและยอดจริงที่หน้างานแล้วใช่ไหม?'
+    ))) return;
     // Bug fix (ledger accuracy): a 'damaged'/'adjust' deduction used to log qty as a flat `-q`
     // regardless of what actually happened to floor — but the write below clamps at 0
     // (Math.max(0, ...)), same guard commitReconcile already needed for the exact same reason.
@@ -4280,7 +4294,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // this window must be excluded here instead, restoring exactly what the removed
         // server-side `where('type','==','reconcile_hosxp')` used to guarantee.
         if (x.type !== 'reconcile_hosxp') return;
-        if (!x.name || typeof x.qty !== 'number' || x.qty >= 0 || typeof x.ts !== 'number') return; // only dispensed (negative) entries
+        if (!x.name || typeof x.qty !== 'number' || (x.qty >= 0 && !((x.reportedQty ?? 0) > 0)) || typeof x.ts !== 'number') return; // only dispensed (negative) entries
         const ageDays = (now - x.ts) / DAY;
         if (ageDays < 0) return;
         const bucket = ageDays <= 30 ? 30 : ageDays <= 60 ? 60 : 0;
@@ -4413,7 +4427,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // comment above on why — so every other tx type in this window must be excluded here
         // instead, restoring exactly what the removed server-side type filter used to guarantee.
         if (x.type !== 'reconcile_hosxp') return;
-        if (!x.name || typeof x.qty !== 'number' || x.qty >= 0 || typeof x.ts !== 'number') return; // dispensed only
+        if (!x.name || typeof x.qty !== 'number' || (x.qty >= 0 && !((x.reportedQty ?? 0) > 0)) || typeof x.ts !== 'number') return; // dispensed only
         if (x.ts > now) return;
         const key = dupNames.has(x.name) ? (x.medId ? 'id:' + x.medId : null) : 'name:' + x.name;
         if (!key) return;
@@ -4657,6 +4671,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ---------- meds (formulary) management ----------
   const addMed = useCallback(guardOnce('addMed', async (input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility?: number | undefined; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined; reqCategory?: ReqCategory | undefined }): Promise<boolean> => {
+    // Data-entry safety: a blank unit used to be saved silently as the placeholder "หน่วย" — which then
+    // makes unrelated meds compare as the same unit (ward-move equality guard) and prints a meaningless
+    // label. Require a real unit.
+    if (!input.unit.trim()) { toast('ต้องระบุหน่วยของยา (เช่น เม็ด, ขวด, หลอด) ก่อนบันทึก'); return false; }
     if (!canEditMeds) return false;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
@@ -4784,6 +4802,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     route: 'ประเภทการให้ยา', hosxpAliases: 'ชื่อ HOSxP ที่รู้จัก', whCode: 'รหัสยาคลัง', reqCategory: 'หมวดใบเบิกจากคลัง',
   };
   const updateMedFull = useCallback(guardOnce('updateMedFull', async (medId: MedId, input: { name: string; unit: string; dosageForm: string; price: number; had: boolean; fridge?: boolean | undefined; bin: string; binSub?: string | undefined; parSub: number; parFloor: number; floorMin: number; ward: Ward; noSubstock: boolean; volatility: number; shared?: boolean | undefined; binIpd?: string | undefined; category?: string | undefined; packSize?: number | undefined; route?: RouteType | undefined; hosxpAliases?: string[] | undefined; whCode?: string | undefined; reqCategory?: ReqCategory | undefined }, baseline: Med | null): Promise<boolean> => {
+    // Data-entry safety: a blank unit used to be saved silently as the placeholder "หน่วย" — which then
+    // makes unrelated meds compare as the same unit (ward-move equality guard) and prints a meaningless
+    // label. Require a real unit.
+    if (!input.unit.trim()) { toast('ต้องระบุหน่วยของยา (เช่น เม็ด, ขวด, หลอด) ก่อนบันทึก'); return false; }
     if (!canEditMeds) return false;
     const name = input.name.trim();
     if (!name) { toast('กรอกชื่อยาก่อน'); return false; }
@@ -4832,6 +4854,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       'รหัสชั้นวาง IPD "' + binIpd + '" ถูกใช้กับยา "' + binIpdConflict.name + '" (' + binIpdConflict.code + ') อยู่แล้ว — '
       + 'ใช้ซ้ำเสี่ยงหยิบยาผิดตัวตอนนับ/เบิก ยืนยันว่าต้องการใช้รหัสนี้ซ้ำจริงหรือไม่?'
     ))) return false;
+    // Data-entry safety: changing the unit / pack size / no-substock flag of a med that already holds
+    // stock does NOT convert the numbers — 600 เม็ด just becomes "600 ขวด". Spell out the change first.
+    {
+      const cur = state.meds.find((x) => x.id === medId);
+      if (cur) {
+        const heldFloor = cur.floor;
+        const heldSub = subQty(state, medId);
+        const newUnit = input.unit.trim();
+        const reinterpret: string[] = [];
+        if (newUnit !== cur.unit) reinterpret.push('หน่วย "' + cur.unit + '" → "' + newUnit + '"');
+        if ((input.packSize || undefined) !== (cur.packSize || undefined)) reinterpret.push('ขนาดกล่อง ' + (cur.packSize ?? '—') + ' → ' + (input.packSize ?? '—'));
+        if (!!input.noSubstock !== !!cur.noSubstock) reinterpret.push(input.noSubstock ? 'ปิด substock (ไม่ใช้ substock)' : 'เปิด substock');
+        if (reinterpret.length && (heldFloor > 0 || heldSub > 0)) {
+          if (!!input.noSubstock && !cur.noSubstock && heldSub > 0) {
+            toast('ปิด substock ไม่ได้ — ยานี้ยังมีของใน substock ' + nf(heldSub) + ' ' + cur.unit + ' (ย้ายหรือตัดออกให้เป็น 0 ก่อน)');
+            return false;
+          }
+          if (!(await confirmAsync(
+            'แก้ ' + reinterpret.join(' · ') + ' ของ "' + cur.name + '" ซึ่งมีของอยู่ (หน้างาน ' + nf(heldFloor) + ' / substock ' + nf(heldSub) + ' ' + cur.unit
+            + ') — ตัวเลขจะไม่ถูกแปลงให้ แค่เปลี่ยนความหมายของหน่วย ยืนยันว่าถูกต้องแล้วใช่ไหม?'
+          ))) return false;
+        }
+      }
+    }
     const patch = {
       name, unit: input.unit.trim() || 'หน่วย', dosageForm: input.dosageForm.trim(),
       // Bug fix (data integrity): same clamp gap as addMed — see its own comment above.
@@ -7182,31 +7228,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [canEditMeds, state.meds, runTx, logAudit, toast, toastErr]);
 
-  const resetUserPassword = useCallback(async (id: string): Promise<string | null> => {
+  const fetchTempPassword = useCallback(async (uid: string) => {
     if (state.role !== 'admin') return null;
-    const u = state.users.find((x) => x.id === id);
-    if (!u || id === state.myUid) return null;
-    if (!(await confirmAsync('รีเซ็ตรหัสผ่านของ ' + u.name + ' (@' + u.username + ')?\nรหัสเดิมจะใช้ไม่ได้ทันที และเขาจะถูกออกจากระบบ — ต้องตั้งรหัสใหม่เมื่อเข้าสู่ระบบครั้งถัดไป'))) return null;
     try {
-      // Loaded on demand: the functions SDK is only needed for this rare admin action.
-      const { getFunctions, httpsCallable } = await import('firebase/functions');
-      const call = httpsCallable<{ uid: string }, { tempPassword: string }>(getFunctions(app, 'asia-southeast1'), 'adminResetPassword');
-      const res = await withTimeout(call({ uid: id }));
-      const pw = res.data?.tempPassword;
-      if (!pw) throw new Error('empty-response');
-      return pw;
+      const snap = await withTimeout(getDoc(passwordResetRef(uid)));
+      const d = snap.exists() ? (snap.data() as { tempPassword?: string; createdAt?: number }) : null;
+      return d?.tempPassword ? { tempPassword: d.tempPassword, createdAt: d.createdAt || 0 } : null;
     } catch (e) {
-      const code = (e as { code?: string })?.code || '';
-      if (code === 'functions/not-found' || code === 'functions/unavailable' || code === 'functions/internal') {
-        toast('ฟังก์ชันรีเซ็ตรหัสผ่านยังไม่ได้เปิดใช้งานบนเซิร์ฟเวอร์ — ดูขั้นตอนใน docs/ADMIN_PASSWORD_RESET.md');
-      } else if (code === 'functions/permission-denied') {
-        toast('เซิร์ฟเวอร์ไม่อนุญาต — เฉพาะ Admin ที่ใช้งานอยู่เท่านั้น');
-      } else {
-        toastErr(e, 'รีเซ็ตรหัสผ่านไม่สำเร็จ');
-      }
+      toastErr(e, 'อ่านรหัสชั่วคราวไม่สำเร็จ');
       return null;
     }
-  }, [state.role, state.users, state.myUid, confirmAsync, toast, toastErr]);
+  }, [state.role, toastErr]);
+
+  const clearTempPassword = useCallback(async (uid: string): Promise<boolean> => {
+    if (state.role !== 'admin') return false;
+    try {
+      const batch = writeBatch(db);
+      batch.delete(passwordResetRef(uid));
+      await withTimeout(batch.commit());
+      return true;
+    } catch (e) {
+      toastErr(e, 'ลบรหัสชั่วคราวไม่สำเร็จ');
+      return false;
+    }
+  }, [state.role, toastErr]);
 
   const changeMyPassword = useCallback(async (newPassword: string): Promise<boolean> => {
     const cu = auth.currentUser;
@@ -7214,15 +7259,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (newPassword.length < 6) { toast('รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร'); return false; }
     try {
       await withTimeout(updatePassword(cu, newPassword));
-      // Clearing the flag is allowed by firestore.rules only for the owner, only to false.
-      await withTimeout(setDoc(userRef(state.myUid), { mustChangePassword: false }, { merge: true }));
-      toast('เปลี่ยนรหัสผ่านแล้ว');
-      return true;
     } catch (e) {
       const code = (e as { code?: string })?.code || '';
       if (code === 'auth/requires-recent-login') toast('เซสชันเก่าเกินไป — ออกจากระบบแล้วเข้าสู่ระบบใหม่ด้วยรหัสชั่วคราว จากนั้นตั้งรหัสใหม่ทันที');
       else if (code === 'auth/weak-password') toast('รหัสผ่านง่ายเกินไป — ใช้อย่างน้อย 6 ตัวอักษร');
       else toastErr(e, 'เปลี่ยนรหัสผ่านไม่สำเร็จ');
+      return false;
+    }
+    try {
+      // Clearing the flag is allowed by firestore.rules only for the owner, only to false.
+      await withTimeout(setDoc(userRef(state.myUid), { mustChangePassword: false }, { merge: true }));
+      toast('เปลี่ยนรหัสผ่านแล้ว');
+      return true;
+    } catch (e) {
+      // The password HAS changed at this point — say so, or the user retries and gets confused.
+      toast('ตั้งรหัสผ่านใหม่แล้ว แต่บันทึกสถานะไม่สำเร็จ (สัญญาณ?) — กด "บันทึกรหัสผ่านใหม่" อีกครั้งด้วยรหัสเดิมที่เพิ่งตั้ง');
+      console.error('mustChangePassword clear failed:', e);
       return false;
     }
   }, [state.myUid, toast, toastErr]);
@@ -7308,7 +7360,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     confirmScanAndNext, confirmScanAndStop, cancelScanConfirm,
     doneAgain,
-    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, addHosxpAlias, resetUserPassword, changeMyPassword, exportAudit,
+    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, addHosxpAlias, changeMyPassword, fetchTempPassword, clearTempPassword, exportAudit,
     setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, fetchExecTxsThisMonth,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [state, myProfile, theme, toggleTheme]);

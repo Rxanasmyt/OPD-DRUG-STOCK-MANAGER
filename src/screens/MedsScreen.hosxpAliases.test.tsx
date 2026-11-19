@@ -33,6 +33,7 @@ describe('MedsScreen — HOSxP alias field regression', () => {
 
     await user.click(screen.getByText('+ เพิ่มยาใหม่'));
     await user.type(screen.getByLabelText('ชื่อยา + ขนาด (เช่น Enalapril 5 mg)'), 'Amoxicillin 250mg');
+    await user.type(screen.getByLabelText('หน่วย'), 'เม็ด'); // a unit is now required
     const aliasField = screen.getByLabelText('ชื่อที่ไฟล์ HOSxP อาจใช้เรียกยานี้ (ถ้ามี)');
     // fireEvent.change, not user.type — same multi-line-text gotcha as HosxpTextarea elsewhere
     // in this app's own tests (user.type's literal '\n' handling across a controlled textarea

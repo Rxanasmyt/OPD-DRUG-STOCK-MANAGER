@@ -1760,3 +1760,40 @@ describe('diagnoseMiss — why a regularly-dispensed med got no deduction', () =
     expect(diagnoseMiss(a, ['Risperidone 2 mg เม็ด'], [a, b]).candidates).toHaveLength(0);
   });
 });
+
+describe('diagnoseMiss — never offers a one-tap alias for a look-alike that is a different product', () => {
+  const mk = (id: string, name: string) => ({
+    id, code: 'C' + id, name, unit: 'x', dosageForm: 'x', price: 1, had: false, active: true,
+    parSub: 0, parFloor: 0, floor: 0, bin: id, used30: 10, usedPrev30: 10, volatility: 0,
+  }) as unknown as import('../types').Med;
+
+  it('Insulin NPH vs Insulin Glargine → needs_review, no safe candidate', async () => {
+    const { diagnoseMiss } = await import('./selectors');
+    const med = mk('1', 'Insulin NPH');
+    const d = diagnoseMiss(med, ['Insulin Glargine'], [med]);
+    expect(d.verdict).toBe('needs_review');
+    expect(d.candidates.every((c) => !c.safe)).toBe(true);
+  });
+
+  it('a single drug vs its combination product (+) → needs_review', async () => {
+    const { diagnoseMiss } = await import('./selectors');
+    const med = mk('1', 'Amoxicillin cap 500 mg');
+    const d = diagnoseMiss(med, ['AMOXICILLIN 500 MG+CLAVULANATE 125 MG'], [med]);
+    expect(d.candidates.every((c) => !c.safe)).toBe(true);
+    expect(d.verdict).not.toBe('rename_candidate');
+  });
+
+  it('no stated strength on the file side is never "safe" (needs a human)', async () => {
+    const { diagnoseMiss } = await import('./selectors');
+    const med = mk('1', 'Risperidone 1 mg เม็ด');
+    expect(diagnoseMiss(med, ['RISPERIDONE (Risperdal)'], [med]).verdict).toBe('needs_review');
+  });
+
+  it('same drug, strength stated and equal on both sides, brand extra → safe', async () => {
+    const { diagnoseMiss } = await import('./selectors');
+    const med = mk('1', 'Risperidone 1 mg เม็ด');
+    const d = diagnoseMiss(med, ['RISPERIDONE 1 MG TAB (Risperdal)'], [med]);
+    expect(d.verdict).toBe('rename_candidate');
+    expect(d.candidates[0].safe).toBe(true);
+  });
+});

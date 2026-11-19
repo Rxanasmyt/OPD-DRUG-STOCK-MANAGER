@@ -1499,8 +1499,18 @@ export interface NameDiff {
   onlyInFile: string[];
   appNumbers: string[];
   fileNumbers: string[];
-  /** 'equal' / 'unknown' (one side lists no number) are safe to alias; 'differs' is a different strength. */
+  /** 'equal' = both sides state a strength and they agree; 'unknown' = one side states none; 'differs' = different strength. */
   numbers: 'equal' | 'unknown' | 'differs';
+  /** True ONLY when it is safe to offer a one-tap alias: strength stated on both sides and equal, every
+   * word of the app's name appears in the file's name, and the file name is not a combination product.
+   * Anything else is shown for a human to judge — a wrong alias deducts stock from the wrong drug. */
+  safe: boolean;
+}
+
+// "X + Y" / "X/Y" between two drug words marks a combination product (Amoxicillin+Clavulanate):
+// never the same product as its single-ingredient component.
+function looksLikeCombination(fileName: string): boolean {
+  return /[a-z\u0E00-\u0E7F]\s*\+\s*[a-z\u0E00-\u0E7F]/i.test(fileName);
 }
 
 export function compareMedNames(appName: string, fileName: string): NameDiff | null {
@@ -1521,12 +1531,17 @@ export function compareMedNames(appName: string, fileName: string): NameDiff | n
   const numbers = !a.numbers.length || !f.numbers.length
     ? 'unknown'
     : a.numbers.every((x) => f.numbers.includes(x)) || f.numbers.every((x) => a.numbers.includes(x)) ? 'equal' : 'differs';
-  return { fileName, score: Math.round(score * 100) / 100, onlyInApp, onlyInFile, appNumbers: a.numbers, fileNumbers: f.numbers, numbers };
+  const rounded = Math.round(score * 100) / 100;
+  const safe = numbers === 'equal' && onlyInApp.length === 0 && rounded >= 0.6 && !looksLikeCombination(fileName);
+  return { fileName, score: rounded, onlyInApp, onlyInFile, appNumbers: a.numbers, fileNumbers: f.numbers, numbers, safe };
 }
 
 export type MissVerdict =
-  /** A file name looks like the same drug → add it as an alias (safe: strength agrees). */
+  /** A file name is the same drug spelled differently AND passes every safety check (see NameDiff.safe) → one-tap alias. */
   | 'rename_candidate'
+  /** A similar name exists but it can't be confirmed as the same product (e.g. Insulin NPH vs Insulin Glargine,
+   * or a combination product) — shown for a pharmacist to judge, never one-tap. */
+  | 'needs_review'
   /** A file name has the same drug name but a different strength — likely a different product. */
   | 'strength_mismatch'
   /** No file name resembles it; it was probably simply not dispensed that day. */
@@ -1555,13 +1570,14 @@ export function diagnoseMiss(med: Med, fileNames: readonly string[], meds: Med[]
     const d = compareMedNames(med.name, fn);
     if (d && d.score >= 0.5) cands.push(d);
   }
-  // Safe-to-alias candidates (strength agrees or is unstated) outrank a higher-scoring name whose
-  // strength differs; within each group, best score first.
-  cands.sort((x, y) => (Number(x.numbers === 'differs') - Number(y.numbers === 'differs')) || y.score - x.score);
+  // Rank: safe-to-alias, then needs-a-human, then different-strength; best score first within each.
+  const rank = (c: NameDiff) => (c.safe ? 0 : c.numbers === 'differs' ? 2 : 1);
+  cands.sort((x, y) => rank(x) - rank(y) || y.score - x.score);
   const top = cands.slice(0, 3);
   const days = typeof med.dispenseDays30 === 'number' ? med.dispenseDays30 : null;
   let verdict: MissVerdict;
-  if (top[0] && top[0].numbers !== 'differs') verdict = 'rename_candidate';
+  if (top[0]?.safe) verdict = 'rename_candidate';
+  else if (top[0] && top[0].numbers !== 'differs') verdict = 'needs_review';
   else if (top[0]) verdict = 'strength_mismatch';
   else if (days !== null && days >= 18) verdict = 'suspicious';
   else verdict = 'likely_no_dispense';
