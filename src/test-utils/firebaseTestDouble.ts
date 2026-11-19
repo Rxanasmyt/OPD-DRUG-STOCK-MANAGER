@@ -198,7 +198,8 @@ export async function signInAs(uid: string, profile: { role: string; name: strin
 }
 
 vi.mock('../firebase', () => ({
-  auth: {},
+  app: {},
+  auth: { currentUser: { uid: 'u1' } },
   db: {},
   USERNAME_RE: /^[a-z0-9_.]{3,20}$/,
   normalizeUsername: (raw: string) => raw.trim().toLowerCase(),
@@ -213,6 +214,7 @@ vi.mock('firebase/auth', () => ({
   signInWithEmailAndPassword: vi.fn(),
   createUserWithEmailAndPassword: vi.fn(),
   signOut: vi.fn(),
+  updatePassword: vi.fn(async () => undefined),
   setPersistence: vi.fn(async () => undefined),
   browserLocalPersistence: {},
   browserSessionPersistence: {},

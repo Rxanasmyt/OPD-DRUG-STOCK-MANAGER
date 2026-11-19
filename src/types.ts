@@ -455,13 +455,17 @@ export interface User {
   disabledAt?: number | null;
   rejectedAt?: number | null;
   rejectReason?: string | null;
+  /** Set by the adminResetPassword Cloud Function; the app forces a new password while true. */
+  mustChangePassword?: boolean;
+  passwordResetAt?: number | null;
+  passwordResetBy?: string | null;
 }
 
 export type AuthStatus = 'loading' | 'signedOut' | 'pendingApproval' | 'signedIn';
 export type AuthMode = 'login' | 'register';
 
 export type AuditType =
-  | 'login' | 'user_registered' | 'user_approved' | 'user_rejected' | 'user_role_changed' | 'user_status_changed' | 'par_updated'
+  | 'login' | 'user_registered' | 'user_approved' | 'user_rejected' | 'user_password_reset' | 'user_role_changed' | 'user_status_changed' | 'par_updated'
   | 'receive_rejected'
   // Formulary management (see MedsScreen/AppContext.tsx addMed/updateMedFull/toggleMedActive/
   // deleteMed) and the manual-QR-entry fallback (qrDecodedImpl) — both log via the same
