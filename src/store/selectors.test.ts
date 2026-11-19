@@ -1712,3 +1712,51 @@ describe('userStatusOf / userActivityByName', () => {
     expect(m.get('ข')).toEqual({ logins: 0, actions: 1, lastActionTs: 5 });
   });
 });
+
+describe('diagnoseMiss — why a regularly-dispensed med got no deduction', () => {
+  const mk = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
+    id, code: 'C' + id, name, unit: 'เม็ด', dosageForm: 'เม็ด', price: 1, had: false, active: true,
+    parSub: 0, parFloor: 0, floor: 0, bin: id, used30: 10, usedPrev30: 10, volatility: 0, ...extra,
+  }) as unknown as import('../types').Med;
+
+  it('suggests an alias when a file name is the same drug spelled differently, and says what differs', async () => {
+    const { diagnoseMiss } = await import('./selectors');
+    const med = mk('1', 'Risperidone 1 mg เม็ด');
+    const d = diagnoseMiss(med, ['RISPERIDONE 1 MG TAB (Risperdal)', 'Paracetamol 500 mg'], [med]);
+    expect(d.verdict).toBe('rename_candidate');
+    expect(d.candidates[0].fileName).toBe('RISPERIDONE 1 MG TAB (Risperdal)');
+    expect(d.candidates[0].numbers).toBe('equal');
+    expect(d.candidates[0].onlyInFile).toContain('risperdal');
+  });
+
+  it('never suggests an alias for the same drug at a different strength', async () => {
+    const { diagnoseMiss } = await import('./selectors');
+    const med = mk('1', 'Risperidone 1 mg เม็ด');
+    const d = diagnoseMiss(med, ['RISPERIDONE 2 MG TAB'], [med]);
+    expect(d.verdict).toBe('strength_mismatch');
+    expect(d.candidates[0].numbers).toBe('differs');
+  });
+
+  it('prefers a strength-compatible candidate over a higher-scoring different-strength one', async () => {
+    const { diagnoseMiss } = await import('./selectors');
+    const med = mk('1', 'Risperidone 1 mg เม็ด');
+    const d = diagnoseMiss(med, ['RISPERIDONE 2 MG TAB', 'Risperidone tab 1 mg.'], [med]);
+    expect(d.verdict).toBe('rename_candidate');
+    expect(d.candidates[0].fileName).toBe('Risperidone tab 1 mg.');
+  });
+
+  it('says "probably not dispensed" when nothing resembles it, but "suspicious" for a near-daily drug', async () => {
+    const { diagnoseMiss } = await import('./selectors');
+    const rare = mk('1', 'VITAMIN K1 - PL 1 mg. Amphule', { dispenseDays30: 12 });
+    const daily = mk('2', 'Amlodipine 10 mg เม็ด', { dispenseDays30: 21 });
+    expect(diagnoseMiss(rare, ['Paracetamol 500 mg'], [rare, daily]).verdict).toBe('likely_no_dispense');
+    expect(diagnoseMiss(daily, ['Paracetamol 500 mg'], [rare, daily]).verdict).toBe('suspicious');
+  });
+
+  it('ignores file names that already resolve to some med', async () => {
+    const { diagnoseMiss } = await import('./selectors');
+    const a = mk('1', 'Risperidone 1 mg เม็ด');
+    const b = mk('2', 'Risperidone 2 mg เม็ด');
+    expect(diagnoseMiss(a, ['Risperidone 2 mg เม็ด'], [a, b]).candidates).toHaveLength(0);
+  });
+});

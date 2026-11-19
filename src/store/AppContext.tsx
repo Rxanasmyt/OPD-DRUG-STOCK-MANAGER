@@ -751,6 +751,9 @@ export interface AppCtx {
   setUserRole: (id: string, r: Role) => void;
   toggleUserActive: (id: string) => void;
   rejectUser: (id: string) => Promise<void>;
+  /** Admin-only. Adds `alias` to the med's hosxpAliases (the HOSxP spelling of this drug) so the
+   * next file with that name deducts it. Refuses a name that already resolves to some med. */
+  addHosxpAlias: (medId: MedId, alias: string) => Promise<boolean>;
   exportAudit: () => void;
   setHistoryFrom: (v: string) => void;
   setHistoryTo: (v: string) => void;
@@ -7151,6 +7154,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state.role, state.users, state.myUid, promptAsync, lastAdminGuardedWrite, logAudit, toast, toastErr]);
 
+  const addHosxpAlias = useCallback(async (medId: MedId, alias: string): Promise<boolean> => {
+    if (!canEditMeds) { toast('เพิ่มชื่อ HOSxP ได้เฉพาะ Admin — แจ้ง Admin ให้เพิ่มชื่อนี้ให้'); return false; }
+    const a = alias.replace(/\s+/g, ' ').trim();
+    const med = state.meds.find((m) => m.id === medId);
+    if (!a || !med) return false;
+    if (matchHosxpMed(state.meds, a).kind !== 'none') { toast('ชื่อนี้จับคู่กับยาในแอพอยู่แล้ว — เพิ่มซ้ำไม่ได้ (ตรวจในหน้าจัดการรายการยา)'); return false; }
+    try {
+      await runTx(async (trx) => {
+        const snap = await trx.get(medRef(medId));
+        if (!snap.exists()) throw new Error('not-found');
+        const cur = ((snap.data() as { hosxpAliases?: string[] }).hosxpAliases) || [];
+        if (!cur.includes(a)) trx.update(medRef(medId), { hosxpAliases: [...cur, a] });
+      });
+      logAudit({ type: 'med_edited', note: 'เพิ่มชื่อ HOSxP ที่รู้จักของ ' + med.name + ': "' + a + '"' });
+      toast('เพิ่มชื่อ "' + a + '" ให้ ' + med.name + ' แล้ว — ไฟล์ HOSxP ครั้งถัดไปจะตัดยอดยานี้ได้');
+      return true;
+    } catch (e) {
+      toastErr(e, 'เพิ่มชื่อ HOSxP ไม่สำเร็จ');
+      return false;
+    }
+  }, [canEditMeds, state.meds, runTx, logAudit, toast, toastErr]);
+
   const exportAudit = useCallback(async () => {
     // Same reasoning as exportReportCsv — the live subscriptions are capped at 300 each for
     // the on-screen "recent activity" feed; a real audit export needs the full history.
@@ -7232,7 +7257,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     confirmScanAndNext, confirmScanAndStop, cancelScanConfirm,
     doneAgain,
-    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, exportAudit,
+    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, addHosxpAlias, exportAudit,
     setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, fetchExecTxsThisMonth,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [state, myProfile, theme, toggleTheme]);

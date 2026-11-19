@@ -1444,3 +1444,126 @@ export function userActivityByName(
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------------------------
+// HOSxP miss diagnosis. "ไม่พบในไฟล์" alone doesn't tell anyone what to do: either the drug really
+// wasn't dispensed that day (HOSxP lists only dispensed drugs, so no row is the NORMAL outcome),
+// or it was dispensed under a name the app can't match. This compares a missed med against the
+// file names that matched NO med and says which of those it is, and exactly where the names
+// differ. It only ever SUGGESTS — a wrong alias would deduct stock from the wrong drug, so the
+// final add is a person's tap, and a name whose strength differs is flagged, never suggested.
+// ---------------------------------------------------------------------------------------------
+const NAME_STOP = new Set([
+  'mg', 'mcg', 'g', 'gm', 'ml', 'iu', 'tab', 'tabs', 'tablet', 'cap', 'caps', 'capsule', 'amp', 'ampoule', 'amphule', 'vial', 'inj', 'syrup', 'susp', 'soln', 'sol',
+  'pl', 'dose', 'box', 'btl', 'bottle', 'tube', 'sachet', 'strip', 'pre', 'filled', 'of', 'and', 'for', 'oral', 'external', 'use',
+  'เม็ด', 'แคปซูล', 'ขวด', 'หลอด', 'ซอง', 'กล่อง', 'มก', 'มล', 'กรัม', 'แผง', 'ชุด', 'ยา',
+]);
+
+export interface NameTokens { words: string[]; numbers: string[] }
+export function tokenizeMedName(raw: string): NameTokens {
+  const n = normalizeMedName(raw);
+  const all = n.match(/[a-z฀-๿]+|\d+(?:\.\d+)?/g) || [];
+  const words: string[] = [];
+  const numbers: string[] = [];
+  for (const t of all) {
+    if (/^\d/.test(t)) { if (!numbers.includes(t)) numbers.push(t); } else if (!NAME_STOP.has(t) && !words.includes(t)) words.push(t);
+  }
+  return { words, numbers };
+}
+
+function lev1(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0; let j = 0; let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++edits > 1) return false;
+    if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+// "same word" for matching purposes: identical, one a prefix of the other (≥4 chars — a brand
+// truncated by HOSxP), or a single-character typo on a ≥5-char word.
+function sameWord(a: string, b: string): boolean {
+  if (a === b) return true;
+  const [s, l] = a.length <= b.length ? [a, b] : [b, a];
+  if (s.length >= 4 && l.startsWith(s)) return true;
+  return s.length >= 5 && lev1(a, b);
+}
+
+export interface NameDiff {
+  fileName: string;
+  score: number;
+  /** words only the app's name has / only the file's name has (the "ตรงไหนไม่ตรง"). */
+  onlyInApp: string[];
+  onlyInFile: string[];
+  appNumbers: string[];
+  fileNumbers: string[];
+  /** 'equal' / 'unknown' (one side lists no number) are safe to alias; 'differs' is a different strength. */
+  numbers: 'equal' | 'unknown' | 'differs';
+}
+
+export function compareMedNames(appName: string, fileName: string): NameDiff | null {
+  const a = tokenizeMedName(appName);
+  const f = tokenizeMedName(fileName);
+  if (!a.words.length || !f.words.length) return null;
+  const matchedF = new Set<number>();
+  let overlap = 0;
+  let strong = false;
+  const onlyInApp: string[] = [];
+  for (const w of a.words) {
+    const idx = f.words.findIndex((x, i) => !matchedF.has(i) && sameWord(w, x));
+    if (idx >= 0) { matchedF.add(idx); overlap++; if (w.length >= 4) strong = true; } else onlyInApp.push(w);
+  }
+  if (!overlap || !strong) return null;
+  const onlyInFile = f.words.filter((_, i) => !matchedF.has(i));
+  const score = (overlap / Math.min(a.words.length, f.words.length)) * 0.6 + ((2 * overlap) / (a.words.length + f.words.length)) * 0.4;
+  const numbers = !a.numbers.length || !f.numbers.length
+    ? 'unknown'
+    : a.numbers.every((x) => f.numbers.includes(x)) || f.numbers.every((x) => a.numbers.includes(x)) ? 'equal' : 'differs';
+  return { fileName, score: Math.round(score * 100) / 100, onlyInApp, onlyInFile, appNumbers: a.numbers, fileNumbers: f.numbers, numbers };
+}
+
+export type MissVerdict =
+  /** A file name looks like the same drug → add it as an alias (safe: strength agrees). */
+  | 'rename_candidate'
+  /** A file name has the same drug name but a different strength — likely a different product. */
+  | 'strength_mismatch'
+  /** No file name resembles it; it was probably simply not dispensed that day. */
+  | 'likely_no_dispense'
+  /** No similar name, yet the drug is dispensed almost every business day — check the file. */
+  | 'suspicious';
+
+export interface MissDiagnosis {
+  verdict: MissVerdict;
+  /** best-first, at most 3 */
+  candidates: NameDiff[];
+  /** how often this drug is normally dispensed: days out of the ~21 business days in 30 */
+  dispenseDays30: number | null;
+}
+
+export const BUSINESS_DAYS_30 = 21;
+export function diagnoseMiss(med: Med, fileNames: readonly string[], meds: Med[]): MissDiagnosis {
+  const seen = new Set<string>();
+  const cands: NameDiff[] = [];
+  for (const fn of fileNames) {
+    const key = normalizeMedName(fn);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    // A name that already resolves to a med is not a candidate (it's matched, just not THIS med).
+    if (matchHosxpMed(meds, fn).kind !== 'none') continue;
+    const d = compareMedNames(med.name, fn);
+    if (d && d.score >= 0.5) cands.push(d);
+  }
+  // Safe-to-alias candidates (strength agrees or is unstated) outrank a higher-scoring name whose
+  // strength differs; within each group, best score first.
+  cands.sort((x, y) => (Number(x.numbers === 'differs') - Number(y.numbers === 'differs')) || y.score - x.score);
+  const top = cands.slice(0, 3);
+  const days = typeof med.dispenseDays30 === 'number' ? med.dispenseDays30 : null;
+  let verdict: MissVerdict;
+  if (top[0] && top[0].numbers !== 'differs') verdict = 'rename_candidate';
+  else if (top[0]) verdict = 'strength_mismatch';
+  else if (days !== null && days >= 18) verdict = 'suspicious';
+  else verdict = 'likely_no_dispense';
+  return { verdict, candidates: top, dispenseDays30: days };
+}
