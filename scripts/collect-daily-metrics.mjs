@@ -48,11 +48,15 @@ function halfOfMaxRounded(parFloor) {
   const raw = parFloor * 0.5;
   if (raw <= 0) return 0;
   const step = raw >= 500 ? 100 : raw >= 100 ? 10 : raw >= 10 ? 5 : 1;
-  return Math.round(raw / step) * step;
+  // Clamp to at most one below parFloor, same as selectors.ts (tiny parFloor rounds back up).
+  return Math.min(Math.round(raw / step) * step, parFloor - 1);
 }
+// A stored floorMin above parFloor is never plausible — same guard as selectors.ts's floorMinOf().
 function floorMinOf(m) {
-  return typeof m.floorMin === 'number' ? m.floorMin : halfOfMaxRounded(m.parFloor);
+  return typeof m.floorMin === 'number' && m.floorMin <= m.parFloor ? m.floorMin : halfOfMaxRounded(m.parFloor);
 }
+// Mirrors selectors.ts's isOnStockHold() — held meds are excluded from the app's low-stock lists.
+function isOnStockHold(m) { return typeof m.outOfStockSince === 'number'; }
 function roundStep(v) {
   const step = v >= 500 ? 100 : v >= 100 ? 10 : 1;
   return Math.max(step, Math.ceil(v / step) * step);
@@ -159,8 +163,11 @@ async function main() {
     totalSubQty += sub;
     totalStockValue += (floor + sub) * (m.price || 0);
     const min = floorMinOf(m);
-    if (floor < min) lowStockCount++;
-    if (floor < min * 0.5) urgentLowCount++;
+    if (!isOnStockHold(m)) {
+      if (floor < min) lowStockCount++;
+      // <= matches selectors.ts's isUrgentLow() exactly (a med at exactly half its Min is urgent).
+      if (floor <= min * 0.5) urgentLowCount++;
+    }
     // "อัตราขาดสต็อกจริง" — genuinely out (not just below its reorder point) while actually in
     // real use, see DailyMetrics.stockoutCount's own doc comment for why this is distinct from
     // lowStockCount/urgentLowCount above.

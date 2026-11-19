@@ -45,9 +45,14 @@ function floorMinOf(m) {
   const raw = (m.parFloor || 0) * 0.5;
   if (raw <= 0) return 0;
   const step = raw >= 500 ? 100 : raw >= 100 ? 10 : raw >= 10 ? 5 : 1;
-  return Math.round(raw / step) * step;
+  // Clamp to at most one below parFloor, same as selectors.ts (a tiny parFloor rounds back up).
+  return Math.min(Math.round(raw / step) * step, m.parFloor - 1);
 }
 function usesSubstock(m) { return !m.noSubstock; }
+// Mirrors selectors.ts's isOnStockHold(): a med flagged "ยาขาดชั่วคราว" is never worth a LINE
+// alert — nothing refilling/requisitioning can fix a broken supply chain, and the app itself
+// excludes it from every low-stock list.
+function isOnStockHold(m) { return typeof m.outOfStockSince === 'number'; }
 
 async function lineBroadcast(token, text) {
   const res = await fetch('https://api.line.me/v2/bot/message/broadcast', {
@@ -87,8 +92,10 @@ export async function main() {
   }
   const subQty = (medId) => subByMed.get(medId) || 0;
 
-  const belowMin = meds.filter((m) => (m.floor || 0) < floorMinOf(m));
-  const belowSubPar = meds.filter((m) => usesSubstock(m) && subQty(m.id) < (m.parSub || 0));
+  // Same rule as selectors.ts's needsWarehouseRequest(): a no-substock med's shelf stands in for
+  // its substock, so it is judged against parFloor instead of being skipped entirely.
+  const belowMin = meds.filter((m) => !isOnStockHold(m) && (m.floor || 0) < floorMinOf(m));
+  const belowSubPar = meds.filter((m) => !isOnStockHold(m) && (usesSubstock(m) ? subQty(m.id) < (m.parSub || 0) : (m.floor || 0) < (m.parFloor || 0)));
 
   if (!belowMin.length && !belowSubPar.length) {
     console.log('Nothing below par today — skipping notification (no alert fatigue for a clean day).');

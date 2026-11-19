@@ -2672,7 +2672,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setState((st) => ({ ...st, cart: {}, hadOk: {}, screen: 'done', navStack: pushNav(st.navStack, st.screen), doneKind: 'transfer', doneRows: resultRows }));
     } catch (e) {
       const msg = (e as Error)?.message || '';
-      if (msg === 'missing-med') { toast('มีรายการในตะกร้าที่ถูกลบออกจากระบบไปแล้ว — กลับไปที่ตะกร้าแล้วลบรายการนั้นออกก่อน'); return; }
+      if (msg === 'missing-med') {
+        // Bug fix (audit finding): TConfirmScreen hides a cart row whose med no longer exists, so
+        // the old "go back and remove that item" advice pointed at a row nobody could see — the
+        // only way out was clearing the whole cart. Drop just the ghost ids here instead.
+        const ghostIds = ids.filter((medId) => !meds.find((x) => x.id === medId));
+        setState((st) => {
+          const nextCart = { ...st.cart };
+          ghostIds.forEach((id) => { delete nextCart[id]; });
+          return { ...st, cart: nextCart };
+        });
+        toast('มียาในตะกร้าที่ถูกลบออกจากระบบไปแล้ว — ตัดรายการนั้นออกให้แล้ว ตรวจตะกร้าที่เหลือแล้วกดยืนยันอีกครั้ง');
+        return;
+      }
       if (msg.startsWith('insufficient:')) { toast('substock เหลือไม่พอสำหรับ ' + msg.slice('insufficient:'.length) + ' — น่าจะมีคนอื่นเบิกไปพร้อมกัน กลับไปปรับจำนวนในตะกร้าแล้วลองใหม่'); return; }
       // Bug fix (debugging gap, same class as commitReconcile's failedMedName — v3.236.0): this
       // whole cart commits as ONE shared transaction (unlike commitReconcile/commitReceive's
