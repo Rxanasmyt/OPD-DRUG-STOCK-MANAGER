@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { wardOf, hosxpMissReasons, isRegularlyDispensed, lastReconcileCoveredToIso } from '../store/selectors';
 import { nf, thDate, isoDate, bangkokWeekday } from '../utils/format';
-import type { HosxpMatch, Med, MedId, ReconcileGapDay } from '../types';
+import type { HosxpMatch, Med, MedId, ReconcileGapDay, ReconcileMonthDay } from '../types';
 import { Badge } from '../components/Badge';
-import ReconcileCalendar from './ReconcileCalendar';
+import ReconcileCalendar, { ReconcileDayDetail } from './ReconcileCalendar';
 
 // Real-world request: "ป้องกันการหลุดยาที่มีในระบบแต่ไม่ได้ถูกตัดจำนวนยา และป้องกันการหลุดวันที่
 // ยังไม่ได้แนบไฟล์" — how far back fetchReconcileGaps (AppContext.tsx) looks every time this
@@ -25,7 +25,7 @@ const MISS_REASON_BADGE: Record<'not_in_file' | 'ambiguous', { label: string; co
 };
 
 export default function ReconcileScreen() {
-  const { state, processHosxpFile, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, toast, go, setMedsFocusId } = useApp();
+  const { state, processHosxpFile, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, fetchReconcileMonth, toast, go, setMedsFocusId } = useApp();
 
   // Real-world request: "เพื่อนำไปสู่การแก้ไขปัญหายาที่อาจจะยังมีปัญหาครับ"/"สามารถเชื่อมโยงปัญหานั่น
   // ไปแก้ปัญหาจริงได้" — a miss-reasons row used to just explain what's wrong with no way to act
@@ -201,6 +201,24 @@ export default function ReconcileScreen() {
   // see fetchReconcileGaps' own doc comment (AppContext.tsx) for exactly what it flags.
   const [gapDays, setGapDays] = useState<ReconcileGapDay[] | null>(null);
   const gapReqId = useRef(0);
+  // Tap a flagged day to see, per med, WHY it wasn't deducted (same detail as the calendar below).
+  // Loaded lazily for that day's month and cached for the life of this list, so reopening is free.
+  const [openGap, setOpenGap] = useState<string | null>(null);
+  const [gapDetail, setGapDetail] = useState<Record<string, ReconcileMonthDay | 'loading' | 'error'>>({});
+  const toggleGap = (dateIso: string) => {
+    if (openGap === dateIso) { setOpenGap(null); return; }
+    setOpenGap(dateIso);
+    if (gapDetail[dateIso] && gapDetail[dateIso] !== 'error') return;
+    setGapDetail((g) => ({ ...g, [dateIso]: 'loading' }));
+    fetchReconcileMonth(dateIso.slice(0, 7)).then((month) => {
+      setGapDetail((g) => {
+        const next = { ...g };
+        for (const d of month) if (d.dateIso === dateIso || next[d.dateIso] === undefined) next[d.dateIso] = d;
+        if (!month.some((d) => d.dateIso === dateIso)) next[dateIso] = 'error';
+        return next;
+      });
+    }).catch(() => setGapDetail((g) => ({ ...g, [dateIso]: 'error' })));
+  };
   useEffect(() => {
     // Skip while a commit is mid-flight — refetches once state.busy['reconcile'] goes back to
     // false below, so the panel reflects what the commit that just ran actually wrote instead of
@@ -404,25 +422,41 @@ export default function ReconcileScreen() {
             ตรวจสอบความครบถ้วนของการตัดยอด {RECONCILE_GAP_LOOKBACK_DAYS} วันล่าสุด — พบ {gapDays.length} วันที่ควรตรวจสอบ
           </div>
           <div className="card stagger" style={{ overflow: 'hidden' }}>
-            {gapDays.map((g) => (
-              <div key={g.dateIso} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: g.kind === 'partial' ? 4 : 0 }}>
-                  {g.kind === 'missing'
-                    ? <Badge flexNone size={11} padding="2px 8px" color="var(--red)" bg="var(--red-bg)">ไม่มีไฟล์</Badge>
-                    : <Badge flexNone size={11} padding="2px 8px" color="var(--amber-ink)" bg="var(--amber-bg)">ตัดไม่ครบ</Badge>}
-                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>
-                    {thDate(new Date(g.dateIso + 'T12:00:00').getTime())}
-                    {g.kind === 'missing' ? ' — ไม่มีการตัดยอด HOSxP เลยทั้งวัน' : ' — ' + g.missingMeds.length + ' รายการที่ปกติจ่ายทุกวันไม่ถูกตัดยอด'}
-                  </span>
+            {gapDays.map((g) => {
+              const open = openGap === g.dateIso;
+              const detail = gapDetail[g.dateIso];
+              return (
+                <div key={g.dateIso} style={{ borderBottom: '1px solid var(--border-soft)' }}>
+                  <button type="button" aria-expanded={open} onClick={() => toggleGap(g.dateIso)} style={{ width: '100%', textAlign: 'left', border: 0, background: 'transparent', padding: '10px 13px', display: 'block', color: 'inherit', cursor: 'pointer' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: g.kind === 'partial' ? 4 : 0 }}>
+                      {g.kind === 'missing'
+                        ? <Badge flexNone size={11} padding="2px 8px" color="var(--red)" bg="var(--red-bg)">ไม่มีไฟล์</Badge>
+                        : <Badge flexNone size={11} padding="2px 8px" color="var(--amber-ink)" bg="var(--amber-bg)">ตัดไม่ครบ</Badge>}
+                      <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 0 }}>
+                        {thDate(new Date(g.dateIso + 'T12:00:00').getTime())}
+                        {g.kind === 'missing' ? ' — ไม่มีการตัดยอด HOSxP เลยทั้งวัน' : ' — ' + g.missingMeds.length + ' รายการที่ปกติจ่ายทุกวันไม่ถูกตัดยอด'}
+                      </span>
+                      <span className="muted" style={{ flex: 'none', fontSize: 11 }}>{open ? 'ซ่อน ▲' : 'ดูสาเหตุรายตัว ▾'}</span>
+                    </div>
+                    {g.kind === 'partial' && !open && (
+                      <div className="muted" style={{ fontSize: 11, lineHeight: 1.5 }}>
+                        {g.missingMeds.slice(0, 5).map((m) => m.name).join(', ')}
+                        {g.missingMeds.length > 5 ? ' และอีก ' + (g.missingMeds.length - 5) + ' รายการ' : ''}
+                      </div>
+                    )}
+                  </button>
+                  {open && (
+                    <div style={{ padding: '0 13px 12px' }}>
+                      {detail === 'loading' || detail === undefined
+                        ? <div className="muted" style={{ fontSize: 12 }}>กำลังโหลดสาเหตุ…</div>
+                        : detail === 'error'
+                          ? <div style={{ fontSize: 12, color: 'var(--red)' }}>โหลดสาเหตุของวันนี้ไม่สำเร็จ — กดที่แถวเพื่อลองใหม่</div>
+                          : <ReconcileDayDetail day={detail} onFixMed={goFixMed} />}
+                    </div>
+                  )}
                 </div>
-                {g.kind === 'partial' && (
-                  <div className="muted" style={{ fontSize: 11, lineHeight: 1.5 }}>
-                    {g.missingMeds.slice(0, 5).map((m) => m.name).join(', ')}
-                    {g.missingMeds.length > 5 ? ' และอีก ' + (g.missingMeds.length - 5) + ' รายการ' : ''}
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 6 }}>
             "ไม่มีไฟล์" คือวันที่ไม่มีการตัดยอด HOSxP แม้แต่รายการเดียว — ถ้ายังมีไฟล์ของวันนั้นอยู่ ควรกลับไปแนบให้ครบ

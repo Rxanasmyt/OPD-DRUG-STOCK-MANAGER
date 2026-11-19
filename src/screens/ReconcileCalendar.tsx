@@ -114,22 +114,30 @@ export default function ReconcileCalendar({ onFixMed }: { onFixMed: (id: MedId) 
         ✓ แนบแล้ว · เลข! = จำนวนยาปกติจ่ายที่ไม่ถูกตัด · ✗ ยังไม่แนบ · เสาร์-อาทิตย์ที่ไม่มีไฟล์ไม่นับว่าขาด (ไฟล์วันจันทร์ที่ครอบคลุมศุกร์-อาทิตย์จะทำให้ทั้งสามวันขึ้นว่าแนบแล้ว) · แตะวันที่เพื่อดูรายละเอียด
       </div>
 
-      {selectedDay && (
-        <div style={{ marginTop: 12, borderTop: '1px solid var(--border-soft)', paddingTop: 10 }} data-testid="reconcile-day-detail">
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{Number(selectedDay.dateIso.slice(8))} {TH_MONTHS[m - 1]} {y + 543} — {STATUS_STYLE[selectedDay.status].label}</div>
-          {selectedDay.status === 'missing' && (
+      {selectedDay && <ReconcileDayDetail day={selectedDay} onFixMed={onFixMed} />}
+    </div>
+  );
+}
+
+/** Per-day detail: which regularly-dispensed meds were not deducted and WHY (with a jump to fix the
+ * med name). Shared by the month calendar and the "ตรวจสอบความครบถ้วน" list on ReconcileScreen. */
+export function ReconcileDayDetail({ day, onFixMed }: { day: ReconcileMonthDay; onFixMed: (id: MedId) => void }) {
+  return (
+    <div style={{ marginTop: 12, borderTop: '1px solid var(--border-soft)', paddingTop: 10 }} data-testid="reconcile-day-detail">
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{Number(day.dateIso.slice(8))} {TH_MONTHS[Number(day.dateIso.slice(5, 7)) - 1]} {Number(day.dateIso.slice(0, 4)) + 543} — {STATUS_STYLE[day.status].label}</div>
+          {day.status === 'missing' && (
             <div style={{ fontSize: 12.5, lineHeight: 1.6, color: 'var(--red)' }}>ยังไม่มีการแนบไฟล์ HOSxP ที่ครอบคลุมวันนี้ — ยาทุกตัวของวันนี้ยังไม่ถูกตัดยอด ให้ดึงรายงานการใช้ยาของวันนี้จาก HOSxP แล้วแนบด้านบน (ระบุช่วงวันที่ให้ตรงกับวันนี้)</div>
           )}
-          {selectedDay.status === 'weekend' && <div className="muted" style={{ fontSize: 12.5 }}>วันหยุดสุดสัปดาห์ — ไม่ต้องแนบไฟล์แยก (ไฟล์วันจันทร์ครอบคลุมศุกร์-อาทิตย์ได้)</div>}
-          {(selectedDay.status === 'attached' || selectedDay.status === 'partial') && (
-            <div className="muted" style={{ fontSize: 12.5, marginBottom: 6 }}>ตัดยอดแล้ว {selectedDay.deductedCount} รายการยา</div>
+          {day.status === 'weekend' && <div className="muted" style={{ fontSize: 12.5 }}>วันหยุดสุดสัปดาห์ — ไม่ต้องแนบไฟล์แยก (ไฟล์วันจันทร์ครอบคลุมศุกร์-อาทิตย์ได้)</div>}
+          {(day.status === 'attached' || day.status === 'partial') && (
+            <div className="muted" style={{ fontSize: 12.5, marginBottom: 6 }}>ตัดยอดแล้ว {day.deductedCount} รายการยา</div>
           )}
-          {selectedDay.status === 'attached' && <div style={{ fontSize: 12.5, color: 'var(--green)' }}>ยาที่ปกติมีการจ่ายถูกตัดยอดครบทุกตัว</div>}
-          {selectedDay.missing.length > 0 && (
+          {day.status === 'attached' && <div style={{ fontSize: 12.5, color: 'var(--green)' }}>ยาที่ปกติมีการจ่ายถูกตัดยอดครบทุกตัว</div>}
+          {day.missing.length > 0 && (
             <>
-              <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>ยาที่ปกติมีการจ่ายแต่ยังไม่ถูกตัดยอดในวันนี้ ({selectedDay.missing.length} รายการ) และสาเหตุ</div>
+              <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>ยาที่ปกติมีการจ่ายแต่ยังไม่ถูกตัดยอดในวันนี้ ({day.missing.length} รายการ) และสาเหตุ</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {selectedDay.missing.map(({ med, reason }) => {
+                {day.missing.map(({ med, reason }) => {
                   const r = DAY_REASON[reason];
                   return (
                     <div key={med.id} style={{ border: '1px solid var(--border-soft)', borderRadius: 10, padding: '8px 10px' }}>
@@ -147,15 +155,13 @@ export default function ReconcileCalendar({ onFixMed }: { onFixMed: (id: MedId) 
               </div>
             </>
           )}
-          {selectedDay.unmatchedNames.length > 0 && (
+          {day.unmatchedNames.length > 0 && (
             <div style={{ marginTop: 10, fontSize: 12, lineHeight: 1.6 }}>
-              <div style={{ fontWeight: 600 }}>ชื่อในไฟล์ที่จับคู่กับยาในแอพไม่ได้ ({selectedDay.unmatchedNames.length} รายการ)</div>
-              <div className="muted">{selectedDay.unmatchedNames.slice(0, 15).join(' · ')}{selectedDay.unmatchedNames.length > 15 ? ' …' : ''}</div>
+              <div style={{ fontWeight: 600 }}>ชื่อในไฟล์ที่จับคู่กับยาในแอพไม่ได้ ({day.unmatchedNames.length} รายการ)</div>
+              <div className="muted">{day.unmatchedNames.slice(0, 15).join(' · ')}{day.unmatchedNames.length > 15 ? ' …' : ''}</div>
               <div className="muted">ถ้าชื่อใดคือยาที่มีในแอพ ให้เพิ่มเป็น "ชื่อที่ไฟล์ HOSxP อาจใช้เรียกยานี้" ในหน้ายา</div>
             </div>
           )}
         </div>
-      )}
-    </div>
   );
 }
