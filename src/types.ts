@@ -447,13 +447,21 @@ export interface User {
   active: boolean; // false = pending admin approval, or deactivated
   createdAt: number;
   lastLogin: number | null;
+  // Account-lifecycle stamps, written by an Admin (firestore.rules already lets an admin write any
+  // field other than an out-of-enum role/active). `lastLogin` can NOT tell a never-approved signup
+  // from a disabled account: it's stamped on every successful sign-in, including a pending
+  // account that merely tried to log in. These do. Absent on legacy docs (see userStatusOf).
+  approvedAt?: number | null;
+  disabledAt?: number | null;
+  rejectedAt?: number | null;
+  rejectReason?: string | null;
 }
 
 export type AuthStatus = 'loading' | 'signedOut' | 'pendingApproval' | 'signedIn';
 export type AuthMode = 'login' | 'register';
 
 export type AuditType =
-  | 'login' | 'user_registered' | 'user_approved' | 'user_role_changed' | 'user_status_changed' | 'par_updated'
+  | 'login' | 'user_registered' | 'user_approved' | 'user_rejected' | 'user_role_changed' | 'user_status_changed' | 'par_updated'
   | 'receive_rejected'
   // Formulary management (see MedsScreen/AppContext.tsx addMed/updateMedFull/toggleMedActive/
   // deleteMed) and the manual-QR-entry fallback (qrDecodedImpl) — both log via the same

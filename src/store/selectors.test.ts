@@ -1692,3 +1692,23 @@ describe('buildReconcileMonth / parseHosxpDayReport — month calendar of HOSxP 
     expect(parseHosxpDayReport('no range here', 1)).toBeNull();
   });
 });
+
+describe('userStatusOf / userActivityByName', () => {
+  it('separates pending, disabled and rejected inactive accounts; legacy inactive docs stay pending', async () => {
+    const { userStatusOf } = await import('./selectors');
+    expect(userStatusOf({ active: true })).toBe('active');
+    expect(userStatusOf({ active: false })).toBe('pending');
+    expect(userStatusOf({ active: false, approvedAt: 5 })).toBe('disabled');
+    expect(userStatusOf({ active: false, disabledAt: 5 })).toBe('disabled');
+    expect(userStatusOf({ active: false, rejectedAt: 5, approvedAt: 1 })).toBe('rejected');
+  });
+  it('counts logins and actions per display name and tracks the latest action', async () => {
+    const { userActivityByName } = await import('./selectors');
+    const m = userActivityByName(
+      [{ type: 'login', by: 'ก', ts: 1 }, { type: 'login', by: 'ก', ts: 2 }, { type: 'idle_logout', by: 'ก', ts: 3 }],
+      [{ by: 'ก', ts: 10 }, { by: 'ก', ts: 30 }, { by: 'ข', ts: 5 }, { ts: 9 }],
+    );
+    expect(m.get('ก')).toEqual({ logins: 2, actions: 2, lastActionTs: 30 });
+    expect(m.get('ข')).toEqual({ logins: 0, actions: 1, lastActionTs: 5 });
+  });
+});

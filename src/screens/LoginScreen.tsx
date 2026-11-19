@@ -69,14 +69,20 @@ export default function LoginScreen() {
         {OnlineBadge}
         {ThemeToggleBtn}
         <div style={{ position: 'relative', width: 62, height: 62, borderRadius: '50%', background: 'rgba(242,245,239,.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, margin: '0 auto 18px' }}>⏳</div>
-        <div style={{ position: 'relative', fontSize: 19, fontWeight: 700, marginBottom: 6 }}>รอ Admin อนุมัติบัญชี</div>
+        <div style={{ position: 'relative', fontSize: 19, fontWeight: 700, marginBottom: 6 }}>
+          {myProfile?.rejectedAt ? 'คำขอสมัครไม่ได้รับการอนุมัติ' : myProfile?.approvedAt || myProfile?.disabledAt ? 'บัญชีนี้ถูกปิดใช้งาน' : 'รอ Admin อนุมัติบัญชี'}
+        </div>
         <div style={{ position: 'relative', fontSize: 13.5, opacity: 0.78, lineHeight: 1.6, marginBottom: 4 }}>
           {myProfile?.username
             ? <>บัญชี <b>{myProfile.name}</b> (@{myProfile.username}) สมัครสำเร็จแล้ว</>
             : 'บัญชีสมัครสำเร็จแล้ว'}
         </div>
         <div style={{ position: 'relative', fontSize: 13, opacity: 0.65, lineHeight: 1.6, marginBottom: 26 }}>
-          รอเภสัชกรหรือ Admin กดอนุมัติและกำหนดบทบาทให้ก่อน จึงจะเข้าใช้งานได้ — ลองเข้าสู่ระบบใหม่อีกครั้งภายหลัง
+          {myProfile?.rejectedAt
+            ? <>เหตุผล: {myProfile.rejectReason || 'ไม่ได้ระบุ'} — หากคิดว่าผิดพลาด ติดต่อ Admin ของห้องยา</>
+            : myProfile?.approvedAt || myProfile?.disabledAt
+              ? 'Admin ปิดการใช้งานบัญชีนี้ — ติดต่อ Admin ของห้องยาหากต้องการเปิดใช้งานอีกครั้ง'
+              : 'รอเภสัชกรหรือ Admin กดอนุมัติและกำหนดบทบาทให้ก่อน จึงจะเข้าใช้งานได้ — ลองเข้าสู่ระบบใหม่อีกครั้งภายหลัง'}
         </div>
         <button onClick={logout} className="login-btn" style={{ position: 'relative', width: '100%', border: '1px solid rgba(255,255,255,.3)', background: 'transparent', color: 'var(--login-ink)', padding: 14, borderRadius: 12, fontSize: 14 }}>ออกจากระบบ</button>
       </div>
