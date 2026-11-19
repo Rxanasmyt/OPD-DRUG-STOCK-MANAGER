@@ -172,7 +172,7 @@ function normBin(v: string): string {
 // spreadsheet actually understands) so a newly added type only ever needs a label added once,
 // in one place. Module-scope (not per-render state) since it's a pure constant.
 const EVENT_TYPE_LABEL: Record<string, string> = {
-  login: 'เข้าสู่ระบบ', user_registered: 'สมัครสมาชิก', user_approved: 'อนุมัติบัญชี', user_role_changed: 'เปลี่ยนบทบาท', user_status_changed: 'เปิด/ปิดบัญชี', par_updated: 'ปรับ par level', qr_manual: 'กรอกรหัส QR ด้วยมือ',
+  login: 'เข้าสู่ระบบ', user_registered: 'สมัครสมาชิก', user_approved: 'อนุมัติบัญชี', user_rejected: 'ปฏิเสธคำขอสมัคร', user_role_changed: 'เปลี่ยนบทบาท', user_status_changed: 'เปิด/ปิดบัญชี', par_updated: 'ปรับ par level', qr_manual: 'กรอกรหัส QR ด้วยมือ',
   med_added: 'เพิ่มยาใหม่', med_edited: 'แก้ไขข้อมูลยา', med_status_changed: 'เปิด/ปิดใช้งานยา', med_deleted: 'ลบยาถาวร',
   receive_from_central: 'รับเข้า substock', receive_pending: 'รับเข้า (รออนุมัติ)', receive_rejected: 'ปฏิเสธคำขอรับเข้า', transfer_to_floor: 'เติมหน้างาน',
   adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP',
@@ -750,6 +750,7 @@ export interface AppCtx {
   setAuditFilter: (f: AppState['auditFilter']) => void;
   setUserRole: (id: string, r: Role) => void;
   toggleUserActive: (id: string) => void;
+  rejectUser: (id: string) => Promise<void>;
   exportAudit: () => void;
   setHistoryFrom: (v: string) => void;
   setHistoryTo: (v: string) => void;
@@ -7108,8 +7109,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // new registration. `lastLogin` actually distinguishes the two cases: a never-logged-in
         // account is a genuine first approval; one that has logged in before is being
         // reinstated, not approved for the first time.
-        wasFirstApproval = next && !u.lastLogin;
-        trx.update(userRef(id), { active: next });
+        // Superseded by the explicit stamps (see User.approvedAt): lastLogin is ALSO set when a
+        // still-pending account merely tries to log in, so it misreads a retried signup as a
+        // "reinstatement". First approval = never approved and never disabled before.
+        wasFirstApproval = next && !u.approvedAt && !u.disabledAt;
+        const now = Date.now();
+        trx.update(userRef(id), next
+          ? { active: true, ...(u.approvedAt ? {} : { approvedAt: now }), rejectedAt: null, rejectReason: null }
+          : { active: false, disabledAt: now });
         return !next && live.role === 'admin' && live.active;
       });
       logAudit({ type: wasFirstApproval ? 'user_approved' : 'user_status_changed', note: (next ? (wasFirstApproval ? 'อนุมัติบัญชี ' : 'เปิดใช้งานบัญชี ') : 'ปิดใช้งานบัญชี ') + u.name });
@@ -7119,6 +7126,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toastErr(e, 'เปลี่ยนสถานะไม่สำเร็จ');
     }
   }, [state.role, state.users, state.myUid, lastAdminGuardedWrite, logAudit, toast, toastErr, confirmAsync]);
+
+  // Reject a pending signup (firestore.rules forbids deleting user docs, so "reject" keeps the
+  // doc inactive but stamps it, which moves it out of the approval queue and lets the applicant
+  // see why on their waiting screen). Only a non-active account can be rejected.
+  const rejectUser = useCallback(async (id: string) => {
+    if (state.role !== 'admin') return;
+    const u = state.users.find((x) => x.id === id);
+    if (!u || id === state.myUid) return;
+    const reason = await promptAsync('ปฏิเสธคำขอสมัครของ ' + u.name + ' (@' + u.username + ')\nระบุเหตุผล (ผู้สมัครจะเห็นข้อความนี้) — กดยกเลิกเพื่อไม่ทำอะไร');
+    if (reason === null) return;
+    const why = reason.trim().slice(0, 200) || 'ไม่ได้ระบุเหตุผล';
+    try {
+      await lastAdminGuardedWrite(id, (trx, live) => {
+        if (live.active) throw new Error('already-active');
+        trx.update(userRef(id), { active: false, rejectedAt: Date.now(), rejectReason: why });
+        return false;
+      });
+      logAudit({ type: 'user_rejected', note: 'ปฏิเสธคำขอสมัคร ' + u.name + ' — ' + why });
+      toast('ปฏิเสธคำขอของ ' + u.name + ' แล้ว');
+    } catch (e) {
+      if ((e as Error)?.message === 'already-active') { toast('บัญชีนี้เปิดใช้งานไปแล้ว — ปฏิเสธไม่ได้ (ใช้ปิดใช้งานแทน)'); return; }
+      toastErr(e, 'ปฏิเสธคำขอไม่สำเร็จ');
+    }
+  }, [state.role, state.users, state.myUid, promptAsync, lastAdminGuardedWrite, logAudit, toast, toastErr]);
 
   const exportAudit = useCallback(async () => {
     // Same reasoning as exportReportCsv — the live subscriptions are capped at 300 each for
@@ -7201,7 +7232,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     confirmScanAndNext, confirmScanAndStop, cancelScanConfirm,
     doneAgain,
-    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit,
+    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, exportAudit,
     setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, fetchExecTxsThisMonth,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [state, myProfile, theme, toggleTheme]);

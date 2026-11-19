@@ -1,4 +1,4 @@
-import type { AppState, HosxpMatch, Lot, Med, MedId, Role, Ward, Tx, TxType, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord, DayMissKind, ReconcileMonthDay } from '../types';
+import type { AppState, User, HosxpMatch, Lot, Med, MedId, Role, Ward, Tx, TxType, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord, DayMissKind, ReconcileMonthDay } from '../types';
 import { asMedId } from '../types';
 import { DAY, daysUntil, isoDate, nf } from '../utils/format';
 import { UNCATEGORIZED, DRUG_CATEGORIES, categoryLabel } from '../data/categories';
@@ -1410,3 +1410,37 @@ export function isNewerVersionAvailable(latestVersion: string | undefined, curre
 }
 
 export { daysUntil, DAY };
+
+
+/** Lifecycle status of a user account — drives which list it appears in on the Admin screen. */
+export type UserStatus = 'active' | 'pending' | 'disabled' | 'rejected';
+
+/** Legacy docs have none of the stamp fields: a non-active one is treated as `pending` (it lands
+ * in the approval queue where an Admin judges it) rather than guessed to be "disabled" from
+ * lastLogin, which is also set by a pending account's own login attempts. */
+export function userStatusOf(u: Pick<User, 'active' | 'approvedAt' | 'disabledAt' | 'rejectedAt'>): UserStatus {
+  if (u.active) return 'active';
+  if (u.rejectedAt) return 'rejected';
+  if (u.approvedAt || u.disabledAt) return 'disabled';
+  return 'pending';
+}
+
+export interface UserActivity { logins: number; lastActionTs: number | null; actions: number }
+
+/** Per-user activity derived from the live (capped) auth log + tx feed, matched by display name
+ * (the only identity those rows carry). It describes the recent window, not all time. */
+export function userActivityByName(
+  authLog: ReadonlyArray<{ type: string; by: string; ts: number }>,
+  txs: ReadonlyArray<{ by?: string; ts: number }>,
+): Map<string, UserActivity> {
+  const out = new Map<string, UserActivity>();
+  const get = (n: string) => { let a = out.get(n); if (!a) { a = { logins: 0, lastActionTs: null, actions: 0 }; out.set(n, a); } return a; };
+  for (const e of authLog) if (e.type === 'login' && e.by) get(e.by).logins++;
+  for (const t of txs) {
+    if (!t.by) continue;
+    const a = get(t.by);
+    a.actions++;
+    if (a.lastActionTs == null || t.ts > a.lastActionTs) a.lastActionTs = t.ts;
+  }
+  return out;
+}

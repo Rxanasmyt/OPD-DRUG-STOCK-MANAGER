@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { thDate, thTime } from '../utils/format';
+import { userStatusOf, userActivityByName } from '../store/selectors';
 import type { AdminTab, AuditFilter, MedCountTsIssue, Role, User } from '../types';
 import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
@@ -21,9 +22,9 @@ function initialsOf(name: string): string {
   return (cleaned[0] || name[0] || '?').toUpperCase();
 }
 const AUDIT_FILTERS: [AuditFilter, string][] = [['all', 'ทั้งหมด'], ['users', 'บัญชีผู้ใช้'], ['stock', 'สต็อก/ธุรกรรม']];
-const USER_TYPES = ['login', 'idle_logout', 'user_registered', 'user_approved', 'user_role_changed', 'user_status_changed'];
+const USER_TYPES = ['login', 'idle_logout', 'user_registered', 'user_approved', 'user_rejected', 'user_role_changed', 'user_status_changed'];
 const TYPE_LABEL: Record<string, string> = {
-  login: 'เข้าสู่ระบบ', idle_logout: 'ออกจากระบบอัตโนมัติ (ไม่มีการใช้งานนาน)', user_registered: 'สมัครสมาชิก', user_approved: 'อนุมัติบัญชี', user_role_changed: 'เปลี่ยนบทบาท', user_status_changed: 'เปิด/ปิดบัญชี', par_updated: 'ปรับ par level', qr_manual: 'กรอกรหัส QR ด้วยมือ',
+  login: 'เข้าสู่ระบบ', idle_logout: 'ออกจากระบบอัตโนมัติ (ไม่มีการใช้งานนาน)', user_registered: 'สมัครสมาชิก', user_approved: 'อนุมัติบัญชี', user_rejected: 'ปฏิเสธคำขอสมัคร', user_role_changed: 'เปลี่ยนบทบาท', user_status_changed: 'เปิด/ปิดบัญชี', par_updated: 'ปรับ par level', qr_manual: 'กรอกรหัส QR ด้วยมือ',
   med_added: 'เพิ่มยาใหม่', med_edited: 'แก้ไขข้อมูลยา', med_status_changed: 'เปิด/ปิดใช้งานยา', med_deleted: 'ลบยาถาวร',
   receive_from_central: 'รับเข้า substock', receive_pending: 'รับเข้า (รออนุมัติ)', receive_rejected: 'ปฏิเสธคำขอรับเข้า', transfer_to_floor: 'เติมหน้างาน',
   adjust: 'ปรับยอด', return: 'คืนยา', damaged: 'ยาเสีย/ชำรุด', expired: 'ยาหมดอายุ', count: 'นับสต็อกหน้างาน', reconcile_hosxp: 'นำเข้า HOSxP',
@@ -54,12 +55,14 @@ const APP_URL = window.location.origin + import.meta.env.BASE_URL;
 
 export default function AdminScreen() {
   const {
-    state, setAdminTab, setAuditFilter, setUserRole, toggleUserActive, exportAudit, roleLabelOf, toast,
+    state, setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, exportAudit, roleLabelOf, toast,
     setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, resetAllStockLedgers, resetAllQuantities,
     scanMedCountTsIssues, repairMedCountTsIssues,
   } = useApp();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [userQuery, setUserQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<Role | 'all'>('all');
+  const [inactiveOpen, setInactiveOpen] = useState(false);
   // Real-world request: a floor-count commit kept failing with a generic error for one specific
   // med — see scanMedCountTsIssues' own doc comment (AppContext.tsx) for the root cause. `null`
   // (not yet scanned) is distinct from `[]` (scanned, nothing found), so the UI below can tell
@@ -98,14 +101,21 @@ export default function AdminScreen() {
     }
   };
 
-  const pending = state.users.filter((u) => !u.active).sort((a, b) => b.createdAt - a.createdAt);
+  // Four lifecycle buckets (see userStatusOf): a disabled or rejected account used to sit in the
+  // "รออนุมัติ" queue next to genuine new signups, with the same "อนุมัติ" button.
+  const pending = state.users.filter((u) => userStatusOf(u) === 'pending').sort((a, b) => b.createdAt - a.createdAt);
+  const inactiveOthers = state.users.filter((u) => { const st = userStatusOf(u); return st === 'disabled' || st === 'rejected'; }).sort((a, b) => (b.disabledAt || b.rejectedAt || b.createdAt) - (a.disabledAt || a.rejectedAt || a.createdAt));
   const approvedAll = state.users.filter((u) => u.active).sort((a, b) => a.name.localeCompare(b.name, 'th'));
   const countByRole = (r: Role) => approvedAll.filter((u) => u.role === r).length;
-  // Search only narrows the "ทั้งหมด" list below — the pending queue and the 4 role-count
+  // Search/role filter only narrow the "ทั้งหมด" list below — the pending queue and the role-count
   // tiles above always reflect everyone, so approving/reviewing someone waiting never
   // depends on first clearing whatever was typed into this box.
   const uq = userQuery.trim().toLowerCase();
-  const approved = uq ? approvedAll.filter((u) => u.name.toLowerCase().includes(uq) || u.username.toLowerCase().includes(uq)) : approvedAll;
+  const approved = approvedAll
+    .filter((u) => roleFilter === 'all' || u.role === roleFilter)
+    .filter((u) => !uq || u.name.toLowerCase().includes(uq) || u.username.toLowerCase().includes(uq));
+  const activity = userActivityByName(state.authLog, state.txs);
+  const STALE_MS = 30 * 24 * 3600 * 1000;
 
   // The live subscriptions only carry the most recent 300 (kept small on purpose, for a
   // real-time "recent activity" feed) — a date-range search below queries Firestore directly
@@ -217,21 +227,30 @@ export default function AdminScreen() {
 
             {pending.length > 0 && (
               <>
-                <div style={{ fontSize: 13.5, fontWeight: 600, margin: '0 2px 8px', color: 'var(--amber-ink)' }}>รออนุมัติ ({pending.length})</div>
-                <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 16, borderColor: 'var(--amber)' }}>
-                  {pending.map((u) => <PendingRow key={u.id} u={u} onApprove={() => toggleUserActive(u.id)} roleLabelOf={roleLabelOf} />)}
+                <div style={{ fontSize: 13.5, fontWeight: 700, margin: '0 2px 8px', color: 'var(--amber-ink)' }}>🔔 รออนุมัติ ({pending.length})</div>
+                <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 16, borderColor: 'var(--amber)', boxShadow: '0 0 0 1px var(--amber) inset' }}>
+                  {pending.map((u) => <PendingRow key={u.id} u={u} onApprove={() => toggleUserActive(u.id)} onReject={() => rejectUser(u.id)} roleLabelOf={roleLabelOf} />)}
                 </div>
               </>
             )}
 
             <div style={{ fontSize: 13.5, fontWeight: 600, margin: '0 2px 8px' }}>
-              บัญชีผู้ใช้งานทั้งหมด ({approvedAll.length}{uq ? ` · พบ ${approved.length}` : ''})
+              บัญชีผู้ใช้งานทั้งหมด ({approvedAll.length}{uq || roleFilter !== 'all' ? ` · พบ ${approved.length}` : ''})
             </div>
             {/* Only worth showing once the list is actually long enough to need it — a single
                 admin account (or a small handful) has nothing to search for, and an empty
                 search box above one row would just be visual noise on day one. */}
             {approvedAll.length > 5 && (
               <SearchInput value={userQuery} onChange={setUserQuery} placeholder="ค้นหาชื่อหรือ username" style={{ marginBottom: 9 }} />
+            )}
+            {approvedAll.length > 3 && (
+              <div role="group" aria-label="กรองตามบทบาท" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 9 }}>
+                {(['all', ...ROLES] as const).map((r) => (
+                  <button key={r} type="button" aria-pressed={roleFilter === r} className="chip" onClick={() => setRoleFilter(r)} style={{ ...chip(roleFilter === r), minHeight: 36 }}>
+                    {r === 'all' ? 'ทุกบทบาท' : roleLabelOf(r)}{r !== 'all' ? ' (' + countByRole(r) + ')' : ''}
+                  </button>
+                ))}
+              </div>
             )}
             <div className="card stagger" style={{ overflow: 'hidden' }}>
               {approved.map((u) => {
@@ -253,6 +272,7 @@ export default function AdminScreen() {
                         {u.lastLogin ? thDate(u.lastLogin) : 'ยังไม่เคยเข้าระบบ'}
                       </span>
                     </div>
+                    <UserActivityLine u={u} act={activity.get(u.name)} staleMs={STALE_MS} />
                     <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
                       {ROLES.map((r) => {
                         const active = u.role === r;
@@ -273,9 +293,39 @@ export default function AdminScreen() {
                 );
               })}
               {approved.length === 0 && (
-                <EmptyState icon="👤" title={uq ? 'ไม่พบผู้ใช้ที่ค้นหา' : 'ยังไม่มีผู้ใช้งานที่อนุมัติแล้ว'} sub={uq ? 'ลองพิมพ์ชื่อหรือ username แบบสั้นลง' : undefined} />
+                <EmptyState icon="👤" title={uq || roleFilter !== 'all' ? 'ไม่พบผู้ใช้ที่ค้นหา' : 'ยังไม่มีผู้ใช้งานที่อนุมัติแล้ว'} sub={uq || roleFilter !== 'all' ? 'ลองเปลี่ยนตัวกรองหรือพิมพ์ให้สั้นลง' : undefined} />
               )}
             </div>
+
+            {inactiveOthers.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <button type="button" aria-expanded={inactiveOpen} onClick={() => setInactiveOpen((o) => !o)} className="btn-outline" style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 13px', borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44 }}>
+                  <span>⏻ ปิดใช้งาน / ปฏิเสธแล้ว ({inactiveOthers.length})</span>
+                  <span aria-hidden="true">{inactiveOpen ? '▲' : '▾'}</span>
+                </button>
+                {inactiveOpen && (
+                  <div className="card" style={{ overflow: 'hidden', marginTop: 8, animation: 'fade .18s var(--ease-out)' }}>
+                    {inactiveOthers.map((u) => {
+                      const rejected = userStatusOf(u) === 'rejected';
+                      const when = rejected ? u.rejectedAt : u.disabledAt;
+                      return (
+                        <div key={u.id} style={{ padding: '12px 13px', borderBottom: '1px solid var(--border-soft)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</span>
+                              <Badge flexNone size={10.5} color={rejected ? 'var(--amber-ink)' : 'var(--red)'} bg={rejected ? 'var(--amber-bg)' : 'var(--red-bg)'}>{rejected ? 'ปฏิเสธ' : 'ปิดใช้งาน'}</Badge>
+                            </div>
+                            <div className="muted" style={{ fontSize: 11.5, marginTop: 1 }}>@{u.username} · {u.dept} · {roleLabelOf(u.role)}{when ? ' · ' + thDate(when) : ''}</div>
+                            {rejected && u.rejectReason && <div className="muted" style={{ fontSize: 11, marginTop: 1 }}>เหตุผล: {u.rejectReason}</div>}
+                          </div>
+                          <button onClick={() => toggleUserActive(u.id)} aria-label={(rejected ? 'อนุมัติ ' : 'เปิดใช้งานอีกครั้ง ') + u.name} className="btn-primary" style={{ flex: 'none', padding: '9px 13px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 44 }}>{rejected ? 'อนุมัติ' : 'เปิดใช้งาน'}</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Admin-only, sits apart from the routine account-management UI above (own red
                 heading, own red-bordered cards) so it reads as a distinct, dangerous category
@@ -442,7 +492,7 @@ export default function AdminScreen() {
   );
 }
 
-function PendingRow({ u, onApprove, roleLabelOf }: { u: User; onApprove: () => void; roleLabelOf: (r: Role) => string }) {
+function PendingRow({ u, onApprove, onReject, roleLabelOf }: { u: User; onApprove: () => void; onReject: () => void; roleLabelOf: (r: Role) => string }) {
   return (
     <div style={{ padding: '12px 13px', borderBottom: '1px solid var(--border-soft)', display: 'flex', alignItems: 'center', gap: 10 }}>
       <div style={{ minWidth: 0, flex: 1 }}>
@@ -455,7 +505,23 @@ function PendingRow({ u, onApprove, roleLabelOf }: { u: User; onApprove: () => v
             had no way to tell a fresh signup apart from one that's sat unapproved for weeks. */}
         <div className="muted" style={{ fontSize: 11, marginTop: 1 }}>สมัครเมื่อ {thDate(u.createdAt)} {thTime(u.createdAt)}</div>
       </div>
-      <button onClick={onApprove} className="btn-primary" style={{ flex: 'none', padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 40 }}>อนุมัติ</button>
+      <div style={{ flex: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <button onClick={onApprove} aria-label={'อนุมัติ ' + u.name} className="btn-primary" style={{ padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 44 }}>อนุมัติ</button>
+        <button onClick={onReject} aria-label={'ปฏิเสธ ' + u.name} className="btn-danger" style={{ padding: '9px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, minHeight: 44 }}>ปฏิเสธ</button>
+      </div>
+    </div>
+  );
+}
+
+/** Recent-activity line under a user's name. Counts come from the live (capped) logs, so they
+ * describe the recent window — labelled as such rather than implying all-time totals. */
+function UserActivityLine({ u, act, staleMs }: { u: User; act: { logins: number; actions: number; lastActionTs: number | null } | undefined; staleMs: number }) {
+  const stale = !u.lastLogin || Date.now() - u.lastLogin > staleMs;
+  return (
+    <div className="muted" style={{ fontSize: 11, margin: '-3px 0 8px 44px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+      <span>เข้าระบบ {act?.logins ?? 0} ครั้ง · ทำรายการ {act?.actions ?? 0} รายการ (ในประวัติล่าสุด)</span>
+      {act?.lastActionTs ? <span>ล่าสุด {thDate(act.lastActionTs)} {thTime(act.lastActionTs)}</span> : null}
+      {stale && <Badge flexNone size={10} color="var(--amber-ink)" bg="var(--amber-bg)">{u.lastLogin ? 'ไม่ได้เข้าระบบเกิน 30 วัน' : 'ยังไม่เคยเข้าระบบ'}</Badge>}
     </div>
   );
 }
