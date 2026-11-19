@@ -33,6 +33,7 @@ describe('MedsScreen — warehouse drug-code field regression', () => {
 
     await user.click(screen.getByText('+ เพิ่มยาใหม่'));
     await user.type(screen.getByLabelText('ชื่อยา + ขนาด (เช่น Enalapril 5 mg)'), 'Amoxicillin 250mg');
+    await user.type(screen.getByLabelText('หน่วย'), 'เม็ด'); // a unit is now required
     const whCodeField = screen.getByLabelText('รหัสยาคลังใหญ่ (ถ้ามี)');
     fireEvent.change(whCodeField, { target: { value: '  WH-0042  ' } });
     await user.click(screen.getByRole('button', { name: 'บันทึก' }));
@@ -52,6 +53,7 @@ describe('MedsScreen — warehouse drug-code field regression', () => {
 
     await user.click(screen.getByText('+ เพิ่มยาใหม่'));
     await user.type(screen.getByLabelText('ชื่อยา + ขนาด (เช่น Enalapril 5 mg)'), 'Amoxicillin 250mg');
+    await user.type(screen.getByLabelText('หน่วย'), 'เม็ด'); // a unit is now required
     await user.click(screen.getByRole('button', { name: 'บันทึก' }));
 
     await waitFor(() => expect(getLastTransactionWrites().length).toBeGreaterThan(0));

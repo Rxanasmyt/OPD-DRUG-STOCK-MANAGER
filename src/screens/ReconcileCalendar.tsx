@@ -44,15 +44,28 @@ export default function ReconcileCalendar({ onFixMed }: { onFixMed: (id: MedId) 
   const [selected, setSelected] = useState<string | null>(null);
   const reqId = useRef(0);
 
+  // fetchReconcileMonth's identity changes with every meds/audit-log snapshot (it reads both) — the
+  // audit-log part matters: the screen-scoped auditLog listener starts AFTER mount and carries the
+  // per-day miss reasons, so a refetch when it arrives is wanted. But refetching immediately on every
+  // stock change blanked the calendar, closed the open day, and re-read the month's txs each time.
+  // So: a month change loads immediately (blanking, as before); any other trigger refreshes quietly
+  // (old days stay on screen, selection kept) after a short debounce.
+  const loadedMonth = useRef<string | null>(null);
   useEffect(() => {
     if (state.busy['reconcile']) return;
-    const id = ++reqId.current;
-    setDays(null);
-    fetchReconcileMonth(monthIso).then((d) => {
-      if (id === reqId.current) setDays(d);
-    }).catch((e) => {
-      if (id === reqId.current) toast((e as Error)?.message || 'โหลดปฏิทินการแนบไฟล์ไม่สำเร็จ');
-    });
+    const monthChanged = loadedMonth.current !== monthIso;
+    const run = () => {
+      const id = ++reqId.current;
+      if (monthChanged) { setDays(null); loadedMonth.current = monthIso; }
+      fetchReconcileMonth(monthIso).then((d) => {
+        if (id === reqId.current) setDays(d);
+      }).catch((e) => {
+        if (id === reqId.current) toast((e as Error)?.message || 'โหลดปฏิทินการแนบไฟล์ไม่สำเร็จ');
+      });
+    };
+    if (monthChanged) { run(); return; }
+    const t = window.setTimeout(run, 1500);
+    return () => window.clearTimeout(t);
   }, [monthIso, fetchReconcileMonth, state.busy, toast]);
 
   const [y, m] = monthIso.split('-').map(Number);

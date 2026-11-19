@@ -57,7 +57,7 @@ const APP_URL = window.location.origin + import.meta.env.BASE_URL;
 
 export default function AdminScreen() {
   const {
-    state, setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, exportAudit, roleLabelOf, toast,
+    state, setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, fetchTempPassword, clearTempPassword, exportAudit, roleLabelOf, toast,
     setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, resetAllStockLedgers, resetAllQuantities,
     scanMedCountTsIssues, repairMedCountTsIssues,
   } = useApp();
@@ -69,6 +69,23 @@ export default function AdminScreen() {
   // this project has no Cloud Functions — so the reset is a manually-run GitHub Action (see
   // docs/ADMIN_PASSWORD_RESET.md). This panel gives the admin the username to paste and the link.
   const [resetHelp, setResetHelp] = useState<User | null>(null);
+  const [tempPw, setTempPw] = useState<{ tempPassword: string; createdAt: number } | null>(null);
+  const [tempChecked, setTempChecked] = useState(false);
+  const openResetHelp = (u: User | null) => { setResetHelp(u); setTempPw(null); setTempChecked(false); };
+  const checkTemp = async () => {
+    if (!resetHelp) return;
+    const r = await fetchTempPassword(resetHelp.id);
+    setTempPw(r);
+    setTempChecked(true);
+  };
+  const copyTemp = async () => {
+    if (!tempPw) return;
+    try { await navigator.clipboard.writeText(tempPw.tempPassword); toast('คัดลอกรหัสชั่วคราวแล้ว'); } catch { toast('คัดลอกไม่สำเร็จ — จดรหัสจากหน้าจอแทน'); }
+  };
+  const dropTemp = async () => {
+    if (!resetHelp) return;
+    if (await clearTempPassword(resetHelp.id)) { setTempPw(null); setTempChecked(false); toast('ลบรหัสชั่วคราวออกจากระบบแล้ว'); }
+  };
   const copyUsername = async () => {
     if (!resetHelp) return;
     try { await navigator.clipboard.writeText(resetHelp.username); toast('คัดลอก username แล้ว'); } catch { toast('คัดลอกไม่สำเร็จ — พิมพ์ username เอง'); }
@@ -241,14 +258,25 @@ export default function AdminScreen() {
                 <ol style={{ margin: '0 0 8px', paddingLeft: 18, fontSize: 12, lineHeight: 1.75, color: 'var(--amber-ink)' }}>
                   <li>กด "เปิดหน้ารีเซ็ต" ด้านล่าง (ต้องล็อกอิน GitHub ที่มีสิทธิ์ใน repo นี้)</li>
                   <li>กด <b>Run workflow</b> แล้วกรอก username: <code style={{ background: 'var(--bg-card)', padding: '1px 6px', borderRadius: 6, userSelect: 'all' }}>{resetHelp.username}</code></li>
-                  <li>รอ ~1 นาที เปิดการรันที่เสร็จแล้ว → <b>Summary</b> จะมีรหัสผ่านชั่วคราว → แจ้งผู้ใช้</li>
-                  <li>ผู้ใช้เข้าด้วยรหัสชั่วคราว แอพจะบังคับให้ตั้งรหัสใหม่ของตัวเอง</li>
-                  <li>จดรหัสแล้ว <b>ลบการรันนั้นทิ้ง</b> (Delete workflow run) ไม่ให้รหัสค้างในหน้า GitHub</li>
+                  <li>รอ ~1 นาทีให้รันเสร็จ แล้วกลับมากด <b>ดูรหัสชั่วคราว</b> ด้านล่าง (รหัสไม่แสดงบน GitHub เพราะ repo เป็น public — เห็นได้เฉพาะ Admin ในแอพนี้)</li>
+                  <li>แจ้งรหัสให้ผู้ใช้โดยตรง → ผู้ใช้เข้าด้วยรหัสชั่วคราว แอพจะบังคับให้ตั้งรหัสใหม่ของตัวเอง</li>
+                  <li>แจ้งแล้วกด <b>ลบรหัสนี้ออก</b></li>
                 </ol>
+                {tempPw && (
+                  <div style={{ margin: '0 0 8px', padding: 10, borderRadius: 10, background: 'var(--bg-card)' }} data-testid="temp-password">
+                    <code style={{ fontSize: 20, fontWeight: 800, letterSpacing: '.08em', userSelect: 'all' }}>{tempPw.tempPassword}</code>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                      <button onClick={copyTemp} className="btn-primary" style={{ minHeight: 44, padding: '8px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600 }}>คัดลอก</button>
+                      <button onClick={() => void dropTemp()} className="btn-danger" style={{ minHeight: 44, padding: '8px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600 }}>ลบรหัสนี้ออก (แจ้งผู้ใช้แล้ว)</button>
+                    </div>
+                  </div>
+                )}
+                {tempChecked && !tempPw && <div style={{ fontSize: 11.5, color: 'var(--amber-ink)', marginBottom: 8 }}>ยังไม่พบรหัสชั่วคราว — รอให้ workflow รันเสร็จ (~1 นาที) แล้วกดใหม่</div>}
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <a href={RESET_WORKFLOW_URL} target="_blank" rel="noopener noreferrer" className="btn-primary" style={{ minHeight: 44, padding: '10px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>เปิดหน้ารีเซ็ต (GitHub) ↗</a>
+                  <button onClick={() => void checkTemp()} className="btn-outline" style={{ minHeight: 44, padding: '8px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600 }}>ดูรหัสชั่วคราว</button>
                   <button onClick={copyUsername} className="btn-outline" style={{ minHeight: 44, padding: '8px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600 }}>คัดลอก username</button>
-                  <button onClick={() => setResetHelp(null)} className="btn-outline" style={{ minHeight: 44, padding: '8px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600 }}>ปิด</button>
+                  <button onClick={() => openResetHelp(null)} className="btn-outline" style={{ minHeight: 44, padding: '8px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 600 }}>ปิด</button>
                 </div>
               </div>
             )}
@@ -314,7 +342,7 @@ export default function AdminScreen() {
                           account) used to be unreadable at a glance. Text label now, not just
                           an icon; aria-label kept for screen readers. */}
                       {!isMe && (
-                        <button onClick={() => setResetHelp(u)} aria-label={'รีเซ็ตรหัสผ่าน ' + u.name} className="btn-outline" style={{ flex: '1 1 100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44, marginTop: 4 }}>
+                        <button onClick={() => openResetHelp(u)} aria-label={'รีเซ็ตรหัสผ่าน ' + u.name} className="btn-outline" style={{ flex: '1 1 100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 4px', borderRadius: 9, fontSize: 12, fontWeight: 600, minHeight: 44, marginTop: 4 }}>
                           <span aria-hidden="true">🔑</span> รีเซ็ตรหัสผ่าน (ลืมรหัส)
                         </button>
                       )}

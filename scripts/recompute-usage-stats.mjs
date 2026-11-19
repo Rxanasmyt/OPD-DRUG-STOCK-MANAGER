@@ -140,7 +140,7 @@ async function main() {
     // txSnap is now `ts`-range-bounded but type-UNfiltered (see the comment at its own fetch
     // above) — every other tx type in this window must be excluded here, same as Part 2 below.
     if (x.type !== 'reconcile_hosxp') continue;
-    if (!x.name || typeof x.qty !== 'number' || x.qty >= 0 || typeof x.ts !== 'number') continue; // only dispensed (negative) entries
+    if (!x.name || typeof x.qty !== 'number' || (x.qty >= 0 && !((x.reportedQty ?? 0) > 0)) || typeof x.ts !== 'number') continue; // only dispensed (negative) entries
     const ageDays = (now - x.ts) / DAY;
     if (ageDays < 0) continue;
     const bucket = ageDays <= 30 ? 30 : ageDays <= 60 ? 60 : 0;
@@ -220,7 +220,7 @@ async function main() {
     const x = d.data();
     // Same type-filter restoration as Part 1 above.
     if (x.type !== 'reconcile_hosxp') continue;
-    if (!x.name || typeof x.qty !== 'number' || x.qty >= 0 || typeof x.ts !== 'number') continue; // dispensed only
+    if (!x.name || typeof x.qty !== 'number' || (x.qty >= 0 && !((x.reportedQty ?? 0) > 0)) || typeof x.ts !== 'number') continue; // dispensed only
     if (x.ts > now) continue;
     const key = dupNames.has(x.name) ? (x.medId ? 'id:' + x.medId : null) : 'name:' + x.name;
     if (!key) continue;

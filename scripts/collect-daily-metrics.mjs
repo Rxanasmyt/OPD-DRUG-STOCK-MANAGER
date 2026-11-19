@@ -188,7 +188,10 @@ async function main() {
     if (!activeIds.has(l.medId) || !(l.qty > 0)) continue;
     const m = meds.find((x) => x.id === l.medId);
     if (!m) continue;
-    const expStartMs = bangkokDayStartMs(bangkokIsoDate(l.exp || 0));
+    // A lot received without an expiry (Lot.exp is optional by design) can't be aged — skipping it
+    // matches the app's own aging report; `l.exp || 0` used to turn it into 1970 = "expired".
+    if (l.exp == null) continue;
+    const expStartMs = bangkokDayStartMs(bangkokIsoDate(l.exp));
     const daysLeft = Math.round((expStartMs - todayStartMs) / DAY);
     const value = l.qty * (m.price || 0);
     // Bug fix (consistency): a lot expiring TODAY (daysLeft===0) is already unsafe to dispense —

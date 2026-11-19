@@ -18,3 +18,8 @@ export function usersCollection() {
 export function queryAdminUsers(): Query {
   return query(usersCollection(), where('role', '==', 'admin'));
 }
+
+/** Temporary password written by scripts/reset-user-password.mjs (Admin SDK) — readable/deletable only by an active admin (firestore.rules). */
+export function passwordResetRef(uid: string): DocumentReference {
+  return doc(db, 'passwordResets', uid);
+}

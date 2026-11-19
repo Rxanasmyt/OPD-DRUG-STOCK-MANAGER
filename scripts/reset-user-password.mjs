@@ -6,15 +6,18 @@
 // FIREBASE_SERVICE_ACCOUNT_KEY secret every other script here already uses.
 //
 // What it does, for the one username given:
-//   * looks the user up in users/ (refuses an unknown username)
+//   * looks the user up in users/ (refuses an unknown username; refuses an app admin unless
+//     ALLOW_ADMIN_RESET=true)
 //   * sets a random temporary password (crypto.randomInt, no look-alike characters)
 //   * revokes their existing sessions
 //   * flags users/{uid}.mustChangePassword = true — the app then forces them to pick their own
 //     password right after they log in with the temporary one (ForcePasswordScreen)
 //   * appends an auditLog entry (who triggered it, for whom — never the password)
-// The temporary password is written ONLY to the GitHub job summary (GITHUB_STEP_SUMMARY), never
-// to the normal log. Anyone who can read this repo's Actions runs can open that summary — see
-// docs/ADMIN_PASSWORD_RESET.md (delete the run afterwards).
+//
+// This repo is PUBLIC (GitHub Pages), so Actions logs and job summaries are readable by anyone:
+// the temporary password is NEVER printed there. It is written to passwordResets/{uid}, a
+// collection only an active admin can read/delete (firestore.rules), and the admin reads it in the
+// app (Admin screen → the user → "ดูรหัสชั่วคราว"), then deletes it.
 //
 // Local run:
 //   FIREBASE_SERVICE_ACCOUNT_KEY="$(cat serviceAccountKey.json)" RESET_USERNAME=somebody node scripts/reset-user-password.mjs
@@ -23,7 +26,6 @@ import { initializeApp, cert } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import crypto from 'node:crypto';
-import fs from 'node:fs';
 
 // No 0/O/1/l/I — a password an admin reads out over the phone or types for someone.
 const ALPHABET = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -48,7 +50,15 @@ export async function main() {
   const doc = found.docs[0];
   const target = doc.data();
 
+  if (target.role === 'admin' && process.env.ALLOW_ADMIN_RESET !== 'true') {
+    console.error('@' + username + ' is an app ADMIN — refusing (re-run with the "allow_admin" option ticked if this is really intended). Nothing changed.');
+    process.exit(1);
+  }
+
   const tempPassword = generateTempPassword();
+  // Store the password for the admin FIRST: if a later step fails, the account is never left with a
+  // changed password that nobody can read.
+  await db.collection('passwordResets').doc(doc.id).set({ tempPassword, username, name: target.name || '', createdAt: Date.now(), requestedBy: 'github:' + actor });
   await getAuth().updateUser(doc.id, { password: tempPassword });
   await getAuth().revokeRefreshTokens(doc.id);
   await doc.ref.update({ mustChangePassword: true, passwordResetAt: Date.now(), passwordResetBy: 'github:' + actor });
@@ -59,20 +69,7 @@ export async function main() {
     note: 'รีเซ็ตรหัสผ่านของ ' + (target.name || doc.id) + ' (@' + username + ') — ต้องตั้งรหัสใหม่เมื่อเข้าระบบครั้งถัดไป',
   });
 
-  // The password goes to the job summary only — never console.log.
-  const summary = process.env.GITHUB_STEP_SUMMARY;
-  const body = [
-    '### 🔑 รหัสผ่านชั่วคราวของ ' + (target.name || username) + ' (@' + username + ')',
-    '',
-    '`' + tempPassword + '`',
-    '',
-    'แจ้งรหัสนี้ให้ผู้ใช้โดยตรง — เมื่อเข้าสู่ระบบ แอพจะบังคับให้ตั้งรหัสผ่านใหม่ของตัวเอง',
-    '**หลังจดรหัสแล้ว ให้ลบการรันนี้ (Delete workflow run) เพื่อไม่ให้รหัสค้างอยู่ในหน้านี้**',
-    '',
-  ].join('\n');
-  if (summary) fs.appendFileSync(summary, body);
-  else console.log('(no GITHUB_STEP_SUMMARY — local run) temp password for @' + username + ': ' + tempPassword);
-  console.log('Password reset for @' + username + ' — temporary password written to the job summary.');
+  console.log('Password reset for @' + username + ' — temporary password stored for the admin in the app (Admin screen → ดูรหัสชั่วคราว). It is not printed here.');
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

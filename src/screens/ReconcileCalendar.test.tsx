@@ -37,7 +37,8 @@ async function setup() {
 describe('ReconcileCalendar', () => {
   it('colours each day of the month by attach status', async () => {
     await setup();
-    await waitFor(() => expect(screen.getByRole('button', { name: /^7 มกราคม — แนบแล้ว$/ })).toHaveAttribute('data-status', 'attached'));
+    // meds arrive after mount → a quiet debounced refresh (1.5s) rather than an instant blank refetch
+    await waitFor(() => expect(screen.getByRole('button', { name: /^7 มกราคม — แนบแล้ว$/ })).toHaveAttribute('data-status', 'attached'), { timeout: 4000 });
     expect(screen.getByRole('button', { name: /^6 มกราคม — แนบแล้วแต่ตัดไม่ครบ$/ })).toHaveAttribute('data-status', 'partial');
     expect(screen.getByRole('button', { name: /^5 มกราคม — ยังไม่แนบ$/ })).toHaveAttribute('data-status', 'missing');
     expect(screen.getByRole('button', { name: /^4 มกราคม — เสาร์-อาทิตย์/ })).toHaveAttribute('data-status', 'weekend');
@@ -46,7 +47,7 @@ describe('ReconcileCalendar', () => {
 
   it('shows which med was not deducted, with its reason, when a partial day is tapped', async () => {
     const user = await setup();
-    await user.click(await screen.findByRole('button', { name: /^6 มกราคม — แนบแล้วแต่ตัดไม่ครบ$/ }));
+    await user.click(await screen.findByRole('button', { name: /^6 มกราคม — แนบแล้วแต่ตัดไม่ครบ$/ }, { timeout: 4000 }));
     const detail = screen.getByTestId('reconcile-day-detail');
     expect(detail).toHaveTextContent(MED_B.name);
     expect(detail).not.toHaveTextContent(MED_A.name);

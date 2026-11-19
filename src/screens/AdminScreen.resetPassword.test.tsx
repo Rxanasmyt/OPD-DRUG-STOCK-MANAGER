@@ -9,7 +9,7 @@ import AdminScreen from './AdminScreen';
 import ForcePasswordScreen from './ForcePasswordScreen';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import { updatePassword } from 'firebase/auth';
-import { signInAs, fireCollection, hasListener } from '../test-utils/firebaseTestDouble';
+import { signInAs, fireCollection, hasListener, seedDoc, getLastBatchWrites } from '../test-utils/firebaseTestDouble';
 
 const USERS = [
   { id: 'admin0', role: 'admin', name: 'แอดมิน หนึ่ง', username: 'admin0', dept: 'ห้องยา', active: true, createdAt: 1, lastLogin: Date.now() },
@@ -33,6 +33,27 @@ describe('AdminScreen — forgot-password help', () => {
     expect(link).toHaveAttribute('href', expect.stringContaining('/actions/workflows/reset-user-password.yml'));
     await user.click(screen.getByRole('button', { name: 'ปิด' }));
     expect(screen.queryByTestId('reset-help')).toBeNull();
+  });
+
+  it('shows the stored temporary password only after the workflow wrote it, and can delete it', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<AdminScreen />);
+    await signInAs('admin0', { role: 'admin', name: 'แอดมิน หนึ่ง', username: 'admin0' });
+    await waitFor(() => expect(hasListener('users')).toBe(true));
+    fireCollection('users', USERS);
+
+    await user.click(await screen.findByRole('button', { name: /รีเซ็ตรหัสผ่าน ผู้ใช้ ลืมรหัส/ }));
+    await user.click(screen.getByRole('button', { name: 'ดูรหัสชั่วคราว' }));
+    await screen.findByText(/ยังไม่พบรหัสชั่วคราว/);
+    expect(screen.queryByTestId('temp-password')).toBeNull();
+
+    seedDoc('passwordResets/u2', { tempPassword: 'Abcd2345wxyz', createdAt: Date.now() });
+    await user.click(screen.getByRole('button', { name: 'ดูรหัสชั่วคราว' }));
+    expect(await screen.findByTestId('temp-password')).toHaveTextContent('Abcd2345wxyz');
+
+    await user.click(screen.getByRole('button', { name: /ลบรหัสนี้ออก/ }));
+    await waitFor(() => expect(getLastBatchWrites().some((w) => w.kind === 'delete' && w.path === 'passwordResets/u2')).toBe(true));
+    await waitFor(() => expect(screen.queryByTestId('temp-password')).toBeNull());
   });
 });
 

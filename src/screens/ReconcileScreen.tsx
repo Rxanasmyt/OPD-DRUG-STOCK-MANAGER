@@ -243,6 +243,9 @@ export default function ReconcileScreen() {
     const reqId = ++gapReqId.current;
     fetchReconcileGaps(RECONCILE_GAP_LOOKBACK_DAYS).then((days) => {
       if (reqId !== gapReqId.current) return;
+      // The expanded per-med detail was computed from the previous commit's data — drop it.
+      setGapDetail({});
+      setOpenGap(null);
       setGapDays(days);
     }).catch((e) => {
       if (reqId !== gapReqId.current) return;

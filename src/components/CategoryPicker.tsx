@@ -26,8 +26,11 @@ export function CategoryPicker({ value, onChange, counts, total }: {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    const onDown = (e: MouseEvent | TouchEvent) => { if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false); };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('touchstart', onDown);
+    return () => { document.removeEventListener('keydown', onKey); document.removeEventListener('mousedown', onDown); document.removeEventListener('touchstart', onDown); };
   }, [open]);
 
   const cur = value === 'all' ? null : DRUG_CATEGORIES.find((c) => c.id === value) ?? null;
@@ -41,7 +44,7 @@ export function CategoryPicker({ value, onChange, counts, total }: {
           type="button"
           className="catpick-btn"
           aria-expanded={open}
-          aria-controls="catpick-panel"
+          aria-controls={open ? 'catpick-panel' : undefined}
           onClick={() => setOpen((o) => !o)}
           style={curStyle ? { ['--c' as string]: curStyle.color } : undefined}
         >
