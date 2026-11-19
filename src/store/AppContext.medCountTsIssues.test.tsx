@@ -41,10 +41,12 @@ const MED_NEVER_COUNTED = {
 function ScanHarness() {
   const { scanMedCountTsIssues, repairMedCountTsIssues } = useApp();
   const [issues, setIssues] = useState<MedCountTsIssue[] | null>(null);
+  const [repairOk, setRepairOk] = useState<boolean | null>(null);
   return (
     <div>
       <button onClick={() => scanMedCountTsIssues().then(setIssues)}>scan</button>
-      <button onClick={() => { if (issues) repairMedCountTsIssues(issues); }}>repair</button>
+      <button onClick={() => { if (issues) repairMedCountTsIssues(issues).then((ok) => setRepairOk(ok)); }}>repair</button>
+      {repairOk !== null && <div data-testid="repair-ok">{String(repairOk)}</div>}
       {issues && <div data-testid="issue-count">{issues.length}</div>}
       {issues?.map((it) => (
         <div key={it.medId} data-testid={'issue-' + it.medId}>
@@ -132,5 +134,33 @@ describe('scanMedCountTsIssues — malformed lastCountTs/lastSubCountTs detectio
 
     await screen.findByText(/เฉพาะ Admin เท่านั้น/);
     expect(getLastBatchWrites().length).toBe(0);
+  });
+});
+
+describe('repairMedCountTsIssues — reports whether the repair actually landed', () => {
+  it('returns true after a successful admin repair', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<ScanHarness />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED_BAD_NULL]);
+    seedCollection('meds', [MED_BAD_NULL]);
+    await user.click(screen.getByRole('button', { name: 'scan' }));
+    await waitFor(() => expect(screen.getByTestId('issue-count')).toHaveTextContent('1'));
+    await user.click(screen.getByRole('button', { name: 'repair' }));
+    await waitFor(() => expect(screen.getByTestId('repair-ok')).toHaveTextContent('true'));
+  });
+
+  it('returns false (so AdminScreen keeps the issue list) when the caller is not allowed to repair', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><ScanHarness /><Toast /></>);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED_BAD_NULL]);
+    seedCollection('meds', [MED_BAD_NULL]);
+    await user.click(screen.getByRole('button', { name: 'scan' }));
+    await waitFor(() => expect(screen.getByTestId('issue-count')).toHaveTextContent('1'));
+    await user.click(screen.getByRole('button', { name: 'repair' }));
+    await waitFor(() => expect(screen.getByTestId('repair-ok')).toHaveTextContent('false'));
   });
 });

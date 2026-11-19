@@ -1255,7 +1255,8 @@ function StockHoldForm({ med, onCancel, onStart, onEnd }: {
       </label>
       <div className="muted" style={{ fontSize: 11, lineHeight: 1.6, marginBottom: 10 }}>
         เมื่อทำเครื่องหมายแล้ว ระบบจะไม่แนะนำเบิกจากคลังใหญ่ยานี้ (ทั้งในแอปและใบพิมพ์) จนกว่าจะกด
-        "ยกเลิกขาดชั่วคราว" — ยอดคงเหลือจริง/การเติมหน้างานจากของที่เหลืออยู่ยังทำได้ตามปกติ
+        "ยกเลิกขาดชั่วคราว" — ยอดคงเหลือจริงยังดูได้ตามปกติ แต่ระบบจะไม่แสดงยานี้ในรายการเติมหน้างาน
+        และไม่ให้สแกนเติมเข้าตะกร้าจนกว่าจะยกเลิกสถานะ
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={onCancel} className="btn-outline" style={{ flex: 1, padding: 12, borderRadius: 10, fontSize: 13.5, minHeight: 46 }}>ยกเลิก</button>

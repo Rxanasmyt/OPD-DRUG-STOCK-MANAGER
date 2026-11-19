@@ -630,7 +630,7 @@ export interface AppCtx {
    * this. */
   scanMedCountTsIssues: () => Promise<MedCountTsIssue[]>;
   /** Admin-only. Pass exactly what scanMedCountTsIssues() returned. */
-  repairMedCountTsIssues: (issues: MedCountTsIssue[]) => Promise<void>;
+  repairMedCountTsIssues: (issues: MedCountTsIssue[]) => Promise<boolean>;
   setMedsFocusId: (id: MedId | null) => void;
   goSubstockCardFor: (medId: MedId) => void;
   setSubstockFocusId: (id: MedId | null) => void;
@@ -5366,9 +5366,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // usable for its real purpose anyway) rather than guessing a replacement number. Admin-only,
   // matching every other data-maintenance action in this file (resetAllQuantities/
   // resetAllStockLedgers just above).
-  const repairMedCountTsIssues = useCallback(async (issues: MedCountTsIssue[]) => {
-    if (!canEditMeds) { toast('เฉพาะ Admin เท่านั้นที่ซ่อมแซมข้อมูลนี้ได้'); return; }
-    if (!issues.length) return;
+  // Returns whether the repair actually landed — AdminScreen used to clear its "found N bad meds"
+  // list unconditionally after this resolved, so a failed repair (offline/timeout, or a
+  // non-admin no-op) flipped the card to the green "ไม่พบยาที่มีข้อมูลเสีย" even though nothing
+  // had been fixed.
+  const repairMedCountTsIssues = useCallback(async (issues: MedCountTsIssue[]): Promise<boolean> => {
+    if (!canEditMeds) { toast('เฉพาะ Admin เท่านั้นที่ซ่อมแซมข้อมูลนี้ได้'); return false; }
+    if (!issues.length) return true;
     try {
       for (let i = 0; i < issues.length; i += 450) {
         const batch = writeBatch(db);
@@ -5383,8 +5387,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await logAudit({ type: 'med_data_repair', note: 'ซ่อมแซมฟิลด์ lastCountTs/lastSubCountTs ที่เสียของยา ' + nf(issues.length) + ' รายการ: ' + issues.map((it) => it.medName).join(', ') });
       hapticSuccess();
       toast('ซ่อมแซมข้อมูลแล้ว ' + nf(issues.length) + ' รายการ — ลองบันทึกการนับสต็อกใหม่ได้เลย');
+      return true;
     } catch (e) {
       toastErr(e, 'ซ่อมแซมไม่สำเร็จ ลองใหม่อีกครั้ง');
+      return false;
     }
   }, [canEditMeds, toast, toastErr, logAudit]);
 
