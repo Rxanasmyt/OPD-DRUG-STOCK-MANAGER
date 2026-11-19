@@ -1797,3 +1797,44 @@ describe('diagnoseMiss — never offers a one-tap alias for a look-alike that is
     expect(d.candidates[0].safe).toBe(true);
   });
 });
+
+describe('Min/Max/par — blank Min, Max of 1, monthly swings, malformed inputs', () => {
+  const mk = (over: Record<string, unknown> = {}) => ({
+    id: 'm', code: 'C', name: 'x', unit: 'เม็ด', dosageForm: 'เม็ด', price: 1, had: false, active: true,
+    parSub: 0, parFloor: 100, floor: 0, bin: 'A', used30: 0, usedPrev30: 0, volatility: 1, ...over,
+  }) as unknown as import('../types').Med;
+
+  it('an unset Min falls back to 50% of Max (a blank form field must now stay unset, not become 0)', async () => {
+    const { floorMinOf } = await import('./selectors');
+    expect(floorMinOf(mk({ parFloor: 100 }))).toBe(50);
+    expect(floorMinOf(mk({ parFloor: 100, floorMin: 30 }))).toBe(30);
+  });
+
+  it('Max of 1 gets a Min of 1, so a shelf at 0 is flagged low', async () => {
+    const { floorMinOf } = await import('./selectors');
+    expect(floorMinOf(mk({ parFloor: 1 }))).toBe(1);
+    expect(floorMinOf(mk({ parFloor: 0 }))).toBe(0);
+  });
+
+  it('par does not collapse after a quiet month: never below the plain two-month average', async () => {
+    const { parSuggestionDailyRate, dailyUsageRate } = await import('./selectors');
+    const quietAfterBusy = mk({ used30: 100, usedPrev30: 400 });
+    const avgRate = dailyUsageRate(mk({ used30: 250 }));
+    expect(parSuggestionDailyRate(quietAfterBusy)).toBeCloseTo(avgRate, 6); // blend would be 190 < 250
+    // still reacts fully upward to a rising month (70/30 blend > average)
+    const rising = mk({ used30: 400, usedPrev30: 100 });
+    expect(parSuggestionDailyRate(rising)).toBeCloseTo(dailyUsageRate(mk({ used30: 310 })), 6);
+  });
+
+  it('a missing/NaN volatility never produces NaN par numbers', async () => {
+    const { suggestPar } = await import('./selectors');
+    const s = suggestPar(mk({ used30: 400, usedPrev30: 100, volatility: undefined }), 4, 28)!;
+    expect(Number.isFinite(s.floor) && Number.isFinite(s.sub) && Number.isFinite(s.min)).toBe(true);
+  });
+
+  it('suggested substock par is never below the suggested shelf par for a med with a substock stage', async () => {
+    const { suggestPar } = await import('./selectors');
+    const s = suggestPar(mk({ used30: 4000, usedPrev30: 4000, had: true, weekdayPeakFactor: 1.8, recentStockoutDays30: 5 }), 14, 14)!;
+    expect(s.sub).toBeGreaterThanOrEqual(s.floor);
+  });
+});

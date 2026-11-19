@@ -153,8 +153,13 @@ export function halfOfMaxRounded(parFloor: number): number {
  * fix — same "never show/compute a nonsensical derived number" rule this app already applies
  * elsewhere (daysOfStockLeft, balancePct). */
 export function floorMinOf(m: Med): number {
+  // A stored number (even 0 — an explicit "never flag low") is honoured. The add/edit form used to turn a
+  // BLANK Min into a stored 0, which silently meant "never low"; it now leaves a blank Min unset (see
+  // AppContext addMed/updateMedFull), so this default applies. The default on a Max of 1 is floored at 1:
+  // halfOfMaxRounded(1) is 0 (strictly below Max) and would never flag an empty shelf.
   if (typeof m.floorMin === 'number' && m.floorMin <= m.parFloor) return m.floorMin;
-  return halfOfMaxRounded(m.parFloor);
+  const half = halfOfMaxRounded(m.parFloor);
+  return m.parFloor >= 1 ? Math.max(1, half) : half;
 }
 
 /** A shelf already at/below half of its own reorder point (Min) — not just "below Min" in
@@ -794,7 +799,13 @@ export function dailyUsageRate(m: Med): number {
 // Min/Max, not a second, subtly different usage figure someone would have to reconcile by hand.
 export function parSuggestionDailyRate(m: Med): number {
   if (!(m.usedPrev30 > 0)) return dailyUsageRate(m);
-  return (m.used30 * 0.7 + m.usedPrev30 * 0.3) / WEEKDAYS_PER_30_DAYS;
+  // Monthly demand swings (a busy month, then a quiet one): the 70/30 recent-weighted blend reacts
+  // quickly UPWARD to a rising month, but after a quiet month it falls BELOW the plain two-month
+  // average — sizing par for the quiet month right before the next busy one. Stock-out is the costly
+  // direction, so never go below the simple average of the two months: up fast, down slowly.
+  const blended = m.used30 * 0.7 + m.usedPrev30 * 0.3;
+  const average = (m.used30 + m.usedPrev30) / 2;
+  return Math.max(blended, average) / WEEKDAYS_PER_30_DAYS;
 }
 
 /** Whole-number days until a drug's combined on-hand (floor + substock) runs out at its
@@ -1316,7 +1327,8 @@ export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number)
   // undercut what the real history says, but a deliberately higher manual value for a known
   // future risk (no history could show that yet) always still wins.
   const autoVolatilityFloor = m.usageCv != null ? clampVolatility(1 + m.usageCv) : 1;
-  const effectiveVolatility = Math.max(m.volatility, autoVolatilityFloor);
+  // A missing/NaN stored volatility (legacy or malformed doc) must not poison every number below with NaN.
+  const effectiveVolatility = Math.max(Number.isFinite(m.volatility) ? m.volatility : 1, autoVolatilityFloor);
   // Real-world request (follow-up): "ไม่ให้ต้องเบิกยาฉุกเฉินจากคลังบ่อย" — every factor above is
   // still a FORECAST; recentStockoutDays30 (Med, see its own doc comment) is real GROUND TRUTH
   // that a forecast already failed — this drug's floor stock actually ran dry for real, repeatedly,
@@ -1365,7 +1377,8 @@ export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number)
   const peakBasis = m.peakDayP90Qty ?? m.peakDayQty;
   const peakFloor = peakBasis ? roundStep(peakBasis) : 0;
   const floor = Math.max(avgFloor, peakFloor);
-  const sub = Math.max(avgSub, peakFloor);
+  // A substock par below the shelf's own par can't refill the shelf even once — keep sub >= floor for a med that has a substock stage.
+  const sub = usesSubstock(m) ? Math.max(avgSub, peakFloor, floor) : Math.max(avgSub, peakFloor);
   // Real-world request: "Min ควรอิงอัตราการใช้จริงเหมือน Max ไม่ใช่สัดส่วนคงที่ของ Max" — floorMinOf()
   // (selectors.ts) falls back to a flat 50%-of-Max default when no Min is explicitly set, which
   // makes Min track whatever Max happens to be rather than this drug's own real usage rate — a
