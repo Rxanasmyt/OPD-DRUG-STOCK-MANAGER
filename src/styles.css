@@ -754,3 +754,26 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 
 /* Buttons/cards that want the "premium" tactile press instead of the default flat scale */
 .press-spring:not(:disabled):active { transform: scale(.94); transition: transform .08s var(--ease-spring); }
+
+/* ---- Report picker (ReportScreen): grouped, colour-coded tiles instead of a scrolling chip strip ---- */
+.rpt-picker { display: grid; gap: 10px; }
+.rpt-cat { --c1: #0b9490; --c2: #0a7f7b; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-card); overflow: hidden; transition: border-color .15s, box-shadow .15s; }
+.rpt-cat[data-active="true"] { border-color: var(--c1); box-shadow: 0 0 0 1px var(--c1) inset; }
+.rpt-cat-head { display: flex; align-items: baseline; gap: 8px; padding: 9px 12px 6px; flex-wrap: wrap; }
+.rpt-cat-dot { width: 9px; height: 9px; border-radius: 50%; background: linear-gradient(135deg, var(--c1), var(--c2)); align-self: center; flex: none; }
+.rpt-cat-title { font-weight: 800; font-size: 13px; color: var(--ink); }
+.rpt-cat-hint { font-size: 11px; color: var(--muted); }
+.rpt-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 8px; padding: 4px 10px 10px; }
+.rpt-tile { display: flex; align-items: center; gap: 9px; text-align: left; min-height: 52px; padding: 8px 10px; border-radius: 11px; border: 1px solid var(--border); background: var(--bg-subtle, var(--bg-card)); color: var(--ink); cursor: pointer; transition: transform .12s, border-color .12s, background .12s; }
+.rpt-tile:hover { border-color: var(--c1); }
+.rpt-tile:active { transform: scale(.98); }
+.rpt-tile.on { background: linear-gradient(135deg, var(--c1), var(--c2)); border-color: transparent; color: #fff; box-shadow: var(--shadow-md); }
+.rpt-tile-ic { font-size: 20px; line-height: 1; flex: none; }
+.rpt-tile-tx { display: flex; flex-direction: column; min-width: 0; }
+.rpt-tile-tx b { font-size: 13px; font-weight: 700; line-height: 1.25; }
+.rpt-tile-tx small { font-size: 10.5px; line-height: 1.3; opacity: .72; }
+.rpt-now { font-size: 12px; color: var(--muted); margin: 2px 0 8px; }
+.rpt-now b { color: var(--ink); font-size: 14px; }
+.rpt-all-info { margin-bottom: 10px; font-size: 11px; }
+.rpt-all-info summary { cursor: pointer; color: var(--muted); text-align: center; }
+@media (prefers-reduced-motion: reduce) { .rpt-tile, .rpt-cat { transition: none; } }

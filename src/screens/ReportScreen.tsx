@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes, discrepancyByCategory, repeatAdrReturns, frequentFloorRefills, replenishByMed } from '../store/selectors';
 import { nf, isoDate, fiscalYearStartIso, DAY } from '../utils/format';
 import type { DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, DrugReturnRecord, Tx, MedId } from '../types';
-import { TABS, REPORT_NAMES, AGING_BUCKETS, DISC_TYPES, chip } from './report/shared';
+import { TABS, REPORT_NAMES, AGING_BUCKETS, DISC_TYPES } from './report/shared';
 import { ExecTab } from './report/ExecTab';
 import { AgingTab } from './report/AgingTab';
 import { CategoryTab } from './report/CategoryTab';
@@ -15,6 +15,7 @@ import { UsageTab } from './report/UsageTab';
 import { ReturnsTab } from './report/ReturnsTab';
 import { StockAsOfTab } from './report/StockAsOfTab';
 import { ReplenishTab } from './report/ReplenishTab';
+import { ReportPicker } from './report/ReportPicker';
 
 export default function ReportScreen() {
   const {
@@ -432,31 +433,8 @@ export default function ReportScreen() {
 
   return (
     <div style={{ animation: 'fade .18s' }}>
-      <div style={{ padding: '12px 14px 10px', position: 'sticky', top: 0, zIndex: 2 }} className="sticky-bar">
-        <div className="scroll-fade-x" style={{ display: 'flex', gap: 7, overflowX: 'auto', marginBottom: 9 }}>
-          {TABS.map(([t, label]) => {
-            const isAi = t === 'insights';
-            const active = state.reportTab === t;
-            // The insights tab gets its own violet/cyan treatment (see .ai-* in styles.css)
-            // instead of the plain green chip every other tab uses — it's the one tab
-            // computing something (anomaly detection, a forecast) rather than just
-            // filtering/displaying stored numbers, and the visual says so at a glance.
-            return (
-              <button
-                key={t}
-                className={'chip' + (isAi && active ? ' ai-glow' : '')}
-                style={isAi
-                  ? active
-                    ? { minHeight: 38, border: 0, background: 'linear-gradient(90deg, var(--ai-1), var(--ai-2))', color: '#fff', fontWeight: 700 }
-                    : { minHeight: 38, border: '1px solid var(--ai-1)', background: 'var(--bg-card)', color: 'var(--ai-1)' }
-                  : { ...chip(active), minHeight: 38 }}
-                onClick={() => setReportTab(t)}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
+      <div style={{ padding: '12px 14px 0' }}>
+        <ReportPicker active={state.reportTab} onSelect={setReportTab} />
       </div>
       <div style={{ padding: '12px 14px 24px' }}>
         <button
@@ -467,10 +445,14 @@ export default function ReportScreen() {
         >
           {state.busy['exportAll'] ? 'กำลังรวบรวมข้อมูล…' : '📦 ดาวน์โหลดข้อมูลทั้งหมด (.xlsx ไฟล์เดียว)'}
         </button>
-        <div className="muted" style={{ fontSize: 11, textAlign: 'center', marginBottom: 10, lineHeight: 1.5 }}>
-          รวมทุกอย่างในแอพเป็นไฟล์เดียว คนละ sheet: รายงานสำเร็จรูปทั้ง 4 ชุด · ธุรกรรมทุกประเภททั้งหมด
-          (ไม่ใช่แค่ discrepancy) · audit log เต็ม · ใบรับที่รออนุมัติ · รายชื่อผู้ใช้ (เฉพาะ Admin) ·
-          ยาทั้งฟอร์มูลารี่ครบทุกฟิลด์ · lot ทุก lot ที่เคยรับเข้า (รวมที่หมด/ตัดออกแล้ว) · ค่าตั้งค่าระบบ
+        <details className="rpt-all-info">
+          <summary>ไฟล์ .xlsx นี้รวมอะไรบ้าง</summary>
+          <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 6 }}>
+            
+          </div>
+        </details>
+        <div className="rpt-now" data-testid="report-now">
+          กำลังดู: <b>{TABS.find(([k]) => k === state.reportTab)?.[1]}</b>
         </div>
         {/* "kpi"/"usage"/"stockasof" each have their own date-scoped export below
             (exportDailyMetricsCsv / exportUsageHistoryCsv / exportStockAsOfCsv on their own

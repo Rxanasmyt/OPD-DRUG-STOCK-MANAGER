@@ -1,23 +1,29 @@
-// Regression for a UI-polish finding from an actual screenshot review (real-world request:
-// "หน้ารายงาน...ยังไม่สวยเลย" — rendered the screen with sample data and looked at it): the
-// report-tab strip has 10 tabs but only ~3 fit on a phone-width screen, and used to end in a
-// hard, unsignaled cut edge — nothing told a reader "ยอดคงคลังย้อนหลัง"/"รายงานคืนยา" (tabs 9-10)
-// even exist. See styles.css's own ".scroll-fade-x" comment for the fix (an edge fade mask).
+// Regression for the report-picker redesign (real-world request: choosing a report category was
+// "ใช้งานยากมาก"). The old strip had 11 chips in one horizontal scroller where only ~3 fit on a
+// phone and nothing grouped them. Now every report is a visible tile grouped under a colour-coded
+// category — no horizontal scroller, so nothing can be hidden off-screen.
 import { describe, it, expect } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import ReportScreen from './ReportScreen';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import { signInAs, fireCollection, hasListener } from '../test-utils/firebaseTestDouble';
 
-describe('ReportScreen — horizontal scroll-fade regression', () => {
-  it('marks the report-tab strip as scroll-fade-x, so the overflow edge is never a hard unsignaled cut', async () => {
+describe('ReportScreen — grouped report picker', () => {
+  it('shows all 11 reports at once, grouped in 4 categories, with no horizontal scroller', async () => {
     renderWithApp(<ReportScreen />);
     await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
     fireCollection('meds', []);
     fireCollection('lots', []);
 
-    const firstTab = await screen.findByRole('button', { name: /ภาพรวมผู้บริหาร/ });
-    expect(firstTab.parentElement).toHaveClass('scroll-fade-x');
+    const picker = await screen.findByTestId('report-picker');
+    expect(picker.querySelectorAll('section')).toHaveLength(4);
+    expect(within(picker).getAllByRole('button')).toHaveLength(11);
+    expect(picker.querySelector('.scroll-fade-x')).toBeNull();
+    const first = await screen.findByRole('button', { name: /ภาพรวมผู้บริหาร/ });
+    await userEvent.setup().click(first);
+    expect(first).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('report-now')).toHaveTextContent('ภาพรวมผู้บริหาร');
   });
 });
