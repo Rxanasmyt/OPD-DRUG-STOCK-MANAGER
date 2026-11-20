@@ -1,3 +1,4 @@
+import AppIcon from './components/AppIcon';
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from 'react';
 import { useApp } from './store/AppContext';
 import LoginScreen from './screens/LoginScreen';
@@ -15,7 +16,6 @@ import UpdateBanner from './components/UpdateBanner';
 import IdleLogoutWarning from './components/IdleLogoutWarning';
 import { SkeletonHome, SkeletonScreen } from './components/Skeleton';
 import { ContextBar } from './components/ContextBar';
-import HospitalCrest from './components/HospitalCrest';
 import type { Screen } from './types';
 
 // Code-split the screens that aren't part of the hot day-to-day path (settings, admin,
@@ -176,9 +176,7 @@ export default function App() {
           // is the back button's the moment there's somewhere to go back to. Sized to match the
           // back button above (44px) so the header doesn't jump in height depending on which of
           // the two this slot is showing.
-          <div aria-hidden="true" style={{ position: 'relative', width: 44, height: 44, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, #ffffff, #f4f2ec)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 7, flex: 'none', boxShadow: '0 2px 8px -3px rgba(0,0,0,.35)' }}>
-            <HospitalCrest size={26} />
-          </div>
+          <div aria-hidden="true" style={{ position: 'relative', width: 44, height: 44, flex: 'none', filter: 'drop-shadow(0 3px 8px rgba(0,40,40,.45))' }}><AppIcon size={44} /></div>
         )}
         <div key={state.screen + '|' + title} style={{ position: 'relative', minWidth: 0, flex: 1, animation: 'fade .22s var(--ease-out)' }}>
           {/* App name — always visible so nobody has to guess which app they are in. Decorative

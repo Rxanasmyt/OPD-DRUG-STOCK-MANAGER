@@ -1,5 +1,7 @@
 import { useApp } from '../store/AppContext';
 import type { Screen } from '../types';
+import { useState } from 'react';
+import UserManual from './UserManual';
 import versionRaw from '../../VERSION?raw';
 
 const APP_VERSION = versionRaw.trim();
@@ -17,6 +19,7 @@ interface MenuGroup { title: string; items: MenuItem[] }
  */
 export default function MoreScreen() {
   const { state, go, userName, roleLabel, logout, checkForUpdateNow } = useApp();
+  const [manualOpen, setManualOpen] = useState(false);
   // Real-world request: editing the master drug record is Admin-only now (was pharm+admin) —
   // hide the menu item entirely for anyone else, same as MedsScreen's own full-page block for
   // a non-admin who reaches it some other way (e.g. a bookmarked/QR deep link).
@@ -87,6 +90,8 @@ export default function MoreScreen() {
         <div className="muted" style={{ fontSize: 12.5 }}>{roleLabel()} · รพ.กรงปินัง</div>
       </div>
 
+      <button onClick={() => setManualOpen(true)} data-testid="more-open-manual" style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: 12, borderRadius: 11, fontSize: 14, fontWeight: 700, minHeight: 48, marginBottom: 10 }}>📖 คู่มือการใช้งาน</button>
+      {manualOpen && <UserManual onClose={() => setManualOpen(false)} />}
       <button onClick={logout} style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--red)', padding: 14, borderRadius: 11, fontSize: 14.5, fontWeight: 600, minHeight: 50 }}>ออกจากระบบ</button>
 
       {/* Real-world request: "อยากให้มีปุ่มที่ใช้สำหรับการตรวจหาว่ามีเวอร์ชั่นล่าสุดหรือยัง ดีกว่า
