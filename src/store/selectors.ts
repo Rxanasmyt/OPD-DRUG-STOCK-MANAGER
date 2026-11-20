@@ -1720,9 +1720,11 @@ export function priorReconcileByMed(txs: readonly Tx[], from: string, to: string
   if (!from || !to) return out;
   for (const t of txs) {
     if (t.type !== 'reconcile_hosxp' || !t.medId || t.coveredFrom !== from || t.coveredTo !== to) continue;
+    // A reversal (undo) row carries a NEGATIVE reportedQty, so summing signed values nets it out.
     const reported = t.reportedQty ?? -t.qty;
-    if (reported > 0) out.set(t.medId, (out.get(t.medId) || 0) + reported);
+    out.set(t.medId, (out.get(t.medId) || 0) + reported);
   }
+  for (const [k, v] of out) if (v <= 0) out.delete(k);
   return out;
 }
 

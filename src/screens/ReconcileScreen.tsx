@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { wardOf, hosxpMissReasons, isRegularlyDispensed, lastReconcileCoveredToIso, priorReconcileByMed } from '../store/selectors';
+import { wardOf, hosxpMissReasons, isRegularlyDispensed, lastReconcileCoveredToIso, priorReconcileByMed, suggestMedsForFileName, diagnoseMiss } from '../store/selectors';
 import { nf, thDate, isoDate, bangkokWeekday } from '../utils/format';
 import type { HosxpMatch, Med, MedId, ReconcileGapDay, ReconcileMonthDay } from '../types';
 import { Badge } from '../components/Badge';
 import ReconcileCalendar, { ReconcileDayDetail } from './ReconcileCalendar';
 import { MissDiagnosis } from './MissDiagnosis';
 import { FileRowFixer } from './FileRowFixer';
+import { ReconcileStepper, ReconcileStatusCard, ReconcileProgress, ReconcileResultCard } from './ReconcileFlow';
 
 // Real-world request: "ป้องกันการหลุดยาที่มีในระบบแต่ไม่ได้ถูกตัดจำนวนยา และป้องกันการหลุดวันที่
 // ยังไม่ได้แนบไฟล์" — how far back fetchReconcileGaps (AppContext.tsx) looks every time this
@@ -27,7 +28,7 @@ const MISS_REASON_BADGE: Record<'not_in_file' | 'ambiguous', { label: string; co
 };
 
 export default function ReconcileScreen() {
-  const { state, processHosxpFile, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, fetchReconcileMonth, toast, go, setMedsFocusId } = useApp();
+  const { state, resolveHosxpRowsBulk, undoLastReconcile, dismissReconcileResult, processHosxpFile, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, fetchReconcileMonth, toast, go, setMedsFocusId } = useApp();
 
   // Real-world request: "เพื่อนำไปสู่การแก้ไขปัญหายาที่อาจจะยังมีปัญหาครับ"/"สามารถเชื่อมโยงปัญหานั่น
   // ไปแก้ปัญหาจริงได้" — a miss-reasons row used to just explain what's wrong with no way to act
@@ -136,6 +137,46 @@ export default function ReconcileScreen() {
     ? Math.round((new Date(state.hosxpCoveredTo + 'T00:00:00').getTime() - new Date(state.hosxpCoveredFrom + 'T00:00:00').getTime()) / DAY) + 1
     : 0;
   const canCommit = reconcileRows.length > 0 && (fuzzyCount === 0 || state.hosxpConfirmFuzzy) && coveredValid && unmatchedBig.length === 0;
+
+  // ---- guided-flow summary (one status card, a stepper, only-what-needs-attention lists) ----
+  const rowsWithIdx = reconcileRows.map((r, i) => ({ ...r, i }));
+  const shortRows = rowsWithIdx.filter((r) => r.med && !r.applied && r.qty - r.already > r.before);
+  const matchedCount = reconcileRows.filter((r) => r.med).length;
+  const alreadyCount = reconcileRows.filter((r) => r.med && r.already >= r.qty && r.qty > 0).length;
+  const totalUnits = reconcileRows.reduce((a, r) => a + (r.med && !r.applied ? r.qty - r.already : 0), 0);
+  const fuzzyPending = state.hosxpConfirmFuzzy ? 0 : fuzzyCount;
+  const needDecision = unmatchedBig.length + fuzzyPending;
+  const attentionIdx = useMemo(() => new Set(rowsWithIdx.filter((r) => !r.applied && (r.match.kind === 'none' || r.match.kind === 'ambiguous' || r.match.kind === 'fuzzy' || (r.med && r.qty - r.already > r.before))).map((r) => r.i)), [rowsWithIdx]);
+  const [rowFilter, setRowFilter] = useState<'attention' | 'all'>('attention');
+  const effectiveFilter = attentionIdx.size === 0 ? 'all' : rowFilter;
+  const step: 1 | 2 | 3 | 4 = state.busy['reconcile'] ? 4 : reconcileRows.length === 0 ? 1 : needDecision > 0 ? 2 : 3;
+  const ready = reconcileRows.length > 0 && canCommit;
+  const [editRange, setEditRange] = useState(false);
+  const fileRange = state.hosxpFileInfo?.dateRange ?? null;
+  const rangeMatchesFile = !!fileRange && fileRange.from === state.hosxpCoveredFrom && fileRange.to === state.hosxpCoveredTo;
+  const showRangePickers = editRange || !rangeMatchesFile;
+  // Unmatched rows whose single best suggestion passes every safety check → one-tap "accept all".
+  const safePairs = useMemo(() => unmatchedBig.flatMap((r) => {
+    const sg = suggestMedsForFileName(state.meds, r.fileText, 3);
+    const safe = sg.filter((x) => x.diff.safe);
+    return safe.length === 1 && sg[0] === safe[0] ? [{ idx: r.i, medId: safe[0].med.id }] : [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [unmatchedBig.map((r) => r.i).join(','), state.meds]);
+  const [acceptedCount, setAcceptedCount] = useState(0);
+  // Only the "not in file" meds that deserve a human look; the many that were most likely just not
+  // dispensed today are folded into one calm count line.
+  const missView = useMemo(() => {
+    const worth: typeof missEntries = [];
+    let normal = 0;
+    for (const e of missEntries) {
+      if (e.reason.kind === 'zero_qty') { normal++; continue; }
+      if (e.reason.kind === 'ambiguous') { worth.push(e); continue; }
+      const d = diagnoseMiss(e.med, unmatchedFileNames, state.meds);
+      if (d.verdict === 'likely_no_dispense') normal++; else worth.push(e);
+    }
+    return { worth, normal };
+  }, [missEntries, unmatchedFileNames, state.meds]);
+  const scrollToFix = () => document.getElementById('reconcile-fix-area')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   // "ยาที่หลุดบ่อย" — aggregates commitReconcile()'s own 'hosxp_unmatched' audit entries (see
   // its doc comment, AppContext.tsx) across whatever's in the currently-loaded audit log
@@ -301,6 +342,11 @@ export default function ReconcileScreen() {
         </div>
       )}
 
+      <ReconcileStepper step={step} />
+      {state.reconcileResult && (
+        <ReconcileResultCard result={state.reconcileResult} busy={!!state.busy['reconcile-undo']} onUndo={() => void undoLastReconcile()} onDismiss={dismissReconcileResult} />
+      )}
+
       <input
         ref={fileInputRef}
         type="file"
@@ -332,6 +378,9 @@ export default function ReconcileScreen() {
         return (
           <div data-testid="hosxp-file-verify" style={{ background: bg, color, borderRadius: 10, padding: '10px 13px', marginBottom: 12, fontSize: 12.5, lineHeight: 1.6, fontWeight: 600 }}>
             <div>ไฟล์: {fi.name} · {nf(fi.rowCount)} รายการ{fi.zeroRows ? ' · จำนวน 0 (ไม่ได้จ่าย) ' + nf(fi.zeroRows) + ' รายการ' : ''}</div>
+            {fr && match && !showRangePickers && (
+              <button type="button" onClick={() => setEditRange(true)} style={{ border: 0, background: 'transparent', color, fontWeight: 700, fontSize: 12, padding: '4px 0', textDecoration: 'underline', minHeight: 32 }}>แก้วันที่</button>
+            )}
             {!fr && <div>ℹ ไฟล์นี้ไม่ได้ระบุวันที่ไว้ในตัวไฟล์ — ตรวจช่วงวันที่ด้านล่างให้ตรงกับรายงานที่ดึงมา ก่อนกดตัดยอด</div>}
             {fr && match && <div>✓ วันที่ที่ไฟล์ระบุ ({fr.from === fr.to ? fr.from : fr.from + ' ถึง ' + fr.to}) ตรงกับช่วงที่จะตัดยอด</div>}
             {fr && !match && <div>⚠ ไฟล์ระบุวันที่ {fr.from === fr.to ? fr.from : fr.from + ' ถึง ' + fr.to} แต่ช่วงที่จะตัดยอดคือ {state.hosxpCoveredFrom} ถึง {state.hosxpCoveredTo} — ไม่ตรงกัน ตรวจให้แน่ใจว่าเป็นไฟล์ของวันที่ถูกต้อง</div>}
@@ -339,6 +388,24 @@ export default function ReconcileScreen() {
         );
       })()}
 
+      {reconcileRows.length > 0 && (
+        <ReconcileStatusCard
+          matched={matchedCount} needDecision={needDecision} totalUnits={totalUnits} shortCount={shortRows.length}
+          alreadyCount={alreadyCount} totalRows={reconcileRows.length} ready={ready} onGoFix={scrollToFix}
+          rangeLabel={coveredValid ? (state.hosxpCoveredFrom === state.hosxpCoveredTo ? state.hosxpCoveredFrom : state.hosxpCoveredFrom + ' ถึง ' + state.hosxpCoveredTo) : null}
+        />
+      )}
+
+      <div id="reconcile-fix-area" />
+      {safePairs.length > 0 && (
+        <button type="button" data-testid="accept-safe-all" onClick={async () => { const n = await resolveHosxpRowsBulk(safePairs, true); setAcceptedCount((c) => c + n); }}
+          className="btn-primary" style={{ width: '100%', padding: 12, borderRadius: 10, fontSize: 13.5, fontWeight: 700, minHeight: 48, marginBottom: 12 }}>
+          ✓ ยอมรับคำแนะนำที่ปลอดภัยทั้งหมด ({safePairs.length} รายการ — ชื่อและความแรงตรงกันทุกคำ)
+        </button>
+      )}
+      {acceptedCount > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--green)', fontWeight: 600, marginBottom: 10 }}>จับคู่ตามคำแนะนำไปแล้ว {acceptedCount} รายการ</div>
+      )}
       {unmatchedBig.length > 0 && (
         <div data-testid="unmatched-big-warning" style={{ background: 'var(--red-bg)', color: 'var(--red)', borderRadius: 10, padding: '10px 13px', marginBottom: 12, fontSize: 12.5, lineHeight: 1.6, fontWeight: 600 }}>
           ⚠ มี {unmatchedBig.length} รายการในไฟล์ที่ยังจับคู่กับยาในแอพไม่ได้ (รวม {nf(unmatchedBig.reduce((a, r) => a + r.qty, 0))} หน่วย) — ต้องจับคู่หรือกดข้ามทีละรายการก่อน จึงจะตัดยอดได้:
@@ -346,8 +413,6 @@ export default function ReconcileScreen() {
           <div style={{ fontWeight: 500 }}>เลื่อนลงในตาราง แต่ละรายการมีปุ่มจับคู่ยา/ค้นหายา/ข้าม พร้อมบอกว่าชื่อต่างกันตรงไหน</div>
         </div>
       )}
-
-      <ReconcileCalendar onFixMed={goFixMed} />
 
       {reconcileRows.length > 0 && (
         <>
@@ -359,6 +424,16 @@ export default function ReconcileScreen() {
               </span>
             </div>
           )}
+          {attentionIdx.size > 0 && (
+            <div role="tablist" aria-label="กรองรายการ" style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+              {([['attention', 'ต้องดู (' + attentionIdx.size + ')'], ['all', 'ทั้งหมด (' + reconcileRows.length + ')']] as const).map(([k, label]) => (
+                <button key={k} type="button" role="tab" aria-selected={effectiveFilter === k} onClick={() => setRowFilter(k)}
+                  style={{ border: '1px solid ' + (effectiveFilter === k ? 'var(--green)' : 'var(--border)'), background: effectiveFilter === k ? 'var(--green-tint)' : 'var(--bg-card)', color: effectiveFilter === k ? 'var(--green)' : 'var(--ink)', borderRadius: 999, padding: '7px 13px', fontSize: 12.5, fontWeight: 700, minHeight: 38 }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 13 }}>
             {/* Bug fix (audit finding): width: 70 (below, both here and on the value row) clips a
                 large quantity (e.g. a 4-5 digit จ่ายจริง or ก่อน→หลัง pair) on a narrow phone
@@ -367,7 +442,7 @@ export default function ReconcileScreen() {
             <div style={{ display: 'flex', padding: '9px 13px', background: 'var(--bg-subtle)', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
               <span style={{ flex: 1 }}>รายการยา</span><span style={{ minWidth: 70, textAlign: 'right', flex: 'none', whiteSpace: 'nowrap' }}>จ่ายจริง</span><span style={{ minWidth: 70, textAlign: 'right', flex: 'none', whiteSpace: 'nowrap' }}>ก่อน → หลัง</span>
             </div>
-            {reconcileRows.map((r, i) => (
+            {rowsWithIdx.filter((r) => effectiveFilter === 'all' || attentionIdx.has(r.i)).map((r) => { const i = r.i; return (
               <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', opacity: r.applied ? 0.6 : 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.3, fontWeight: r.match.kind === 'exact' ? 400 : 600 }}>
@@ -392,16 +467,21 @@ export default function ReconcileScreen() {
                   <FileRowFixer idx={i} fileText={r.fileText} qty={r.qty} skipped={skippedRows.has(i)}
                     onSkip={(sk) => setSkippedRows((prev) => { const n = new Set(prev); if (sk) n.add(i); else n.delete(i); return n; })} />
                 )}
+                {!r.applied && r.med && r.qty - r.already > r.before && (
+                  <div style={{ fontSize: 10.5, color: 'var(--red)', fontWeight: 600, marginTop: 3 }}>
+                    ⚠ ยอดหน้างานมีแค่ {nf(r.before)} {r.med.unit} แต่ไฟล์จ่าย {nf(r.qty - r.already)} — จะตัดได้เท่าที่มี (ตรวจนับ/เติมยา)
+                  </div>
+                )}
               </div>
-            ))}
+            ); })}
           </div>
 
-          {missEntries.length > 0 && (
+          {missView.worth.length > 0 && (
             <div className="card" style={{ padding: 13, marginBottom: 12, border: '1px solid var(--border)' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>ยาที่ปกติจ่ายทุกวันแต่ไม่ถูกตัดยอดจากไฟล์นี้ ({missEntries.length} รายการ)</div>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>ยาที่ปกติจ่ายทุกวันแต่ไม่ถูกตัดยอดจากไฟล์นี้ — ควรตรวจ ({missView.worth.length} รายการ)</div>
               <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginBottom: 10 }}>ตรวจสอบก่อนตัดยอด — รายการที่มีเหตุผล "ควรตรวจสอบ"/"ต้องแก้ไข" อาจทำให้จำนวนยาในระบบไม่ตรงกับที่จ่ายจริง</div>
               <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                {(showAllMiss ? missEntries : missEntries.slice(0, 30)).map(({ med, reason }) => (
+                {(showAllMiss ? missView.worth : missView.worth.slice(0, 30)).map(({ med, reason }) => (
                   <div key={med.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-soft)', borderRadius: 9, padding: '8px 10px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
                       <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{med.name}</span>
@@ -419,12 +499,18 @@ export default function ReconcileScreen() {
                     )}
                   </div>
                 ))}
-                {!showAllMiss && missEntries.length > 30 && (
+                {!showAllMiss && missView.worth.length > 30 && (
                   <button type="button" onClick={() => setShowAllMiss(true)} style={{ border: '1px dashed var(--border)', background: 'transparent', borderRadius: 9, padding: '10px', fontSize: 12.5, fontWeight: 600, color: 'var(--green)', minHeight: 44 }}>
-                    แสดงอีก {missEntries.length - 30} รายการ
+                    แสดงอีก {missView.worth.length - 30} รายการ
                   </button>
                 )}
               </div>
+            </div>
+          )}
+
+          {missView.normal > 0 && (
+            <div className="muted" data-testid="miss-normal-count" style={{ fontSize: 11.5, lineHeight: 1.5, margin: '0 2px 12px' }}>
+              อีก {missView.normal} รายการที่ปกติจ่ายแต่ไม่อยู่ในไฟล์วันนี้ — น่าจะไม่มีการจ่ายจริง (ไฟล์ HOSxP แสดงเฉพาะยาที่มีการจ่าย) ไม่ต้องแก้
             </div>
           )}
 
@@ -443,6 +529,7 @@ export default function ReconcileScreen() {
               spread a multi-day total back across the real days it represents. Defaults to
               yesterday-only (see processHosxp/processHosxpFile, AppContext.tsx) — zero extra taps
               for the normal single-day case; only needs widening backward on a catch-up. */}
+          {showRangePickers && (
           <div style={{ background: 'var(--amber-bg)', border: '1px solid var(--amber)', borderRadius: 10, padding: '11px 12px', marginBottom: 12 }}>
             <div style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--amber-ink)', fontWeight: 600, marginBottom: 8 }}>ไฟล์/ข้อมูลนี้ครอบคลุมยอดจ่ายยาวันที่เท่าไรบ้าง?</div>
             <div className="grid-2" style={{ marginBottom: 6 }}>
@@ -459,12 +546,14 @@ export default function ReconcileScreen() {
               {coveredValid ? 'รวม ' + daysCovered + ' วัน' + (daysCovered > 1 ? ' — เช่น กรณีตัดยอดเช้าวันจันทร์หลังวันหยุดสุดสัปดาห์' : '') : 'ระบุช่วงวันที่ให้ครบ (ถึงวันที่ต้องไม่ใช่วันนี้)'}
             </div>
           </div>
+          )}
 
           {unmatchedBig.length > 0 && (
             <div role="status" style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600, marginBottom: 8, lineHeight: 1.5 }}>
               ยังตัดยอดไม่ได้: เหลือ {unmatchedBig.length} รายการที่ยังไม่ได้จับคู่/ข้าม (ดูกรอบสีแดงในตารางด้านบน)
             </div>
           )}
+          {state.busy['reconcile'] && state.reconcileProgress && <ReconcileProgress done={state.reconcileProgress.done} total={state.reconcileProgress.total} />}
           <button onClick={commitReconcile} disabled={!canCommit || !!state.busy['reconcile']} className="btn-primary" style={{ width: '100%', padding: 15, borderRadius: 12, fontSize: 15, minHeight: 52, opacity: canCommit && !state.busy['reconcile'] ? 1 : 0.5 }}>
             {state.busy['reconcile']
               ? 'กำลังตัดยอด…'
@@ -475,6 +564,11 @@ export default function ReconcileScreen() {
         </>
       )}
 
+      <details data-testid="reconcile-history" open={gapDays !== null && gapDays.length > 0} style={{ marginTop: 18 }}>
+        <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 700, padding: '10px 2px', minHeight: 44, display: 'flex', alignItems: 'center' }}>
+          ประวัติและการตรวจย้อนหลัง{gapDays !== null && gapDays.length > 0 ? ' — พบ ' + gapDays.length + ' วันที่ตัดไม่ครบ' : ''}
+        </summary>
+        <ReconcileCalendar onFixMed={goFixMed} />
       {gapDays !== null && gapDays.length > 0 && (
         <div style={{ marginTop: 18 }}>
           <div className="muted" style={{ fontSize: 12, fontWeight: 600, margin: '0 2px 8px' }}>
@@ -627,6 +721,7 @@ export default function ReconcileScreen() {
           </div>
         </div>
       )}
+      </details>
     </div>
   );
 }

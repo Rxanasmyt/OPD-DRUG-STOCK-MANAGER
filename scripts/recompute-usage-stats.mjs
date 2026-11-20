@@ -140,7 +140,7 @@ async function main() {
     // txSnap is now `ts`-range-bounded but type-UNfiltered (see the comment at its own fetch
     // above) — every other tx type in this window must be excluded here, same as Part 2 below.
     if (x.type !== 'reconcile_hosxp') continue;
-    if (!x.name || typeof x.qty !== 'number' || (x.qty >= 0 && !((x.reportedQty ?? 0) > 0)) || typeof x.ts !== 'number') continue; // only dispensed (negative) entries
+    if (!x.name || typeof x.qty !== 'number' || (x.qty >= 0 && !((x.reportedQty ?? 0) > 0) && !((x.reportedQty ?? 0) < 0)) || typeof x.ts !== 'number') continue; // only dispensed (negative) entries
     const ageDays = (now - x.ts) / DAY;
     if (ageDays < 0) continue;
     const bucket = ageDays <= 30 ? 30 : ageDays <= 60 ? 60 : 0;
@@ -150,7 +150,7 @@ async function main() {
     // (see Tx.reportedQty's own doc comment, src/types.ts, and this file's hand-kept-in-sync
     // note at the top). Falls back to qty for every row from before this field existed, or
     // where the clamp never fired — the same number this always read.
-    const dispensedQty = Math.abs(x.reportedQty ?? x.qty);
+    const dispensedQty = ((x.reportedQty ?? 0) < 0 ? x.reportedQty : Math.abs(x.reportedQty ?? x.qty));
     if (dupNames.has(x.name)) {
       if (!x.medId) continue;
       const map = bucket === 30 ? curById : prevById;
@@ -220,7 +220,7 @@ async function main() {
     const x = d.data();
     // Same type-filter restoration as Part 1 above.
     if (x.type !== 'reconcile_hosxp') continue;
-    if (!x.name || typeof x.qty !== 'number' || (x.qty >= 0 && !((x.reportedQty ?? 0) > 0)) || typeof x.ts !== 'number') continue; // dispensed only
+    if (!x.name || typeof x.qty !== 'number' || (x.qty >= 0 && !((x.reportedQty ?? 0) > 0) && !((x.reportedQty ?? 0) < 0)) || typeof x.ts !== 'number') continue; // dispensed only
     if (x.ts > now) continue;
     const key = dupNames.has(x.name) ? (x.medId ? 'id:' + x.medId : null) : 'name:' + x.name;
     if (!key) continue;
@@ -236,7 +236,7 @@ async function main() {
     const toTs = new Date(toIso + 'T00:00:00').getTime();
     const daysCovered = Math.max(1, Math.round((toTs - fromTs) / DAY) + 1);
     // Bug fix (data integrity): same reportedQty-over-qty preference as Part 1 above.
-    const perDayQty = Math.abs(x.reportedQty ?? x.qty) / daysCovered;
+    const perDayQty = ((x.reportedQty ?? 0) < 0 ? x.reportedQty : Math.abs(x.reportedQty ?? x.qty)) / daysCovered;
     for (let i = 0; i < daysCovered; i++) {
       const dayTs = fromTs + i * DAY;
       if (dayTs > now) continue;

@@ -356,7 +356,7 @@ function freshState(): AppState {
 
     doneKind: null, doneRows: [], toast: null,
 
-    countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [], hosxpFileInfo: null,
+    countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [], hosxpFileInfo: null, reconcileProgress: null, reconcileResult: null,
 
     usageDateFrom: '', usageDateTo: '', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
 
@@ -768,6 +768,11 @@ export interface AppCtx {
   /** Pharmacist explicitly maps one loaded HOSxP-file row to a med (row `idx` of hosxpRows). Optionally also
    * remembers the file's spelling as that med's HOSxP alias (admin only) so it matches by itself next time. */
   resolveHosxpRow: (idx: number, medId: MedId, saveAlias: boolean) => Promise<boolean>;
+  /** Maps many file rows at once (the "accept all safe suggestions" button). */
+  resolveHosxpRowsBulk: (pairs: { idx: number; medId: MedId }[], saveAlias: boolean) => Promise<number>;
+  /** Reverses the LAST reconcile (floor += what it took, one reversal tx per drug). */
+  undoLastReconcile: () => Promise<void>;
+  dismissReconcileResult: () => void;
   exportAudit: () => void;
   setHistoryFrom: (v: string) => void;
   setHistoryTo: (v: string) => void;
@@ -1959,7 +1964,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
       adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [],
       qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: null, scanConfirmMedId: null, hadOk: {},
-      countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [], hosxpFileInfo: null,
+      countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [], hosxpFileInfo: null, reconcileProgress: null, reconcileResult: null,
       usageDateFrom: '', usageDateTo: '', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
       labelSelected: {}, medsFocusId: null, substockFocusId: null, doneKind: null, doneRows: [],
     });
@@ -4354,7 +4359,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // this window must be excluded here instead, restoring exactly what the removed
         // server-side `where('type','==','reconcile_hosxp')` used to guarantee.
         if (x.type !== 'reconcile_hosxp') return;
-        if (!x.name || typeof x.qty !== 'number' || (x.qty >= 0 && !((x.reportedQty ?? 0) > 0)) || typeof x.ts !== 'number') return; // only dispensed (negative) entries
+        if (!x.name || typeof x.qty !== 'number' || (x.qty >= 0 && !((x.reportedQty ?? 0) > 0) && !((x.reportedQty ?? 0) < 0)) || typeof x.ts !== 'number') return; // only dispensed (negative) entries
         const ageDays = (now - x.ts) / DAY;
         if (ageDays < 0) return;
         const bucket = ageDays <= 30 ? 30 : ageDays <= 60 ? 60 : 0;
@@ -4364,7 +4369,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Tx.reportedQty's own doc comment, types.ts). Falls back to qty for every row from
         // before this field existed, or where the clamp never fired — the same number this
         // always read.
-        const dispensedQty = Math.abs(x.reportedQty ?? x.qty);
+        const dispensedQty: number = ((x.reportedQty ?? 0) < 0 ? (x.reportedQty as number) : Math.abs(x.reportedQty ?? x.qty));
         if (dupNames.has(x.name)) {
           if (!x.medId) return;
           const map = bucket === 30 ? curById : prevById;
@@ -4487,7 +4492,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // comment above on why — so every other tx type in this window must be excluded here
         // instead, restoring exactly what the removed server-side type filter used to guarantee.
         if (x.type !== 'reconcile_hosxp') return;
-        if (!x.name || typeof x.qty !== 'number' || (x.qty >= 0 && !((x.reportedQty ?? 0) > 0)) || typeof x.ts !== 'number') return; // dispensed only
+        if (!x.name || typeof x.qty !== 'number' || (x.qty >= 0 && !((x.reportedQty ?? 0) > 0) && !((x.reportedQty ?? 0) < 0)) || typeof x.ts !== 'number') return; // dispensed only
         if (x.ts > now) return;
         const key = dupNames.has(x.name) ? (x.medId ? 'id:' + x.medId : null) : 'name:' + x.name;
         if (!key) return;
@@ -4506,7 +4511,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const daysCovered = Math.max(1, Math.round((toTs - fromTs) / DAY) + 1);
         // Bug fix (data integrity): same reportedQty-over-qty preference as recomputeUsageStats
         // above — see Tx.reportedQty's own doc comment (types.ts).
-        const perDayQty = Math.abs(x.reportedQty ?? x.qty) / daysCovered;
+        const perDayQty = ((x.reportedQty ?? 0) < 0 ? (x.reportedQty as number) : Math.abs(x.reportedQty ?? x.qty)) / daysCovered;
         for (let i = 0; i < daysCovered; i++) {
           const dayTs = fromTs + i * DAY;
           if (dayTs > now) continue;
@@ -6492,6 +6497,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!(await confirmAsync(lines.join('\n')))) return;
     }
     let applied = 0, skipped = 0, zeroQty = 0, alreadyDone = 0;
+    const resultEntries: import('../types').ReconcileResult['entries'] = [];
+    const resultClamped: import('../types').ReconcileResult['clamped'] = [];
+    const resultFileName = state.hosxpFileInfo?.name ?? null;
+    const resultFrom = state.hosxpCoveredFrom, resultTo = state.hosxpCoveredTo;
+    const buildResult = (): import('../types').ReconcileResult => ({
+      at: Date.now(), from: resultFrom, to: resultTo, fileName: resultFileName, applied, alreadyDone, zeroQty,
+      skipped: [...skippedNames], clamped: resultClamped, entries: resultEntries, undone: false,
+    });
+    patch({ reconcileProgress: { done: 0, total: rows.length }, reconcileResult: null });
     // Bug fix (debugging gap — real incident, 2026-10-30): a failure here used to surface as a
     // completely anonymous "ประมวลผลไม่สำเร็จ (permission-denied)" — on a ward tablet with no
     // DevTools console (see toastErr's own comment on this exact gap), there was no way for
@@ -6574,7 +6588,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // own fix comment describes. This is the daily real-dispense deduction path — the one
           // number this whole app exists to keep trustworthy — so it gets the same atomic
           // treatment every other stock-mutating flow already has.
-          let before = 0, after = 0;
+          let before = 0, after = 0, txId = '';
           try {
             await runTx(async (trx) => {
               const ref = medRef(m.id);
@@ -6594,7 +6608,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               // understate exactly the meds running low enough to hit this clamp. See
               // Tx.reportedQty's own doc comment (types.ts).
               const deducted = before - after;
-              trx.set(newTxRef(), {
+              const txRef = newTxRef();
+              txId = txRef.id;
+              trx.set(txRef, {
                 type: 'reconcile_hosxp', name: m.name, medId: m.id, qty: -deducted, unit: m.unit,
                 reason: 'นำเข้าจากไฟล์ HOSxP',
                 note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP' + (deltaMode && r !== r0 ? ' (ส่วนต่างจากที่เคยตัดไว้ ' + nf(r0.qty - r.qty) + ')' : '') + (r.match.kind === 'fuzzy' ? ' (จับคู่ชื่อแบบไม่ตรงเป๊ะ — ยืนยันโดยผู้ใช้แล้ว)' : ''),
@@ -6612,6 +6628,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             throw e;
           }
           applied++;
+          resultEntries.push({ medId: m.id, name: m.name, txId, deducted: before - after, reported: r.qty, unit: m.unit });
+          if (before - after < r.qty) resultClamped.push({ name: m.name, reported: r.qty, deducted: before - after, unit: m.unit });
           // Recorded (and persisted — see hosxpAppliedRowIndexes' own doc comment) immediately,
           // right after the real deduction above actually committed — if a LATER row in this
           // same run throws, this row's own success must already be safe from a double-deduction
@@ -6676,6 +6694,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }
           } catch { /* best-effort — never blocks the real deduction, which already committed above */ }
         }));
+        patch({ reconcileProgress: { done: Math.min(i + CHUNK_SIZE, rows.length), total: rows.length } });
       }
       // Bug fix (efficiency): a name that fails to match keeps failing every single day until
       // someone notices and fixes it — but the only trace before this was a one-line toast that
@@ -6724,7 +6743,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             + (state.hosxpFileInfo?.fingerprint ?? ''),
         });
       }
-      patch({ hosxpRows: null, hosxpText: '', hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [], hosxpFileInfo: null });
+      patch({ hosxpRows: null, hosxpText: '', hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [], hosxpFileInfo: null, reconcileProgress: null, reconcileResult: buildResult() });
       // Rows with qty <= 0 were previously silently dropped from this summary entirely —
       // applied + skipped could undercount rows.length with no explanation, which reads as
       // a miscount when a pharmacist checks the math. Named separately from "จับคู่ไม่ได้"
@@ -6757,6 +6776,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // timeout instead of only a hard Firestore error. `applied` still reflects how many
       // rows actually landed, worth telling the person rather than implying nothing happened.
       if (failedDebug) console.error('commitReconcile failure debug:', failedDebug);
+      patch({ reconcileProgress: null, ...(resultEntries.length ? { reconcileResult: buildResult() } : {}) });
       toastErr(e, 'ประมวลผลไม่สำเร็จ' + (failedMedName ? ' (ยา: ' + failedMedName + ')' : '') + (applied > 0 ? ' — ตัดยอดไปแล้ว ' + applied + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง') + (failedDebug ? ' [' + failedDebug + ']' : ''));
     }
   }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpCoveredFrom, state.hosxpCoveredTo, state.hosxpAppliedRowIndexes, state.meds, state.txs, userName, logAudit, toast, toastErr, patch, guardOnce, confirmAsync, recomputeUsageStats, analyzeWeekdayUsage]);
@@ -7325,6 +7345,61 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return true;
   }, [state.hosxpRows, state.hosxpAppliedRowIndexes, state.meds, patch, canEditMeds, addHosxpAlias, logAudit]);
 
+  const resolveHosxpRowsBulk = useCallback(async (pairs: { idx: number; medId: MedId }[], saveAlias: boolean): Promise<number> => {
+    const rows = state.hosxpRows;
+    if (!rows || !pairs.length) return 0;
+    const applied = new Set(state.hosxpAppliedRowIndexes || []);
+    const valid = pairs.filter((p) => rows[p.idx] && !applied.has(p.idx) && state.meds.some((m) => m.id === p.medId && m.active));
+    if (!valid.length) return 0;
+    const byIdx = new Map(valid.map((p) => [p.idx, p.medId] as const));
+    patch({ hosxpRows: rows.map((x, i) => (byIdx.has(i) ? { ...x, match: { kind: 'exact' as const, medId: byIdx.get(i)! } } : x)) });
+    let saved = 0;
+    if (saveAlias && canEditMeds) {
+      for (const p of valid) { if (await addHosxpAlias(p.medId, rows[p.idx].name)) saved++; }
+    }
+    logAudit({ type: 'med_edited', note: 'จับคู่แถวไฟล์ HOSxP ตามคำแนะนำที่ปลอดภัย ' + valid.length + ' รายการ' + (saved ? ' (จำชื่อไว้ ' + saved + ')' : '') });
+    return valid.length;
+  }, [state.hosxpRows, state.hosxpAppliedRowIndexes, state.meds, patch, canEditMeds, addHosxpAlias, logAudit]);
+
+  const dismissReconcileResult = useCallback(() => patch({ reconcileResult: null }), [patch]);
+
+  const undoLastReconcile = useCallback(guardOnce('reconcile-undo', async () => {
+    const res = state.reconcileResult;
+    if (!res || res.undone || !res.entries.length) return;
+    if (!(await confirmAsync(
+      'ย้อนการตัดยอด HOSxP ครั้งล่าสุด (' + res.entries.length + ' รายการ ช่วง ' + res.from + (res.to !== res.from ? ' ถึง ' + res.to : '') + ') — ยอดหน้างานของแต่ละยาจะถูกบวกคืนเท่าที่เคยตัด และบันทึกรายการย้อนไว้ในประวัติ (ล็อตหน้างานไม่ถูกย้อน) ต้องการย้อนหรือไม่?'
+    ))) return;
+    const left: typeof res.entries = [];
+    let ok = 0;
+    for (const e of res.entries) {
+      try {
+        await runTx(async (trx) => {
+          const ref = medRef(e.medId);
+          const snap = await trx.get(ref);
+          if (!snap.exists()) throw new Error('not-found');
+          const cur = (snap.data() as { floor?: number }).floor ?? 0;
+          trx.update(ref, { floor: cur + e.deducted });
+          // Reversal convention: positive qty (stock comes back) + NEGATIVE reportedQty — every usage
+          // consumer nets the original dispense against this, so demand statistics stay correct.
+          trx.set(newTxRef(), {
+            type: 'reconcile_hosxp', name: e.name, medId: e.medId, qty: e.deducted, unit: e.unit,
+            reason: 'ย้อนการตัดยอด HOSxP', note: 'ย้อนรายการที่ตัดไว้ ' + nf(e.reported) + ' ' + e.unit + ' (ช่วง ' + res.from + (res.to !== res.from ? ' ถึง ' + res.to : '') + ')',
+            loc: 'floor', by: userName(), ts: Date.now(), coveredFrom: res.from, coveredTo: res.to, reportedQty: -e.reported,
+          } satisfies Omit<import('../types').Tx, 'id'>);
+        });
+        ok++;
+      } catch (err) { console.error('undo reconcile row failed', err); left.push(e); }
+    }
+    patch({ reconcileResult: { ...res, entries: left, undone: left.length === 0 } });
+    if (ok > 0) hapticSuccess();
+    toast(left.length === 0 ? 'ย้อนการตัดยอดครบ ' + ok + ' รายการแล้ว' : 'ย้อนแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + left.length + ' รายการ — กดย้อนอีกครั้งเพื่อทำส่วนที่เหลือ');
+    if (ok > 0) {
+      void recomputeUsageStats({ silent: true })
+        .then(() => analyzeWeekdayUsage({ silent: true }))
+        .catch((e) => console.error('Auto recompute after reconcile undo failed:', e));
+    }
+  }), [state.reconcileResult, confirmAsync, runTx, userName, patch, toast]);
+
   const fetchDemandSeries = useCallback(async (days: number) => {
     const now = Date.now();
     const snap = await withTimeout(fetchTxsAfter(now - (days + 1) * DAY), 30000);
@@ -7341,11 +7416,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     snap.docs.forEach((d) => {
       const x = d.data() as { type?: string; medId?: string; qty?: number; reportedQty?: number; ts?: number; coveredFrom?: string; coveredTo?: string };
       if (x.type !== 'reconcile_hosxp' || !x.medId || typeof x.qty !== 'number' || typeof x.ts !== 'number') return;
-      if (x.qty >= 0 && !((x.reportedQty ?? 0) > 0)) return; // dispensed only (same test as the usage stats)
+      if (x.qty >= 0 && !((x.reportedQty ?? 0) > 0) && !((x.reportedQty ?? 0) < 0)) return; // dispensed only (same test as the usage stats)
       const fromTs = new Date((x.coveredFrom || isoDate(x.ts)) + 'T00:00:00').getTime();
       const toTs = new Date((x.coveredTo || isoDate(x.ts)) + 'T00:00:00').getTime();
       const daysCovered = Math.max(1, Math.round((toTs - fromTs) / DAY) + 1);
-      const perDay = Math.abs(x.reportedQty ?? x.qty) / daysCovered;
+      const perDay = ((x.reportedQty ?? 0) < 0 ? (x.reportedQty as number) : Math.abs(x.reportedQty ?? x.qty)) / daysCovered;
       for (let i = 0; i < daysCovered; i++) {
         const j = idx.get(isoDate(fromTs + i * DAY));
         if (j === undefined) continue; // weekend, or outside the window
@@ -7489,7 +7564,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     confirmScanAndNext, confirmScanAndStop, cancelScanConfirm,
     doneAgain,
-    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, addHosxpAlias, resolveHosxpRow, changeMyPassword, fetchDemandSeries, fetchTempPassword, clearTempPassword, exportAudit,
+    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, addHosxpAlias, resolveHosxpRow, resolveHosxpRowsBulk, undoLastReconcile, dismissReconcileResult, changeMyPassword, fetchDemandSeries, fetchTempPassword, clearTempPassword, exportAudit,
     setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, fetchExecTxsThisMonth,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [state, myProfile, theme, toggleTheme]);
