@@ -87,7 +87,7 @@ export default defineConfig({
         // import('./UsageCharts'))`) — excluding them from the SW's eager precache just means a
         // genuinely first-time use of either feature fetches over the network instead of being
         // pre-warmed, which is the right tradeoff for two large, not-everyone-uses-them chunks.
-        globIgnores: ['**/xlsx-*.js', '**/UsageCharts-*.js'],
+        globIgnores: ['**/xlsx-*.js', '**/UsageCharts-*.js', 'ocr/**'],
         cleanupOutdatedCaches: true,
         // Adds a notificationclick handler (public/sw-custom.js) to the generated service
         // worker — generateSW mode doesn't expose a way to write custom SW logic directly, but
