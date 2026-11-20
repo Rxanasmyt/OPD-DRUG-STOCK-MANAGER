@@ -837,6 +837,21 @@ export interface ReconcileMonthDay {
   missing: { med: Med; reason: DayMissKind }[];
   /** Raw HOSxP file names from the run covering this day that matched NO med in the app. */
   unmatchedNames: string[];
+  /** Evidence on whether that day's file looked COMPLETE (set for attached/partial days only) — see
+   * assessFileCompleteness() (selectors.ts). A HOSxP file lists only dispensed drugs, so "no row" can't
+   * by itself tell "not dispensed" from "file incomplete"; this compares the day with its own usual pattern. */
+  completeness?: FileCompleteness;
+}
+
+export interface FileCompleteness {
+  /** 'complete' = looks like a normal full file; 'incomplete' = materially fewer drugs than usual / more absences than chance explains; 'unknown' = not enough baseline */
+  verdict: 'complete' | 'incomplete' | 'unknown';
+  /** median number of drugs deducted on recent comparable days (null = no baseline yet) */
+  typicalDeducted: number | null;
+  /** regular drugs expected to be legitimately absent on a normal day (sum of 1 − dispense frequency) */
+  expectedAbsent: number;
+  /** how many regular drugs actually had no deduction */
+  actualAbsent: number;
 }
 
 /** One med whose `lastCountTs` and/or `lastSubCountTs` is present but not a real number — see

@@ -6755,7 +6755,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // for the month's txs (+1 day pad each side for timezone safety), never state.txs (capped 300).
   const fetchReconcileMonth = useCallback(async (monthIso: string): Promise<ReconcileMonthDay[]> => {
     const [y, mo] = monthIso.split('-').map(Number);
-    const from = new Date(y, mo - 1, 1).getTime() - DAY;
+    // 30 days of lead-in: the days before this month are the baseline for "is this day's file a normal size"
+    const from = new Date(y, mo - 1, 1).getTime() - 30 * DAY;
     const to = Math.min(Date.now(), new Date(y, mo, 1).getTime() + DAY);
     const snap = await withTimeout(getDocs(queryTxsByDateRange(from, to)));
     const reports = state.authLog

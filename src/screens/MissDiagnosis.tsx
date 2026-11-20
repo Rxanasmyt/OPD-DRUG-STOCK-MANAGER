@@ -47,7 +47,7 @@ export function MissDiagnosis({ med, fileNames, onFixMed }: {
   }
   const d = diagnoseMiss(med, fileNames, state.meds);
   const ui = VERDICT_UI[d.verdict];
-  const freq = d.dispenseDays30 !== null ? `ปกติยานี้จ่าย ${d.dispenseDays30} วัน จาก ~${BUSINESS_DAYS_30} วันทำการใน 30 วัน` : null;
+  const freq = d.dispenseDays30 !== null ? `ปกติยานี้จ่าย ${d.dispenseDays30} วัน จาก ~${BUSINESS_DAYS_30} วันทำการใน 30 วัน — วันที่ไม่มีจ่ายเป็นเรื่องปกติราว ${Math.max(0, Math.round((1 - Math.min(1, d.dispenseDays30 / BUSINESS_DAYS_30)) * 100))}% ของวัน` : null;
 
   const add = async (fileName: string) => {
     setBusy(fileName);

@@ -55,6 +55,14 @@ describe('ReconcileCalendar', () => {
     expect(detail).toHaveTextContent('ไม่ทราบสาเหตุ');
   });
 
+  it('shows whether the day\'s file looks complete (no baseline in a tiny fixture → says it cannot tell, never "complete")', async () => {
+    const user = await setup();
+    await user.click(await screen.findByRole('button', { name: /^6 มกราคม — แนบแล้วแต่ตัดไม่ครบ$/ }, { timeout: 4000 }));
+    const box = await screen.findByTestId('file-completeness');
+    expect(box).toHaveAttribute('data-verdict', 'unknown');
+    expect(box).toHaveTextContent('พิสูจน์ 100% ไม่ได้');
+  });
+
   it('says plainly that no file was attached on a missing day', async () => {
     const user = await setup();
     await user.click(await screen.findByRole('button', { name: /^5 มกราคม — ยังไม่แนบ$/ }));
