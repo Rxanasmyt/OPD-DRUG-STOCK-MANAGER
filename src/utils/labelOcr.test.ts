@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseLabelText, fixDigitTokens } from './labelOcr';
+import { parseLabelText, fixDigitTokens, mergeParses } from './labelOcr';
 
 const NOW = Date.parse('2026-11-20T00:00:00Z');
 const P = (t: string) => parseLabelText(t, NOW);
@@ -65,12 +65,54 @@ describe('parseLabelText — lot', () => {
   });
   it('parses real Tesseract output from a photographed label (dark background, Batch No, Exp.Date + Mfg.Date)', () => {
     const r = P('Paracetamol 500mg\nBatch No: B7731X\nExp.Date: 15 NOV 2027\nMfg.Date: 15 NOV 2024');
-    expect(r.expiries.map((e) => e.iso)).toEqual(['2027-11-15']);
+    expect(r.expiries[0].iso).toBe('2027-11-15');
     expect(r.lots[0].value).toBe('B7731X');
   });
   it('parses real Tesseract output from a printed label', () => {
     const r = P('AMLODIPINE 10 mg Tablets\n\nMFG. 02/2025\n\nEXP. 01/2028\n\nLOT. AM250201\n\nMade in Thailand');
     expect(r.expiries[0].iso).toBe('2028-01-31');
     expect(r.lots[0].value).toBe('AM250201');
+  });
+});
+
+// Verbatim Tesseract output (adaptive-threshold pass) from 7 real photographed Thai drug boxes.
+describe('parseLabelText — real box photos', () => {
+  const cases: Array<[string, string, string, string]> = [
+    ['Chumchon', 'Store at a temperature below 30 C | Lot No | 260171 | Mfg. Date | 24/4/26 | Exp. Date | 23/4/29 | (B18ue78)', '2029-04-23', '260171'],
+    ['dot dates + space lot', 'Lot No. | VS 649 | Mfg. Date | 21.8.26 | Exp. Date | 21.8.29 | (Rua)', '2029-08-21', 'VS 649'],
+    ['compact ddmmyy', 'FRY | Lot No. | A 690092 | 301025 | Mfd. | 301028 | 4 | enaueng /EXp. | Ratcathewt Bangkok.', '2028-10-30', 'A 690092'],
+    ['spaced dates', 'IPTYLI NE | Reg. No. 1A 119/45 | Lot No. | L 690301 | Mfd. | 26 02 26 | EAUDI/Exp | 26 02 30 | FEL', '2030-02-26', 'L 690301'],
+    ['L/C label, lot above', 'Reg.No. 1A 270/48 | 26111189 | L/C | Mfg. Date | 05 08 26 | il | 8"852: | Exp. Date | 05 08 29 | (81duane)', '2029-08-05', '26111189'],
+    ['thai warning box', 'Tingalden uasunuunnd | Lot No. | N 690088 | Mfd. | 06 03 26 | 06 03 28 | ] Ud1Y/Exp. | i LE', '2028-03-06', 'N 690088'],
+    ['slash read as 7', 'Lot No. | < | 9715021 | Tsunwdosowlasd G6PD | Mfd. | 27702726 | me methemoglobinemia | gue | 277027289 | (Exp. Date)', '', '9715021'],
+  ];
+  for (const [name, text, iso, lot] of cases) {
+    it(name, () => {
+      const r = parseLabelText(text.split(' | ').join('\n'), Date.parse('2026-11-20T00:00:00Z'));
+      if (iso) { expect(r.expiries[0].iso).toBe(iso); expect(r.expiryConfident).toBe(true); }
+      expect(r.lots[0]?.value).toBe(lot);
+    });
+  }
+  it('ignores phone numbers and registration numbers as dates', () => {
+    const r = P('Tel. 0-2943-0935-7 Fax. 0-2510-7874\nReg. No. 1A 119/45\n038-480766-7');
+    expect(r.expiries).toEqual([]);
+  });
+});
+
+describe('mergeParses — agreement between OCR passes', () => {
+  const T = Date.parse('2026-11-20T00:00:00Z');
+  it('ranks a value two passes agree on above one seen once', () => {
+    const m = mergeParses([parseLabelText('EXP 11/2028\nLOT AB1234', T), parseLabelText('EXP 11/2028\nLOT AB1234\nEXP 12/2028', T)], T);
+    expect(m.expiries.find((e) => e.iso === '2028-11-30')?.votes).toBe(2);
+    expect(m.lots[0]).toMatchObject({ value: 'AB1234', votes: 2 });
+  });
+  it('prefers the letter reading when two passes differ only by D/0 confusion', () => {
+    const m = mergeParses([parseLabelText('Lot No.\n260171', T), parseLabelText('Lot No.\n26D171', T)], T);
+    expect(m.lots[0].value).toBe('26D171');
+  });
+  it('refuses to pre-fill when two same-month readings tie (27 vs 28 Feb)', () => {
+    const m = mergeParses([parseLabelText('Mfd. 27/02/26\nExp. 28/02/29', T), parseLabelText('Mfd. 27/02/26\nExp. 27/02/29', T)], T);
+    expect(m.expiryConfident).toBe(false);
+    expect(m.expiries.slice(0, 2).map((e) => e.iso).sort()).toEqual(['2029-02-27', '2029-02-28']);
   });
 });

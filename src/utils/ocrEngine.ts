@@ -1,4 +1,4 @@
-import { parseLabelText, type LabelParse } from './labelOcr';
+import { parseLabelText, mergeParses, type LabelParse } from './labelOcr';
 
 /**
  * On-device OCR for drug-box labels (Tesseract, English model — Lot and expiry are Latin
@@ -30,10 +30,14 @@ async function getWorker(): Promise<Worker> {
   return workerP;
 }
 
-/** Downscale/upscale to ~2000px on the long side, grayscale + contrast stretch (optionally inverted). */
-async function preprocess(file: Blob, invert: boolean): Promise<Blob> {
+type Mode = { kind: 'adaptive'; frac: number; c: number } | { kind: 'stretch' };
+
+/** Long side ~2400px, grayscale, then either local-mean adaptive thresholding (beats glare, shadows
+ * and the uneven lighting of a phone photo of a glossy box — the big accuracy win on real
+ * photos) or a plain percentile contrast stretch. */
+async function preprocess(file: Blob, mode: Mode): Promise<Blob> {
   const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' } as ImageBitmapOptions);
-  const scale = Math.min(2.5, 2000 / Math.max(bmp.width, bmp.height));
+  const scale = Math.min(2.5, 2400 / Math.max(bmp.width, bmp.height));
   const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
@@ -43,21 +47,34 @@ async function preprocess(file: Blob, invert: boolean): Promise<Blob> {
   bmp.close?.();
   const img = ctx.getImageData(0, 0, w, h);
   const d = img.data;
-  const hist = new Array<number>(256).fill(0);
-  for (let i = 0; i < d.length; i += 4) {
-    const g = Math.round(d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
-    d[i] = g; hist[g]++;
-  }
-  // percentile stretch (1%–99%) so a dim phone photo still has full contrast
-  const total = w * h; let lo = 0, hi = 255, acc = 0;
-  for (let i = 0; i < 256; i++) { acc += hist[i]; if (acc >= total * 0.01) { lo = i; break; } }
-  acc = 0;
-  for (let i = 255; i >= 0; i--) { acc += hist[i]; if (acc >= total * 0.01) { hi = i; break; } }
-  const span = Math.max(1, hi - lo);
-  for (let i = 0; i < d.length; i += 4) {
-    let v = Math.max(0, Math.min(255, ((d[i] - lo) * 255) / span));
-    if (invert) v = 255 - v;
-    d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = 255;
+  const g = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) g[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114;
+  const put = (i: number, v: number) => { d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v; d[i * 4 + 3] = 255; };
+  if (mode.kind === 'adaptive') {
+    const W = w + 1;
+    const I = new Float64Array(W * (h + 1));
+    for (let y = 0; y < h; y++) {
+      let row = 0;
+      for (let x = 0; x < w; x++) { row += g[y * w + x]; I[(y + 1) * W + x + 1] = I[y * W + x + 1] + row; }
+    }
+    const r = Math.max(8, Math.round(Math.max(w, h) * mode.frac));
+    for (let y = 0; y < h; y++) {
+      const y0 = Math.max(0, y - r), y1 = Math.min(h, y + r + 1);
+      for (let x = 0; x < w; x++) {
+        const x0 = Math.max(0, x - r), x1 = Math.min(w, x + r + 1);
+        const mean = (I[y1 * W + x1] - I[y0 * W + x1] - I[y1 * W + x0] + I[y0 * W + x0]) / ((x1 - x0) * (y1 - y0));
+        put(y * w + x, g[y * w + x] < mean - mode.c ? 0 : 255);
+      }
+    }
+  } else {
+    const hist = new Array<number>(256).fill(0);
+    for (let i = 0; i < w * h; i++) hist[Math.round(g[i])]++;
+    const total = w * h; let lo = 0, hi = 255, acc = 0;
+    for (let i = 0; i < 256; i++) { acc += hist[i]; if (acc >= total * 0.01) { lo = i; break; } }
+    acc = 0;
+    for (let i = 255; i >= 0; i--) { acc += hist[i]; if (acc >= total * 0.01) { hi = i; break; } }
+    const span = Math.max(1, hi - lo);
+    for (let i = 0; i < w * h; i++) put(i, Math.max(0, Math.min(255, ((g[i] - lo) * 255) / span)));
   }
   ctx.putImageData(img, 0, 0);
   return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('toBlob failed'))), 'image/png'));
@@ -65,20 +82,29 @@ async function preprocess(file: Blob, invert: boolean): Promise<Blob> {
 
 export interface LabelScanResult extends LabelParse { text: string }
 
-/** Reads a photo of a drug box. A second, inverted pass runs only when the first found neither
- * field (white-on-dark printing, embossed foil). */
+const PASSES: Mode[] = [
+  { kind: 'adaptive', frac: 0.02, c: 8 },
+  { kind: 'adaptive', frac: 0.04, c: 12 },
+  { kind: 'stretch' },
+];
+
+/** Reads a photo of a drug box with up to three differently-preprocessed OCR passes; a Lot/expiry
+ * that independent passes agree on (`votes`) is ranked first. Stops once both fields have 2+ votes. */
 export async function scanLabelPhoto(file: Blob, onStage?: (s: string) => void): Promise<LabelScanResult> {
   onStage?.('กำลังโหลดตัวอ่านตัวอักษร (ครั้งแรกอาจใช้เวลาสักครู่)…');
   const w = await getWorker();
-  onStage?.('กำลังอ่านฉลาก…');
-  let text = (await w.recognize(await preprocess(file, false))).data.text;
-  let parsed = parseLabelText(text);
-  if (!parsed.expiries.length || !parsed.lots.length) {
-    onStage?.('อ่านไม่ครบ ลองอ่านอีกรอบ…');
-    const t2 = (await w.recognize(await preprocess(file, true))).data.text;
-    const p2 = parseLabelText(text + '\n' + t2);
-    text = text + '\n' + t2;
-    parsed = p2;
+  const parses: LabelParse[] = [];
+  let texts = '';
+  let merged = mergeParses([]);
+  for (let k = 0; k < PASSES.length; k++) {
+    onStage?.('กำลังอ่านฉลาก… (' + (k + 1) + '/' + PASSES.length + ')');
+    const text = (await w.recognize(await preprocess(file, PASSES[k]))).data.text;
+    texts += '\n' + text;
+    parses.push(parseLabelText(text));
+    merged = mergeParses(parses);
+    const eOk = (merged.expiries[0]?.votes || 0) >= 2 && merged.expiryConfident;
+    const lOk = (merged.lots[0]?.votes || 0) >= 2;
+    if (k >= 1 && eOk && lOk) break;
   }
-  return { ...parsed, text };
+  return { ...merged, text: texts };
 }

@@ -26,8 +26,8 @@ export function LabelPhotoScan({ onLot, onExp, currentLot, currentExp }: {
     try {
       const r = await scanLabelPhoto(f, setBusy);
       setRes(r);
-      const e = r.expiries.find((x) => x.anchored && x.plausible) || null;
-      const l = r.lots[0] || null;
+      const e = r.expiryConfident ? r.expiries[0] : null;
+      const l = r.lots[0] && (r.lots[0].anchored || (r.lots[0].votes || 0) >= 2) ? r.lots[0] : null;
       if (e && !currentExp) onExp(e.iso);
       if (l && !currentLot) onLot(l.value);
     } catch (e) {
