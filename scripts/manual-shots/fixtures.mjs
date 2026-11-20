@@ -32,9 +32,9 @@ export const floorLots = [
   { id: 'f3', medId: 'm5', lotNo: 'O2608', exp: now + 260 * DAY, qty: 60 },
 ];
 export const users = [
-  { id: 'demo', role: 'admin', name: 'ภก.ตัวอย่าง ใจดี', username: 'demo.admin', dept: 'เภสัชกรรม', active: true },
-  { id: 'u2', role: 'tech', name: 'จพ.ตัวอย่าง รักงาน', username: 'demo.tech', dept: 'เภสัชกรรม', active: true },
-  { id: 'u3', role: 'pharm', name: 'ภญ.ตัวอย่าง ขยันดี', username: 'demo.pharm', dept: 'เภสัชกรรม', active: false },
+  { id: 'demo', role: 'admin', name: 'ภก.ตัวอย่าง ใจดี', username: 'demo.admin', dept: 'เภสัชกรรม', active: true, createdAt: now - 90 * DAY },
+  { id: 'u2', role: 'tech', name: 'จพ.ตัวอย่าง รักงาน', username: 'demo.tech', dept: 'เภสัชกรรม', active: true, createdAt: now - 60 * DAY },
+  { id: 'u3', role: 'pharm', name: 'ภญ.ตัวอย่าง ขยันดี', username: 'demo.pharm', dept: 'เภสัชกรรม', active: false, createdAt: now - 2 * 3600000 },
 ];
 export const txs = [
   { id: 't1', type: 'transfer', name: 'PARACETAMOL 500 mg เม็ด', medId: 'm2', qty: 200, unit: 'เม็ด', by: 'ภก.ตัวอย่าง ใจดี', ts: now - 3 * 3600000 },

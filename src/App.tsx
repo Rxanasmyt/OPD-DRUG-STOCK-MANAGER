@@ -59,6 +59,11 @@ const TITLES: Record<Screen, [string, string]> = {
   substockcard: ['บัตรคุมยา', 'รับ-จ่าย-คงเหลือ real-time'],
 };
 
+// Screens that already put .work-screen / .home-screen on their own root.
+const OWN_STYLE: Screen[] = ['home', 'transfer', 'reconcile'];
+// Few-card screens where frosted glass is cheap.
+const GLASS_SCREENS: Screen[] = ['more', 'adjust', 'settings', 'admin', 'labels', 'wardmove', 'tconfirm', 'done'];
+
 const CAN_BACK: Screen[] = ['tconfirm', 'adjust', 'report', 'labels', 'settings', 'count', 'reconcile', 'admin', 'meds', 'wardmove', 'substockcard'];
 // Bug fix (real-world request, screenshotted from a real device: "อยากให้ดูดีกว่านี้มากๆๆ") —
 // these five used to be plain Unicode geometric/arrow symbols (▤ ⇄ ⇩ ⬓ ≡), each from a
@@ -262,7 +267,10 @@ export default function App() {
       )}
 
       <main ref={mainRef} onScroll={saveScroll} style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
-        <div key={state.screen} className={navDir === 'fwd' ? 'nav-slide-fwd' : 'nav-slide-back'}>
+        {/* "login look" on every working screen (rounds 1–3): a soft aurora wash behind the page (.work-screen) and, on the few-card
+            screens only, frosted-glass cards (.work-screen--glass). home/transfer/reconcile carry their own wrapper class already.
+            The big list screens (count, receive, meds, report…) stay opaque: backdrop-filter on dozens of rows is what slows old tablets. */}
+        <div key={state.screen} className={(navDir === 'fwd' ? 'nav-slide-fwd' : 'nav-slide-back') + (OWN_STYLE.includes(state.screen) ? '' : ' work-screen') + (GLASS_SCREENS.includes(state.screen) ? ' work-screen--glass' : '')}>
           <Suspense fallback={<ScreenLoading />}>
             <Screens screen={state.screen} />
           </Suspense>
