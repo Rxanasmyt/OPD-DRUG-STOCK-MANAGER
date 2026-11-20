@@ -138,13 +138,29 @@ describe('parseHosxpUsageWorkbook', () => {
       ['', '', '', 5],
       ['Drug B', '20 mg', 'แคปซูล', 15],
     ]);
-    const { rows, skipped } = await parseHosxpUsageWorkbook(buf);
+    const { rows, skipped, zeroRows } = await parseHosxpUsageWorkbook(buf);
     expect(rows).toEqual([{ name: 'Drug B 20 mg แคปซูล', qty: 15 }]);
-    expect(skipped).toBe(2);
+    // The explicit 0 is a genuine "listed, dispensed 0" row; only the nameless row is unreadable.
+    expect(zeroRows).toBe(1);
+    expect(skipped).toBe(1);
+  });
+
+  it('reads a real-layout row with a thousands-comma qty and Thai-month title date', async () => {
+    const buf = workbookBuffer([
+      ['รายงานการใช้ยา 19 พฤศจิกายน 2569 - 19 พฤศจิกายน 2569'],
+      ['No.', 'รายการยา', 'ความแรง', 'หน่วย', 'รายการ', 'จำนวน'],
+      [1, '10 mg. AMLODIPINE', '10 mg', 'เม็ด', 90, '1,558.00'],
+    ]);
+    const r = await parseHosxpUsageWorkbook(buf);
+    expect(r.rows).toEqual([{ name: '10 mg. AMLODIPINE 10 mg เม็ด', qty: 1558 }]);
+    expect(r.dateRange).toEqual({ from: '2026-11-19', to: '2026-11-19' });
   });
 });
 
 describe('detectDateRange — the date a HOSxP report states about itself', () => {
+  it('reads Thai month names (full and abbreviated, BE year)', () => {
+    expect(detectDateRange(['19 พฤศจิกายน 2569 - 21 พ.ย. 2569'])).toEqual({ from: '2026-11-19', to: '2026-11-21' });
+  });
   it('reads a Buddhist-era dd/mm/yyyy range and converts it to CE ISO dates', () => {
     expect(detectDateRange(['รายงานการใช้ยา ตั้งแต่วันที่ 18/11/2569 ถึงวันที่ 18/11/2569'])).toEqual({ from: '2026-11-18', to: '2026-11-18' });
   });

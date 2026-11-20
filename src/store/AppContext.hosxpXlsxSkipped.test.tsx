@@ -55,7 +55,7 @@ describe('processHosxpFile / importUsageFile — xlsx skipped-row regression', (
     await user.click(screen.getByRole('button', { name: 'process' }));
     // Without the fix, this would read "...แล้ว 1 รายการ — ตรวจสอบ..." with no "ข้าม" clause
     // at all — the two malformed rows (blank qty, blank name) vanishing with zero trace.
-    await screen.findByText(/ข้าม 2 แถวที่อ่านไม่ได้/);
+    await screen.findByText(/ข้าม 1 แถวที่อ่านไม่ได้/);
   });
 
   it('importUsageFile reports skipped rows for a real .xlsx file too', async () => {

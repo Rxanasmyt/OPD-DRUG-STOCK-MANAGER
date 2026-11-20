@@ -1024,7 +1024,7 @@ export interface AppState {
    * path) or nothing is loaded. `dateRange` is read from the report's own title rows (null when
    * the file states no date); `fingerprint` (row count : total qty : first name) lets a re-attach
    * of the SAME file be recognised against earlier runs' 'hosxp_day_report' audit entries. */
-  hosxpFileInfo: { name: string; rowCount: number; totalQty: number; dateRange: { from: string; to: string } | null; fingerprint: string } | null;
+  hosxpFileInfo: { name: string; rowCount: number; totalQty: number; dateRange: { from: string; to: string } | null; zeroRows?: number; fingerprint: string } | null;
 
   // Import usage totals from a file (a real HOSxP "รายงานการใช้ยา" export, .xls/.xlsx, or a
   // plain "ชื่อยา,จำนวน" CSV) to seed used30 — see suggestPar()/importUsageFile() in
