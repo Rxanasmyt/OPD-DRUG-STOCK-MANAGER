@@ -6269,12 +6269,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     reader.onload = async () => {
       let raw: RawUsageRow[];
       let skipped = 0;
+      let zeroRows = 0;
       let fileDateRange: { from: string; to: string } | null = null;
       try {
         if (isSpreadsheet) {
           const parsed = await parseHosxpUsageWorkbook(reader.result as ArrayBuffer);
           raw = parsed.rows;
           skipped = parsed.skipped;
+          zeroRows = parsed.zeroRows;
           fileDateRange = parsed.dateRange;
         } else {
           const parsed = parseUsageCsvTextWithSkipped(String(reader.result || ''));
@@ -6300,13 +6302,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const totalQty = rows.reduce((s, r) => s + r.qty, 0);
       patch({
         hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpCoveredFrom: coveredFrom, hosxpCoveredTo: coveredTo, hosxpText: '', hosxpAppliedRowIndexes: [],
-        hosxpFileInfo: { name: file.name, rowCount: rows.length, totalQty, dateRange: fileDateRange, fingerprint: rows.length + ':' + totalQty + ':' + (rows[0]?.name ?? '') },
+        hosxpFileInfo: { name: file.name, rowCount: rows.length, totalQty, dateRange: fileDateRange, zeroRows, fingerprint: rows.length + ':' + totalQty + ':' + (rows[0]?.name ?? '') },
       });
       // Bug fix (silent data loss): a malformed line (no comma, empty/unparseable qty cell) used
       // to be dropped with zero trace — nothing here distinguished "this file had exactly N
       // rows" from "this file had more, and some were silently unreadable". Only worth
       // mentioning when it actually happened.
       toast('อ่านไฟล์ ' + file.name + ' แล้ว ' + rows.length + ' รายการ'
+        + (zeroRows > 0 ? ' (ไฟล์ระบุจำนวน 0 อีก ' + zeroRows + ' รายการ = ไม่ได้จ่าย)' : '')
         + (skipped > 0 ? ' (ข้าม ' + skipped + ' แถวที่อ่านไม่ได้)' : '')
         + (fileDateRange ? ' · ไฟล์ระบุวันที่ ' + fileDateRange.from + (fileDateRange.to !== fileDateRange.from ? ' ถึง ' + fileDateRange.to : '') : ' · ไฟล์ไม่ระบุวันที่ — ตรวจช่วงวันที่เองให้ถูกต้อง')
         + ' — ตรวจสอบรายการด้านล่างก่อนตัดยอด');
@@ -6796,7 +6799,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (isSpreadsheet) {
           const parsed = await parseHosxpUsageWorkbook(reader.result as ArrayBuffer);
           raw = parsed.rows;
-          skipped = parsed.skipped;
+          skipped = parsed.skipped + parsed.zeroRows;
         } else {
           const parsed = parseUsageCsvTextWithSkipped(String(reader.result || ''));
           raw = parsed.rows;

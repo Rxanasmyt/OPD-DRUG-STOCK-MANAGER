@@ -1380,6 +1380,25 @@ describe('suggestPar — lumpy/intermittent-demand Min fix (peak-driven Max size
   });
 });
 
+describe('matchHosxpMed — punctuation tolerance', () => {
+  const meds = [
+    med({ id: 'a', name: '10 mg. AMLODIPINE 10 mg. เม็ด' }),
+    med({ id: 'b', name: '(HAD) ADREnaline - PL 1 mg./ml. Amphule (1 ml.)' }),
+    med({ id: 'c', name: 'Enalapril 5 mg เม็ด' }),
+    med({ id: 'd', name: 'Enalapril 2.5 mg เม็ด' }),
+  ];
+  it('matches "mg." in the app name against "mg" built from the file columns (exact)', () => {
+    expect(matchHosxpMed(meds, '10 mg. AMLODIPINE 10 mg เม็ด')).toEqual({ kind: 'exact', medId: 'a' });
+  });
+  it('tolerates stray periods and bracket/slash spacing', () => {
+    expect(matchHosxpMed(meds, '(HAD) ADREnaline - PL 1 mg/ml Amphule ( 1 ml )')).toEqual({ kind: 'exact', medId: 'b' });
+  });
+  it('keeps decimal points significant (2.5 is not 25)', () => {
+    expect(matchHosxpMed(meds, 'Enalapril 2.5 mg เม็ด')).toEqual({ kind: 'exact', medId: 'd' });
+    expect(matchHosxpMed(meds, 'Enalapril 25 mg เม็ด')).toEqual({ kind: 'none' });
+  });
+});
+
 describe('matchHosxpMed', () => {
   const meds = [
     med({ id: '1', name: 'Amoxicillin 250 mg' }),

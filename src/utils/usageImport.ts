@@ -24,6 +24,11 @@ function cellText(v: unknown): string {
  * before it deducts stock for the wrong day. */
 export function detectDateRange(texts: string[]): { from: string; to: string } | null {
   const found = new Set<string>();
+  // Thai month names ("19 พฤศจิกายน 2569", abbreviations too) — what a real HOSxP title row prints.
+  const THAI_MONTHS: string[][] = [
+    ['มกราคม', 'ม.ค.'], ['กุมภาพันธ์', 'ก.พ.'], ['มีนาคม', 'มี.ค.'], ['เมษายน', 'เม.ย.'], ['พฤษภาคม', 'พ.ค.'], ['มิถุนายน', 'มิ.ย.'],
+    ['กรกฎาคม', 'ก.ค.'], ['สิงหาคม', 'ส.ค.'], ['กันยายน', 'ก.ย.'], ['ตุลาคม', 'ต.ค.'], ['พฤศจิกายน', 'พ.ย.'], ['ธันวาคม', 'ธ.ค.'],
+  ];
   const re = /(\d{4})-(\d{1,2})-(\d{1,2})|(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})/g;
   const norm = (y: number, mo: number, d: number): string | null => {
     const year = y > 2400 ? y - 543 : y;
@@ -32,7 +37,17 @@ export function detectDateRange(texts: string[]): { from: string; to: string } |
     if (dt.getUTCMonth() !== mo - 1) return null;
     return year + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0');
   };
-  for (const t of texts) {
+  for (const t0 of texts) {
+    const t = t0.replace(/[๐-๙]/g, (ch) => String(ch.charCodeAt(0) - 0x0E50));
+    for (let mi = 0; mi < 12; mi++) {
+      for (const name of THAI_MONTHS[mi]) {
+        const esc = name.replace(/\./g, '\\.');
+        for (const m of t.matchAll(new RegExp('(\\d{1,2})\\s*' + esc + '\\s*(\\d{4})', 'g'))) {
+          const iso = norm(+m[2], mi + 1, +m[1]);
+          if (iso) found.add(iso);
+        }
+      }
+    }
     for (const m of t.matchAll(re)) {
       const iso = m[1] ? norm(+m[1], +m[2], +m[3]) : norm(+m[6], +m[5], +m[4]);
       if (iso) found.add(iso);
@@ -62,11 +77,11 @@ export function detectDateRange(texts: string[]): { from: string; to: string } |
  * used import path needs — dynamically imported here instead of at module scope, so it's a
  * separate lazily-fetched chunk rather than weight every single page load pays up front.
  */
-export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<{ rows: RawUsageRow[]; skipped: number; dateRange: { from: string; to: string } | null }> {
+export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<{ rows: RawUsageRow[]; skipped: number; zeroRows: number; dateRange: { from: string; to: string } | null }> {
   const XLSX = await import('xlsx');
   const wb = XLSX.read(buf, { type: 'array' });
   const sheet = wb.Sheets[wb.SheetNames[0]];
-  if (!sheet) return { rows: [], skipped: 0, dateRange: null };
+  if (!sheet) return { rows: [], skipped: 0, zeroRows: 0, dateRange: null };
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
 
   // Find the header row and its columns by matching label substrings — searched in this
@@ -114,6 +129,7 @@ export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<{ rows:
   // does, so the caller can show the same "ข้าม N แถว" warning for both file types.
   const out: RawUsageRow[] = [];
   let skipped = 0;
+  let zeroRows = 0;
   for (let r = headerIdx + 1; r < rows.length; r++) {
     const row = rows[r];
     if (!row || !row.length) continue; // a genuinely blank row (not a drug row at all) — not a parse failure
@@ -128,10 +144,13 @@ export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<{ rows:
     // Same convention as parseUsageCsvLines: HOSxP's own usage report only ever lists a row for
     // a drug that was actually dispensed, so qty<=0 here means the cell was blank/dash/
     // unparseable, not a genuine "dispensed zero" — counted as skipped, not silently dropped.
-    if (qty <= 0) { skipped++; continue; }
+    // A cell that is literally a number 0 (HOSxP lists every drug incl. ones with 0 dispensed) is a
+    // genuine "listed, dispensed 0" — counted separately so the app can say definitively that the
+    // file reported zero, instead of lumping it with unreadable rows.
+    if (qty <= 0) { if (qty === 0 && cellText(row[qtyCol]) !== '' && !isNaN(parseFloat(String(row[qtyCol]).replace(/,/g, '')))) zeroRows++; else skipped++; continue; }
     out.push({ name, qty });
   }
-  return { rows: out, skipped, dateRange };
+  return { rows: out, skipped, zeroRows, dateRange };
 }
 
 // Bug fix (data integrity): a plain `lastIndexOf(',')` split (the previous approach here and

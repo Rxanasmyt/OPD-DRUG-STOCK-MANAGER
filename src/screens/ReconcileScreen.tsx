@@ -103,6 +103,8 @@ export default function ReconcileScreen() {
   // on this SAME file, before commit, so there's still something to fix.
   const missEntries = useMemo(() => hosxpMissReasons(state.meds, state.hosxpRows || []), [state.meds, state.hosxpRows]);
 
+  // Unmatched rows ranked by quantity — a big one (e.g. a daily staple) must never be a quiet skip.
+  const unmatchedBig = reconcileRows.filter((r) => r.match.kind === 'none' && r.qty > 0).sort((a, b) => b.qty - a.qty);
   const fuzzyCount = reconcileRows.filter((r) => r.match.kind === 'fuzzy').length;
   const skippedCount = reconcileRows.filter((r) => r.match.kind === 'ambiguous' || r.match.kind === 'none').length;
   // Real-world explanation: "เช้าวันจันทร์จะตัดยอดหน้างานโดยแนบไฟล์ ของวันศุกร์ เสาร์และอาทิตย์ เป็น
@@ -311,13 +313,21 @@ export default function ReconcileScreen() {
         const color = tone === 'green' ? 'var(--green)' : tone === 'amber' ? 'var(--amber-ink)' : 'var(--red)';
         return (
           <div data-testid="hosxp-file-verify" style={{ background: bg, color, borderRadius: 10, padding: '10px 13px', marginBottom: 12, fontSize: 12.5, lineHeight: 1.6, fontWeight: 600 }}>
-            <div>ไฟล์: {fi.name} · {nf(fi.rowCount)} รายการ</div>
+            <div>ไฟล์: {fi.name} · {nf(fi.rowCount)} รายการ{fi.zeroRows ? ' · จำนวน 0 (ไม่ได้จ่าย) ' + nf(fi.zeroRows) + ' รายการ' : ''}</div>
             {!fr && <div>ℹ ไฟล์นี้ไม่ได้ระบุวันที่ไว้ในตัวไฟล์ — ตรวจช่วงวันที่ด้านล่างให้ตรงกับรายงานที่ดึงมา ก่อนกดตัดยอด</div>}
             {fr && match && <div>✓ วันที่ที่ไฟล์ระบุ ({fr.from === fr.to ? fr.from : fr.from + ' ถึง ' + fr.to}) ตรงกับช่วงที่จะตัดยอด</div>}
             {fr && !match && <div>⚠ ไฟล์ระบุวันที่ {fr.from === fr.to ? fr.from : fr.from + ' ถึง ' + fr.to} แต่ช่วงที่จะตัดยอดคือ {state.hosxpCoveredFrom} ถึง {state.hosxpCoveredTo} — ไม่ตรงกัน ตรวจให้แน่ใจว่าเป็นไฟล์ของวันที่ถูกต้อง</div>}
           </div>
         );
       })()}
+
+      {unmatchedBig.length > 0 && (
+        <div data-testid="unmatched-big-warning" style={{ background: 'var(--red-bg)', color: 'var(--red)', borderRadius: 10, padding: '10px 13px', marginBottom: 12, fontSize: 12.5, lineHeight: 1.6, fontWeight: 600 }}>
+          ⚠ มี {unmatchedBig.length} รายการในไฟล์ที่จับคู่กับยาในแอพไม่ได้ (รวม {nf(unmatchedBig.reduce((a, r) => a + r.qty, 0))} หน่วย) — จะไม่ถูกตัดยอด:
+          {unmatchedBig.slice(0, 5).map((r, i) => <div key={i} style={{ fontWeight: 500 }}>• {r.fileText} — {nf(r.qty)}</div>)}
+          <div style={{ fontWeight: 500 }}>เลื่อนลงดูรายการเหล่านี้ในตาราง แล้วกด "เพิ่มชื่อ HOSxP" ให้ยาที่ถูกต้องก่อนตัดยอด</div>
+        </div>
+      )}
 
       <ReconcileCalendar onFixMed={goFixMed} />
 
