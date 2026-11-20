@@ -1010,7 +1010,16 @@ export function suggestTransferQty(state: AppState, m: Med): number {
 // compare equal; it never does semantic/fuzzy matching that could merge two DIFFERENT drugs
 // together, since a wrong match here means deducting stock from the wrong drug (see
 // matchHosxpMed's own doc comment on why 'ambiguous' is never guessed through).
+const normCache = new Map<string, string>();
 function normalizeMedName(raw: string): string {
+  const hit = normCache.get(raw);
+  if (hit !== undefined) return hit;
+  const out = normalizeMedNameUncached(raw);
+  if (normCache.size > 20000) normCache.clear();
+  normCache.set(raw, out);
+  return out;
+}
+function normalizeMedNameUncached(raw: string): string {
   return raw
     .replace(/[๐-๙]/g, (ch) => String(ch.charCodeAt(0) - 0x0E50)) // Thai digits → Arabic
     .replace(/[（]/g, '(').replace(/[）]/g, ')') // full-width parens → half-width
@@ -1030,7 +1039,16 @@ function normalizeMedName(raw: string): string {
 const SIG_FILLER = new Set(['of', 'and', 'for', 'use', 'pre', 'filled', 'oral', 'external', 'dose', 'pl', 'box', 'ยา']);
 const SIG_UNIT: Record<string, string> = { mg: 'mg', 'มก': 'mg', mcg: 'mcg', ug: 'mcg', g: 'g', gm: 'g', gram: 'g', 'กรัม': 'g', ml: 'ml', 'มล': 'ml', iu: 'iu', unit: 'iu', units: 'iu' };
 const SIG_SYN: Record<string, string> = { tab: 'tablet', tabs: 'tablet', tablets: 'tablet', 'เม็ด': 'tablet', cap: 'capsule', caps: 'capsule', capsules: 'capsule', 'แคปซูล': 'capsule', amp: 'ampoule', ampule: 'ampoule', ampoules: 'ampoule', inj: 'injection', soln: 'solution', sol: 'solution', susp: 'suspension', btl: 'bottle', 'ขวด': 'bottle', 'หลอด': 'tube' };
+const sigCache = new Map<string, string | null>();
 function strictSignature(raw: string): string | null {
+  const hit = sigCache.get(raw);
+  if (hit !== undefined) return hit;
+  const out = strictSignatureUncached(raw);
+  if (sigCache.size > 20000) sigCache.clear();
+  sigCache.set(raw, out);
+  return out;
+}
+function strictSignatureUncached(raw: string): string | null {
   const n = normalizeMedName(raw).replace(/แค.?บซูล/g, 'แคปซูล');
   if (/[a-z\u0E00-\u0E7F]\s*\+\s*[a-z\u0E00-\u0E7F]/.test(n)) return null;
   const toks = n.match(/[a-z\u0E00-\u0E7F]+|\d+(?:\.\d+)?/g) || [];
@@ -1062,33 +1080,71 @@ function medNameCandidates(m: Med): string[] {
  * is reported as ambiguous rather than silently picking the first one Array.find() happens to
  * hit, since guessing wrong here means deducting stock from the wrong drug.
  */
+// Per-formulary lookup index, cached by the identity of the meds array (state.meds keeps its identity
+// until a med actually changes). Turns the per-row match from "scan every med and re-normalise every
+// name" (O(meds) regex work — a 250-row file × hundreds of miss-diagnoses froze the reconcile screen for
+// tens of seconds) into O(1) map lookups; the final substring fallback still scans but on pre-normalised
+// strings. Results are memoised per file name too.
+interface MatchIndex {
+  exact: Map<string, Med[]>;
+  sig: Map<string, Med[]>;
+  cands: Array<{ m: Med; norms: string[] }>;
+  results: Map<string, HosxpMatch>;
+}
+const matchIndexCache = new WeakMap<Med[], MatchIndex>();
+function matchIndexOf(meds: Med[]): MatchIndex {
+  let idx = matchIndexCache.get(meds);
+  if (idx) return idx;
+  idx = { exact: new Map(), sig: new Map(), cands: [], results: new Map() };
+  const push = (map: Map<string, Med[]>, key: string, m: Med) => {
+    const arr = map.get(key);
+    if (!arr) map.set(key, [m]); else if (!arr.includes(m)) arr.push(m);
+  };
+  for (const m of meds) {
+    if (!m.active) continue;
+    const norms: string[] = [];
+    for (const c of medNameCandidates(m)) {
+      const nc = normalizeMedName(c);
+      norms.push(nc);
+      push(idx.exact, nc, m);
+      const sg = strictSignature(c);
+      if (sg) push(idx.sig, sg, m);
+    }
+    idx.cands.push({ m, norms });
+  }
+  matchIndexCache.set(meds, idx);
+  return idx;
+}
+
 export function matchHosxpMed(meds: Med[], rawName: string): HosxpMatch {
-  const active = meds.filter((m) => m.active);
+  const idx = matchIndexOf(meds);
+  const memo = idx.results.get(rawName);
+  if (memo) return memo;
+  const r = matchHosxpMedUncached(idx, rawName);
+  idx.results.set(rawName, r);
+  return r;
+}
+
+function matchHosxpMedUncached(idx: MatchIndex, rawName: string): HosxpMatch {
   const n = normalizeMedName(rawName);
   if (!n) return { kind: 'none' };
 
-  // A name is no longer guaranteed unique across the whole formulary — OPD and IPD versions
-  // of the same drug are deliberately separate records that can share an identical name (see
-  // wardOf/Ward). .find() alone would silently always pick whichever one happens to be first
-  // in the array, deducting HOSxP-reported dispensing from the wrong ward's shelf every time
-  // that drug is reconciled. Treat two-or-more exact matches the same as the fuzzy branch
-  // below already does: 'ambiguous', not a silent guess.
-  const exactMatches = active.filter((m) => medNameCandidates(m).some((c) => normalizeMedName(c) === n));
+  // A name is no longer guaranteed unique across the whole formulary — OPD and IPD versions of the same
+  // drug are deliberately separate records that can share an identical name (see wardOf/Ward). Two-or-more
+  // exact matches are 'ambiguous', never a silent pick of whichever record comes first.
+  const exactMatches = idx.exact.get(n) || [];
   if (exactMatches.length === 1) return { kind: 'exact', medId: exactMatches[0].id };
   if (exactMatches.length > 1) return { kind: 'ambiguous', candidateIds: exactMatches.map((m) => m.id) };
 
   // Same drug, different characters / word order / synonym spelling → deterministic match (see strictSignature).
   const sig = strictSignature(rawName);
   if (sig) {
-    const sigMatches = active.filter((m) => medNameCandidates(m).some((c) => strictSignature(c) === sig));
+    const sigMatches = idx.sig.get(sig) || [];
     if (sigMatches.length === 1) return { kind: 'exact', medId: sigMatches[0].id };
     if (sigMatches.length > 1) return { kind: 'ambiguous', candidateIds: sigMatches.map((m) => m.id) };
   }
 
-  const candidates = active.filter((m) => medNameCandidates(m).some((c) => {
-    const cn = normalizeMedName(c);
-    return cn.indexOf(n) >= 0 || n.indexOf(cn) >= 0;
-  }));
+  const candidates = idx.cands.filter(({ norms }) => norms.some((cn) => cn.indexOf(n) >= 0 || n.indexOf(cn) >= 0)).map((c) => c.m);
   if (candidates.length === 1) return { kind: 'fuzzy', medId: candidates[0].id };
   if (candidates.length > 1) return { kind: 'ambiguous', candidateIds: candidates.map((m) => m.id) };
   return { kind: 'none' };
@@ -1571,7 +1627,16 @@ const NAME_STOP = new Set([
 ]);
 
 export interface NameTokens { words: string[]; numbers: string[] }
+const tokCache = new Map<string, NameTokens>();
 export function tokenizeMedName(raw: string): NameTokens {
+  const hit = tokCache.get(raw);
+  if (hit) return hit;
+  const out = tokenizeMedNameUncached(raw);
+  if (tokCache.size > 20000) tokCache.clear();
+  tokCache.set(raw, out);
+  return out;
+}
+function tokenizeMedNameUncached(raw: string): NameTokens {
   const n = normalizeMedName(raw);
   const all = n.match(/[a-z฀-๿]+|\d+(?:\.\d+)?/g) || [];
   const words: string[] = [];

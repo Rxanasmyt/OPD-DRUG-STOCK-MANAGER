@@ -82,7 +82,7 @@ export default function ReconcileScreen() {
   // safely resumable) — shown as done rather than fed back into the running before/after preview
   // below, which would otherwise visually suggest it's about to be deducted a SECOND time.
   const appliedRowSet = useMemo(() => new Set(state.hosxpAppliedRowIndexes || []), [state.hosxpAppliedRowIndexes]);
-  const reconcileRows = (() => {
+  const reconcileRows = useMemo(() => {
     const running = new Map<string, number>();
     // Same range already reconciled → only the part above what it took is deducted (see commitReconcile).
     const isResumingNow = appliedRowSet.size > 0 && appliedRowSet.size < (state.hosxpRows || []).length;
@@ -104,7 +104,10 @@ export default function ReconcileScreen() {
       if (med) running.set(med.id, after);
       return { fileText: r.name, qty: r.qty, already, match: r.match, med, before, after, applied: false };
     });
-  })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.hosxpRows, state.meds, state.txs, state.hosxpCoveredFrom, state.hosxpCoveredTo, appliedRowSet]);
+  const unmatchedFileNames = useMemo(() => reconcileRows.filter((r) => !r.med).map((r) => r.fileText), [reconcileRows]);
+  const [showAllMiss, setShowAllMiss] = useState(false);
   const appliedCount = reconcileRows.filter((r) => r.applied).length;
   // A resume (some rows done, some not) skips the same confirms commitReconcile() itself skips
   // for the identical reason — see its own isResuming doc comment (AppContext.tsx).
@@ -398,7 +401,7 @@ export default function ReconcileScreen() {
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>ยาที่ปกติจ่ายทุกวันแต่ไม่ถูกตัดยอดจากไฟล์นี้ ({missEntries.length} รายการ)</div>
               <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginBottom: 10 }}>ตรวจสอบก่อนตัดยอด — รายการที่มีเหตุผล "ควรตรวจสอบ"/"ต้องแก้ไข" อาจทำให้จำนวนยาในระบบไม่ตรงกับที่จ่ายจริง</div>
               <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                {missEntries.map(({ med, reason }) => (
+                {(showAllMiss ? missEntries : missEntries.slice(0, 30)).map(({ med, reason }) => (
                   <div key={med.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-soft)', borderRadius: 9, padding: '8px 10px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
                       <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{med.name}</span>
@@ -412,10 +415,15 @@ export default function ReconcileScreen() {
                       {reason.kind === 'ambiguous' && !reason.wardClash && `พบชื่อ "${reason.fileText}" ในไฟล์ แต่ตรงกับยาหลายรายการ (${reason.otherNames.join(', ')}) — ระบบแยกไม่ได้ว่าหมายถึงตัวไหน ต้องปรับยอดด้วยมือ`}
                     </div>
                     {reason.kind === 'not_in_file' && (
-                      <MissDiagnosis med={med} fileNames={reconcileRows.filter((r) => !r.med).map((r) => r.fileText)} onFixMed={goFixMed} />
+                      <MissDiagnosis med={med} fileNames={unmatchedFileNames} onFixMed={goFixMed} />
                     )}
                   </div>
                 ))}
+                {!showAllMiss && missEntries.length > 30 && (
+                  <button type="button" onClick={() => setShowAllMiss(true)} style={{ border: '1px dashed var(--border)', background: 'transparent', borderRadius: 9, padding: '10px', fontSize: 12.5, fontWeight: 600, color: 'var(--green)', minHeight: 44 }}>
+                    แสดงอีก {missEntries.length - 30} รายการ
+                  </button>
+                )}
               </div>
             </div>
           )}
