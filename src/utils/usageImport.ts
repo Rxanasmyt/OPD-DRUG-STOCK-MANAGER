@@ -77,32 +77,35 @@ export function detectDateRange(texts: string[]): { from: string; to: string } |
  * used import path needs — dynamically imported here instead of at module scope, so it's a
  * separate lazily-fetched chunk rather than weight every single page load pays up front.
  */
-export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<{ rows: RawUsageRow[]; skipped: number; zeroRows: number; dateRange: { from: string; to: string } | null }> {
-  const XLSX = await import('xlsx');
-  const wb = XLSX.read(buf, { type: 'array' });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  if (!sheet) return { rows: [], skipped: 0, zeroRows: 0, dateRange: null };
-  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
+export interface HosxpParseResult {
+  rows: RawUsageRow[];
+  /** unreadable rows (no name / unparseable qty) */
+  skipped: number;
+  /** rows the file itself lists with a genuine 0 (= not dispensed) */
+  zeroRows: number;
+  dateRange: { from: string; to: string } | null;
+  /** sheets that contained a recognisable report table and were read */
+  sheetsRead: number;
+  /** sheets skipped because they held no recognisable table (never silently — the caller warns) */
+  sheetsIgnored: number;
+  /** a multi-page export repeats its column header on every page — counted, not treated as drug rows */
+  repeatedHeaders: number;
+  /** "รวม / Total" footer rows ignored so they never masquerade as a drug */
+  totalsIgnored: number;
+  /** rows whose qty has a fractional part (rounded to whole units by the caller) */
+  fractional: { name: string; qty: number }[];
+}
 
-  // Find the header row and its columns by matching label substrings — searched in this
-  // priority order per role so a header that happens to contain more than one candidate
-  // phrase (e.g. "จำนวนใบสั่งยา" containing "จำนวน") resolves to the right column, not just
-  // whichever appears first left-to-right.
+// Thai labels must be the WHOLE cell (a drug could legitimately start with "รวม…"); English ones end at a word boundary.
+const TOTAL_ROW = /^\s*(?:(?:รวมทั้งสิ้น|รวมทั้งหมด|ยอดรวม|รวม)\s*[:：]?\s*$|(?:grand\s*total|sub\s*-?\s*total|total|sum)\b)/i;
+
+function parseSheetRows(rows: unknown[][], allowFallback: boolean): (Omit<HosxpParseResult, 'sheetsRead' | 'sheetsIgnored'> & { hadHeader: boolean }) | null {
   let headerIdx = -1, nameCol = -1, strengthCol = -1, unitCol = -1, qtyCol = -1;
   for (let r = 0; r < Math.min(rows.length, 15); r++) {
-    const row = rows[r] || [];
-    const texts = row.map((c) => cellText(c));
+    const texts = (rows[r] || []).map((c) => cellText(c));
     const nc = texts.findIndex((t) => t.includes('รายการยา'));
-    // Bug fix (found testing a real exported file): some HOSxP report configurations label
-    // this column plainly "จำนวน" instead of "จำนวนที่ใช้", with the order-count column
-    // labeled "รายการ" instead of "จำนวนใบสั่งยา" — neither the "จำนวนที่ใช้" phrase nor the
-    // fallback layout below matched that file's actual header row at all, so it silently fell
-    // through to the fallback and only worked because that file's column order happened to
-    // agree with it by coincidence. Try "จำนวนที่ใช้" first (unambiguous, matched before the
-    // more generic "จำนวน" so it never collides with a genuine "จำนวนใบสั่งยา" column on the
-    // same row); only when that's absent, accept a column whose text is EXACTLY "จำนวน" and
-    // nothing else — an exact match (not .includes()) so it can never also match
-    // "จำนวนใบสั่งยา" (which contains "จำนวน" as a substring but is never literally just that).
+    // Some report configurations label the qty column plainly "จำนวน" (exact match, never the
+    // "จำนวนใบสั่งยา" order-count column), others "จำนวนที่ใช้" — tried in that priority order.
     let qc = texts.findIndex((t) => t.includes('จำนวนที่ใช้'));
     if (qc < 0) qc = texts.findIndex((t) => t === 'จำนวน');
     if (nc >= 0 && qc >= 0) {
@@ -112,27 +115,27 @@ export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<{ rows:
       break;
     }
   }
-  // Fall back to the exact layout this parser was written against if no header row matched
-  // (a differently-shaped export) — still better than refusing to import anything.
-  if (headerIdx < 0) { headerIdx = 0; nameCol = 1; strengthCol = 2; unitCol = 3; qtyCol = 5; }
+  const hadHeader = headerIdx >= 0;
+  if (!hadHeader) {
+    // The first sheet keeps the legacy fixed layout as a last resort; later sheets must prove they are a table.
+    if (!allowFallback) return null;
+    headerIdx = 0; nameCol = 1; strengthCol = 2; unitCol = 3; qtyCol = 5;
+  }
   // Title rows above the header (a real HOSxP report states its own date range there).
   const dateRange = detectDateRange(rows.slice(0, headerIdx).flatMap((r) => (r || []).map((c) => cellText(c))));
 
-  // Bug fix (silent data loss): this used to just `continue` on an empty name or an
-  // unparseable/zero qty cell, exactly like the CSV path's own equivalent before
-  // parseUsageCsvTextWithSkipped's fix — but unlike that fix, it was never carried over here,
-  // even though this .xlsx path is the one actually used in daily practice (the CSV textarea
-  // is the fallback). For processHosxpFile specifically, a row dropped here means that drug's
-  // floor is never debited for the day at all — a silent divergence from the real shelf that
-  // nothing else catches until either a physical count or the next day's check-stock-drift.mjs
-  // run, with no indication of WHICH drug or WHY. Tracked the same way the CSV path already
-  // does, so the caller can show the same "ข้าม N แถว" warning for both file types.
   const out: RawUsageRow[] = [];
-  let skipped = 0;
-  let zeroRows = 0;
+  const fractional: { name: string; qty: number }[] = [];
+  let skipped = 0, zeroRows = 0, repeatedHeaders = 0, totalsIgnored = 0;
   for (let r = headerIdx + 1; r < rows.length; r++) {
     const row = rows[r];
-    if (!row || !row.length) continue; // a genuinely blank row (not a drug row at all) — not a parse failure
+    if (!row || !row.length) continue; // genuinely blank row
+    const nameCell = cellText(row[nameCol]);
+    const qtyText = cellText(row[qtyCol]);
+    // A multi-page export repeats the column header on every page.
+    if (nameCell.includes('รายการยา') && (qtyText === '' || qtyText.includes('จำนวน'))) { repeatedHeaders++; continue; }
+    // "รวม / Total" footer rows (the label may sit in the No. column or the name column).
+    if (TOTAL_ROW.test(nameCell) || (!nameCell && TOTAL_ROW.test(cellText(row[0])))) { totalsIgnored++; continue; }
     const name = [nameCol, strengthCol, unitCol]
       .filter((c) => c >= 0)
       .map((c) => cellText(row[c]))
@@ -141,16 +144,40 @@ export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<{ rows:
       .trim();
     if (!name) { skipped++; continue; }
     const qty = parseCellNumber(row[qtyCol]);
-    // Same convention as parseUsageCsvLines: HOSxP's own usage report only ever lists a row for
-    // a drug that was actually dispensed, so qty<=0 here means the cell was blank/dash/
-    // unparseable, not a genuine "dispensed zero" — counted as skipped, not silently dropped.
-    // A cell that is literally a number 0 (HOSxP lists every drug incl. ones with 0 dispensed) is a
-    // genuine "listed, dispensed 0" — counted separately so the app can say definitively that the
-    // file reported zero, instead of lumping it with unreadable rows.
-    if (qty <= 0) { if (qty === 0 && cellText(row[qtyCol]) !== '' && !isNaN(parseFloat(String(row[qtyCol]).replace(/,/g, '')))) zeroRows++; else skipped++; continue; }
+    // qty<=0: a literal number 0 is a genuine "listed, dispensed 0"; blank/dash/unparseable is unreadable.
+    if (qty <= 0) { if (qty === 0 && qtyText !== '' && !isNaN(parseFloat(String(row[qtyCol]).replace(/,/g, '')))) zeroRows++; else skipped++; continue; }
+    if (!Number.isInteger(qty)) fractional.push({ name, qty });
     out.push({ name, qty });
   }
-  return { rows: out, skipped, zeroRows, dateRange };
+  return { rows: out, skipped, zeroRows, dateRange, repeatedHeaders, totalsIgnored, fractional, hadHeader };
+}
+
+/** Reads EVERY sheet of the workbook that holds a recognisable report table (the old version read only the
+ * first sheet, so drugs on later sheets vanished silently), ignores repeated page headers and "รวม" rows. */
+export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<HosxpParseResult> {
+  const XLSX = await import('xlsx');
+  const wb = XLSX.read(buf, { type: 'array' });
+  const empty: HosxpParseResult = { rows: [], skipped: 0, zeroRows: 0, dateRange: null, sheetsRead: 0, sheetsIgnored: 0, repeatedHeaders: 0, totalsIgnored: 0, fractional: [] };
+  const names = wb.SheetNames;
+  if (!names.length) return empty;
+  const res: HosxpParseResult = { ...empty, rows: [], fractional: [] };
+  const ranges: { from: string; to: string }[] = [];
+  names.forEach((nm, i) => {
+    const sheet = wb.Sheets[nm];
+    if (!sheet) { res.sheetsIgnored++; return; }
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
+    const p = parseSheetRows(rows, i === 0);
+    if (!p) { res.sheetsIgnored++; return; }
+    res.sheetsRead++;
+    res.rows.push(...p.rows);
+    res.skipped += p.skipped; res.zeroRows += p.zeroRows; res.repeatedHeaders += p.repeatedHeaders; res.totalsIgnored += p.totalsIgnored;
+    res.fractional.push(...p.fractional);
+    if (p.dateRange) ranges.push(p.dateRange);
+  });
+  if (ranges.length) {
+    res.dateRange = { from: ranges.map((r) => r.from).sort()[0], to: ranges.map((r) => r.to).sort().slice(-1)[0] };
+  }
+  return res;
 }
 
 // Bug fix (data integrity): a plain `lastIndexOf(',')` split (the previous approach here and

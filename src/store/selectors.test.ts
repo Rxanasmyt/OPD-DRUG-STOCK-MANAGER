@@ -1932,3 +1932,29 @@ describe('priorReconcileByMed — undo (reversal) rows net out', () => {
     expect(priorReconcileByMed([orig, rev], '2026-11-19', '2026-11-19').has('m1')).toBe(false);
   });
 });
+
+
+describe('unusualDispense / weekdaysInRange — pre-commit sanity check', () => {
+  const m = (used30: number) => ({ id: 'm', name: 'X', active: true, used30 } as never);
+  it('counts weekdays only (at least 1)', async () => {
+    const { weekdaysInRange } = await import('./selectors');
+    expect(weekdaysInRange('2026-11-19', '2026-11-19')).toBe(1); // Thu
+    expect(weekdaysInRange('2026-11-14', '2026-11-16')).toBe(1); // Sat-Mon → Monday only
+    expect(weekdaysInRange('2026-11-16', '2026-11-20')).toBe(5);
+    expect(weekdaysInRange('2026-11-14', '2026-11-15')).toBe(1); // weekend only → floor of 1
+  });
+  it('flags a quantity far above the normal daily rate, but not a normal or small one', async () => {
+    const { unusualDispense } = await import('./selectors');
+    // used30 = 399 → ~20/weekday
+    expect(unusualDispense(m(399), 25, 1)).toBeNull();
+    expect(unusualDispense(m(399), 60, 1)).toBeNull(); // 3× only
+    expect(unusualDispense(m(399), 400, 1)?.kind).toBe('high');
+    expect(unusualDispense(m(399), 400, 5)).toBeNull(); // a 5-weekday file legitimately holds ~100
+    expect(unusualDispense(m(3), 20, 1)).toBeNull(); // tiny drugs: under the 30-unit absolute floor
+  });
+  it('flags a big quantity for a drug with no history at all', async () => {
+    const { unusualDispense } = await import('./selectors');
+    expect(unusualDispense(m(0), 150, 1)?.kind).toBe('no_history');
+    expect(unusualDispense(m(0), 20, 1)).toBeNull();
+  });
+});

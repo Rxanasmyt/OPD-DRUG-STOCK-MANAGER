@@ -6337,6 +6337,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       let raw: RawUsageRow[];
       let skipped = 0;
       let zeroRows = 0;
+      let parseExtra: Pick<NonNullable<AppState['hosxpFileInfo']>, 'sheetsRead' | 'sheetsIgnored' | 'repeatedHeaders' | 'totalsIgnored' | 'fractional'> = {};
       let fileDateRange: { from: string; to: string } | null = null;
       try {
         if (isSpreadsheet) {
@@ -6345,6 +6346,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           skipped = parsed.skipped;
           zeroRows = parsed.zeroRows;
           fileDateRange = parsed.dateRange;
+          parseExtra = { sheetsRead: parsed.sheetsRead, sheetsIgnored: parsed.sheetsIgnored, repeatedHeaders: parsed.repeatedHeaders, totalsIgnored: parsed.totalsIgnored, fractional: parsed.fractional };
         } else {
           const parsed = parseUsageCsvTextWithSkipped(String(reader.result || ''));
           raw = parsed.rows;
@@ -6369,7 +6371,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const totalQty = rows.reduce((s, r) => s + r.qty, 0);
       patch({
         hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpCoveredFrom: coveredFrom, hosxpCoveredTo: coveredTo, hosxpText: '', hosxpAppliedRowIndexes: [],
-        hosxpFileInfo: { name: file.name, rowCount: rows.length, totalQty, dateRange: fileDateRange, zeroRows, fingerprint: rows.length + ':' + totalQty + ':' + (rows[0]?.name ?? '') },
+        hosxpFileInfo: { name: file.name, rowCount: rows.length, totalQty, dateRange: fileDateRange, zeroRows, ...parseExtra, fingerprint: rows.length + ':' + totalQty + ':' + (rows[0]?.name ?? '') },
       });
       // Bug fix (silent data loss): a malformed line (no comma, empty/unparseable qty cell) used
       // to be dropped with zero trace — nothing here distinguished "this file had exactly N

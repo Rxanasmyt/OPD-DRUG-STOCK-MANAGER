@@ -187,3 +187,42 @@ describe('parseHosxpUsageWorkbook — reports the date range from its title rows
     expect(without.dateRange).toBeNull();
   });
 });
+
+function multiSheetBuffer(sheets: (string | number)[][][]): ArrayBuffer {
+  const wb = XLSX.utils.book_new();
+  sheets.forEach((rows, i) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'S' + (i + 1)));
+  return XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+}
+const HDR = ['No.', 'รายการยา', 'ความแรง', 'หน่วย', 'รายการ', 'จำนวน'];
+
+describe('parseHosxpUsageWorkbook — real-export shapes', () => {
+  it('reads EVERY sheet that holds a report table (drugs on later sheets must not vanish)', async () => {
+    const r = await parseHosxpUsageWorkbook(multiSheetBuffer([
+      [HDR, [1, 'Drug A', '10 mg', 'เม็ด', 3, 5]],
+      [HDR, [1, 'Drug B', '20 mg', 'เม็ด', 3, 7]],
+      [['หมายเหตุ'], ['ไม่มีตาราง']],
+    ]));
+    expect(r.rows.map((x) => x.name)).toEqual(['Drug A 10 mg เม็ด', 'Drug B 20 mg เม็ด']);
+    expect(r.sheetsRead).toBe(2);
+    expect(r.sheetsIgnored).toBe(1);
+  });
+  it('a multi-page export repeats the column header — counted, not treated as drugs or "unreadable"', async () => {
+    const r = await parseHosxpUsageWorkbook(workbookBuffer([
+      HDR, [1, 'Drug A', '10 mg', 'เม็ด', 3, 5], HDR, [2, 'Drug B', '20 mg', 'เม็ด', 3, 7],
+    ]));
+    expect(r.rows).toHaveLength(2);
+    expect(r.repeatedHeaders).toBe(1);
+    expect(r.skipped).toBe(0);
+  });
+  it('ignores "รวม" / Total footer rows instead of offering them as a drug', async () => {
+    const r = await parseHosxpUsageWorkbook(workbookBuffer([
+      HDR, [1, 'Drug A', '10 mg', 'เม็ด', 3, 5], ['', 'รวม', '', '', 3, 5], ['Total', '', '', '', '', 5],
+    ]));
+    expect(r.rows).toHaveLength(1);
+    expect(r.totalsIgnored).toBe(2);
+  });
+  it('reports rows with a fractional quantity (rounded later) instead of hiding the rounding', async () => {
+    const r = await parseHosxpUsageWorkbook(workbookBuffer([HDR, [1, 'Drug A', '10 mg', 'เม็ด', 3, 2.5]]));
+    expect(r.fractional).toEqual([{ name: 'Drug A 10 mg เม็ด', qty: 2.5 }]);
+  });
+});
