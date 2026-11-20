@@ -1,3 +1,4 @@
+import { TAB } from './navLabels';
 import AppIcon from './components/AppIcon';
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from 'react';
 import { useApp } from './store/AppContext';
@@ -68,11 +69,11 @@ const CAN_BACK: Screen[] = ['tconfirm', 'adjust', 'report', 'labels', 'settings'
 // ⇄/⬓ glyphs in HomeScreen.tsx's two quick-action buttons and QrModal.tsx's scan-purpose theme
 // (same meaning, same icon, everywhere it appears — not just here).
 const NAV_DEF: [Screen, string, string][] = [
-  ['home', 'หน้าหลัก', '🏠'],
-  ['transfer', 'เติมหน้างาน', '🔄'],
-  ['reconcile', 'นำเข้า HOSxP', '🔃'],
-  ['receive', 'รับเข้า', '📦'],
-  ['more', 'เพิ่มเติม', '⚙️'],
+  ['home', TAB.home, '🏠'],
+  ['transfer', TAB.transfer, '🔄'],
+  ['reconcile', TAB.reconcile, '🔃'],
+  ['receive', TAB.receive, '📦'],
+  ['more', TAB.more, '⚙️'],
 ];
 
 export default function App() {

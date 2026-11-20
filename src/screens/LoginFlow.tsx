@@ -1,5 +1,7 @@
 // Animated one-glance map of how drugs and records move through the pharmacy, shown on the login page.
 // Each node opens the matching section of the full manual (UserManual). Wording follows the real tab names.
+import { TAB } from '../navLabels';
+
 export interface FlowNode { id: string; icon: string; title: string; sub: string; section: string }
 export interface FlowLink { label: string; tab: string; dir: 'down' | 'up'; note?: string }
 
@@ -11,9 +13,9 @@ export const FLOW_NODES: FlowNode[] = [
 ];
 
 export const FLOW_LINKS: FlowLink[] = [
-  { label: 'รับเข้า', tab: 'แท็บ “รับเข้า”', dir: 'down', note: 'ใส่ Lot + วันหมดอายุ (ถ่ายรูปฉลากได้)' },
-  { label: 'เติมหน้างาน', tab: 'แท็บ “เติมหน้างาน”', dir: 'down', note: 'FEFO — หมดอายุก่อน ออกก่อน' },
-  { label: 'ตัดยอดตาม HOSxP', tab: 'แท็บ “นำเข้า HOSxP”', dir: 'down', note: 'ทุกเช้า ตัดตามที่จ่ายจริงของเมื่อวาน' },
+  { label: 'รับเข้า', tab: `แท็บ “${TAB.receive}”`, dir: 'down', note: 'ใส่ Lot + วันหมดอายุ (ถ่ายรูปฉลากได้)' },
+  { label: 'เติมหน้างาน', tab: `แท็บ “${TAB.transfer}”`, dir: 'down', note: 'FEFO — หมดอายุก่อน ออกก่อน' },
+  { label: 'ตัดยอดตาม HOSxP', tab: `แท็บ “${TAB.reconcile}”`, dir: 'down', note: 'ทุกเช้า ตัดตามที่จ่ายจริงของเมื่อวาน' },
 ];
 
 export default function LoginFlow({ onOpen }: { onOpen: (section: string) => void }) {
