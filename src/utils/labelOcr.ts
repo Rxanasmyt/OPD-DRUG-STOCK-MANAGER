@@ -18,7 +18,24 @@ const EXP_SRC = /(?:EXP(?:IRY|IRE|IRES)?\.?\s*(?:DATE|DT)?|E\.?D\.?|USE\s*BY|USE
 const MFG_SRC = /(?:MFG|MFD|MANUF(?:ACTURED)?|PROD(?:UCTION)?|DOM|วันผลิต|ผลิต)/;
 const LOT_SRC = /(?:LOT\s*(?:NO|NUMBER|#)?|BATCH\s*(?:NO|NUMBER|#)?|B\s*\.\s*NO|B\/N|BN|L\s*[/.]?\s*[CG]|เลขที่ผลิต|ล็อต|ลอท)/;
 // Short keywords (ED, BB, BN, DOM) must not fire inside ordinary words ("MED", "SLOT").
-const wrap = (r: RegExp) => new RegExp('(?<![A-Z])' + r.source + '(?![A-Z])');
+// No regex lookbehind anywhere in this app: Safari/iOS < 16.4 throws a SyntaxError on it and the whole bundle
+// fails to load. "Not preceded by X" is emulated by findFrom()/findKey() below.
+const wrap = (r: RegExp) => new RegExp(r.source + '(?![A-Z])', 'g');
+/** All matches of `re` (global) in `s` whose start is not immediately preceded by a char matching `forbidPrev`. */
+function findAll(re: RegExp, s: string, forbidPrev?: RegExp): RegExpMatchArray[] {
+  const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g');
+  const out: RegExpMatchArray[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = g.exec(s))) {
+    if (forbidPrev && m.index > 0 && forbidPrev.test(s[m.index - 1])) { g.lastIndex = m.index + 1; continue; }
+    out.push(m);
+    if (m[0].length === 0) g.lastIndex++;
+  }
+  return out;
+}
+function findKey(re: RegExp, s: string): RegExpMatchArray | null {
+  return findAll(re, s, /[A-Z]/)[0] || null;
+}
 const EXP_KEY = wrap(EXP_SRC);
 const MFG_KEY = wrap(MFG_SRC);
 const LOT_KEY = wrap(LOT_SRC);
@@ -50,7 +67,10 @@ export function prepDateText(raw: string): string {
   let t = raw.replace(/[๐-๙]/g, (ch) => String(ch.charCodeAt(0) - 0x0E50));
   t = t.replace(/พ\.\s?ศ\.?|ค\.\s?ศ\.?/g, ' ');
   // "ผลิต/หมดอายุ" must survive; only month tokens that are followed by/preceded by digits are rewritten
-  for (const [re, en] of THAI_MON) t = t.replace(new RegExp('(?<=\\d\\s?)(?:' + re.source + ')|(?:' + re.source + ')(?=\\s?\\d)', 'g'), en);
+  for (const [re, en] of THAI_MON) {
+    t = t.replace(new RegExp(re.source, 'g'), (m: string, off: number, str: string) =>
+      (/\d\s?$/.test(str.slice(0, off)) || /^\s?\d/.test(str.slice(off + m.length))) ? en : m);
+  }
   return t;
 }
 
@@ -89,31 +109,31 @@ function findDates(sIn: string): RawDate[] {
     seen.push([a, b]);
     out.push({ iso: v, raw: m[0].trim(), index: a });
   };
-  const all = (re: RegExp) => [...s.matchAll(re)];
+  const all = (re: RegExp, forbidPrev?: RegExp) => findAll(re, s, forbidPrev);
   const SEPS = '[-/.,\\s]*';
   // 1. day month-name year: 31 DEC 2027, 31-Dec-27, 31DEC2027
-  for (const m of all(new RegExp('(?<!\\d)(\\d{1,2})' + SEPS + MON + SEPS + '(\\d{4}|\\d{2})(?!\\d)', 'g'))) take(m, iso(yearOf(m[3]), monNum(m[2]), +m[1]));
+  for (const m of all(new RegExp('(\\d{1,2})' + SEPS + MON + SEPS + '(\\d{4}|\\d{2})(?!\\d)', 'g'), /\d/)) take(m, iso(yearOf(m[3]), monNum(m[2]), +m[1]));
   // 2. month-name day year: DEC 31 2027, Dec-31-2027, DEC 31, 27
-  for (const m of all(new RegExp('(?<![A-Z])' + MON + '[-/.,\\s]*(\\d{1,2})(?!\\d)[-/.,\\s]+(\\d{4}|\\d{2})(?!\\d)', 'g'))) take(m, iso(yearOf(m[3]), monNum(m[1]), +m[2]));
+  for (const m of all(new RegExp('' + MON + '[-/.,\\s]*(\\d{1,2})(?!\\d)[-/.,\\s]+(\\d{4}|\\d{2})(?!\\d)', 'g'), /[A-Z]/)) take(m, iso(yearOf(m[3]), monNum(m[1]), +m[2]));
   // 3. year month-name day: 2027 DEC 31
-  for (const m of all(new RegExp('(?<!\\d)(\\d{4})' + SEPS + MON + SEPS + '(\\d{1,2})(?!\\d)', 'g'))) take(m, iso(yearOf(m[1]), monNum(m[2]), +m[3]));
+  for (const m of all(new RegExp('(\\d{4})' + SEPS + MON + SEPS + '(\\d{1,2})(?!\\d)', 'g'), /\d/)) take(m, iso(yearOf(m[1]), monNum(m[2]), +m[3]));
   // 4. month-name year (month only): DEC 2027, DEC-27
-  for (const m of all(new RegExp('(?<![A-Z])' + MON + '[-/.,\\s]*(\\d{4}|\\d{2})(?!\\d)', 'g'))) take(m, iso(yearOf(m[2]), monNum(m[1]), null));
+  for (const m of all(new RegExp('' + MON + '[-/.,\\s]*(\\d{4}|\\d{2})(?!\\d)', 'g'), /[A-Z]/)) take(m, iso(yearOf(m[2]), monNum(m[1]), null));
   // 5. year-first numeric: 2027-12-31, 2027/12/31, 2027 12 31
-  for (const m of all(/(?<!\d)(\d{4})\s*[-/.\s]\s*(\d{1,2})\s*[-/.\s]\s*(\d{1,2})(?!\d)/g)) take(m, iso(yearOf(m[1]), +m[2], +m[3]));
+  for (const m of all(/(\d{4})\s*[-/.\s]\s*(\d{1,2})\s*[-/.\s]\s*(\d{1,2})(?!\d)/g, /\d/)) take(m, iso(yearOf(m[1]), +m[2], +m[3]));
   // 6. day-first numeric: 31/12/2027, 31-12-27, 31.12.70, 31 12 2570, 12/31/2027
-  for (const m of all(/(?<!\d)(\d{1,2})\s*[-/.\s]\s*(\d{1,2})\s*[-/.\s]\s*(\d{4}|\d{2})(?!\d)/g)) {
+  for (const m of all(/(\d{1,2})\s*[-/.\s]\s*(\d{1,2})\s*[-/.\s]\s*(\d{4}|\d{2})(?!\d)/g, /\d/)) {
     // a two-digit year separated only by spaces ("26 02 26") must look like a CE year 20–45,
     // else lot numbers / barcodes split by spaces would pass as dates
     if (m[3].length === 2 && !/[-/.]/.test(m[0]) && !(+m[3] >= 20 && +m[3] <= 45)) continue;
     take(m, dmy(+m[1], +m[2], yearOf(m[3])));
   }
   // 6b. ddmm + year split by a gap ("3112 2027")
-  for (const m of all(/(?<!\d)(\d{2})(\d{2})\s(\d{4})(?!\d)/g)) take(m, dmy(+m[1], +m[2], yearOf(m[3])));
+  for (const m of all(/(\d{2})(\d{2})\s(\d{4})(?!\d)/g, /\d/)) take(m, dmy(+m[1], +m[2], yearOf(m[3])));
   // 7. year-month: 2027/12, 2027-12
-  for (const m of all(/(?<!\d)(\d{4})\s*[-/.]\s*(\d{1,2})(?![\d/.-])/g)) take(m, iso(yearOf(m[1]), +m[2], null));
+  for (const m of all(/(\d{4})\s*[-/.]\s*(\d{1,2})(?![\d/.-])/g, /\d/)) take(m, iso(yearOf(m[1]), +m[2], null));
   // 8. compact 8 digits: yyyymmdd, ddmmyyyy, and a slashed font whose "/" OCR read as 7 or 1
-  for (const m of all(/(?<!\d)(\d{8})(?!\d)/g)) {
+  for (const m of all(/(\d{8})(?!\d)/g, /\d/)) {
     const t = m[1];
     const a = /^(19|20)/.test(t) ? iso(+t.slice(0, 4), +t.slice(4, 6), +t.slice(6, 8)) : null;
     const b = iso(yearOf(t.slice(4)), +t.slice(2, 4), +t.slice(0, 2));
@@ -122,14 +142,14 @@ function findDates(sIn: string): RawDate[] {
     take(m, a || b || c);
   }
   // 9. compact 6 digits: ddmmyy (year 20–45 only — 6-digit lots are common), else mmyyyy
-  for (const m of all(/(?<!\d)(\d{6})(?!\d)/g)) {
+  for (const m of all(/(\d{6})(?!\d)/g, /\d/)) {
     const t = m[1];
     const yy = +t.slice(4);
     const v = yy >= 20 && yy <= 45 ? iso(2000 + yy, +t.slice(2, 4), +t.slice(0, 2)) : null;
     take(m, v || (+t.slice(0, 2) <= 12 ? iso(yearOf(t.slice(2)), +t.slice(0, 2), null) : null));
   }
   // 10. month-year numeric: 12/2027, 12-27, 12 2027
-  for (const m of all(/(?<![\d/.-])(\d{1,2})\s*[-/.\s]\s*(\d{4}|\d{2})(?![\d/.-])/g)) {
+  for (const m of all(/(\d{1,2})\s*[-/.\s]\s*(\d{4}|\d{2})(?![\d/.-])/g, /[\d/.-]/)) {
     if (m[2].length === 2 && !/[-/.]/.test(m[0]) && !(+m[2] >= 20 && +m[2] <= 45)) continue;
     take(m, iso(yearOf(m[2]), +m[1], null));
   }
@@ -189,8 +209,8 @@ export function parseLabelText(textRaw: string, now = Date.now()): LabelParse {
   for (let i = 0; i < lines.length; i++) {
     const up = lines[i].toUpperCase();
     const fixed = fixDigitTokens(up);
-    const em = fixed.match(EXP_KEY);
-    const mfgMatch = fixed.match(MFG_KEY);
+    const em = findKey(EXP_KEY, fixed);
+    const mfgMatch = findKey(MFG_KEY, fixed);
     const dates = findDates(fixed);
     if (dates.length && firstDateLine < 0) firstDateLine = i;
     if (em && em.index != null) {
@@ -212,7 +232,7 @@ export function parseLabelText(textRaw: string, now = Date.now()): LabelParse {
     }
     // Lot: keyword + value on the same line, else the next line, else the previous line
     // ("26111189 / L/C" — value printed above its label).
-    const km = up.match(LOT_KEY);
+    const km = findKey(LOT_KEY, up);
     if (km && km.index != null) {
       const rest = up.slice(km.index + km[0].length);
       const lm = rest.match(new RegExp('^[\\s:.#\\-]{0,5}' + LOT_VAL));

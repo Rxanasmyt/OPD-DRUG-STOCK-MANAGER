@@ -1024,7 +1024,8 @@ function normalizeMedNameUncached(raw: string): string {
     .replace(/[๐-๙]/g, (ch) => String(ch.charCodeAt(0) - 0x0E50)) // Thai digits → Arabic
     .replace(/[（]/g, '(').replace(/[）]/g, ')') // full-width parens → half-width
     .replace(/[，]/g, ',') // full-width comma → half-width
-    .replace(/(?<!\d)\.|\.(?!\d)/g, ' ') // a period that is not a decimal point ("mg." vs "mg") → space
+    // a period that is not a decimal point ("mg." vs "mg") → space (no lookbehind: Safari < 16.4 cannot parse it)
+    .replace(/\./g, (m, off: number, str: string) => (/\d/.test(str[off - 1] || '') && /\d/.test(str[off + 1] || '') ? m : ' '))
     .replace(/\s*([()/,+])\s*/g, '$1') // spacing around brackets/slashes/commas/plus is not significant
     .replace(/\s+/g, ' ') // any run of whitespace (incl. doubled spaces from a pasted cell) → one space
     .trim()

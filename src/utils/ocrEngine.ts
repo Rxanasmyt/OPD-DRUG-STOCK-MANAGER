@@ -30,13 +30,29 @@ async function getWorker(): Promise<Worker> {
   return workerP;
 }
 
+/** Decode a photo on every browser: createImageBitmap with EXIF orientation where supported, then without
+ * the options bag (older Safari rejects it), then a plain <img> (no createImageBitmap at all). */
+async function decodeImage(file: Blob): Promise<{ width: number; height: number; close?: () => void } & CanvasImageSource> {
+  if (typeof createImageBitmap === 'function') {
+    try { return await createImageBitmap(file, { imageOrientation: 'from-image' } as ImageBitmapOptions); } catch { /* try without options */ }
+    try { return await createImageBitmap(file); } catch { /* fall back to <img> */ }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return Object.assign(img, { width: img.naturalWidth, height: img.naturalHeight });
+  } finally { URL.revokeObjectURL(url); }
+}
+
 type Mode = { kind: 'adaptive'; frac: number; c: number } | { kind: 'stretch' };
 
 /** Long side ~2400px, grayscale, then either local-mean adaptive thresholding (beats glare, shadows
  * and the uneven lighting of a phone photo of a glossy box — the big accuracy win on real
  * photos) or a plain percentile contrast stretch. */
 async function preprocess(file: Blob, mode: Mode): Promise<Blob> {
-  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' } as ImageBitmapOptions);
+  const bmp = await decodeImage(file);
   const scale = Math.min(2.5, 2400 / Math.max(bmp.width, bmp.height));
   const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
   const c = document.createElement('canvas');
@@ -44,7 +60,7 @@ async function preprocess(file: Blob, mode: Mode): Promise<Blob> {
   const ctx = c.getContext('2d');
   if (!ctx) throw new Error('no canvas');
   ctx.drawImage(bmp, 0, 0, w, h);
-  bmp.close?.();
+  (bmp as { close?: () => void }).close?.();
   const img = ctx.getImageData(0, 0, w, h);
   const d = img.data;
   const g = new Float32Array(w * h);
