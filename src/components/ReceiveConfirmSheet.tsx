@@ -7,6 +7,7 @@ import { MedDot } from './MedDot';
 import { WardBadge } from './WardBadge';
 import { PackSizeBadge } from './Qty';
 import { MedMiniCard } from './MedMiniCard';
+import { LabelPhotoScan } from './LabelPhotoScan';
 
 /**
  * One med, one confirm — shown as soon as a รับเข้า (receive) scan (or search/quick-pick) picks
@@ -42,6 +43,7 @@ export default function ReceiveConfirmSheet() {
               เป็นยาใช้น้อย เนื่องจากตอนนี้ภาระหน้างานหนัก...หากในอนาคตคงที่แล้วค่อยใส่ lot และ exp
               แบบเต็มรูปแบบ" — both fields below are optional now (only "ถ้ามี" labels below
               changed; nothing here blocks "เพิ่มลงใบรับ" when they're left blank). */}
+          <LabelPhotoScan onLot={setRecvLot} onExp={setRecvExp} currentLot={state.recvLot} currentExp={state.recvExp} />
           <div className="grid-2" style={{ marginBottom: 9 }}>
             <label>
               <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Lot no. (ถ้ามี)</span>
