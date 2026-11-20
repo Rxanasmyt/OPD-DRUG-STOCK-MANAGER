@@ -1057,3 +1057,121 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 /* text-shadow paints OVER a background-clip:text gradient (it turns the glyphs grey) — use filter drop-shadow only on those. */
 .login-brand-name > span:first-child, .login-brand-tag-1 { text-shadow: none; }
 .login-brand-name > span:first-child { filter: drop-shadow(0 3px 10px rgba(0,30,32,.7)); }
+
+/* =====================================================================================================
+   "AI-era, formal" design pass (v3.294.0). Purely additive tokens + selectors on existing classes:
+   no sizes/layout of any screen change. Static (no looping animation) except the login page, so it costs
+   nothing on the low-end tablets this app runs on. Sora covers Latin/numerals; Thai falls back to Bai Jamjuree.
+   ===================================================================================================== */
+:root {
+  --font-display: 'Sora', 'Bai Jamjuree', system-ui, -apple-system, sans-serif;
+  --ai-line: linear-gradient(90deg, #28e0d4, #0b9490 35%, #ff9f7e 70%, #28e0d4);
+  --ai-glow: 0 0 0 1px rgba(var(--green-rgb), .16), 0 10px 30px -12px rgba(var(--green-rgb), .35);
+}
+h1, h2, h3, .section-eyebrow, .btn, .stat-tile, .rpt-tile, .nav-float { font-family: var(--font-display); }
+h1, h2, h3 { letter-spacing: -.005em; }
+
+/* page: faint aurora washes (static) so the flat grey/green page reads as depth, not a blank sheet */
+.app-shell { background-image: radial-gradient(70% 38% at 8% 0%, rgba(var(--green-rgb), .09), transparent 70%), radial-gradient(60% 34% at 100% 12%, rgba(var(--brand-coral-rgb), .08), transparent 70%); background-repeat: no-repeat; }
+
+/* cards: top-lit glass sheet with a teal hairline and a lift-glow on hover/press */
+.card { background-image: linear-gradient(180deg, rgba(var(--green-rgb), .045), rgba(var(--green-rgb), 0) 46%); border-color: rgba(var(--green-rgb), .13); }
+@media (hover: hover) { .card:hover { box-shadow: var(--ai-glow); border-color: rgba(var(--green-rgb), .3); } }
+
+/* section labels: a small "spark" marker + display face = clearer hierarchy */
+.section-eyebrow { display: inline-flex; align-items: center; gap: 7px; letter-spacing: .09em; color: var(--ink); opacity: .78; }
+.section-eyebrow::before { content: ''; width: 7px; height: 7px; border-radius: 2px; transform: rotate(45deg); background: var(--ai-line); background-size: 200% 100%; flex: none; box-shadow: 0 0 8px rgba(var(--green-rgb), .55); }
+
+/* primary actions: glossy gradient with an inner highlight and a one-shot sheen sweep on hover/focus */
+.btn-primary { position: relative; overflow: hidden; background-image: linear-gradient(135deg, #12b0aa, var(--green) 55%, var(--green-dark)); box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 8px 20px -8px rgba(var(--green-rgb), .65); }
+.btn-primary::after { content: ''; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 35%, rgba(255,255,255,.32) 50%, transparent 65%); transform: translateX(-130%); pointer-events: none; }
+.btn-primary:not(:disabled):hover::after, .btn-primary:not(:disabled):focus-visible::after { transform: translateX(130%); transition: transform .7s var(--ease-out); }
+.btn-outline { border-image: none; background-image: linear-gradient(180deg, rgba(var(--green-rgb), .06), transparent); }
+
+/* bottom nav: glass bar with a hairline highlight; the active pill glows */
+.nav-float { border: 1px solid rgba(255,255,255,.35); box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255,255,255,.5); }
+.nav-pill { background: linear-gradient(135deg, rgba(var(--green-rgb), .18), rgba(var(--green-rgb), .08)); box-shadow: 0 0 0 1px rgba(var(--green-rgb), .22), 0 6px 16px -6px rgba(var(--green-rgb), .5); }
+
+/* header: a thin "AI line" along the bottom edge ties the chrome to the login page */
+.app-shell > header::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--ai-line); opacity: .9; pointer-events: none; }
+
+/* stat/summary tiles and chips: crisper numerals, subtle inner light */
+.stat-tile { box-shadow: inset 0 1px 0 rgba(255,255,255,.25), var(--shadow-sm); }
+.chip { letter-spacing: .005em; }
+
+/* focus: a visible, modern ring for keyboard / switch-access users */
+:focus-visible { outline: 2px solid var(--green-bright, #14b8b2); outline-offset: 2px; border-radius: 8px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offset: 0; }
+
+/* text selection + scrollbars in brand colour */
+::selection { background: rgba(var(--green-rgb), .25); }
+@media (hover: hover) { * { scrollbar-width: thin; scrollbar-color: rgba(var(--green-rgb), .35) transparent; } }
+
+@media (prefers-reduced-motion: reduce) { .btn-primary::after { transition: none; } }
+
+/* ---------- app header: 2-row grid so the full app name always fits (phone + desktop) ---------- */
+.app-header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: 'lead brand brand' 'lead title actions'; column-gap: var(--header-gap); row-gap: 2px; align-items: center; }
+.app-header-actions { display: flex; align-items: center; gap: var(--header-gap); }
+.app-header .brand-mark-name { font-size: clamp(15px, 5.6vw, 26px); }
+.app-header .brand-mark { margin-bottom: 0; }
+@media (min-width: 900px) { .app-header .brand-mark-name { font-size: 27px; } .app-header .brand-mark-tag { font-size: 11.5px; } }
+
+/* ---------- manual screenshots ---------- */
+.um-gal { margin: 14px -4px 8px; border: 1px solid var(--border-soft, #e3e9e7); border-radius: 16px; background: linear-gradient(180deg, rgba(var(--green-rgb), .06), transparent); padding: 10px 8px 6px; }
+.um-gal-t { font-weight: 800; font-size: 14px; padding: 0 6px 8px; } .um-gal-t small { font-weight: 500; color: var(--muted, #5b6b68); font-size: 12px; }
+.um-gal-strip { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x proximity; padding: 2px 6px 10px; -webkit-overflow-scrolling: touch; }
+.um-fig { flex: none; width: min(230px, 62vw); margin: 0; scroll-snap-align: start; }
+.um-fig-btn { position: relative; display: block; width: 100%; padding: 0; border: 1px solid rgba(var(--green-rgb), .25); border-radius: 18px; overflow: hidden; background: #fff; cursor: zoom-in; box-shadow: var(--shadow-md); }
+.um-fig-btn img { display: block; width: 100%; height: auto; aspect-ratio: 390 / 844; object-fit: cover; object-position: top; background: var(--bg-page); }
+.um-fig-n { position: absolute; top: 8px; left: 8px; width: 28px; height: 28px; border-radius: 50%; background: var(--grad-brand); color: #fff; font-weight: 800; font-size: 14px; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 10px rgba(0,0,0,.35); border: 2px solid #fff; }
+.um-fig figcaption { font-size: 12.5px; line-height: 1.55; padding: 8px 4px 0; color: var(--ink, #14211f); }
+.um-zoom { position: fixed; inset: 0; z-index: 400; background: rgba(4, 18, 18, .88); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px; gap: 10px; animation: fade .18s var(--ease-out); }
+.um-zoom img { max-height: calc(100vh - 130px); max-width: min(100%, 480px); border-radius: 18px; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+.um-zoom-cap { color: #fff; font-size: 14px; line-height: 1.5; max-width: 520px; text-align: center; }
+.um-zoom-x { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 12px); right: 12px; width: 46px; height: 46px; border-radius: 50%; border: 0; background: rgba(255,255,255,.2); color: #fff; font-size: 20px; }
+@media (min-width: 900px) { .um-fig { width: 260px; } }
+
+/* ---------- คืนยา (return) screen: AI-formal look ---------- */
+.rt-hnchip { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 12px; margin-bottom: 10px; border-radius: 14px; background: linear-gradient(135deg, rgba(var(--green-rgb), .14), rgba(var(--green-rgb), .05)); border: 1px solid rgba(var(--green-rgb), .3); animation: rtPop .28s var(--ease-spring) both; }
+.rt-hnchip-ico { width: 34px; height: 34px; border-radius: 11px; display: flex; align-items: center; justify-content: center; background: var(--grad-brand); color: #fff; font-size: 16px; flex: none; }
+.rt-hnchip-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+.rt-hnchip-txt small { font-size: 11px; opacity: .7; } .rt-hnchip-txt b { font-size: 16px; letter-spacing: .02em; font-family: var(--font-display); }
+.rt-hnchip-edit { border: 1px solid rgba(var(--green-rgb), .4); background: var(--bg-card); color: var(--green); border-radius: 999px; font-weight: 700; font-size: 13px; min-height: 40px; padding: 0 14px; cursor: pointer; }
+@keyframes rtPop { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
+
+.rt-reasons { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+.rt-rg-h { font-size: 12px; font-weight: 800; letter-spacing: .02em; color: var(--muted); margin-bottom: 5px; display: flex; align-items: center; gap: 5px; }
+.rt-rg-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.rt-chip { border: 1px solid var(--border); background: var(--bg-card); color: var(--ink); border-radius: 999px; min-height: 44px; padding: 0 14px; font-size: 13.5px; font-weight: 600; cursor: pointer; transition: transform .12s var(--ease-spring), background .15s, border-color .15s, box-shadow .15s; }
+.rt-chip:active { transform: scale(.95); }
+.rt-chip[data-active='1'] { background: var(--grad-brand); color: #fff; border-color: transparent; box-shadow: 0 8px 18px -8px rgba(var(--green-rgb), .7), inset 0 1px 0 rgba(255,255,255,.25); animation: rtPop .22s var(--ease-spring) both; }
+
+.rt-bar { position: sticky; bottom: 8px; z-index: 6; margin: 12px -4px 0; padding: 10px 10px 10px 14px; border-radius: 18px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--glass-bg, rgba(255,255,255,.86)); backdrop-filter: blur(16px) saturate(1.5); -webkit-backdrop-filter: blur(16px) saturate(1.5); border: 1px solid rgba(var(--green-rgb), .28); box-shadow: 0 14px 34px -14px rgba(var(--green-rgb), .55), var(--shadow-md); animation: rtPop .3s var(--ease-spring) both; }
+.rt-bar-sum { display: flex; flex-direction: column; line-height: 1.25; min-width: 96px; font-size: 12px; color: var(--muted); }
+.rt-bar-sum b { font-size: 17px; color: var(--green); font-family: var(--font-display); }
+.rt-bar-btns { flex: 1; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.rt-bar-main { flex: 1 1 140px; min-height: 50px; border-radius: 14px; font-size: 15px; font-weight: 800; cursor: pointer; }
+.rt-bar-alt { border: 1.5px solid var(--green); background: var(--bg-card); color: var(--green); }
+.rt-bar-main:disabled { opacity: .45; cursor: not-allowed; }
+
+.rt-today { margin-top: 14px; overflow: hidden; }
+.rt-today-head { width: 100%; display: flex; align-items: center; gap: 10px; text-align: left; border: 0; background: linear-gradient(180deg, rgba(var(--green-rgb), .08), transparent); padding: 12px 14px; min-height: 56px; cursor: pointer; font-size: 18px; }
+.rt-today-title { flex: 1; display: flex; flex-direction: column; font-size: 14px; line-height: 1.3; } .rt-today-title small { font-size: 12px; color: var(--muted); }
+.rt-chev { color: var(--muted); }
+.rt-today-body { padding: 0 12px 10px; }
+.rt-hn { margin-top: 8px; border: 1px solid var(--border-soft); border-radius: 14px; overflow: hidden; }
+.rt-hn-h { padding: 7px 12px; font-size: 12.5px; font-weight: 800; background: var(--bg-subtle); letter-spacing: .02em; }
+.rt-row { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-top: 1px solid var(--border-soft); }
+.rt-row[data-cancelled='1'] { opacity: .55; } .rt-row[data-cancelled='1'] .rt-row-name { text-decoration: line-through; }
+.rt-row-main { flex: 1; min-width: 0; } .rt-row-name { font-size: 13.5px; font-weight: 700; } .rt-row-sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.rt-cancel { border: 1.5px solid var(--red); background: transparent; color: var(--red); border-radius: 999px; font-weight: 800; font-size: 12.5px; min-height: 44px; padding: 0 14px; cursor: pointer; flex: none; }
+.rt-cancel:disabled { opacity: .4; }
+.rt-pill { font-size: 11px; font-weight: 800; border-radius: 999px; padding: 4px 10px; flex: none; } .rt-pill--off { background: var(--bg-subtle); color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .rt-hnchip, .rt-chip[data-active='1'], .rt-bar { animation: none; } }
+
+/* ---------- iPhone PWA: no grey band under the bottom nav ---------- */
+@media (max-width: 559px) {
+  html, body, #root { min-height: 100%; background: var(--bg-app); }
+  .app-shell { height: 100%; min-height: -webkit-fill-available; }
+}
+@supports (height: 100svh) { @media (max-width: 559px) { html { height: -webkit-fill-available; } } }

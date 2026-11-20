@@ -9,6 +9,8 @@ import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
 import { NumberStepper } from '../components/NumberStepper';
 import type { AdjType, MedId } from '../types';
+import { RETURN_REASONS, RETURN_REASON_GROUPS } from '../utils/returnReasons';
+import TodayReturns from './TodayReturns';
 
 const TYPES: [AdjType, string, string][] = [
   ['adjust', 'ปรับยอด', 'นับได้ต่างจากระบบ'],
@@ -25,7 +27,7 @@ const TYPES: [AdjType, string, string][] = [
 // free-text input instead; nothing is ever literally stored as the word "อื่นๆ".
 const REASONS: Record<AdjType, string[]> = {
   adjust: ['นับได้ต่างจากระบบ', 'บันทึกจ่ายผิดรายการ', 'เบิกใช้ในหน่วยงาน'],
-  return: ['ปรับเปลี่ยนการรักษา', 'แพ้ยา/ผลข้างเคียงการรักษา', 'Non-compliance', 'ได้ยาเกินจากวันนัดรอบก่อน', 'ไม่ประสงค์รับยา', 'ยาตามอาการเหลือ', 'ยาโรคเรื้อรังเหลือเยอะ'],
+  return: RETURN_REASONS, // grouped for display — see RETURN_REASON_GROUPS (utils/returnReasons.ts)
   damaged: ['ภาชนะแตก/หก', 'ฉลากหลุด ระบุไม่ได้', 'เก็บผิดอุณหภูมิ'],
   expired: [],
 };
@@ -73,6 +75,8 @@ export default function AdjustScreen() {
   // button/flow is showing" UI toggle, same shape as customReasonOpen above — no need to survive
   // a crash/reload the way the actual in-progress cart data (state.returnCart) does.
   const [returnMode, setReturnMode] = useState<'single' | 'batch'>('single');
+  // คืนยา: re-open the HN field after it folded into the compact chip (see the HN block below).
+  const [hnEditing, setHnEditing] = useState(false);
 
   // A lot received without an expiry (real-world request: "...ไม่ต้องบังคับให้ใส่ Lot และวัน
   // หมดอายุ...") can't be judged "near-expiry" at all — excluded here rather than guessed at,
@@ -201,25 +205,33 @@ export default function AdjustScreen() {
             </div>
           )}
 
-          {state.adjType === 'return' && (
-            // HN used to live inside the per-drug section below and get wiped after every single
-            // commit, forcing a retype for the SAME patient's next drug. Moved up front, entered
-            // once per patient: the med-picker section further down only appears once this has
-            // something in it, so the flow is naturally HN-first, then (ทีละหลายตัว) add as many
-            // drugs as this one patient is returning before one final batch commit, or (ทีละตัว)
-            // commit each drug immediately and move on to the next patient.
-            <label style={{ display: 'block', marginBottom: 9 }}>
-              <span className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, marginBottom: 4 }}>
-                <span aria-hidden="true">👤</span> HN ผู้ป่วย (บังคับ — กรอกครั้งเดียวต่อผู้ป่วย 1 คน)
-              </span>
-              <input
-                value={state.adjHn}
-                onChange={(e) => setAdjHn(e.target.value)}
-                placeholder="เช่น 1234567"
-                style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 16, minHeight: 44 }}
-              />
-            </label>
-          )}
+          {state.adjType === 'return' && (() => {
+            // HN is entered once per patient. As soon as a drug is being picked (or the cart has items) it folds into a compact
+            // chip so the drug list, reasons and the save bar get the screen; "แก้ไข" re-opens the field.
+            const folded = !!state.adjHn.trim() && (!!adjMed || state.returnCart.length > 0) && !hnEditing;
+            return folded ? (
+              <div className="rt-hnchip" data-testid="hn-chip">
+                <span className="rt-hnchip-ico" aria-hidden="true">👤</span>
+                <span className="rt-hnchip-txt"><small>ผู้ป่วย</small><b>HN {state.adjHn.trim()}</b></span>
+                <button type="button" className="rt-hnchip-edit" onClick={() => setHnEditing(true)}>แก้ไข</button>
+              </div>
+            ) : (
+              <label className="rt-hn-field" style={{ display: 'block', marginBottom: 9 }}>
+                <span className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, marginBottom: 4 }}>
+                  <span aria-hidden="true">👤</span> HN ผู้ป่วย (บังคับ — กรอกครั้งเดียวต่อผู้ป่วย 1 คน)
+                </span>
+                <input
+                  value={state.adjHn}
+                  onChange={(e) => setAdjHn(e.target.value)}
+                  onBlur={() => { if (state.adjHn.trim()) setHnEditing(false); }}
+                  placeholder="เช่น 1234567"
+                  inputMode="numeric"
+                  className="rt-hn-input"
+                  style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', borderRadius: 10, padding: '11px 12px', fontSize: 16, minHeight: 44 }}
+                />
+              </label>
+            );
+          })()}
 
           {/* UI polish: nothing used to render here at all until HN was typed — a blank gap
               that can read as "the screen isn't doing anything" rather than "type something to
@@ -331,6 +343,27 @@ export default function AdjustScreen() {
               <div className="muted" style={{ fontSize: 12, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
                 {state.adjType === 'return' && <span aria-hidden="true">📝</span>} เหตุผล (บังคับ)
               </div>
+              {state.adjType === 'return' ? (
+                <div className="rt-reasons" role="group" aria-label="เหตุผลการคืนยา">
+                  {RETURN_REASON_GROUPS.map((g) => (
+                    <div key={g.key} className="rt-rg">
+                      <div className="rt-rg-h"><span aria-hidden="true">{g.icon}</span> {g.label}</div>
+                      <div className="rt-rg-chips">
+                        {g.reasons.map((r) => {
+                          const active = !customReasonOpen && state.adjReason === r;
+                          return <button key={r} type="button" onClick={() => { setCustomReasonOpen(false); setAdjReason(r); }} className="rt-chip" data-active={active ? '1' : '0'}>{r}</button>;
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                  <div className="rt-rg">
+                    <div className="rt-rg-h"><span aria-hidden="true">✍️</span> อื่นๆ</div>
+                    <div className="rt-rg-chips">
+                      <button type="button" onClick={() => { setCustomReasonOpen(true); setAdjReason(''); }} className="rt-chip" data-active={customReasonOpen ? '1' : '0'}>อื่นๆ</button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 9 }}>
                 {REASONS[state.adjType].map((r) => {
                   const active = !customReasonOpen && state.adjReason === r;
@@ -339,12 +372,8 @@ export default function AdjustScreen() {
                     <button key={r} onClick={() => { setCustomReasonOpen(false); setAdjReason(r); }} className="chip" style={{ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--green-tint)' : 'var(--bg-card)', color: active ? 'var(--green)' : 'var(--ink)', minHeight: 44 }}>{r}</button>
                   );
                 })}
-                {/* Real-world request: "อื่นๆมีให้ใส่ข้อความเองได้" — คืนยา only, since the other
-                    types (ปรับยอด/ยาเสีย) keep their original fixed reason lists untouched. */}
-                {state.adjType === 'return' && (
-                  <button onClick={() => { setCustomReasonOpen(true); setAdjReason(''); }} className="chip" style={{ border: customReasonOpen ? '1px solid var(--green)' : '1px solid var(--border)', background: customReasonOpen ? 'var(--green-tint)' : 'var(--bg-card)', color: customReasonOpen ? 'var(--green)' : 'var(--ink)', minHeight: 44 }}>อื่นๆ</button>
-                )}
               </div>
+              )}
               {customReasonOpen && state.adjType === 'return' && (
                 <input
                   value={state.adjReason}
@@ -362,6 +391,7 @@ export default function AdjustScreen() {
               />
               {(() => {
                 const isReturn = state.adjType === 'return';
+                if (isReturn) return null; // คืนยา's save buttons live in the sticky .rt-bar below
                 const isSingleReturn = isReturn && returnMode === 'single';
                 const canSubmit = !!state.adjReason && !!state.adjQty && (!isSingleReturn || !!state.adjHn.trim());
                 const busyKey = isSingleReturn ? 'returnSingle' : 'adjust';
@@ -387,18 +417,41 @@ export default function AdjustScreen() {
           </>
           )}
 
-          {state.adjType === 'return' && state.returnCart.length > 0 && (
-            <button
-              onClick={commitReturnCart}
-              disabled={!state.adjHn.trim() || !!state.busy['returnCart']}
-              className="btn-primary"
-              style={{ width: '100%', padding: 16, borderRadius: 12, fontSize: 16, minHeight: 54, marginTop: 10, opacity: state.busy['returnCart'] ? 0.7 : 1 }}
-            >
-              {state.busy['returnCart'] ? 'กำลังบันทึก…' : 'บันทึกรับคืนทั้งหมด (' + state.returnCart.length + ' รายการ)'}
-            </button>
-          )}
+          {state.adjType === 'return' && !!state.adjHn.trim() && (!!adjMed || state.returnCart.length > 0) && (() => {
+            // Sticky save bar: always visible while entering a return (count + มูลค่า + the buttons), so the phone keyboard /
+            // long reason list never hides the one action that matters.
+            const single = returnMode === 'single';
+            const canAdd = !!adjMed && !!state.adjReason && !!state.adjQty;
+            const pendingValue = adjMed && state.adjQty ? (parseInt(state.adjQty, 10) || 0) * adjMed.price : 0;
+            return (
+              <div className="rt-bar" data-testid="return-bar">
+                <div className="rt-bar-sum">
+                  <span>{state.returnCart.length > 0 ? '🧺 ตะกร้า ' + state.returnCart.length + ' รายการ' : '↩️ รับคืนครั้งนี้'}</span>
+                  <b>{nf(cartTotalValue + (single ? 0 : pendingValue) + (single && state.returnCart.length === 0 ? pendingValue : 0))} บาท</b>
+                </div>
+                <div className="rt-bar-btns">
+                  {adjMed && (
+                    <button
+                      type="button"
+                      onClick={single ? commitSingleReturn : addToReturnCart}
+                      disabled={!canAdd || (single && !!state.busy['returnSingle'])}
+                      className={single ? 'btn-primary rt-bar-main' : 'rt-bar-main rt-bar-alt'}
+                    >
+                      {single ? (state.busy['returnSingle'] ? 'กำลังบันทึก…' : 'บันทึกรับคืน') : '+ เพิ่มลงตะกร้า'}
+                    </button>
+                  )}
+                  {state.returnCart.length > 0 && (
+                    <button type="button" onClick={commitReturnCart} disabled={!state.adjHn.trim() || !!state.busy['returnCart']} className="btn-primary rt-bar-main">
+                      {state.busy['returnCart'] ? 'กำลังบันทึก…' : 'บันทึกรับคืนทั้งหมด (' + state.returnCart.length + ' รายการ)'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
+      {state.adjType === 'return' && <TodayReturns />}
     </div>
   );
 }

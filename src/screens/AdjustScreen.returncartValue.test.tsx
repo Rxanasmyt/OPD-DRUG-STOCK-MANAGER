@@ -67,15 +67,15 @@ describe('AdjustScreen — ตะกร้าคืนยา มูลค่า�
     // With exactly one item in the cart, the header's running total and that one item's own
     // value legitimately show the same number (5 บาท) — both the header total and the per-item
     // value badge, so there are two matches, not a false positive.
-    await waitFor(() => expect(screen.getAllByText('5 บาท')).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByText('5 บาท')).toHaveLength(3)); // cart header + item badge + sticky save bar
 
     await addToCart(user, MED2.name, '3'); // + 3 × 2 บาท = 6 → total 11 (unique — no single item costs 11)
     await screen.findByText('2 รายการ');
-    await screen.findByText('11 บาท');
+    await waitFor(() => expect(screen.getAllByText('11 บาท')).toHaveLength(2)); // cart header + sticky save bar
 
     const removeButtons = screen.getAllByRole('button', { name: 'ลบ' });
     await user.click(removeButtons[0]); // removes MED (5 บาท) — leaves MED2's 3 × 2 = 6 บาท
     await screen.findByText('1 รายการ');
-    await waitFor(() => expect(screen.getAllByText('6 บาท')).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByText('6 บาท')).toHaveLength(3));
   });
 });

@@ -159,7 +159,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <header style={{ background: 'linear-gradient(155deg, #149c9a 0%, var(--green) 55%, var(--green-dark) 100%)', color: 'var(--ink-soft)', padding: 'calc(env(safe-area-inset-top, 0px) + 12px) var(--header-pad-x) 13px', display: 'flex', alignItems: 'center', gap: 'var(--header-gap)', flex: 'none', boxShadow: '0 4px 14px -6px rgba(0,76,75,.5)', position: 'relative', overflow: 'hidden', zIndex: 3 }}>
+      <header className="app-header" style={{ background: 'linear-gradient(155deg, #149c9a 0%, var(--green) 55%, var(--green-dark) 100%)', color: 'var(--ink-soft)', padding: 'calc(env(safe-area-inset-top, 0px) + 12px) var(--header-pad-x) 13px', flex: 'none', boxShadow: '0 4px 14px -6px rgba(0,76,75,.5)', position: 'relative', overflow: 'hidden', zIndex: 3 }}>
         <div className="mesh-bg" aria-hidden="true" />
         {canBack ? (
           // Goes through the real browser history (see AppContext.tsx's popstate handler) rather
@@ -169,7 +169,7 @@ export default function App() {
           // ~44px tap-target convention (see ReceiveScreen's CardPeekButton) — this is the back
           // button, present on every sub-screen, so an undersized hit area here is a mis-tap
           // risk on every single "go back" tap in the app.
-          <button onClick={() => history.back()} style={{ position: 'relative', border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 44, height: 44, borderRadius: 12, fontSize: 18, flex: 'none' }}>←</button>
+          <button onClick={() => history.back()} style={{ gridArea: 'lead', position: 'relative', border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 44, height: 44, borderRadius: 12, fontSize: 18, flex: 'none' }}>←</button>
         ) : (
           // Real hospital crest, not just a screen title — every screen carries one now
           // (Login/SubstockCard/print sheets already did), but only shown here on the 5
@@ -177,15 +177,17 @@ export default function App() {
           // is the back button's the moment there's somewhere to go back to. Sized to match the
           // back button above (44px) so the header doesn't jump in height depending on which of
           // the two this slot is showing.
-          <div aria-hidden="true" style={{ position: 'relative', width: 44, height: 44, flex: 'none', filter: 'drop-shadow(0 3px 8px rgba(0,40,40,.45))' }}><AppIcon size={44} /></div>
+          <div aria-hidden="true" style={{ gridArea: 'lead', position: 'relative', width: 44, height: 44, flex: 'none', filter: 'drop-shadow(0 3px 8px rgba(0,40,40,.45))' }}><AppIcon size={44} /></div>
         )}
-        <div key={state.screen + '|' + title} style={{ position: 'relative', minWidth: 0, flex: 1, animation: 'fade .22s var(--ease-out)' }}>
+        <div style={{ gridArea: 'brand', position: 'relative', minWidth: 0 }}>
           {/* App name — always visible so nobody has to guess which app they are in. Decorative
               duplicate of the document title; the screen title below stays the accessible heading. */}
           <div className="brand-mark" aria-hidden="true" data-testid="brand-mark">
             <span className="brand-mark-name">Krongpinang Hospital</span>
             <span className="brand-mark-tag">DRUG · SUBSTOCK</span>
           </div>
+        </div>
+        <div key={state.screen + '|' + title} style={{ gridArea: 'title', position: 'relative', minWidth: 0, animation: 'fade .22s var(--ease-out)' }}>
           <div style={{ fontSize: 17, fontWeight: 700, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
           <div style={{ fontSize: 12.5, opacity: 0.82, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{headerSub}</div>
         </div>
@@ -197,6 +199,7 @@ export default function App() {
             mounted globally, see below) so it's one tap from every single screen, not just one. */}
         {/* Bug fix (usability, real-device mobile UX audit): 32px was under this app's own
             ~44px tap-target convention — this button sits in the header of every screen. */}
+        <div className="app-header-actions" style={{ gridArea: 'actions', position: 'relative' }}>
         <button
           onClick={() => openScanSearch('viewMed')}
           style={{ position: 'relative', border: 0, background: 'rgba(255,255,255,.14)', color: 'var(--ink-soft)', width: 44, height: 44, borderRadius: 12, fontSize: 17, flex: 'none' }}
@@ -204,8 +207,8 @@ export default function App() {
           aria-label="สแกน QR ค้นหายา"
         >
           ▣
-        </button>
-        <button
+          </button>
+          <button
           onClick={toggleTheme}
           className="theme-toggle press-spring"
           style={{ position: 'relative' }}
@@ -213,24 +216,25 @@ export default function App() {
           aria-label={theme === 'dark' ? 'สลับเป็นโหมดสว่าง' : 'สลับเป็นโหมดมืด'}
         >
           <span key={theme} className="icon" style={{ transform: theme === 'dark' ? 'rotate(0deg)' : 'rotate(180deg)' }}>{theme === 'dark' ? '☾' : '☀'}</span>
-        </button>
-        <div
-          title={
-            state.online && state.syncing ? 'กำลังส่งข้อมูลที่ค้างไว้ตอนออฟไลน์ขึ้น Firestore'
-            : state.online ? 'เชื่อมต่ออินเทอร์เน็ตอยู่'
-            : 'ออฟไลน์ — การเปลี่ยนแปลงจะ sync เมื่อกลับมาออนไลน์'
-          }
-          style={{ position: 'relative', border: 0, background: !state.online ? 'var(--amber-bg)' : state.syncing ? 'var(--green-tint)' : 'rgba(255,255,255,.14)', color: !state.online ? 'var(--amber-ink)' : state.syncing ? 'var(--green)' : 'var(--ink-soft)', padding: '6px 9px', borderRadius: 8, fontSize: 11.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flex: 'none' }}
-        >
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: !state.online ? 'var(--amber)' : state.syncing ? 'var(--green)' : '#5adc8c', display: 'inline-block', flex: 'none', animation: state.online ? 'glowPulse 2.4s infinite' : 'none' }} />
-          {/* Bug fix: confirmed live at a 320px viewport (the smallest phones this PWA still
-              needs to support) — four fixed-width header controls (back/crest, scan, theme,
-              this pill) left so little room for the title that it truncated to "จัดการ…"/
-              "รายงาน" losing the actual screen name. This label was the single widest of the
-              fixed elements and the least essential (the dot's color + this element's own
-              `title` tooltip already carry the same information) — hide it below 340px and
-              give that space back to the title instead. */}
-          <span className="status-label">{!state.online ? 'ออฟไลน์' : state.syncing ? 'กำลังซิงค์…' : 'ออนไลน์'}</span>
+          </button>
+          <div
+            title={
+              state.online && state.syncing ? 'กำลังส่งข้อมูลที่ค้างไว้ตอนออฟไลน์ขึ้น Firestore'
+              : state.online ? 'เชื่อมต่ออินเทอร์เน็ตอยู่'
+              : 'ออฟไลน์ — การเปลี่ยนแปลงจะ sync เมื่อกลับมาออนไลน์'
+            }
+            style={{ position: 'relative', border: 0, background: !state.online ? 'var(--amber-bg)' : state.syncing ? 'var(--green-tint)' : 'rgba(255,255,255,.14)', color: !state.online ? 'var(--amber-ink)' : state.syncing ? 'var(--green)' : 'var(--ink-soft)', padding: '6px 9px', borderRadius: 8, fontSize: 11.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flex: 'none' }}
+          >
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: !state.online ? 'var(--amber)' : state.syncing ? 'var(--green)' : '#5adc8c', display: 'inline-block', flex: 'none', animation: state.online ? 'glowPulse 2.4s infinite' : 'none' }} />
+            {/* Bug fix: confirmed live at a 320px viewport (the smallest phones this PWA still
+                needs to support) — four fixed-width header controls (back/crest, scan, theme,
+                this pill) left so little room for the title that it truncated to "จัดการ…"/
+                "รายงาน" losing the actual screen name. This label was the single widest of the
+                fixed elements and the least essential (the dot's color + this element's own
+                `title` tooltip already carry the same information) — hide it below 340px and
+                give that space back to the title instead. */}
+            <span className="status-label">{!state.online ? 'ออฟไลน์' : state.syncing ? 'กำลังซิงค์…' : 'ออนไลน์'}</span>
+          </div>
         </div>
       </header>
 

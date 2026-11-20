@@ -19,6 +19,7 @@ import { fetchDailyMetricsByDateRange } from './repositories/dailyMetricsRepo';
 import { fetchUsageHistoryByPeriod, newUsageHistoryRef } from './repositories/usageHistoryRepo';
 import { fetchParAdjustmentsSince, addParAdjustmentRecord, newParAdjustmentRef } from './repositories/parAdjustmentsRepo';
 import { fetchDrugReturnsByDateRange, newDrugReturnRef } from './repositories/returnsRepo';
+import { REVERSAL_PREFIX, reversalNote, reversedIds, netReturnRecords } from '../utils/returnReasons';
 import { subscribeRecentPendingReceives, newPendingReceiveRef, pendingReceiveRef } from './repositories/pendingReceivesRepo';
 import { settingsRef, subscribeSettings, medSeqRef } from './repositories/metaRepo';
 import { floorLotRef, subscribeFloorLots, fetchAllFloorLots, fetchFloorLotsByMedId, fetchActiveFloorLotsByMedId } from './repositories/floorLotsRepo';
@@ -351,7 +352,7 @@ function freshState(): AppState {
     recvNo: genDefaultRecvNo(), recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
     pendingReceives: [],
 
-    adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [],
+    adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [], todayReturns: [],
 
     reportTab: 'aging', labelType: 'med', labelSelected: {}, locScope: 'floor', labelWardScope: 'all',
 
@@ -545,6 +546,10 @@ export interface AppCtx {
   addToReturnCart: () => Promise<void>;
   removeReturnCartItem: (i: number) => void;
   commitReturnCart: () => void;
+  /** Loads today's `returns` rows into state.todayReturns (duplicate warning + cancel list). */
+  refreshTodayReturns: () => Promise<void>;
+  /** Cancels one return: appends a reversal row (txs + returns are append-only) and takes the qty back off the floor. */
+  reverseReturn: (rec: import('../types').DrugReturnRecord) => Promise<void>;
   fetchDrugReturns: (fromDate: string, toDate: string) => Promise<import('../types').DrugReturnRecord[]>;
   exportDrugReturnsCsv: (records: import('../types').DrugReturnRecord[]) => Promise<void>;
   fetchFloorRefills: (fromDate: string, toDate: string) => Promise<Tx[]>;
@@ -1977,7 +1982,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       search: '', filter: 'low', wardFilter: 'all',
       wmFromSearch: '', wmFromMed: null, wmToSearch: '', wmToMed: null, wmQty: '', wmReason: '',
       recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
-      adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [],
+      adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [], todayReturns: [],
       qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: null, scanConfirmMedId: null, hadOk: {},
       countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [], hosxpFileInfo: null, hosxpDateConfirmed: false, reconcileProgress: null, reconcileResult: null,
       usageDateFrom: '', usageDateTo: '', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
@@ -3397,6 +3402,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }), [state, userName, toast, toastErr, patch, guardOnce, confirmAsync]);
 
+  // ---------- today's returns: duplicate warning + cancel ----------
+  const refreshTodayReturns = useCallback(async () => {
+    try {
+      const today = isoDate(Date.now());
+      const rows = await withTimeout(fetchDrugReturnsByDateRange(today, today));
+      patch({ todayReturns: rows.slice().sort((a, b) => b.ts - a.ts) });
+    } catch { /* offline / slow: keep whatever we had — the warning is a safety net, never a blocker */ }
+  }, [patch]);
+
+  /** Same patient already had this drug returned today (and not cancelled) — usually a double tap or a repeated entry. */
+  const returnedTodayFor = useCallback((hn: string, medId: string) => {
+    const cancelled = reversedIds(state.todayReturns);
+    return state.todayReturns.find((r) => r.hn === hn && r.medId === medId && !!r.id && !cancelled.has(r.id) && !r.reason.startsWith(REVERSAL_PREFIX));
+  }, [state.todayReturns]);
+
+  const reverseReturn = useCallback(guardOnce('returnReverse', async (rec: import('../types').DrugReturnRecord) => {
+    if (!rec.id || rec.reason.startsWith(REVERSAL_PREFIX)) return;
+    if (reversedIds(state.todayReturns).has(rec.id)) { toast('รายการนี้ถูกยกเลิกไปแล้ว'); return; }
+    if (!(await confirmAsync(
+      'ยกเลิกรายการคืนยานี้?\nHN ' + rec.hn + ' · ' + rec.medName + ' ' + nf(rec.qty) + ' ' + rec.unit
+      + '\nระบบจะหักยอดหน้างานออกตามจำนวนที่คืน และบันทึกเป็นรายการ "ยกเลิก" (ประวัติเดิมไม่ถูกลบ)'
+    ))) return;
+    const now = Date.now();
+    let removed = 0;
+    try {
+      await runTx(async (trx) => {
+        const ref = medRef(asMedId(rec.medId));
+        const snap = await trx.get(ref);
+        if (!snap.exists()) throw Object.assign(new Error('med missing'), { code: 'med-missing' });
+        const before = (snap.data() as { floor?: number }).floor ?? 0;
+        removed = Math.min(before, rec.qty); // never below 0: the shelf may already have been used since the return
+        trx.update(ref, { floor: before - removed });
+        trx.set(newTxRef(), {
+          type: 'return', name: rec.medName, medId: rec.medId, qty: -removed, unit: rec.unit,
+          reason: REVERSAL_PREFIX + rec.reason, note: reversalNote(rec.id as string, removed, rec.unit) + ' · HN ' + rec.hn,
+          loc: 'floor', by: userName(), ts: now,
+        } satisfies Omit<import('../types').Tx, 'id'>);
+        trx.set(newDrugReturnRef(), {
+          medId: rec.medId, medName: rec.medName, medCode: rec.medCode, unit: rec.unit, category: rec.category,
+          hn: rec.hn, qty: rec.qty, unitPrice: rec.unitPrice, value: rec.value,
+          reason: REVERSAL_PREFIX + rec.reason, note: reversalNote(rec.id as string, removed, rec.unit),
+          date: isoDate(now), ts: now, by: userName(),
+        } satisfies import('../types').DrugReturnRecord);
+      });
+      hapticSuccess();
+      toast('ยกเลิกรายการคืนแล้ว · ' + rec.medName + ' −' + nf(removed) + ' ' + rec.unit + (removed < rec.qty ? ' (ชั้นเหลือไม่พอ หักได้เท่าที่มี)' : ''));
+      void refreshTodayReturns();
+    } catch (e) {
+      if ((e as { code?: string }).code === 'med-missing') toast('ยานี้ถูกลบออกจากระบบแล้ว — ยกเลิกไม่ได้');
+      else toastErr(e, 'ยกเลิกไม่สำเร็จ ลองใหม่อีกครั้ง');
+    }
+  }), [state.todayReturns, userName, toast, toastErr, guardOnce, confirmAsync, refreshTodayReturns, runTx]);
+
   // ---------- ตะกร้าคืนยา (return cart) — see ReturnCartItem's own doc comment (types.ts) for
   // the real-world request this answers ----------
   // Adds the currently-picked drug (adjMed/adjQty/adjReason/adjNote) as one line in the cart,
@@ -3421,10 +3479,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       'จำนวนที่กรอก (' + nf(q) + ' ' + m.unit + ') มากผิดปกติเมื่อเทียบกับ par (' + nf(m.parFloor) + ') ของ '
       + m.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
     ))) return;
+    const dupToday = returnedTodayFor(state.adjHn.trim(), m.id);
+    const dupInCart = state.returnCart.some((it) => it.medId === m.id);
+    if ((dupToday || dupInCart) && !(await confirmAsync(
+      dupInCart ? m.name + ' อยู่ในตะกร้าคืนยาของ HN นี้แล้ว — เพิ่มซ้ำอีกรายการใช่ไหม?'
+        : 'HN ' + state.adjHn.trim() + ' เพิ่งคืน ' + m.name + ' ไปแล้ววันนี้ (' + nf(dupToday!.qty) + ' ' + m.unit + ') — คืนซ้ำอีกครั้งใช่ไหม?\n(ถ้าเป็นการกดซ้ำ ให้ยกเลิกรายการที่ซ้ำจากรายการคืนวันนี้)'
+    ))) return;
     const item: ReturnCartItem = { medId: m.id, medName: m.name, medCode: m.code, unit: m.unit, qty: q, reason: state.adjReason, note: state.adjNote || '—', category: categoryOf(m), unitPrice: m.price };
     patch((st) => ({ returnCart: [...st.returnCart, item], adjMed: null, adjSearch: '', adjQty: '', adjReason: '', adjNote: '' }));
     hapticSuccess();
-  }, [state.meds, state.adjMed, state.adjQty, state.adjReason, state.adjNote, toast, patch, confirmAsync]);
+  }, [state.meds, state.adjMed, state.adjQty, state.adjReason, state.adjNote, state.adjHn, state.returnCart, toast, patch, confirmAsync, returnedTodayFor]);
 
   const removeReturnCartItem = useCallback((i: number) => patch((st) => ({ returnCart: st.returnCart.filter((_, j) => j !== i) })), [patch]);
 
@@ -3503,17 +3567,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       'จำนวนที่กรอก (' + nf(q) + ' ' + m.unit + ') มากผิดปกติเมื่อเทียบกับ par (' + nf(m.parFloor) + ') ของ '
       + m.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
     ))) return;
+    const dupToday = returnedTodayFor(state.adjHn.trim(), m.id);
+    if (dupToday && !(await confirmAsync(
+      'HN ' + state.adjHn.trim() + ' เพิ่งคืน ' + m.name + ' ไปแล้ววันนี้ (' + nf(dupToday.qty) + ' ' + m.unit + ') — คืนซ้ำอีกครั้งใช่ไหม?\n(ถ้าเป็นการกดซ้ำ ให้ยกเลิกรายการที่ซ้ำจากรายการคืนวันนี้)'
+    ))) return;
     const hn = state.adjHn.trim();
     const item: ReturnCartItem = { medId: m.id, medName: m.name, medCode: m.code, unit: m.unit, qty: q, reason: state.adjReason, note: state.adjNote || '—', category: categoryOf(m), unitPrice: m.price };
     try {
       await writeReturnBatch([item], hn);
+      void refreshTodayReturns();
       patch({ adjMed: null, adjSearch: '', adjQty: '', adjReason: '', adjNote: '', adjHn: '' });
       hapticSuccess();
       toast('บันทึกรับคืนแล้ว · ' + m.name + ' +' + nf(q) + ' ' + m.unit);
     } catch (e) {
       toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
-  }), [state.meds, state.adjMed, state.adjQty, state.adjReason, state.adjNote, state.adjHn, writeReturnBatch, toast, toastErr, patch, guardOnce, confirmAsync]);
+  }), [state.meds, state.adjMed, state.adjQty, state.adjReason, state.adjNote, state.adjHn, writeReturnBatch, toast, toastErr, patch, guardOnce, confirmAsync, returnedTodayFor, refreshTodayReturns]);
 
   const commitReturnCart = useCallback(guardOnce('returnCart', async () => {
     const items = state.returnCart;
@@ -3528,6 +3597,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const hn = state.adjHn.trim();
     try {
       await writeReturnBatch(items, hn);
+      void refreshTodayReturns();
       patch({ returnCart: [], adjHn: '' });
       hapticSuccess();
       toast('บันทึกรับคืนแล้ว · HN ' + hn + ' · ' + items.length + ' รายการ');
@@ -3539,7 +3609,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // already got this session.
       toastErr(e, 'บันทึกไม่สำเร็จ (รายการ: ' + items.map((i) => i.medName).join(', ') + ') ลองใหม่อีกครั้ง');
     }
-  }), [state.returnCart, state.adjHn, state.meds, writeReturnBatch, toast, toastErr, patch, guardOnce]);
+  }), [state.returnCart, state.adjHn, state.meds, writeReturnBatch, toast, toastErr, patch, guardOnce, refreshTodayReturns]);
 
   const scrapLot = useCallback(guardOnce('scrapLot', async (lotId: LotId) => {
     const l = state.lots.find((x) => x.id === lotId);
@@ -5877,7 +5947,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Same "plain one-shot fetch over a caller-chosen range, not a live listener" shape as
   // fetchUsageHistory/fetchDailyMetrics above.
   const fetchDrugReturns = useCallback(async (fromDate: string, toDate: string): Promise<import('../types').DrugReturnRecord[]> => {
-    return withTimeout(fetchDrugReturnsByDateRange(fromDate, toDate));
+    // Cancelled returns count negative so the report nets them out (see utils/returnReasons.ts).
+    return netReturnRecords(await withTimeout(fetchDrugReturnsByDateRange(fromDate, toDate)));
   }, []);
 
   const exportDrugReturnsCsv = useCallback(async (records: import('../types').DrugReturnRecord[]) => {
@@ -7615,7 +7686,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     printWarehouseRequestByCategory,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
-    pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, commitSingleReturn, addToReturnCart, removeReturnCartItem, commitReturnCart, fetchDrugReturns, exportDrugReturnsCsv, fetchFloorRefills, exportFloorRefillsCsv, scrapLot, scrapFloorLot,
+    pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, commitSingleReturn, addToReturnCart, removeReturnCartItem, commitReturnCart, refreshTodayReturns, reverseReturn, fetchDrugReturns, exportDrugReturnsCsv, fetchFloorRefills, exportFloorRefillsCsv, scrapLot, scrapFloorLot,
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setAllMinSuggested, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, clearMedPeakDay, updateGlobalSettings,

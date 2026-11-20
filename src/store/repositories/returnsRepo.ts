@@ -11,7 +11,7 @@ export async function fetchDrugReturnsByDateRange(fromDate: string, toDate: stri
     collection(db, 'returns'),
     where('date', '>=', fromDate), where('date', '<=', toDate), orderBy('date', 'asc'),
   ));
-  return snap.docs.map((d) => d.data() as DrugReturnRecord);
+  return snap.docs.map((d) => ({ ...(d.data() as DrugReturnRecord), id: d.id }));
 }
 
 /** A fresh auto-id ref for one new returns doc — writeReturnBatch() trx.set()s one of these per
