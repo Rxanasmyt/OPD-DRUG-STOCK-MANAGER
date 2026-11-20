@@ -14,12 +14,6 @@ export interface LabelParse {
   expiryConfident: boolean;
 }
 
-const MONTHS: Record<string, number> = {
-  JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6, JUL: 7, AUG: 8, SEP: 9, SEPT: 9, OCT: 10, NOV: 11, DEC: 12,
-  JANUARY: 1, FEBRUARY: 2, MARCH: 3, APRIL: 4, JUNE: 6, JULY: 7, AUGUST: 8, SEPTEMBER: 9, OCTOBER: 10, NOVEMBER: 11, DECEMBER: 12,
-  'ม.ค.': 1, 'ก.พ.': 2, 'มี.ค.': 3, 'เม.ย.': 4, 'พ.ค.': 5, 'มิ.ย.': 6, 'ก.ค.': 7, 'ส.ค.': 8, 'ก.ย.': 9, 'ต.ค.': 10, 'พ.ย.': 11, 'ธ.ค.': 12,
-};
-
 const EXP_SRC = /(?:EXP(?:IRY|IRE|IRES)?\.?\s*(?:DATE|DT)?|E\.?D\.?|USE\s*BY|USE\s*BEFORE|BEST\s*BEFORE|BB|หมดอายุ|วันหมดอายุ|ควรใช้ก่อน)/;
 const MFG_SRC = /(?:MFG|MFD|MANUF(?:ACTURED)?|PROD(?:UCTION)?|DOM|วันผลิต|ผลิต)/;
 const LOT_SRC = /(?:LOT\s*(?:NO|NUMBER|#)?|BATCH\s*(?:NO|NUMBER|#)?|B\s*\.\s*NO|B\/N|BN|L\s*[/.]?\s*[CG]|เลขที่ผลิต|ล็อต|ลอท)/;
@@ -38,8 +32,36 @@ export function fixDigitTokens(text: string): string {
   });
 }
 
-function iso(y: number, m: number, d: number | null): string | null {
-  const year = y > 2400 ? y - 543 : y < 100 ? 2000 + y : y;
+const MON = '(JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUNE?|JULY?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)';
+const MON_ORDER = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+const monNum = (name: string) => MON_ORDER.indexOf(name.slice(0, 3)) + 1;
+
+// Thai month names (full + abbreviated, with or without the dots OCR often drops) → English 3-letter.
+const THAI_MON: Array<[RegExp, string]> = [
+  [/มกราคม|ม\.?\s?ค\.?/g, ' JAN '], [/กุมภาพันธ์|ก\.?\s?พ\.?/g, ' FEB '], [/มีนาคม|มี\.?\s?ค\.?/g, ' MAR '],
+  [/เมษายน|เม\.?\s?ย\.?/g, ' APR '], [/พฤษภาคม|พ\.?\s?ค\.?/g, ' MAY '], [/มิถุนายน|มิ\.?\s?ย\.?/g, ' JUN '],
+  [/กรกฎาคม|ก\.?\s?ค\.?/g, ' JUL '], [/สิงหาคม|ส\.?\s?ค\.?/g, ' AUG '], [/กันยายน|ก\.?\s?ย\.?/g, ' SEP '],
+  [/ตุลาคม|ต\.?\s?ค\.?/g, ' OCT '], [/พฤศจิกายน|พ\.?\s?ย\.?/g, ' NOV '], [/ธันวาคม|ธ\.?\s?ค\.?/g, ' DEC '],
+];
+
+/** Normalise a line before date-hunting: Thai digits → Arabic, Thai month names → English, drop the
+ * พ.ศ./ค.ศ. era tags. Applied to every line so one set of patterns covers Thai and English. */
+export function prepDateText(raw: string): string {
+  let t = raw.replace(/[๐-๙]/g, (ch) => String(ch.charCodeAt(0) - 0x0E50));
+  t = t.replace(/พ\.\s?ศ\.?|ค\.\s?ศ\.?/g, ' ');
+  // "ผลิต/หมดอายุ" must survive; only month tokens that are followed by/preceded by digits are rewritten
+  for (const [re, en] of THAI_MON) t = t.replace(new RegExp('(?<=\\d\\s?)(?:' + re.source + ')|(?:' + re.source + ')(?=\\s?\\d)', 'g'), en);
+  return t;
+}
+
+/** Four- or two-digit year → CE. 2-digit: ≤62 is 20yy, ≥63 is Buddhist-era 25yy (e.g. 70 → 2570 → 2027). */
+function yearOf(str: string): number {
+  const n = +str;
+  if (str.length === 4) return n > 2400 ? n - 543 : n;
+  return n <= 62 ? 2000 + n : 1957 + n;
+}
+
+function iso(year: number, m: number, d: number | null): string | null {
   if (year < 2000 || year > 2100 || m < 1 || m > 12) return null;
   const last = new Date(Date.UTC(year, m, 0)).getUTCDate();
   const day = d == null ? last : d;
@@ -47,9 +69,17 @@ function iso(y: number, m: number, d: number | null): string | null {
   return year + '-' + String(m).padStart(2, '0') + '-' + String(day).padStart(2, '0');
 }
 
+/** dd/mm vs mm/dd: day-first (Thai/EU) unless only month-first is possible (second part > 12). */
+function dmy(a: number, b: number, year: number): string | null {
+  if (a > 12) return iso(year, b, a);
+  if (b > 12) return iso(year, a, b);
+  return iso(year, b, a);
+}
+
 interface RawDate { iso: string; raw: string; index: number }
 
-function findDates(s: string): RawDate[] {
+function findDates(sIn: string): RawDate[] {
+  const s = prepDateText(sIn);
   const out: RawDate[] = [];
   const seen: Array<[number, number]> = [];
   const take = (m: RegExpMatchArray, v: string | null) => {
@@ -59,25 +89,50 @@ function findDates(s: string): RawDate[] {
     seen.push([a, b]);
     out.push({ iso: v, raw: m[0].trim(), index: a });
   };
-  const monRe = '(JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUNE?|JULY?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)';
-  // DD MON YYYY / DD-MON-YY
-  for (const m of s.matchAll(new RegExp('(?<!\\d)(\\d{1,2})\\s*[-./ ]?\\s*' + monRe + '\\s*[-./,]?\\s*(\\d{4}|\\d{2})(?!\\d)', 'g'))) take(m, iso(+m[3], MONTHS[m[2]], +m[1]));
-  // MON YYYY / MON-YY
-  for (const m of s.matchAll(new RegExp('(?<![A-Z])' + monRe + '\\s*[-./,]?\\s*(\\d{4}|\\d{2})(?!\\d)', 'g'))) take(m, iso(+m[2], MONTHS[m[1]], null));
-  // yyyy-mm-dd / yyyy/mm/dd
-  for (const m of s.matchAll(/(?<!\d)(\d{4})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})(?!\d)/g)) take(m, iso(+m[1], +m[2], +m[3]));
-  // dd/mm/yyyy (also 2-digit year)
-  for (const m of s.matchAll(/(?<!\d)(\d{1,2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{4}|\d{2})(?!\d)/g)) take(m, iso(+m[3], +m[2], +m[1]));
-  // yyyy-mm / yyyy/mm
-  for (const m of s.matchAll(/(?<!\d)(\d{4})\s*[-/.]\s*(\d{1,2})(?![\d/.-])/g)) take(m, iso(+m[1], +m[2], null));
-  // Printed/stamped dates without punctuation. Inkjet boxes print "30 10 28", "301028", or a slashed
-  // font OCR reads as a digit ("27/02/26" → "27702726"). Year must be a plausible 2-digit year.
-  const yy = (v: number) => (v >= 20 && v <= 45 ? v : -1);
-  for (const m of s.matchAll(/(?<!\d)(\d{1,2}) {1,3}(\d{2}) {1,3}(\d{2})(?!\d)/g)) if (yy(+m[3]) > 0) take(m, iso(+m[3], +m[2], +m[1]));
-  for (const m of s.matchAll(/(?<!\d)(\d{2})[17](\d{2})[17](\d{2})(?!\d)/g)) if (yy(+m[3]) > 0) take(m, iso(+m[3], +m[2], +m[1]));
-  for (const m of s.matchAll(/(?<!\d)(\d{2})(\d{2})(\d{2})(?!\d)/g)) if (yy(+m[3]) > 0) take(m, iso(+m[3], +m[2], +m[1]));
-  // mm/yyyy, mm-yy
-  for (const m of s.matchAll(/(?<![\d/.-])(\d{1,2})\s*[-/.]\s*(\d{4}|\d{2})(?![\d/.-])/g)) take(m, iso(+m[2], +m[1], null));
+  const all = (re: RegExp) => [...s.matchAll(re)];
+  const SEPS = '[-/.,\\s]*';
+  // 1. day month-name year: 31 DEC 2027, 31-Dec-27, 31DEC2027
+  for (const m of all(new RegExp('(?<!\\d)(\\d{1,2})' + SEPS + MON + SEPS + '(\\d{4}|\\d{2})(?!\\d)', 'g'))) take(m, iso(yearOf(m[3]), monNum(m[2]), +m[1]));
+  // 2. month-name day year: DEC 31 2027, Dec-31-2027, DEC 31, 27
+  for (const m of all(new RegExp('(?<![A-Z])' + MON + '[-/.,\\s]*(\\d{1,2})(?!\\d)[-/.,\\s]+(\\d{4}|\\d{2})(?!\\d)', 'g'))) take(m, iso(yearOf(m[3]), monNum(m[1]), +m[2]));
+  // 3. year month-name day: 2027 DEC 31
+  for (const m of all(new RegExp('(?<!\\d)(\\d{4})' + SEPS + MON + SEPS + '(\\d{1,2})(?!\\d)', 'g'))) take(m, iso(yearOf(m[1]), monNum(m[2]), +m[3]));
+  // 4. month-name year (month only): DEC 2027, DEC-27
+  for (const m of all(new RegExp('(?<![A-Z])' + MON + '[-/.,\\s]*(\\d{4}|\\d{2})(?!\\d)', 'g'))) take(m, iso(yearOf(m[2]), monNum(m[1]), null));
+  // 5. year-first numeric: 2027-12-31, 2027/12/31, 2027 12 31
+  for (const m of all(/(?<!\d)(\d{4})\s*[-/.\s]\s*(\d{1,2})\s*[-/.\s]\s*(\d{1,2})(?!\d)/g)) take(m, iso(yearOf(m[1]), +m[2], +m[3]));
+  // 6. day-first numeric: 31/12/2027, 31-12-27, 31.12.70, 31 12 2570, 12/31/2027
+  for (const m of all(/(?<!\d)(\d{1,2})\s*[-/.\s]\s*(\d{1,2})\s*[-/.\s]\s*(\d{4}|\d{2})(?!\d)/g)) {
+    // a two-digit year separated only by spaces ("26 02 26") must look like a CE year 20–45,
+    // else lot numbers / barcodes split by spaces would pass as dates
+    if (m[3].length === 2 && !/[-/.]/.test(m[0]) && !(+m[3] >= 20 && +m[3] <= 45)) continue;
+    take(m, dmy(+m[1], +m[2], yearOf(m[3])));
+  }
+  // 6b. ddmm + year split by a gap ("3112 2027")
+  for (const m of all(/(?<!\d)(\d{2})(\d{2})\s(\d{4})(?!\d)/g)) take(m, dmy(+m[1], +m[2], yearOf(m[3])));
+  // 7. year-month: 2027/12, 2027-12
+  for (const m of all(/(?<!\d)(\d{4})\s*[-/.]\s*(\d{1,2})(?![\d/.-])/g)) take(m, iso(yearOf(m[1]), +m[2], null));
+  // 8. compact 8 digits: yyyymmdd, ddmmyyyy, and a slashed font whose "/" OCR read as 7 or 1
+  for (const m of all(/(?<!\d)(\d{8})(?!\d)/g)) {
+    const t = m[1];
+    const a = /^(19|20)/.test(t) ? iso(+t.slice(0, 4), +t.slice(4, 6), +t.slice(6, 8)) : null;
+    const b = iso(yearOf(t.slice(4)), +t.slice(2, 4), +t.slice(0, 2));
+    const sl = /^(\d{2})[17](\d{2})[17](\d{2})$/.exec(t);
+    const c = sl && +sl[3] >= 20 && +sl[3] <= 45 ? iso(2000 + +sl[3], +sl[2], +sl[1]) : null;
+    take(m, a || b || c);
+  }
+  // 9. compact 6 digits: ddmmyy (year 20–45 only — 6-digit lots are common), else mmyyyy
+  for (const m of all(/(?<!\d)(\d{6})(?!\d)/g)) {
+    const t = m[1];
+    const yy = +t.slice(4);
+    const v = yy >= 20 && yy <= 45 ? iso(2000 + yy, +t.slice(2, 4), +t.slice(0, 2)) : null;
+    take(m, v || (+t.slice(0, 2) <= 12 ? iso(yearOf(t.slice(2)), +t.slice(0, 2), null) : null));
+  }
+  // 10. month-year numeric: 12/2027, 12-27, 12 2027
+  for (const m of all(/(?<![\d/.-])(\d{1,2})\s*[-/.\s]\s*(\d{4}|\d{2})(?![\d/.-])/g)) {
+    if (m[2].length === 2 && !/[-/.]/.test(m[0]) && !(+m[2] >= 20 && +m[2] <= 45)) continue;
+    take(m, iso(yearOf(m[2]), +m[1], null));
+  }
   return out.sort((a, b) => a.index - b.index);
 }
 
