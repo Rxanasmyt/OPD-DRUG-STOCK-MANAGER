@@ -764,6 +764,9 @@ export interface AppCtx {
   /** Admin-only. Adds `alias` to the med's hosxpAliases (the HOSxP spelling of this drug) so the
    * next file with that name deducts it. Refuses a name that already resolves to some med. */
   addHosxpAlias: (medId: MedId, alias: string) => Promise<boolean>;
+  /** Pharmacist explicitly maps one loaded HOSxP-file row to a med (row `idx` of hosxpRows). Optionally also
+   * remembers the file's spelling as that med's HOSxP alias (admin only) so it matches by itself next time. */
+  resolveHosxpRow: (idx: number, medId: MedId, saveAlias: boolean) => Promise<boolean>;
   exportAudit: () => void;
   setHistoryFrom: (v: string) => void;
   setHistoryTo: (v: string) => void;
@@ -7242,6 +7245,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [canEditMeds, state.meds, runTx, logAudit, toast, toastErr]);
 
+  const resolveHosxpRow = useCallback(async (idx: number, medId: MedId, saveAlias: boolean): Promise<boolean> => {
+    const rows = state.hosxpRows;
+    const r = rows?.[idx];
+    const med = state.meds.find((m) => m.id === medId && m.active);
+    if (!rows || !r || !med) return false;
+    if ((state.hosxpAppliedRowIndexes || []).includes(idx)) return false; // already deducted — never remap
+    patch({ hosxpRows: rows.map((x, i) => (i === idx ? { ...x, match: { kind: 'exact' as const, medId } } : x)) });
+    let saved = false;
+    if (saveAlias && canEditMeds) saved = await addHosxpAlias(medId, r.name);
+    if (!saved) logAudit({ type: 'med_edited', note: 'จับคู่แถวไฟล์ HOSxP "' + r.name + '" (' + r.qty + ') กับ ' + med.name + ' ด้วยมือ (เฉพาะครั้งนี้)' });
+    return true;
+  }, [state.hosxpRows, state.hosxpAppliedRowIndexes, state.meds, patch, canEditMeds, addHosxpAlias, logAudit]);
+
   const fetchDemandSeries = useCallback(async (days: number) => {
     const now = Date.now();
     const snap = await withTimeout(fetchTxsAfter(now - (days + 1) * DAY), 30000);
@@ -7406,7 +7422,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     confirmScanAndNext, confirmScanAndStop, cancelScanConfirm,
     doneAgain,
-    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, addHosxpAlias, changeMyPassword, fetchDemandSeries, fetchTempPassword, clearTempPassword, exportAudit,
+    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, addHosxpAlias, resolveHosxpRow, changeMyPassword, fetchDemandSeries, fetchTempPassword, clearTempPassword, exportAudit,
     setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, fetchExecTxsThisMonth,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [state, myProfile, theme, toggleTheme]);

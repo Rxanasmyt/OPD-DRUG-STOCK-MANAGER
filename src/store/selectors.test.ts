@@ -1380,6 +1380,37 @@ describe('suggestPar — lumpy/intermittent-demand Min fix (peak-driven Max size
   });
 });
 
+describe('matchHosxpMed — same drug, different characters/order (signature tier)', () => {
+  const meds = [
+    med({ id: 'a', name: 'amlodipine 5 mg เม็ด' }),
+    med({ id: 'b', name: 'Insulin NPH 100 IU/ml Vial' }),
+    med({ id: 'c', name: 'Vitamin B12 500 mcg เม็ด' }),
+    med({ id: 'd', name: 'LOSARTAN 50 mg + HCTZ 12.5 mg เม็ด' }),
+    med({ id: 'e', name: 'Ceftriaxone 1 g Vial' }),
+    med({ id: 'f', name: 'Ceftriaxone 1 g Amphule' }),
+  ];
+  const k = (n: string) => matchHosxpMed(meds, n);
+  it('word order, case, punctuation and spacing never matter', () => {
+    expect(k('5 mg. AMLODIPINE เม็ด')).toEqual({ kind: 'exact', medId: 'a' });
+    expect(k('เม็ด Amlodipine, 5-mg')).toEqual({ kind: 'exact', medId: 'a' });
+    expect(k('NPH Insulin Vial 100 IU/ml.')).toEqual({ kind: 'exact', medId: 'b' });
+    expect(k('Amlodipine  5MG  TAB')).toEqual({ kind: 'exact', medId: 'a' });
+    expect(k('amlodipine 5 มก เม็ด')).toEqual({ kind: 'exact', medId: 'a' });
+  });
+  it('a different strength or unit is never the same drug', () => {
+    expect(k('amlodipine 10 mg เม็ด').kind).not.toBe('exact');
+    expect(k('Vitamin B12 500 mg เม็ด').kind).not.toBe('exact'); // mcg vs mg
+  });
+  it('a combination product is never reordered into a match', () => {
+    expect(k('LOSARTAN 12.5 mg + HCTZ 50 mg เม็ด').kind).not.toBe('exact');
+  });
+  it('different containers are not auto-merged (vial vs amphule exist separately)', () => {
+    expect(k('Ceftriaxone 1 g Vial')).toEqual({ kind: 'exact', medId: 'e' });
+    expect(k('1 g Ceftriaxone Amphule')).toEqual({ kind: 'exact', medId: 'f' });
+    expect(k('Ceftriaxone 1 g').kind).not.toBe('exact');
+  });
+});
+
 describe('matchHosxpMed — punctuation tolerance', () => {
   const meds = [
     med({ id: 'a', name: '10 mg. AMLODIPINE 10 mg. เม็ด' }),
@@ -1759,9 +1790,9 @@ describe('diagnoseMiss — why a regularly-dispensed med got no deduction', () =
   it('prefers a strength-compatible candidate over a higher-scoring different-strength one', async () => {
     const { diagnoseMiss } = await import('./selectors');
     const med = mk('1', 'Risperidone 1 mg เม็ด');
-    const d = diagnoseMiss(med, ['RISPERIDONE 2 MG TAB', 'Risperidone tab 1 mg.'], [med]);
+    const d = diagnoseMiss(med, ['RISPERIDONE 2 MG TAB', 'Risperidone film 1 mg.'], [med]);
     expect(d.verdict).toBe('rename_candidate');
-    expect(d.candidates[0].fileName).toBe('Risperidone tab 1 mg.');
+    expect(d.candidates[0].fileName).toBe('Risperidone film 1 mg.');
   });
 
   it('says "probably not dispensed" when nothing resembles it, but "suspicious" for a near-daily drug', async () => {

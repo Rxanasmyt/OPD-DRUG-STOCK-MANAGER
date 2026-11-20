@@ -6,6 +6,7 @@ import type { HosxpMatch, Med, MedId, ReconcileGapDay, ReconcileMonthDay } from 
 import { Badge } from '../components/Badge';
 import ReconcileCalendar, { ReconcileDayDetail } from './ReconcileCalendar';
 import { MissDiagnosis } from './MissDiagnosis';
+import { FileRowFixer } from './FileRowFixer';
 
 // Real-world request: "ป้องกันการหลุดยาที่มีในระบบแต่ไม่ได้ถูกตัดจำนวนยา และป้องกันการหลุดวันที่
 // ยังไม่ได้แนบไฟล์" — how far back fetchReconcileGaps (AppContext.tsx) looks every time this
@@ -38,6 +39,10 @@ export default function ReconcileScreen() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const medById = (id: string) => state.meds.find((x) => x.id === id);
+
+  // Rows the pharmacist explicitly chose to skip (no drug to map to). Reset whenever a new file loads.
+  const [skippedRows, setSkippedRows] = useState<Set<number>>(new Set());
+  useEffect(() => { setSkippedRows(new Set()); }, [state.hosxpRows?.length, state.hosxpFileInfo?.fingerprint]);
 
   // Real-world request: "ป้องกันการแนบไฟล์ผิดวัน หรือสามารถรู้ได้ว่าวันไหนที่ทำการแนบไฟล์ไปแล้ว
   // วันไหนยังไม่แนบ ตอนนี้ไม่รู้อะไรเลย" — gapDays below already answers this, but only AFTER its
@@ -104,7 +109,10 @@ export default function ReconcileScreen() {
   const missEntries = useMemo(() => hosxpMissReasons(state.meds, state.hosxpRows || []), [state.meds, state.hosxpRows]);
 
   // Unmatched rows ranked by quantity — a big one (e.g. a daily staple) must never be a quiet skip.
-  const unmatchedBig = reconcileRows.filter((r) => r.match.kind === 'none' && r.qty > 0).sort((a, b) => b.qty - a.qty);
+  const unmatchedBig = reconcileRows
+    .map((r, i) => ({ ...r, i }))
+    .filter((r) => (r.match.kind === 'none' || r.match.kind === 'ambiguous') && r.qty > 0 && !r.applied && !skippedRows.has(r.i))
+    .sort((a, b) => b.qty - a.qty);
   const fuzzyCount = reconcileRows.filter((r) => r.match.kind === 'fuzzy').length;
   const skippedCount = reconcileRows.filter((r) => r.match.kind === 'ambiguous' || r.match.kind === 'none').length;
   // Real-world explanation: "เช้าวันจันทร์จะตัดยอดหน้างานโดยแนบไฟล์ ของวันศุกร์ เสาร์และอาทิตย์ เป็น
@@ -117,7 +125,7 @@ export default function ReconcileScreen() {
   const daysCovered = coveredValid
     ? Math.round((new Date(state.hosxpCoveredTo + 'T00:00:00').getTime() - new Date(state.hosxpCoveredFrom + 'T00:00:00').getTime()) / DAY) + 1
     : 0;
-  const canCommit = reconcileRows.length > 0 && (fuzzyCount === 0 || state.hosxpConfirmFuzzy) && coveredValid;
+  const canCommit = reconcileRows.length > 0 && (fuzzyCount === 0 || state.hosxpConfirmFuzzy) && coveredValid && unmatchedBig.length === 0;
 
   // "ยาที่หลุดบ่อย" — aggregates commitReconcile()'s own 'hosxp_unmatched' audit entries (see
   // its doc comment, AppContext.tsx) across whatever's in the currently-loaded audit log
@@ -323,9 +331,9 @@ export default function ReconcileScreen() {
 
       {unmatchedBig.length > 0 && (
         <div data-testid="unmatched-big-warning" style={{ background: 'var(--red-bg)', color: 'var(--red)', borderRadius: 10, padding: '10px 13px', marginBottom: 12, fontSize: 12.5, lineHeight: 1.6, fontWeight: 600 }}>
-          ⚠ มี {unmatchedBig.length} รายการในไฟล์ที่จับคู่กับยาในแอพไม่ได้ (รวม {nf(unmatchedBig.reduce((a, r) => a + r.qty, 0))} หน่วย) — จะไม่ถูกตัดยอด:
+          ⚠ มี {unmatchedBig.length} รายการในไฟล์ที่ยังจับคู่กับยาในแอพไม่ได้ (รวม {nf(unmatchedBig.reduce((a, r) => a + r.qty, 0))} หน่วย) — ต้องจับคู่หรือกดข้ามทีละรายการก่อน จึงจะตัดยอดได้:
           {unmatchedBig.slice(0, 5).map((r, i) => <div key={i} style={{ fontWeight: 500 }}>• {r.fileText} — {nf(r.qty)}</div>)}
-          <div style={{ fontWeight: 500 }}>เลื่อนลงดูรายการเหล่านี้ในตาราง แล้วกด "เพิ่มชื่อ HOSxP" ให้ยาที่ถูกต้องก่อนตัดยอด</div>
+          <div style={{ fontWeight: 500 }}>เลื่อนลงในตาราง แต่ละรายการมีปุ่มจับคู่ยา/ค้นหายา/ข้าม พร้อมบอกว่าชื่อต่างกันตรงไหน</div>
         </div>
       )}
 
@@ -365,6 +373,10 @@ export default function ReconcileScreen() {
                   )}
                 </div>
                 {!r.applied && <MatchBadge match={r.match} fileText={r.fileText} medById={medById} />}
+                {!r.applied && (r.match.kind === 'none' || r.match.kind === 'ambiguous') && (
+                  <FileRowFixer idx={i} fileText={r.fileText} qty={r.qty} skipped={skippedRows.has(i)}
+                    onSkip={(sk) => setSkippedRows((prev) => { const n = new Set(prev); if (sk) n.add(i); else n.delete(i); return n; })} />
+                )}
               </div>
             ))}
           </div>
@@ -428,6 +440,11 @@ export default function ReconcileScreen() {
             </div>
           </div>
 
+          {unmatchedBig.length > 0 && (
+            <div role="status" style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600, marginBottom: 8, lineHeight: 1.5 }}>
+              ยังตัดยอดไม่ได้: เหลือ {unmatchedBig.length} รายการที่ยังไม่ได้จับคู่/ข้าม (ดูกรอบสีแดงในตารางด้านบน)
+            </div>
+          )}
           <button onClick={commitReconcile} disabled={!canCommit || !!state.busy['reconcile']} className="btn-primary" style={{ width: '100%', padding: 15, borderRadius: 12, fontSize: 15, minHeight: 52, opacity: canCommit && !state.busy['reconcile'] ? 1 : 0.5 }}>
             {state.busy['reconcile']
               ? 'กำลังตัดยอด…'
