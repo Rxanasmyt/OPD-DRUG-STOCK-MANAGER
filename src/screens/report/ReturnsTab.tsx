@@ -1,5 +1,6 @@
 import { nf, thDate, fiscalYearStartIso, isoDate } from '../../utils/format';
 import type { DrugReturnRecord } from '../../types';
+import { liveReturnRecords } from '../../utils/returnReasons';
 import { categoryLabel } from '../../data/categories';
 import { EmptyState } from '../../components/EmptyState';
 import { SkeletonList } from '../../components/Skeleton';
@@ -65,8 +66,8 @@ export function ReturnsTab({
           <div className="grid-2 tablet-4 stagger" style={{ marginBottom: 16 }}>
             <ExecStat label="มูลค่ายาคืนรวมช่วงนี้" value={nf(rtnTotalValue) + ' บาท'} />
             <ExecStat label="จำนวนรวม (คละหน่วย)" value={nf(rtnTotalQty)} note="รวมหน่วยต่างกันของยาคนละตัว ดูเป็นภาพรวมเท่านั้น" />
-            <ExecStat label="จำนวนครั้งที่บันทึกคืนยา" value={nf(rtnRecords.length)} />
-            <ExecStat label="จำนวน HN ที่เกี่ยวข้อง" value={nf(new Set(rtnRecords.map((r) => r.hn)).size)} />
+            <ExecStat label="จำนวนครั้งที่บันทึกคืนยา" value={nf(liveReturnRecords(rtnRecords).length)} note="ไม่นับรายการที่ยกเลิกแล้ว" />
+            <ExecStat label="จำนวน HN ที่เกี่ยวข้อง" value={nf(new Set(liveReturnRecords(rtnRecords).map((r) => r.hn)).size)} />
           </div>
 
           <div className="card stagger" style={{ overflow: 'hidden' }}>

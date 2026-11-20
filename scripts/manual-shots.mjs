@@ -30,6 +30,7 @@ await page.route('**/*', (r) => {
 });
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
+page.on('console', (m) => { if (m.type() === 'error') errors.push('console.error: ' + m.text().slice(0, 300)); });
 
 const shot = async (name) => { await page.waitForTimeout(500); await page.screenshot({ path: path.join(out, name + '.jpg'), type: 'jpeg', quality: 82 }); console.log('saved', name); };
 const demo = (fn, arg) => page.evaluate(fn, arg);
