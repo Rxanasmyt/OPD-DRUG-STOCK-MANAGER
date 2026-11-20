@@ -1,4 +1,5 @@
 import { TAB } from './navLabels';
+import LoginArt from './components/LoginArt';
 import AppIcon from './components/AppIcon';
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from 'react';
 import { useApp } from './store/AppContext';
@@ -160,6 +161,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="app-header" style={{ background: 'linear-gradient(155deg, #149c9a 0%, var(--green) 55%, var(--green-dark) 100%)', color: 'var(--ink-soft)', padding: 'calc(env(safe-area-inset-top, 0px) + 12px) var(--header-pad-x) 13px', flex: 'none', boxShadow: '0 4px 14px -6px rgba(0,76,75,.5)', position: 'relative', overflow: 'hidden', zIndex: 3 }}>
+        <LoginArt calm />
         <div className="mesh-bg" aria-hidden="true" />
         {canBack ? (
           // Goes through the real browser history (see AppContext.tsx's popstate handler) rather
