@@ -1220,3 +1220,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 
 /* เติมหน้างาน: floating "ตรวจสอบ" bar = frosted glass pill (was a hard-coded light gradient, wrong in dark mode) */
 .tf-bar { left: 10px; right: 10px; padding: 10px 12px 10px 14px; border-radius: 18px; z-index: 6; background: var(--glass-bg, rgba(255,255,255,.86)); -webkit-backdrop-filter: blur(16px) saturate(1.5); backdrop-filter: blur(16px) saturate(1.5); border: 1px solid rgba(var(--green-rgb), .28); box-shadow: 0 14px 34px -14px rgba(var(--green-rgb), .55), var(--shadow-md); }
+
+/* header screen title: wrap up to 2 lines instead of cutting a long name ("ปรับยอด / คืนยา / ย…") now that the action buttons share its row */
+.app-header-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }

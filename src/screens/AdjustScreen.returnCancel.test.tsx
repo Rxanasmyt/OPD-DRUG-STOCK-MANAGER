@@ -6,7 +6,7 @@ import AdjustScreen from './AdjustScreen';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { signInAs, fireCollection, hasListener, seedDoc, seedCollection, getLastTransactionWrites } from '../test-utils/firebaseTestDouble';
-import { RETURN_REASONS, RETURN_REASON_GROUPS, REVERSAL_PREFIX, ADR_RETURN_REASON, netReturnRecords, reversedIds } from '../utils/returnReasons';
+import { RETURN_REASONS, RETURN_REASON_GROUPS, REVERSAL_PREFIX, ADR_RETURN_REASON, netReturnRecords, reversedIds, liveReturnRecords } from '../utils/returnReasons';
 import type { DrugReturnRecord } from '../types';
 
 const MED = {
@@ -46,6 +46,9 @@ describe('return reasons', () => {
     expect(reversedIds([orig, rev]).has('r1')).toBe(true);
     const net = netReturnRecords([orig, rev]);
     expect(net.reduce((s, r) => s + r.value, 0)).toBe(0);
+    // …and a cancelled return is not counted as a return, nor its patient as a returning patient
+    expect(liveReturnRecords([orig, rev])).toEqual([]);
+    expect(liveReturnRecords([orig, rev, rec({ id: 'r3', hn: '999' })]).map((r) => r.id)).toEqual(['r3']);
   });
 });
 

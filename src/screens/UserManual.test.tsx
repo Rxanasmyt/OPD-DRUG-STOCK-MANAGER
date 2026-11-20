@@ -9,6 +9,13 @@ import { renderWithApp } from '../test-utils/renderWithApp';
 import { fireAuth } from '../test-utils/firebaseTestDouble';
 
 describe('UserManual', () => {
+  it('is portaled to <body> so it is never under the bottom nav when opened from the เพิ่มเติม tab', () => {
+    const { container } = render(<div className="work-screen"><UserManual onClose={() => {}} /></div>);
+    const overlay = screen.getByTestId('user-manual');
+    expect(overlay.parentElement).toBe(document.body);
+    expect(container.contains(overlay)).toBe(false);
+  });
+
   it('has a table of contents entry for every section and closes with the button / Escape', async () => {
     const user = userEvent.setup();
     let closed = 0;

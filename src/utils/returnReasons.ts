@@ -38,3 +38,9 @@ export function reversedIds(records: DrugReturnRecord[]): Set<string> {
 export function netReturnRecords(records: DrugReturnRecord[]): DrugReturnRecord[] {
   return records.map((r) => (isReversalReason(r.reason) ? { ...r, qty: -Math.abs(r.qty), value: -Math.abs(r.value) } : r));
 }
+
+/** Originals that were NOT cancelled — what "how many returns / which patients" should count. */
+export function liveReturnRecords(records: DrugReturnRecord[]): DrugReturnRecord[] {
+  const cancelled = reversedIds(records);
+  return records.filter((r) => !isReversalReason(r.reason) && !(r.id && cancelled.has(r.id)));
+}

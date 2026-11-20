@@ -195,7 +195,7 @@ export default function App() {
           </div>
         </div>
         <div key={state.screen + '|' + title} style={{ gridArea: 'title', position: 'relative', minWidth: 0, animation: 'fade .22s var(--ease-out)' }}>
-          <div style={{ fontSize: 17, fontWeight: 700, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
+          <div className="app-header-title" style={{ fontSize: 17, fontWeight: 700, lineHeight: 1.2 }}>{title}</div>
           <div style={{ fontSize: 12.5, opacity: 0.82, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{headerSub}</div>
         </div>
         {/* Real request: "ค้นหายาแบบสแกนบาร์โค้ด/QR ได้ทุกหน้าจอ" — scan-to-find-a-drug used to
