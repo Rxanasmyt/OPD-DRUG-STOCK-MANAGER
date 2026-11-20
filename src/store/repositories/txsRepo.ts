@@ -97,3 +97,10 @@ export function fetchTxsAfter(dateMs: number) {
 export function queryTxsByDateRange(from: number, to: number): Query {
   return query(txsCollection(), where('ts', '>=', from), where('ts', '<=', to));
 }
+
+/** Every txs doc stamped with EXACTLY this covered range (only commitReconcile writes those fields).
+ * Two equality filters need no composite index. Used to know what a range already took even when those
+ * txs have scrolled out of the live 300-row window. */
+export function fetchTxsByCoveredRange(from: string, to: string) {
+  return getDocs(query(txsCollection(), where('coveredFrom', '==', from), where('coveredTo', '==', to)));
+}

@@ -28,7 +28,7 @@ const MISS_REASON_BADGE: Record<'not_in_file' | 'ambiguous', { label: string; co
 };
 
 export default function ReconcileScreen() {
-  const { state, resolveHosxpRowsBulk, undoLastReconcile, dismissReconcileResult, processHosxpFile, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, fetchReconcileMonth, toast, go, setMedsFocusId } = useApp();
+  const { state, fetchPriorReconcile, resolveHosxpRowsBulk, undoLastReconcile, dismissReconcileResult, processHosxpFile, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, fetchReconcileMonth, toast, go, setMedsFocusId } = useApp();
 
   // Real-world request: "เพื่อนำไปสู่การแก้ไขปัญหายาที่อาจจะยังมีปัญหาครับ"/"สามารถเชื่อมโยงปัญหานั่น
   // ไปแก้ปัญหาจริงได้" — a miss-reasons row used to just explain what's wrong with no way to act
@@ -83,11 +83,26 @@ export default function ReconcileScreen() {
   // safely resumable) — shown as done rather than fed back into the running before/after preview
   // below, which would otherwise visually suggest it's about to be deducted a SECOND time.
   const appliedRowSet = useMemo(() => new Set(state.hosxpAppliedRowIndexes || []), [state.hosxpAppliedRowIndexes]);
+  // What the covered range already took, read from Firestore (the live txs window only holds the newest
+  // 300 rows, so an earlier reconcile can have scrolled out of it). Falls back to the live window.
+  const [fetchedPrior, setFetchedPrior] = useState<{ key: string; map: Map<string, number> } | null>(null);
+  const priorKey = state.hosxpCoveredFrom + '|' + state.hosxpCoveredTo + '|' + (state.hosxpRows ? 1 : 0);
+  useEffect(() => {
+    if (!state.hosxpRows || !state.hosxpCoveredFrom || !state.hosxpCoveredTo) { setFetchedPrior(null); return; }
+    let cancelled = false;
+    fetchPriorReconcile(state.hosxpCoveredFrom, state.hosxpCoveredTo)
+      .then((map) => { if (!cancelled) setFetchedPrior({ key: priorKey, map }); })
+      .catch(() => { if (!cancelled) setFetchedPrior(null); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [priorKey]);
   const reconcileRows = useMemo(() => {
     const running = new Map<string, number>();
     // Same range already reconciled → only the part above what it took is deducted (see commitReconcile).
     const isResumingNow = appliedRowSet.size > 0 && appliedRowSet.size < (state.hosxpRows || []).length;
-    const priorLeft = isResumingNow ? new Map<string, number>() : priorReconcileByMed(state.txs, state.hosxpCoveredFrom, state.hosxpCoveredTo);
+    const live = priorReconcileByMed(state.txs, state.hosxpCoveredFrom, state.hosxpCoveredTo);
+    const priorLeft = isResumingNow ? new Map<string, number>() : new Map(live);
+    if (!isResumingNow && fetchedPrior && fetchedPrior.key === priorKey) for (const [k, v] of fetchedPrior.map) priorLeft.set(k, Math.max(priorLeft.get(k) || 0, v));
     return (state.hosxpRows || []).map((r, idx) => {
       const med = r.match.kind === 'exact' || r.match.kind === 'fuzzy' ? medById(r.match.medId) : undefined;
       if (appliedRowSet.has(idx)) {
@@ -106,7 +121,7 @@ export default function ReconcileScreen() {
       return { fileText: r.name, qty: r.qty, already, match: r.match, med, before, after, applied: false };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.hosxpRows, state.meds, state.txs, state.hosxpCoveredFrom, state.hosxpCoveredTo, appliedRowSet]);
+  }, [state.hosxpRows, state.meds, state.txs, state.hosxpCoveredFrom, state.hosxpCoveredTo, appliedRowSet, fetchedPrior, priorKey]);
   const unmatchedFileNames = useMemo(() => reconcileRows.filter((r) => !r.med).map((r) => r.fileText), [reconcileRows]);
   const [showAllMiss, setShowAllMiss] = useState(false);
   const appliedCount = reconcileRows.filter((r) => r.applied).length;
