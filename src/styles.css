@@ -800,3 +800,74 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 .catpick-n { font-size: 11.5px; font-weight: 700; opacity: .75; }
 @keyframes catpick-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .catpick-panel { animation: none; } .catpick-btn, .catpick-tile, .catpick-chev { transition: none; } }
+
+/* ===== HOSxP attach flow (ReconcileScreen / ReconcileFlow) =====
+   Same tokens as the rest of the app (gradients, shadows, easing) so light/dark both work; every animation
+   is covered by the global prefers-reduced-motion rule above. */
+@keyframes rcRing { 0% { box-shadow: 0 0 0 0 rgba(var(--green-rgb), .45); } 100% { box-shadow: 0 0 0 9px rgba(var(--green-rgb), 0); } }
+@keyframes rcFill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes rcIn { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes rcFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes rcBar { from { background-position: 0 0; } to { background-position: 36px 0; } }
+
+/* stepper */
+.rc-steps { display: flex; list-style: none; padding: 0; margin: 0 0 14px; }
+.rc-step { flex: 1; min-width: 0; text-align: center; position: relative; }
+.rc-step::before { content: ''; position: absolute; top: 13px; right: 50%; width: 100%; height: 3px; border-radius: 3px; background: var(--border); z-index: 0; }
+.rc-step:first-child::before { display: none; }
+.rc-step[data-done='1']::before, .rc-step[data-cur='1']::before { background: var(--grad-brand); transform-origin: right; animation: rcFill .5s var(--ease-out) both; }
+.rc-dot { position: relative; z-index: 1; width: 28px; height: 28px; border-radius: 50%; margin: 0 auto 5px; display: grid; place-items: center; font-size: 12.5px; font-weight: 800; background: var(--bg-card); border: 2px solid var(--border); color: var(--muted); transition: all var(--dur) var(--ease-out); }
+.rc-step[data-done='1'] .rc-dot { background: var(--grad-brand); border-color: transparent; color: #fff; }
+.rc-step[data-cur='1'] .rc-dot { border-color: var(--green); color: var(--green); background: var(--green-tint); animation: rcRing 1.6s ease-out infinite; }
+.rc-step-label { font-size: 10.5px; line-height: 1.25; color: var(--muted); font-weight: 500; }
+.rc-step[data-cur='1'] .rc-step-label { color: var(--green); font-weight: 800; }
+
+/* drop zone */
+.rc-drop { display: block; width: 100%; text-align: center; border: 2px dashed rgba(var(--green-rgb), .45); border-radius: 18px; padding: 22px 16px; margin-bottom: 14px; background: linear-gradient(180deg, var(--green-tint), var(--bg-card)); color: var(--ink); cursor: pointer; transition: transform var(--dur) var(--ease-out), border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), background var(--dur) var(--ease); }
+.rc-drop:hover, .rc-drop[data-over='1'] { border-color: var(--green); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+.rc-drop[data-over='1'] { background: var(--green-tint); border-style: solid; }
+.rc-drop-icon { font-size: 34px; line-height: 1; display: inline-block; animation: rcFloat 3s ease-in-out infinite; }
+.rc-drop-title { font-size: 15px; font-weight: 800; margin-top: 8px; color: var(--green); }
+.rc-drop-hint { font-size: 12px; margin-top: 4px; color: var(--muted); line-height: 1.5; }
+.rc-attach-compact { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 1px solid var(--border); background: var(--bg-card); border-radius: 14px; padding: 10px 13px; margin-bottom: 12px; min-height: 48px; box-shadow: 0 1px 0 rgba(0,0,0,.02); }
+
+/* status card */
+.rc-status { position: relative; overflow: hidden; border-radius: 18px; padding: 15px 15px 13px; margin-bottom: 12px; color: #fff; box-shadow: var(--shadow-md); animation: rcIn .35s var(--ease-out) both; }
+.rc-status[data-ready='1'] { background: var(--grad-brand); }
+.rc-status[data-ready='0'] { background: linear-gradient(135deg, #a8680a, #7d4a05); }
+.rc-status::after { content: ''; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,.16) 50%, transparent 65%); background-size: 200% 100%; animation: shimmer 5s linear infinite; pointer-events: none; }
+.rc-status-head { display: flex; align-items: center; gap: 10px; }
+.rc-status-icon { flex: none; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-size: 20px; font-weight: 900; background: rgba(255,255,255,.22); animation: checkPop .5s var(--ease-spring) both; }
+.rc-status-title { font-size: 17px; font-weight: 800; line-height: 1.3; }
+.rc-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; margin-top: 12px; }
+.rc-tile { background: rgba(255,255,255,.18); border-radius: 12px; padding: 8px 10px; backdrop-filter: blur(2px); }
+.rc-tile-n { font-size: 20px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.rc-tile-l { font-size: 10.5px; opacity: .92; margin-top: 2px; line-height: 1.25; }
+.rc-tile[data-warn='1'] { background: rgba(255,255,255,.92); color: var(--red); }
+.rc-status-link { margin-top: 8px; border: 0; background: rgba(255,255,255,.2); color: #fff; font-weight: 700; font-size: 12.5px; padding: 8px 13px; border-radius: 999px; min-height: 38px; }
+
+/* rows */
+.rc-row { padding: 11px 13px 11px 12px; border-bottom: 1px solid var(--border-soft); border-left: 4px solid transparent; transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease); animation: rcIn .28s var(--ease-out) both; }
+.rc-row[data-tone='ok'] { border-left-color: var(--green-bright); }
+.rc-row[data-tone='warn'] { border-left-color: var(--amber-bright); background: linear-gradient(90deg, var(--amber-bg), transparent 60%); }
+.rc-row[data-tone='bad'] { border-left-color: var(--red-bright); background: linear-gradient(90deg, var(--red-bg), transparent 60%); }
+.rc-chip { border: 1px solid var(--border); background: var(--bg-card); color: var(--ink); border-radius: 999px; padding: 8px 14px; font-size: 12.5px; font-weight: 700; min-height: 40px; transition: all var(--dur) var(--ease-out); }
+.rc-chip[aria-selected='true'] { background: var(--grad-brand); color: #fff; border-color: transparent; box-shadow: var(--shadow-md); }
+
+/* sticky commit bar */
+.rc-commit { position: sticky; bottom: 0; z-index: 5; margin: 6px -14px -10px; padding: 10px 14px calc(env(safe-area-inset-bottom, 0px) + 10px); background: var(--bg-app); background: color-mix(in srgb, var(--bg-app) 88%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-top: 1px solid var(--border); box-shadow: 0 -12px 28px -18px rgba(18,33,26,.35); animation: rcIn .3s var(--ease-out) both; }
+.rc-readback { font-size: 12px; line-height: 1.5; color: var(--muted); text-align: center; margin-bottom: 7px; }
+.rc-readback b { color: var(--ink); }
+.rc-commit-btn { border: 0; width: 100%; border-radius: 14px; font-size: 15.5px; font-weight: 800; min-height: 54px; padding: 14px; letter-spacing: .01em; }
+.rc-commit-btn:disabled { background: var(--border); color: var(--muted); box-shadow: none; }
+
+/* progress */
+.rc-progress-track { height: 10px; border-radius: 10px; background: var(--border); overflow: hidden; }
+.rc-progress-fill { height: 100%; border-radius: 10px; background: repeating-linear-gradient(115deg, var(--green-bright) 0 12px, var(--green) 12px 24px); background-size: 36px 100%; animation: rcBar .7s linear infinite; transition: width .25s var(--ease-out); }
+
+/* result */
+.rc-result { border-radius: 18px; overflow: hidden; background: var(--bg-card); border: 1px solid var(--border); box-shadow: var(--shadow-md); margin-bottom: 14px; animation: rcIn .4s var(--ease-out) both; }
+.rc-result-head { display: flex; align-items: center; gap: 10px; padding: 13px 14px; background: var(--grad-brand); color: #fff; }
+.rc-result[data-undone='1'] .rc-result-head { background: linear-gradient(135deg, #6b7269, #4d544c); }
+.rc-result-body { padding: 12px 14px 14px; }
+.rc-pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700; background: var(--bg-subtle); }

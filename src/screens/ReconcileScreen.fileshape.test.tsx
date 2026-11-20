@@ -1,7 +1,7 @@
 // A real multi-page / multi-sheet HOSxP export: both sheets are read, the repeated page header and the
 // "รวม" footer are ignored (not offered as drugs), and a fractional quantity is called out.
 import { describe, it, expect } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as XLSX from 'xlsx';
 import ReconcileScreen from './ReconcileScreen';
@@ -29,6 +29,7 @@ function Harness() {
   const { processHosxpFile } = useApp();
   return (<><button onClick={() => processHosxpFile(file())}>attach</button><ReconcileScreen /></>);
 }
+function Bare() { return <ReconcileScreen />; }
 
 describe('ReconcileScreen — real export shape', () => {
   it('reads both sheets, ignores page headers and the total row, and flags the fractional quantity', async () => {
@@ -44,7 +45,18 @@ describe('ReconcileScreen — real export shape', () => {
     expect(card).toHaveTextContent('ข้ามหัวตารางที่ซ้ำทุกหน้า 1 แถว');
     expect(card).toHaveTextContent('ข้ามแถว "รวม" 1 แถว');
     expect(card).toHaveTextContent('1 แถวมีเศษทศนิยม');
-    expect(screen.getByTestId('reconcile-status')).toHaveTextContent('ในไฟล์ 3 รายการ');
+    expect(screen.getByTestId('reconcile-status')).toHaveTextContent(/3\s*รายการในไฟล์/);
     expect(screen.queryByTestId('file-row-fixer')).not.toBeInTheDocument();
+  });
+
+  it('accepts a file dropped on the drop zone (desktop drag & drop), then collapses to a compact attach bar', async () => {
+    renderWithApp(<Bare />);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', meds);
+    const zone = await screen.findByTestId('hosxp-dropzone');
+    fireEvent.drop(zone, { dataTransfer: { files: [file()] } });
+    expect(await screen.findByTestId('hosxp-attach-compact')).toHaveTextContent('hosxp.xlsx');
+    expect(screen.queryByTestId('hosxp-dropzone')).not.toBeInTheDocument();
   });
 });

@@ -40,19 +40,19 @@ describe('ReconcileScreen — guided flow', () => {
     const status = await screen.findByTestId('reconcile-status');
     expect(status).toHaveAttribute('data-ready', '0');
     expect(status).toHaveTextContent('ยังมี 1 รายการที่ต้องตัดสินใจ');
-    expect(screen.getByTestId('reconcile-stepper').querySelector('[aria-current="step"]')).toHaveTextContent('2. แก้รายการที่มีปัญหา');
+    expect(screen.getByTestId('reconcile-stepper').querySelector('[aria-current="step"]')).toHaveTextContent('2. แก้รายการ');
 
     await user.click(screen.getByTestId('accept-safe-all'));
     await waitFor(() => expect(screen.getByTestId('reconcile-status')).toHaveAttribute('data-ready', '1'));
     expect(screen.getByTestId('reconcile-status')).toHaveTextContent('พร้อมตัดยอด');
-    expect(screen.getByTestId('reconcile-status')).toHaveTextContent('จะตัดรวม 40 หน่วย');
+    expect(screen.getByTestId('reconcile-status')).toHaveTextContent(/40\s*หน่วยที่จะตัด/);
     expect(screen.getByTestId('reconcile-stepper').querySelector('[aria-current="step"]')).toHaveTextContent('3. ตรวจสรุป');
   });
 
   it('warns BEFORE commit when the floor cannot cover the file, then keeps a persistent result with the clamp and an undo', async () => {
     const user = await setup('AMLODIPINE 10 mg เม็ด,150', 100);
     await screen.findByText(/ยอดหน้างานมีแค่ 100 เม็ด แต่ไฟล์จ่าย 150/);
-    expect(screen.getByTestId('reconcile-status')).toHaveTextContent('ยอดหน้างานไม่พอ 1');
+    expect(screen.getByTestId('reconcile-status')).toHaveTextContent(/1\s*ยอดหน้างานไม่พอ/);
 
     await user.click(screen.getByRole('button', { name: /ตัดยอดหน้างานตามไฟล์นี้/ }));
     const result = await screen.findByTestId('reconcile-result');
@@ -78,7 +78,7 @@ describe('ReconcileScreen — guided flow', () => {
     const user = await setup('AMLODIPINE 10 mg เม็ด,2000', 5000);
     const status = await screen.findByTestId('reconcile-status');
     expect(status).toHaveAttribute('data-ready', '0');
-    expect(status).toHaveTextContent('ยังไม่ได้ยืนยันตัวเลขที่สูงผิดปกติ 1 รายการ');
+    expect(status).toHaveTextContent('ยืนยันตัวเลขที่สูงผิดปกติ 1 รายการ');
     expect(await screen.findByTestId('unusual-row')).toHaveTextContent(/สูงกว่าปกติ/);
     expect(screen.getByRole('button', { name: /ตัดยอดหน้างานตามไฟล์นี้/ })).toBeDisabled();
 
