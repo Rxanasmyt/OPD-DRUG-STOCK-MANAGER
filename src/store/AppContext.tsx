@@ -27,6 +27,7 @@ import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetch
 import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchAllTxs, fetchTxsByName, fetchTxsByNameSince, fetchTxsAfter, queryTxsByDateRange } from './repositories/txsRepo';
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
 import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
+import { safeToAutoUpdate, probeActiveElement, deployedEntryDiffers, forceFreshReload } from '../utils/autoUpdate';
 import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, lastReconcileCoveredToIso, priorReconcileByMed, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, parseHosxpDayReport, buildReconcileMonth, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays, reqCategoryOf } from './selectors';
 import { nf, thDate, lotLabel, expLabel, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
@@ -1399,16 +1400,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // faster check just means that banner itself shows up sooner, not a faster/more disruptive
     // reload. A single GET of the SW script every 3 minutes is negligible bandwidth/battery
     // cost for a device left on all shift.
-    const intervalId = setInterval(checkForUpdate, 3 * 60 * 1000);
+    // Real-world request: updates must apply by themselves, fast — so poll every minute (a tiny
+    // no-cache GET of sw.js) and also on focus/online, not only on visibility.
+    const intervalId = setInterval(checkForUpdate, 60 * 1000);
     const onVisible = () => { if (document.visibilityState === 'visible') checkForUpdate(); };
     document.addEventListener('visibilitychange', onVisible);
-    return () => { clearInterval(intervalId); document.removeEventListener('visibilitychange', onVisible); };
+    window.addEventListener('focus', checkForUpdate);
+    window.addEventListener('online', checkForUpdate);
+    return () => { clearInterval(intervalId); document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('focus', checkForUpdate); window.removeEventListener('online', checkForUpdate); };
   }, []);
   const applyUpdate = useCallback(() => {
     patch({ updateAvailable: false });
     updateSWRef.current?.(true);
   }, [patch]);
   const dismissUpdate = useCallback(() => patch({ updateAvailable: false }), [patch]);
+
+  // Auto-apply: the moment a new version has downloaded and the app is provably idle (see
+  // safeToAutoUpdate), reload into it — no banner tap, no waiting. If something is in progress the
+  // banner stays up and this re-checks every 1.5 s, applying the instant it finishes.
+  const applyUpdateRef = useRef(applyUpdate);
+  useEffect(() => { applyUpdateRef.current = applyUpdate; }, [applyUpdate]);
+  const stateForUpdateRef = useRef(state);
+  useEffect(() => { stateForUpdateRef.current = state; });
+  const autoApplyAtRef = useRef(0);
+  useEffect(() => {
+    if (!state.updateAvailable) return;
+    const tick = () => {
+      const st = stateForUpdateRef.current;
+      if (Date.now() - autoApplyAtRef.current < 20000) return; // an apply is already under way
+      if (!safeToAutoUpdate({ busy: st.busy, qrOpen: st.qrOpen, confirmOpen: !!st.confirmDialog, promptOpen: !!st.promptDialog, ...probeActiveElement() })) return;
+      autoApplyAtRef.current = Date.now();
+      toast('กำลังอัปเดตเป็นเวอร์ชันใหม่…');
+      setTimeout(() => applyUpdateRef.current(), 400);
+    };
+    tick();
+    const id = setInterval(tick, 1500);
+    return () => clearInterval(id);
+  }, [state.updateAvailable, toast]);
 
   // Real-world request: "อยากให้มีปุ่มที่ใช้สำหรับการตรวจหาว่ามีเวอร์ชั่นล่าสุดหรือยัง ดีกว่ามานั่งรอ
   // เนื่องจากบางที่เมื่อมีการอัพเดตเวอร์ชั่นใหม่แล้วก็อยากใช้งานทันทีเลยครับ" — every existing check
@@ -1420,19 +1448,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateAvailableRef = useRef(false);
   useEffect(() => { updateAvailableRef.current = state.updateAvailable; }, [state.updateAvailable]);
   const checkingUpdateRef = useRef(false);
+  // The latest version string the deploy pipeline announced (meta/settings.latestVersion) — a second,
+  // independent truth source next to the service worker, so the button never says "latest" while a
+  // newer build is known to exist.
+  const latestDeployedRef = useRef<string | undefined>(undefined);
   const checkForUpdateNow = useCallback(async () => {
     if (checkingUpdateRef.current) return;
-    if (updateAvailableRef.current) { toast('พบเวอร์ชันใหม่อยู่แล้ว — แตะ "อัปเดตเลย" ที่แบนเนอร์ด้านล่างได้เลย'); return; }
+    if (updateAvailableRef.current) { toast('กำลังอัปเดตเป็นเวอร์ชันใหม่…'); applyUpdateRef.current(); return; }
     checkingUpdateRef.current = true;
     patch({ checkingUpdate: true });
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
     try {
       if (!swRegistrationRef.current) { toast('ยังไม่พร้อมตรวจสอบเวอร์ชัน — ลองใหม่อีกครั้งในอีกสักครู่'); return; }
       await swRegistrationRef.current.update();
-      // registration.update() only confirms the re-check itself happened — onNeedRefresh (if a
-      // new SW script turned up) fires some moments after that, not within this same promise.
-      // A short grace period lets it land before concluding there's nothing new to report.
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      if (!updateAvailableRef.current) toast('ใช้งานเวอร์ชันล่าสุดอยู่แล้ว');
+      // Is a different build live on the server? Asks the server directly (index.html, never cached)
+      // AND consults what the deploy pipeline announced — either one proves a newer version exists.
+      let entryDiffers = false;
+      try { entryDiffers = await deployedEntryDiffers(); } catch { /* offline/blocked — no signal */ }
+      const announcedNewer = () => isNewerVersionAvailable(latestDeployedRef.current, APP_VERSION);
+      const newerKnown = () => entryDiffers || announcedNewer();
+      // The service worker needs time to download the new build (a couple of MB) before onNeedRefresh
+      // fires — waiting only 1.5 s used to conclude "latest" while it was still downloading. Wait up to
+      // 25 s when a newer build is known to exist, only ~3 s when nothing suggests one.
+      const t0 = Date.now();
+      while (!updateAvailableRef.current && Date.now() - t0 < (newerKnown() ? 25000 : 3000)) await sleep(500);
+      if (updateAvailableRef.current) { toast('พบเวอร์ชันใหม่ — กำลังอัปเดต…'); applyUpdateRef.current(); return; }
+      if (newerKnown()) {
+        // Server has a newer build but the update mechanism did not deliver it — bypass it: drop the
+        // service worker + caches and reload straight from the network. Sign-in and data are untouched.
+        toast('พบเวอร์ชันใหม่' + (latestDeployedRef.current ? ' (' + latestDeployedRef.current + ')' : '') + ' — กำลังโหลดใหม่ทั้งหมด…');
+        setTimeout(() => { void forceFreshReload(); }, 900);
+        return;
+      }
+      toast('ใช้งานเวอร์ชันล่าสุดอยู่แล้ว (v' + APP_VERSION + (latestDeployedRef.current ? ' · เซิร์ฟเวอร์ v' + latestDeployedRef.current : '') + ') — ถ้าเพิ่ง merge รอระบบ deploy ประมาณ 3–4 นาที แล้วกดอีกครั้ง');
     } catch {
       toast('ตรวจสอบเวอร์ชันไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง');
     } finally {
@@ -1577,6 +1625,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // apply" so the banner's own "อัปเดตเลย" button never shows before it would actually do
         // something. A version string that happens to equal this build's own is a no-op (every
         // OTHER still-open tab on the OLD version is the one this actually helps).
+        latestDeployedRef.current = d.latestVersion;
         if (isNewerVersionAvailable(d.latestVersion, APP_VERSION)) swRegistrationRef.current?.update().catch(() => {});
       }, onErr('settings')),
     ];
