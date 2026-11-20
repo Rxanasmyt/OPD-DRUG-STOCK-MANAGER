@@ -5,12 +5,14 @@ import { AppProvider } from './store/AppContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { initMonitoring, reportError } from './monitoring';
 import './styles.css';
+import { startAppHeightSync } from './utils/appHeight';
 
 // Production error monitoring (Fortification Plan) — see monitoring.ts's own doc comment for
 // why this is configured as narrowly as possible (no auto-instrumentation at all) given this
 // app holds real staff names and a real patient hospital number. A safe no-op until
 // VITE_SENTRY_DSN is actually set.
 initMonitoring();
+startAppHeightSync();
 
 // Bug fix (resilience audit, STRUCTURAL — defense in depth): this app's own call sites are
 // unusually disciplined about try/catch (see AppContext.tsx's per-action error handling), but

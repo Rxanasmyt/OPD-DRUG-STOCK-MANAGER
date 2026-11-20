@@ -403,6 +403,7 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
      back to 100vh where dvh isn't supported. */
   height: 100vh;
   height: 100dvh;
+  height: var(--app-h, 100dvh); /* set by utils/appHeight.ts — see there for the iPhone home-screen case */
   overflow: hidden;
   display: flex;
   flex-direction: column;
