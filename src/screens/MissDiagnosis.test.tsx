@@ -68,7 +68,7 @@ describe('MissDiagnosis', () => {
   });
 
   it('shows no add button to a non-admin, only who to ask', async () => {
-    await setup(['RISPERIDONE 1 MG TAB'], 'pharm');
+    await setup(['RISPERIDONE 1 MG TAB FILM'], 'pharm');
     await screen.findByText(/เพิ่มชื่อนี้ได้เฉพาะ Admin/);
     expect(screen.queryByRole('button', { name: /^เพิ่ม "/ })).toBeNull();
   });

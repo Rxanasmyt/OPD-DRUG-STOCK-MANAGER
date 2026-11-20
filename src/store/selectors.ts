@@ -1022,6 +1022,30 @@ function normalizeMedName(raw: string): string {
     .toLowerCase();
 }
 
+// Order- and punctuation-insensitive identity of a drug name. Two names with the SAME signature differ
+// only by characters (periods, hyphens, spacing, case), word order, or a spelling synonym of the same
+// dosage form — never by anything clinically meaningful — so they are the same product. Strength stays
+// glued to its unit ("5mg" ≠ "5mcg" ≠ "5ml"), container words stay (vial ≠ amphule), and combination
+// products ("A 5 + B 50") are excluded because reordering would scramble which strength belongs to which drug.
+const SIG_FILLER = new Set(['of', 'and', 'for', 'use', 'pre', 'filled', 'oral', 'external', 'dose', 'pl', 'box', 'ยา']);
+const SIG_UNIT: Record<string, string> = { mg: 'mg', 'มก': 'mg', mcg: 'mcg', ug: 'mcg', g: 'g', gm: 'g', gram: 'g', 'กรัม': 'g', ml: 'ml', 'มล': 'ml', iu: 'iu', unit: 'iu', units: 'iu' };
+const SIG_SYN: Record<string, string> = { tab: 'tablet', tabs: 'tablet', tablets: 'tablet', 'เม็ด': 'tablet', cap: 'capsule', caps: 'capsule', capsules: 'capsule', 'แคปซูล': 'capsule', amp: 'ampoule', ampule: 'ampoule', ampoules: 'ampoule', inj: 'injection', soln: 'solution', sol: 'solution', susp: 'suspension', btl: 'bottle', 'ขวด': 'bottle', 'หลอด': 'tube' };
+function strictSignature(raw: string): string | null {
+  const n = normalizeMedName(raw).replace(/แค.?บซูล/g, 'แคปซูล');
+  if (/[a-z\u0E00-\u0E7F]\s*\+\s*[a-z\u0E00-\u0E7F]/.test(n)) return null;
+  const toks = n.match(/[a-z\u0E00-\u0E7F]+|\d+(?:\.\d+)?/g) || [];
+  const out: string[] = [];
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    if (/^\d/.test(t)) {
+      const nx = toks[i + 1];
+      if (nx && SIG_UNIT[nx]) { out.push(t + SIG_UNIT[nx]); i++; } else out.push(t);
+    } else if (!SIG_FILLER.has(t)) out.push(SIG_UNIT[t] ?? SIG_SYN[t] ?? t);
+  }
+  if (!out.length) return null;
+  return [...new Set(out)].sort().join('|');
+}
+
 // A med matches a normalized file name either by its own `name` or by one of its admin-
 // registered `hosxpAliases` (see Med.hosxpAliases's own doc comment) — same normalize-then-
 // compare rule either way, just one more string allowed to count as "this drug."
@@ -1052,6 +1076,14 @@ export function matchHosxpMed(meds: Med[], rawName: string): HosxpMatch {
   const exactMatches = active.filter((m) => medNameCandidates(m).some((c) => normalizeMedName(c) === n));
   if (exactMatches.length === 1) return { kind: 'exact', medId: exactMatches[0].id };
   if (exactMatches.length > 1) return { kind: 'ambiguous', candidateIds: exactMatches.map((m) => m.id) };
+
+  // Same drug, different characters / word order / synonym spelling → deterministic match (see strictSignature).
+  const sig = strictSignature(rawName);
+  if (sig) {
+    const sigMatches = active.filter((m) => medNameCandidates(m).some((c) => strictSignature(c) === sig));
+    if (sigMatches.length === 1) return { kind: 'exact', medId: sigMatches[0].id };
+    if (sigMatches.length > 1) return { kind: 'ambiguous', candidateIds: sigMatches.map((m) => m.id) };
+  }
 
   const candidates = active.filter((m) => medNameCandidates(m).some((c) => {
     const cn = normalizeMedName(c);
@@ -1613,6 +1645,21 @@ export function compareMedNames(appName: string, fileName: string): NameDiff | n
   const rounded = Math.round(score * 100) / 100;
   const safe = numbers === 'equal' && onlyInApp.length === 0 && rounded >= 0.6 && !looksLikeCombination(fileName);
   return { fileName, score: rounded, onlyInApp, onlyInFile, appNumbers: a.numbers, fileNumbers: f.numbers, numbers, safe };
+}
+
+/** The reverse of diagnoseMiss: a file row that matched NO med → which app meds could it be, and
+ * exactly which words/strength differ. Safe-to-alias first, then needs-a-human, then different
+ * strength; best score first within each. Never decides anything itself. */
+export function suggestMedsForFileName(meds: Med[], fileName: string, limit = 3): Array<{ med: Med; diff: NameDiff }> {
+  const out: Array<{ med: Med; diff: NameDiff }> = [];
+  for (const m of meds) {
+    if (!m.active) continue;
+    const d = compareMedNames(m.name, fileName);
+    if (d && d.score >= 0.5) out.push({ med: m, diff: d });
+  }
+  const rank = (c: NameDiff) => (c.safe ? 0 : c.numbers === 'differs' ? 2 : 1);
+  out.sort((x, y) => rank(x.diff) - rank(y.diff) || y.diff.score - x.diff.score);
+  return out.slice(0, limit);
 }
 
 export type MissVerdict =
