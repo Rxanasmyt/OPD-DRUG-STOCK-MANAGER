@@ -1728,6 +1728,31 @@ export function priorReconcileByMed(txs: readonly Tx[], from: string, to: string
   return out;
 }
 
+/** How many weekdays (Mon–Fri) an inclusive ISO range holds, at least 1 — the unit a med's daily usage rate is in. */
+export function weekdaysInRange(fromIso: string, toIso: string): number {
+  if (!fromIso || !toIso || fromIso > toIso) return 1;
+  let n = 0;
+  for (let t = new Date(fromIso + 'T12:00:00Z').getTime(); t <= new Date(toIso + 'T12:00:00Z').getTime(); t += DAY) {
+    const wd = new Date(t).getUTCDay();
+    if (wd !== 0 && wd !== 6) n++;
+  }
+  return Math.max(1, n);
+}
+
+export interface UnusualDispense { kind: 'high' | 'no_history'; qty: number; expected: number; ratio: number }
+/** Is this file quantity far above what the drug normally moves over the covered period? Catches a multi-day
+ * file attached to a one-day range, a wrong unit, or a typo — BEFORE the floor is deducted. Conservative on
+ * purpose (a false alarm costs one tick of confirmation; a missed one silently corrupts a stock level):
+ * flagged when ≥ 4× the expected quantity AND at least 30 units above it; a drug with no 30-day history at
+ * all is flagged from 100 units. */
+export function unusualDispense(med: Med, qty: number, businessDays: number): UnusualDispense | null {
+  if (!(qty > 0)) return null;
+  const expected = dailyUsageRate(med) * Math.max(1, businessDays);
+  if (med.used30 <= 0) return qty >= 100 ? { kind: 'no_history', qty, expected: 0, ratio: Infinity } : null;
+  if (qty >= expected * 4 && qty - expected >= 30) return { kind: 'high', qty, expected, ratio: qty / Math.max(expected, 0.01) };
+  return null;
+}
+
 /** The reverse of diagnoseMiss: a file row that matched NO med → which app meds could it be, and
  * exactly which words/strength differ. Safe-to-alias first, then needs-a-human, then different
  * strength; best score first within each. Never decides anything itself. */

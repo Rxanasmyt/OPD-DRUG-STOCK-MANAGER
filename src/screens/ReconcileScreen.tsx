@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { wardOf, hosxpMissReasons, isRegularlyDispensed, lastReconcileCoveredToIso, priorReconcileByMed, suggestMedsForFileName, diagnoseMiss } from '../store/selectors';
+import { wardOf, hosxpMissReasons, isRegularlyDispensed, lastReconcileCoveredToIso, priorReconcileByMed, suggestMedsForFileName, diagnoseMiss, unusualDispense, weekdaysInRange } from '../store/selectors';
+import { downloadCsv } from '../utils/csv';
 import { nf, thDate, isoDate, bangkokWeekday } from '../utils/format';
 import type { HosxpMatch, Med, MedId, ReconcileGapDay, ReconcileMonthDay } from '../types';
 import { Badge } from '../components/Badge';
@@ -43,7 +44,8 @@ export default function ReconcileScreen() {
 
   // Rows the pharmacist explicitly chose to skip (no drug to map to). Reset whenever a new file loads.
   const [skippedRows, setSkippedRows] = useState<Set<number>>(new Set());
-  useEffect(() => { setSkippedRows(new Set()); }, [state.hosxpRows?.length, state.hosxpFileInfo?.fingerprint]);
+  const [ackUnusual, setAckUnusual] = useState(false);
+  useEffect(() => { setSkippedRows(new Set()); setAckUnusual(false); }, [state.hosxpRows?.length, state.hosxpFileInfo?.fingerprint]);
 
   // Real-world request: "ป้องกันการแนบไฟล์ผิดวัน หรือสามารถรู้ได้ว่าวันไหนที่ทำการแนบไฟล์ไปแล้ว
   // วันไหนยังไม่แนบ ตอนนี้ไม่รู้อะไรเลย" — gapDays below already answers this, but only AFTER its
@@ -151,7 +153,15 @@ export default function ReconcileScreen() {
   const daysCovered = coveredValid
     ? Math.round((new Date(state.hosxpCoveredTo + 'T00:00:00').getTime() - new Date(state.hosxpCoveredFrom + 'T00:00:00').getTime()) / DAY) + 1
     : 0;
-  const canCommit = reconcileRows.length > 0 && (fuzzyCount === 0 || state.hosxpConfirmFuzzy) && coveredValid && unmatchedBig.length === 0;
+  // Quantities far above what the drug normally moves over this period (wrong-range file, wrong unit, typo).
+  const businessDays = weekdaysInRange(state.hosxpCoveredFrom, state.hosxpCoveredTo);
+  const unusualByIdx = new Map<number, NonNullable<ReturnType<typeof unusualDispense>>>();
+  reconcileRows.forEach((r, i) => {
+    if (r.med && !r.applied) { const u = unusualDispense(r.med, r.qty - r.already, businessDays); if (u) unusualByIdx.set(i, u); }
+  });
+  const unusualCount = unusualByIdx.size;
+  const unusualPending = ackUnusual ? 0 : unusualCount;
+  const canCommit = reconcileRows.length > 0 && (fuzzyCount === 0 || state.hosxpConfirmFuzzy) && coveredValid && unmatchedBig.length === 0 && unusualPending === 0;
 
   // ---- guided-flow summary (one status card, a stepper, only-what-needs-attention lists) ----
   const rowsWithIdx = reconcileRows.map((r, i) => ({ ...r, i }));
@@ -161,7 +171,7 @@ export default function ReconcileScreen() {
   const totalUnits = reconcileRows.reduce((a, r) => a + (r.med && !r.applied ? r.qty - r.already : 0), 0);
   const fuzzyPending = state.hosxpConfirmFuzzy ? 0 : fuzzyCount;
   const needDecision = unmatchedBig.length + fuzzyPending;
-  const attentionIdx = useMemo(() => new Set(rowsWithIdx.filter((r) => !r.applied && (r.match.kind === 'none' || r.match.kind === 'ambiguous' || r.match.kind === 'fuzzy' || (r.med && r.qty - r.already > r.before))).map((r) => r.i)), [rowsWithIdx]);
+  const attentionIdx = useMemo(() => new Set(rowsWithIdx.filter((r) => !r.applied && (r.match.kind === 'none' || r.match.kind === 'ambiguous' || r.match.kind === 'fuzzy' || unusualByIdx.has(r.i) || (r.med && r.qty - r.already > r.before))).map((r) => r.i)), [rowsWithIdx]);
   const [rowFilter, setRowFilter] = useState<'attention' | 'all'>('attention');
   const effectiveFilter = attentionIdx.size === 0 ? 'all' : rowFilter;
   const step: 1 | 2 | 3 | 4 = state.busy['reconcile'] ? 4 : reconcileRows.length === 0 ? 1 : needDecision > 0 ? 2 : 3;
@@ -330,6 +340,34 @@ export default function ReconcileScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.busy['reconcile']]);
 
+  // One row per file line (what it matched, or exactly why not), then the app drugs absent from the file.
+  const exportMatchCsv = async () => {
+    const statusOf = (r: (typeof reconcileRows)[number], i: number) => r.applied ? 'ตัดแล้ว' : skippedRows.has(i) ? 'ข้ามโดยผู้ใช้'
+      : r.match.kind === 'exact' ? 'จับคู่ตรง' : r.match.kind === 'fuzzy' ? 'จับคู่ใกล้เคียง (ต้องยืนยัน)' : r.match.kind === 'ambiguous' ? 'กำกวม (ตรงหลายรายการ)' : 'จับคู่ไม่ได้';
+    const rows: (string | number)[][] = [['แถว', 'ชื่อในไฟล์', 'จำนวนในไฟล์', 'สถานะ', 'ยาในแอพที่จับคู่', 'เคยตัดแล้ว', 'จะตัดเพิ่ม', 'ยอดหน้างานก่อน', 'ยอดหลังตัด', 'หมายเหตุ/เหตุผล']];
+    reconcileRows.forEach((r, i) => {
+      const notes: string[] = [];
+      if (r.match.kind === 'none') {
+        const sg = suggestMedsForFileName(state.meds, r.fileText, 1)[0];
+        notes.push(sg ? 'คล้าย "' + sg.med.name + '" ' + Math.round(sg.diff.score * 100) + '%' + (sg.diff.onlyInApp.length ? ' · แอพมีแต่: ' + sg.diff.onlyInApp.join(' ') : '') + (sg.diff.onlyInFile.length ? ' · ไฟล์มีแต่: ' + sg.diff.onlyInFile.join(' ') : '') + (sg.diff.numbers === 'differs' ? ' · ความแรงต่าง' : sg.diff.safe ? ' · ปลอดภัยที่จะยอมรับ' : '') : 'ไม่มียาที่คล้าย');
+      }
+      if (r.match.kind === 'ambiguous') notes.push('ตรงกับ: ' + r.match.candidateIds.map((id) => medById(id)?.name || id).join(' | '));
+      const u = unusualByIdx.get(i);
+      if (u) notes.push(u.kind === 'no_history' ? 'ผิดปกติ: ไม่มีประวัติการใช้' : 'ผิดปกติ: สูงกว่าปกติ ~' + Math.round(u.ratio) + ' เท่า');
+      if (r.med && !r.applied && r.qty - r.already > r.before) notes.push('ยอดหน้างานไม่พอ');
+      if (!Number.isInteger(r.qty)) notes.push('จำนวนมีเศษทศนิยม');
+      rows.push([i + 1, r.fileText, r.qty, statusOf(r, i), r.med?.name ?? '', r.already, r.med && !r.applied ? r.qty - r.already : 0, r.med ? r.before : '', r.med ? r.after : '', notes.join(' ; ')]);
+    });
+    rows.push([], ['ยาในแอพที่ปกติจ่ายแต่ไม่พบในไฟล์', 'เหตุผล', 'วินิจฉัย', 'จ่ายกี่วันใน 30 วัน']);
+    for (const e of missEntries) {
+      const d = e.reason.kind === 'not_in_file' ? diagnoseMiss(e.med, unmatchedFileNames, state.meds) : null;
+      rows.push([e.med.name, e.reason.kind === 'zero_qty' ? 'ไฟล์ระบุจำนวน 0' : e.reason.kind === 'ambiguous' ? 'ชื่อกำกวม' : 'ไม่พบในไฟล์', d ? d.verdict : '', e.med.dispenseDays30 ?? '']);
+    }
+    const name = 'hosxp-match-' + (state.hosxpCoveredFrom || 'file') + (state.hosxpCoveredTo && state.hosxpCoveredTo !== state.hosxpCoveredFrom ? '_' + state.hosxpCoveredTo : '') + '.csv';
+    const outcome = await downloadCsv(rows, name);
+    toast(outcome === 'saved' ? 'ดาวน์โหลดผลการจับคู่แล้ว (' + name + ')' : outcome === 'declined' ? 'ยกเลิกการดาวน์โหลด' : 'ดาวน์โหลดไม่ได้บนอุปกรณ์นี้');
+  };
+
   return (
     <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
       <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 12 }}>
@@ -392,6 +430,11 @@ export default function ReconcileScreen() {
         const color = tone === 'green' ? 'var(--green)' : tone === 'amber' ? 'var(--amber-ink)' : 'var(--red)';
         return (
           <div data-testid="hosxp-file-verify" style={{ background: bg, color, borderRadius: 10, padding: '10px 13px', marginBottom: 12, fontSize: 12.5, lineHeight: 1.6, fontWeight: 600 }}>
+            {(fi.sheetsRead ?? 0) > 1 && <div>ℹ ไฟล์มี {fi.sheetsRead} ชีต — อ่านครบทุกชีตแล้ว</div>}
+            {(fi.sheetsIgnored ?? 0) > 0 && <div>ℹ ข้าม {fi.sheetsIgnored} ชีตที่ไม่มีตารางรายงาน</div>}
+            {(fi.repeatedHeaders ?? 0) > 0 && <div>ℹ ข้ามหัวตารางที่ซ้ำทุกหน้า {fi.repeatedHeaders} แถว</div>}
+            {(fi.totalsIgnored ?? 0) > 0 && <div>ℹ ข้ามแถว "รวม" {fi.totalsIgnored} แถว (ไม่ใช่ยา)</div>}
+            {(fi.fractional?.length ?? 0) > 0 && <div>⚠ {fi.fractional!.length} แถวมีเศษทศนิยม (ปัดเป็นจำนวนเต็ม): {fi.fractional!.slice(0, 3).map((f) => f.name + ' ' + f.qty).join(', ')}{fi.fractional!.length > 3 ? ' …' : ''}</div>}
             <div>ไฟล์: {fi.name} · {nf(fi.rowCount)} รายการ{fi.zeroRows ? ' · จำนวน 0 (ไม่ได้จ่าย) ' + nf(fi.zeroRows) + ' รายการ' : ''}</div>
             {fr && match && !showRangePickers && (
               <button type="button" onClick={() => setEditRange(true)} style={{ border: 0, background: 'transparent', color, fontWeight: 700, fontSize: 12, padding: '4px 0', textDecoration: 'underline', minHeight: 32 }}>แก้วันที่</button>
@@ -406,11 +449,16 @@ export default function ReconcileScreen() {
       {reconcileRows.length > 0 && (
         <ReconcileStatusCard
           matched={matchedCount} needDecision={needDecision} totalUnits={totalUnits} shortCount={shortRows.length}
-          alreadyCount={alreadyCount} totalRows={reconcileRows.length} ready={ready} onGoFix={scrollToFix}
+          alreadyCount={alreadyCount} totalRows={reconcileRows.length} ready={ready} onGoFix={scrollToFix} unusualCount={unusualCount} unusualPending={unusualPending}
           rangeLabel={coveredValid ? (state.hosxpCoveredFrom === state.hosxpCoveredTo ? state.hosxpCoveredFrom : state.hosxpCoveredFrom + ' ถึง ' + state.hosxpCoveredTo) : null}
         />
       )}
 
+      {reconcileRows.length > 0 && (
+        <button type="button" data-testid="export-match-csv" onClick={() => void exportMatchCsv()} style={{ border: 0, background: 'transparent', color: 'var(--green)', fontWeight: 700, fontSize: 12.5, padding: '4px 2px', marginBottom: 8, minHeight: 36 }}>
+          ⬇ ดาวน์โหลดผลการจับคู่ (CSV) — ไว้ตรวจความแม่นยำ
+        </button>
+      )}
       <div id="reconcile-fix-area" />
       {safePairs.length > 0 && (
         <button type="button" data-testid="accept-safe-all" onClick={async () => { const n = await resolveHosxpRowsBulk(safePairs, true); setAcceptedCount((c) => c + n); }}
@@ -477,6 +525,11 @@ export default function ReconcileScreen() {
                     {r.already >= r.qty ? '✓ ช่วงวันที่นี้เคยตัดยอดยานี้ครบแล้ว (' + nf(r.already) + ') — ไม่ตัดซ้ำ' : 'เคยตัดไปแล้ว ' + nf(r.already) + ' จากไฟล์ ' + nf(r.qty) + ' — ตัดเพิ่มเฉพาะส่วนต่าง ' + nf(r.qty - r.already)}
                   </div>
                 )}
+                {!r.applied && unusualByIdx.has(i) && (() => { const u = unusualByIdx.get(i)!; return (
+                  <div data-testid="unusual-row" style={{ fontSize: 10.5, color: 'var(--amber-ink)', fontWeight: 600, marginTop: 3 }}>
+                    ⚠ {u.kind === 'no_history' ? 'ยานี้ไม่มีประวัติการใช้ 30 วันล่าสุด แต่ไฟล์จ่าย ' + nf(u.qty) : 'สูงกว่าปกติ ~' + Math.round(u.ratio) + ' เท่า — ไฟล์จ่าย ' + nf(u.qty) + ' แต่ปกติ ~' + nf(Math.round(u.expected)) + ' ต่อ ' + businessDays + ' วันทำการ'} — ตรวจว่าไฟล์ถูกช่วงวันที่/หน่วยถูกต้อง
+                  </div>
+                ); })()}
                 {!r.applied && <MatchBadge match={r.match} fileText={r.fileText} medById={medById} />}
                 {!r.applied && (r.match.kind === 'none' || r.match.kind === 'ambiguous') && (
                   <FileRowFixer idx={i} fileText={r.fileText} qty={r.qty} skipped={skippedRows.has(i)}
@@ -527,6 +580,13 @@ export default function ReconcileScreen() {
             <div className="muted" data-testid="miss-normal-count" style={{ fontSize: 11.5, lineHeight: 1.5, margin: '0 2px 12px' }}>
               อีก {missView.normal} รายการที่ปกติจ่ายแต่ไม่อยู่ในไฟล์วันนี้ — น่าจะไม่มีการจ่ายจริง (ไฟล์ HOSxP แสดงเฉพาะยาที่มีการจ่าย) ไม่ต้องแก้
             </div>
+          )}
+
+          {unusualCount > 0 && (
+            <label data-testid="ack-unusual" style={{ display: 'flex', gap: 9, alignItems: 'flex-start', background: 'var(--amber-bg)', border: '1px solid var(--amber)', borderRadius: 10, padding: '11px 12px', marginBottom: 12, cursor: 'pointer' }}>
+              <input type="checkbox" checked={ackUnusual} onChange={(e) => setAckUnusual(e.target.checked)} style={{ marginTop: 2, flex: 'none', width: 17, height: 17 }} />
+              <span style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--amber-ink)' }}>ตรวจแล้วว่า {unusualCount} รายการที่ติดป้าย ⚠ "สูงผิดปกติ" ถูกต้อง (ไฟล์เป็นของช่วงวันที่นี้จริง และหน่วยตรงกับหน่วยของยาในแอพ)</span>
+            </label>
           )}
 
           {fuzzyCount > 0 && (

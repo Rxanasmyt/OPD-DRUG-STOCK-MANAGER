@@ -1,7 +1,8 @@
 // The guided HOSxP flow: stepper, one status card, accept-all-safe, persistent result card with
 // clamped warnings, and undo.
-import { describe, it, expect } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import * as csvMod from '../utils/csv';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useEffect } from 'react';
 import ReconcileScreen from './ReconcileScreen';
@@ -13,7 +14,7 @@ import { signInAs, fireCollection, hasListener, seedDoc, getLastTransactionWrite
 
 const MED = {
   id: 'm1', code: 'MED-0001', name: 'AMLODIPINE 10 mg เม็ด', unit: 'เม็ด', dosageForm: 'เม็ด',
-  price: 1, had: false, active: true, parSub: 1000, parFloor: 1000, floor: 100, bin: 'C4-6', used30: 0, usedPrev30: 0, volatility: 0,
+  price: 1, had: false, active: true, parSub: 1000, parFloor: 1000, floor: 100, bin: 'C4-6', used30: 3000, usedPrev30: 3000, volatility: 0,
 };
 
 function Harness({ text }: { text: string }) {
@@ -70,5 +71,34 @@ describe('ReconcileScreen — guided flow', () => {
     const rev = writes.find((w) => (w.data as { reason?: string }).reason === 'ย้อนการตัดยอด HOSxP')!.data as { qty: number; reportedQty: number };
     expect(rev.qty).toBe(100);
     expect(rev.reportedQty).toBe(-150);
+  });
+
+  it('blocks the commit until a far-above-normal quantity is acknowledged', async () => {
+    // normal ~150/weekday → 2,000 in a one-day range is a wrong-range/unit/typo candidate
+    const user = await setup('AMLODIPINE 10 mg เม็ด,2000', 5000);
+    const status = await screen.findByTestId('reconcile-status');
+    expect(status).toHaveAttribute('data-ready', '0');
+    expect(status).toHaveTextContent('ยังไม่ได้ยืนยันตัวเลขที่สูงผิดปกติ 1 รายการ');
+    expect(await screen.findByTestId('unusual-row')).toHaveTextContent(/สูงกว่าปกติ/);
+    expect(screen.getByRole('button', { name: /ตัดยอดหน้างานตามไฟล์นี้/ })).toBeDisabled();
+
+    await user.click(within(screen.getByTestId('ack-unusual')).getByRole('checkbox'));
+    await waitFor(() => expect(screen.getByTestId('reconcile-status')).toHaveAttribute('data-ready', '1'));
+    expect(screen.getByRole('button', { name: /ตัดยอดหน้างานตามไฟล์นี้/ })).not.toBeDisabled();
+  });
+
+  it('exports the match result as a CSV with the reason an unmatched row did not match', async () => {
+    const downloaded: (string | number)[][][] = [];
+    vi.spyOn(csvMod, 'downloadCsv').mockImplementation(async (rows) => { downloaded.push(rows as (string | number)[][]); return 'saved'; });
+    const user = await setup('AMLODIPINE 10 mg tablet film,40\nTOTALLY UNKNOWN DRUG,7');
+    await user.click(await screen.findByTestId('export-match-csv'));
+    await waitFor(() => expect(downloaded.length).toBe(1));
+    const rows = downloaded[0];
+    expect(rows[0]).toContain('ชื่อในไฟล์');
+    const amlo = rows.find((r) => String(r[1]).startsWith('AMLODIPINE'))!;
+    expect(String(amlo[3])).toBe('จับคู่ไม่ได้');
+    expect(String(amlo[9])).toMatch(/คล้าย "AMLODIPINE 10 mg เม็ด".*ปลอดภัยที่จะยอมรับ/);
+    const unk = rows.find((r) => String(r[1]).startsWith('TOTALLY'))!;
+    expect(String(unk[9])).toBe('ไม่มียาที่คล้าย');
   });
 });

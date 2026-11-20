@@ -1044,7 +1044,7 @@ export interface AppState {
   reconcileProgress: { done: number; total: number } | null;
   /** What the LAST commitReconcile actually did — kept on screen (not a vanishing toast) until dismissed or a new file loads. */
   reconcileResult: ReconcileResult | null;
-  hosxpFileInfo: { name: string; rowCount: number; totalQty: number; dateRange: { from: string; to: string } | null; zeroRows?: number; fingerprint: string } | null;
+  hosxpFileInfo: { name: string; rowCount: number; totalQty: number; dateRange: { from: string; to: string } | null; zeroRows?: number; sheetsRead?: number; sheetsIgnored?: number; repeatedHeaders?: number; totalsIgnored?: number; fractional?: { name: string; qty: number }[]; fingerprint: string } | null;
 
   // Import usage totals from a file (a real HOSxP "รายงานการใช้ยา" export, .xls/.xlsx, or a
   // plain "ชื่อยา,จำนวน" CSV) to seed used30 — see suggestPar()/importUsageFile() in

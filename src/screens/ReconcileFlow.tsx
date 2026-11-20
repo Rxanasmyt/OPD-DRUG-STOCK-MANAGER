@@ -27,8 +27,9 @@ export function ReconcileStepper({ step }: { step: 1 | 2 | 3 | 4 }) {
   );
 }
 
-export function ReconcileStatusCard({ matched, needDecision, totalUnits, shortCount, alreadyCount, totalRows, ready, onGoFix, rangeLabel }: {
+export function ReconcileStatusCard({ matched, needDecision, totalUnits, shortCount, alreadyCount, totalRows, ready, onGoFix, rangeLabel, unusualCount = 0, unusualPending = 0 }: {
   matched: number; needDecision: number; totalUnits: number; shortCount: number; alreadyCount: number; totalRows: number;
+  unusualCount?: number; unusualPending?: number;
   ready: boolean; onGoFix: () => void; rangeLabel: string | null;
 }) {
   const bg = ready ? 'var(--green-tint)' : 'var(--red-bg)';
@@ -36,7 +37,7 @@ export function ReconcileStatusCard({ matched, needDecision, totalUnits, shortCo
   return (
     <div data-testid="reconcile-status" data-ready={ready ? '1' : '0'} role="status" style={{ background: bg, color, borderRadius: 14, padding: '13px 14px', marginBottom: 12 }}>
       <div style={{ fontSize: 16, fontWeight: 800, lineHeight: 1.3 }}>
-        {ready ? '✓ พร้อมตัดยอด' : '⚠ ยังมี ' + nf(needDecision) + ' รายการที่ต้องตัดสินใจ'}
+        {ready ? '✓ พร้อมตัดยอด' : needDecision > 0 ? '⚠ ยังมี ' + nf(needDecision) + ' รายการที่ต้องตัดสินใจ' : unusualPending > 0 ? '⚠ ยังไม่ได้ยืนยันตัวเลขที่สูงผิดปกติ ' + nf(unusualPending) + ' รายการ' : '⚠ ยังตัดยอดไม่ได้ — ตรวจช่วงวันที่'}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: 6, fontSize: 12.5, fontWeight: 600 }}>
         <span>ในไฟล์ {nf(totalRows)} รายการ</span>
@@ -45,9 +46,10 @@ export function ReconcileStatusCard({ matched, needDecision, totalUnits, shortCo
         <span>จะตัดรวม {nf(totalUnits)} หน่วย</span>
         {alreadyCount > 0 && <span>เคยตัดแล้ว {nf(alreadyCount)} (ไม่ตัดซ้ำ)</span>}
         {shortCount > 0 && <span>ยอดหน้างานไม่พอ {nf(shortCount)}</span>}
+        {unusualCount > 0 && <span>ตัวเลขสูงผิดปกติ {nf(unusualCount)}</span>}
         {rangeLabel && <span>ช่วงวันที่ {rangeLabel}</span>}
       </div>
-      {!ready && needDecision > 0 && (
+      {!ready && (needDecision > 0 || unusualPending > 0) && (
         <button type="button" onClick={onGoFix} style={{ marginTop: 8, border: 0, background: 'transparent', color, fontWeight: 700, fontSize: 12.5, padding: '6px 0', textDecoration: 'underline', minHeight: 36 }}>
           ไปแก้รายการที่ค้างอยู่ ↓
         </button>
