@@ -2,7 +2,7 @@
 // names that matched nothing and says either (a) here is the file name that looks like this drug
 // and exactly which words/strength differ, with a one-tap alias button, or (b) nothing resembles
 // it, so it was most likely not dispensed that day (with how often it normally is).
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { diagnoseMiss, BUSINESS_DAYS_30, type MissVerdict } from '../store/selectors';
 import type { Med } from '../types';
@@ -28,6 +28,7 @@ export function MissDiagnosis({ med, fileNames, onFixMed }: {
   // After an alias is added the file name resolves to this med, so re-running the analysis would
   // flip to "probably not dispensed" — misleading. Show the outcome instead.
   const [addedName, setAddedName] = useState<string | null>(null);
+  const diag = useMemo(() => (fileNames.length ? diagnoseMiss(med, fileNames, state.meds) : null), [med, fileNames, state.meds]);
 
   if (addedName) {
     return (
@@ -45,7 +46,7 @@ export function MissDiagnosis({ med, fileNames, onFixMed }: {
       </div>
     );
   }
-  const d = diagnoseMiss(med, fileNames, state.meds);
+  const d = diag!;
   const ui = VERDICT_UI[d.verdict];
   const freq = d.dispenseDays30 !== null ? `ปกติยานี้จ่าย ${d.dispenseDays30} วัน จาก ~${BUSINESS_DAYS_30} วันทำการใน 30 วัน — วันที่ไม่มีจ่ายเป็นเรื่องปกติราว ${Math.max(0, Math.round((1 - Math.min(1, d.dispenseDays30 / BUSINESS_DAYS_30)) * 100))}% ของวัน` : null;
 

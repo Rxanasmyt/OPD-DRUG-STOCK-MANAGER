@@ -3,7 +3,7 @@
 // still resolve to itself.
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
-import { matchHosxpMed } from './selectors';
+import { matchHosxpMed, diagnoseMiss } from './selectors';
 import type { Med } from '../types';
 
 describe('matchHosxpMed on the real formulary', () => {
@@ -26,5 +26,16 @@ describe('matchHosxpMed on the real formulary', () => {
       }
     }
     expect(wrong).toEqual([]);
+  });
+
+  // Real report: the HOSxP attach screen froze. Matching a 250-row file and diagnosing 60 missing drugs
+  // against the unmatched names took ~30 s (re-normalising every med name for every call).
+  it('matching a big file and diagnosing misses stays fast (screen must not freeze)', () => {
+    const rows = names.slice(0, 250).map((n, i) => (i % 2 ? 'ZZ ' + n.split(' ').reverse().join(' ') : n.replace(/\./g, '')));
+    const t0 = performance.now();
+    const matches = rows.map((r) => matchHosxpMed(meds, r));
+    const unmatched = rows.filter((_, i) => matches[i].kind === 'none');
+    for (const m of meds.slice(0, 60)) diagnoseMiss(m, unmatched, meds);
+    expect(performance.now() - t0).toBeLessThan(3000);
   });
 });
