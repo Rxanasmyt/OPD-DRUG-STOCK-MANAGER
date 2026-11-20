@@ -12,17 +12,21 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { useApp } from './AppContext';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import Toast from '../components/Toast';
-import { signInAs, hasListener } from '../test-utils/firebaseTestDouble';
+import { signInAs, hasListener, fireDoc } from '../test-utils/firebaseTestDouble';
+
+const forceReload = vi.fn();
+vi.mock('../utils/autoUpdate', async (orig) => ({ ...(await orig<typeof import('../utils/autoUpdate')>()), forceFreshReload: () => forceReload() }));
 
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
+const applySW = vi.fn();
 let fakeUpdate = vi.fn(async () => undefined);
 let onNeedRefresh: (() => void) | undefined;
 vi.mock('virtual:pwa-register', () => ({
   registerSW: (opts: { onNeedRefresh?: () => void; onRegisteredSW?: (url: string, reg: unknown) => void }) => {
     onNeedRefresh = opts.onNeedRefresh;
     opts.onRegisteredSW?.('/sw.js', { update: fakeUpdate });
-    return vi.fn();
+    return applySW;
   },
 }));
 
@@ -51,11 +55,24 @@ describe('checkForUpdateNow — manual update-check button regression', () => {
     // fireEvent, not userEvent — userEvent's own internal pointer-sequencing timers hang
     // forever once vi.useFakeTimers() is active without more setup than this needs.
     await act(async () => { fireEvent.click(screen.getByText('check-update')); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
-    expect(screen.getByText('ใช้งานเวอร์ชันล่าสุดอยู่แล้ว')).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(screen.getByText(/ใช้งานเวอร์ชันล่าสุดอยู่แล้ว/)).toBeTruthy();
   });
 
-  it('tapping again while a version is already waiting short-circuits instead of re-checking', async () => {
+  it('never says "latest" while the deploy pipeline announced a newer version: bypasses the SW and reloads fresh', async () => {
+    fakeUpdate = vi.fn(async () => undefined); // the service worker never delivers it
+    forceReload.mockClear();
+    await setup();
+    await act(async () => { fireDoc('meta/settings', { latestVersion: '99.0.0' }); });
+    await act(async () => { fireEvent.click(screen.getByText('check-update')); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(26000); });
+    expect(screen.queryByText(/ใช้งานเวอร์ชันล่าสุดอยู่แล้ว/)).toBeNull();
+    expect(screen.getByText(/พบเวอร์ชันใหม่ \(99\.0\.0\)/)).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(forceReload).toHaveBeenCalledTimes(1);
+  });
+
+  it('a version found by the manual check is applied immediately', async () => {
     let updateCalls = 0;
     // The 1st call is the automatic mount-time check (onRegisteredSW); the 2nd is this test's
     // own explicit tap — modeling "the manual re-check is the one that actually finds it".
@@ -63,11 +80,10 @@ describe('checkForUpdateNow — manual update-check button regression', () => {
     await setup();
     await act(async () => { fireEvent.click(screen.getByText('check-update')); });
     await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
-    expect(screen.queryByText('ใช้งานเวอร์ชันล่าสุดอยู่แล้ว')).toBeNull();
+    expect(screen.queryByText(/ใช้งานเวอร์ชันล่าสุดอยู่แล้ว/)).toBeNull();
+    expect(screen.getByText(/พบเวอร์ชันใหม่ — กำลังอัปเดต/)).toBeTruthy();
 
-    const callsBeforeSecondTap = updateCalls;
-    await act(async () => { fireEvent.click(screen.getByText('check-update')); });
-    expect(updateCalls).toBe(callsBeforeSecondTap); // no new update() call fired — short-circuited
-    expect(screen.getByText('พบเวอร์ชันใหม่อยู่แล้ว — แตะ "อัปเดตเลย" ที่แบนเนอร์ด้านล่างได้เลย')).toBeTruthy();
+    // found → applied right away (updateSW(true) is the mocked registerSW return value)
+    expect(applySW).toHaveBeenCalledWith(true);
   });
 });

@@ -32,7 +32,7 @@ export default function UpdateBanner() {
       <span style={{ fontSize: 18, flex: 'none' }}>⬆️</span>
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ fontSize: 13, fontWeight: 700 }}>มีแอพเวอร์ชันใหม่</div>
-        <div style={{ fontSize: 11, opacity: 0.75, marginTop: 1, lineHeight: 1.4 }}>อัปเดตตอนที่สะดวก — ทำรายการค้างอยู่ให้เสร็จก่อนได้</div>
+        <div style={{ fontSize: 11, opacity: 0.75, marginTop: 1, lineHeight: 1.4 }}>จะอัปเดตให้อัตโนมัติทันทีที่ทำรายการที่ค้างอยู่เสร็จ — หรือกด "อัปเดตเลย" ได้ทุกเมื่อ</div>
       </div>
       <button
         onClick={dismissUpdate}
