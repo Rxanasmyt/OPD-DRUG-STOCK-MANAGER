@@ -1271,7 +1271,28 @@ export function effectiveSubCoverDays(parSubCoverDays: number, effectiveLeadTime
 const STOCKOUT_FEEDBACK_MIN_DAYS = 3;
 const STOCKOUT_FEEDBACK_FACTOR = 1.3;
 
+/** Every intermediate number suggestPar() used, so the UI can show "ทำไมได้เลขนี้" — the SAME computation
+ * (suggestPar below just returns floor/sub/min from it), never a second copy that could drift. */
+export interface ParBreakdown {
+  floor: number; sub: number; min: number;
+  used30: number; usedPrev30: number;
+  /** how the monthly figure was formed: only one month, the 70/30 blend, or the plain 2-month average (after a quiet month) */
+  monthlyRule: 'single' | 'blend' | 'average';
+  rawDaily: number; daily: number; cappedByP90: boolean; p90: number | null;
+  floorDays: number; subDays: number; hasSubstock: boolean;
+  volatility: { manual: number; auto: number | null; effective: number };
+  weekdayFactor: number; criticalityFactor: number; stockoutBoost: number;
+  avgFloor: number; avgSub: number; peakFloor: number;
+  floorDrivenBy: 'average' | 'peak'; subDrivenBy: 'average' | 'peak' | 'floor';
+  rawMin: number; minBy: 'usage' | 'half-of-max';
+}
+
 export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number): { floor: number; sub: number; min: number } | null {
+  const b = parBreakdown(m, floorCoverDays, subCoverDays);
+  return b ? { floor: b.floor, sub: b.sub, min: b.min } : null;
+}
+
+export function parBreakdown(m: Med, floorCoverDays: number, subCoverDays: number): ParBreakdown | null {
   if (!(m.used30 > 0)) return null; // ไม่มีสถิติการใช้จริง ห้ามแนะนำ par (roundStep(0) จะได้ 1 เสมอ ทำให้ค่าแนะนำผิดเพี้ยน)
   const rawDaily = parSuggestionDailyRate(m);
   // Bug fix (real-world report, follow-up — METFORMIN - PL 500 mg. AGAIN, same drug): the
@@ -1406,7 +1427,19 @@ export function suggestPar(m: Med, floorCoverDays: number, subCoverDays: number)
   const rawMin = roundStep(daily * (floorDays / 2) * effectiveVolatility * weekdayFactor * criticalityFactor);
   const minBasis = peakFloor > avgFloor ? halfOfMaxRounded(floor) : rawMin;
   const min = minBasis < floor ? minBasis : halfOfMaxRounded(floor);
-  return { floor, sub, min };
+  return {
+    floor, sub, min,
+    used30: m.used30, usedPrev30: m.usedPrev30 > 0 ? m.usedPrev30 : 0,
+    monthlyRule: !(m.usedPrev30 > 0) ? 'single' : (m.used30 * 0.7 + m.usedPrev30 * 0.3) >= (m.used30 + m.usedPrev30) / 2 ? 'blend' : 'average',
+    rawDaily, daily, cappedByP90: m.peakDayP90Qty != null && rawDaily > m.peakDayP90Qty, p90: m.peakDayP90Qty ?? null,
+    floorDays, subDays: subCoverDays, hasSubstock: usesSubstock(m),
+    volatility: { manual: Number.isFinite(m.volatility) ? m.volatility : 1, auto: m.usageCv != null ? autoVolatilityFloor : null, effective: effectiveVolatility },
+    weekdayFactor, criticalityFactor, stockoutBoost,
+    avgFloor, avgSub, peakFloor,
+    floorDrivenBy: peakFloor > avgFloor ? 'peak' : 'average',
+    subDrivenBy: !usesSubstock(m) ? 'average' : sub === floor && floor > Math.max(avgSub, peakFloor) ? 'floor' : peakFloor > avgSub ? 'peak' : 'average',
+    rawMin, minBy: minBasis < floor && !(peakFloor > avgFloor) ? 'usage' : 'half-of-max',
+  };
 }
 
 // Real-world request: "อยากให้เมื่อมีการ merge เข้า main แล้ว อยากให้มีการอัพเดตเวอชั่นที่รวดเร็ว

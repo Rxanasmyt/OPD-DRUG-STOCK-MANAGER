@@ -11,7 +11,7 @@ type Cat = { id: string; title: string; hint: string; c1: string; c2: string; ta
 export const REPORT_CATEGORIES: Cat[] = [
   { id: 'overview', title: 'ภาพรวม', hint: 'สรุปสำหรับผู้บริหาร / PTC', c1: '#2563eb', c2: '#1d4ed8', tabs: ['exec'] },
   { id: 'stock', title: 'สต็อก & วันหมดอายุ', hint: 'ยอดคงคลัง มูลค่า ความเสี่ยงหมดอายุ', c1: '#0b9490', c2: '#0a7f7b', tabs: ['aging', 'category', 'turn', 'stockasof'] },
-  { id: 'usage', title: 'การใช้ยา & การเติม', hint: 'อัตราใช้ แนวโน้ม การเติมหน้างาน', c1: '#7c3aed', c2: '#5b3fd6', tabs: ['usage', 'replenish', 'insights'] },
+  { id: 'usage', title: 'การใช้ยา & การเติม', hint: 'อัตราใช้ แนวโน้ม การเติมหน้างาน', c1: '#7c3aed', c2: '#5b3fd6', tabs: ['usage', 'replenish', 'insights', 'parsim'] },
   { id: 'audit', title: 'ตรวจสอบ & ย้อนหลัง', hint: 'ความคลาดเคลื่อน การคืนยา ตัวชี้วัดรายวัน', c1: '#d1850f', c2: '#b45309', tabs: ['disc', 'returns', 'kpi'] },
 ];
 
@@ -27,6 +27,7 @@ const TAB_INFO: Record<ReportTab, { icon: string; desc: string }> = {
   disc: { icon: '⚠️', desc: 'ปรับยอด ยาเสีย หมดอายุ นับไม่ตรง' },
   returns: { icon: '↩️', desc: 'ยาที่ผู้ป่วยคืน / ADR' },
   kpi: { icon: '📅', desc: 'ตัวชี้วัดรายวันตามช่วงวันที่' },
+  parsim: { icon: '🧪', desc: 'จำลองการขาด/ค้างชั้นของ Min/Max ด้วยประวัติจริง' },
 };
 
 export function ReportPicker({ active, onSelect }: { active: ReportTab; onSelect: (t: ReportTab) => void }) {

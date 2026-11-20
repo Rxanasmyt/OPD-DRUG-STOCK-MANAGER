@@ -10,7 +10,7 @@ import { renderWithApp } from '../test-utils/renderWithApp';
 import { signInAs, fireCollection, hasListener } from '../test-utils/firebaseTestDouble';
 
 describe('ReportScreen — grouped report picker', () => {
-  it('shows all 11 reports at once, grouped in 4 categories, with no horizontal scroller', async () => {
+  it('shows all 12 reports at once, grouped in 4 categories, with no horizontal scroller', async () => {
     renderWithApp(<ReportScreen />);
     await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
@@ -19,7 +19,7 @@ describe('ReportScreen — grouped report picker', () => {
 
     const picker = await screen.findByTestId('report-picker');
     expect(picker.querySelectorAll('section')).toHaveLength(4);
-    expect(within(picker).getAllByRole('button')).toHaveLength(11);
+    expect(within(picker).getAllByRole('button')).toHaveLength(12);
     expect(picker.querySelector('.scroll-fade-x')).toBeNull();
     const first = await screen.findByRole('button', { name: /ภาพรวมผู้บริหาร/ });
     await userEvent.setup().click(first);

@@ -16,6 +16,7 @@ import { ReturnsTab } from './report/ReturnsTab';
 import { StockAsOfTab } from './report/StockAsOfTab';
 import { ReplenishTab } from './report/ReplenishTab';
 import { ReportPicker } from './report/ReportPicker';
+import { ParBacktestTab } from './report/ParBacktestTab';
 
 export default function ReportScreen() {
   const {
@@ -458,7 +459,7 @@ export default function ReportScreen() {
             (exportDailyMetricsCsv / exportUsageHistoryCsv / exportStockAsOfCsv on their own
             fetched rows) — the generic exportReportCsv here only ever knows how to export
             whatever's in state right now, which doesn't make sense for a historical range. */}
-        {state.reportTab !== 'kpi' && state.reportTab !== 'usage' && state.reportTab !== 'stockasof' && state.reportTab !== 'returns' && state.reportTab !== 'replenish' && (
+        {state.reportTab !== 'kpi' && state.reportTab !== 'usage' && state.reportTab !== 'stockasof' && state.reportTab !== 'returns' && state.reportTab !== 'replenish' && state.reportTab !== 'parsim' && (
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <button onClick={exportReportCsv} className="btn-outline" style={{ flex: 1, padding: 12, borderRadius: 11, fontSize: 13, fontWeight: 600, minHeight: 44 }}>
               ↓ Export CSV — {REPORT_NAMES[state.reportTab]}
@@ -563,6 +564,8 @@ export default function ReportScreen() {
             goSubstockCardFor={goSubstockCardFor}
           />
         )}
+
+        {state.reportTab === 'parsim' && <ParBacktestTab />}
 
         {state.reportTab === 'stockasof' && (
           <StockAsOfTab
