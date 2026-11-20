@@ -1,4 +1,5 @@
 import { TAB } from './navLabels';
+import LoginArt from './components/LoginArt';
 import AppIcon from './components/AppIcon';
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from 'react';
 import { useApp } from './store/AppContext';
@@ -57,6 +58,11 @@ const TITLES: Record<Screen, [string, string]> = {
   wardmove: ['ย้ายยาระหว่างชั้นวาง', 'เช่น ลิ้นชักฉีดยา IPD → stat OPD'],
   substockcard: ['บัตรคุมยา', 'รับ-จ่าย-คงเหลือ real-time'],
 };
+
+// Screens that already put .work-screen / .home-screen on their own root.
+const OWN_STYLE: Screen[] = ['home', 'transfer', 'reconcile'];
+// Few-card screens where frosted glass is cheap.
+const GLASS_SCREENS: Screen[] = ['more', 'adjust', 'settings', 'admin', 'labels', 'wardmove', 'tconfirm', 'done'];
 
 const CAN_BACK: Screen[] = ['tconfirm', 'adjust', 'report', 'labels', 'settings', 'count', 'reconcile', 'admin', 'meds', 'wardmove', 'substockcard'];
 // Bug fix (real-world request, screenshotted from a real device: "อยากให้ดูดีกว่านี้มากๆๆ") —
@@ -160,6 +166,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="app-header" style={{ background: 'linear-gradient(155deg, #149c9a 0%, var(--green) 55%, var(--green-dark) 100%)', color: 'var(--ink-soft)', padding: 'calc(env(safe-area-inset-top, 0px) + 12px) var(--header-pad-x) 13px', flex: 'none', boxShadow: '0 4px 14px -6px rgba(0,76,75,.5)', position: 'relative', overflow: 'hidden', zIndex: 3 }}>
+        <LoginArt calm />
         <div className="mesh-bg" aria-hidden="true" />
         {canBack ? (
           // Goes through the real browser history (see AppContext.tsx's popstate handler) rather
@@ -260,7 +267,10 @@ export default function App() {
       )}
 
       <main ref={mainRef} onScroll={saveScroll} style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
-        <div key={state.screen} className={navDir === 'fwd' ? 'nav-slide-fwd' : 'nav-slide-back'}>
+        {/* "login look" on every working screen (rounds 1–3): a soft aurora wash behind the page (.work-screen) and, on the few-card
+            screens only, frosted-glass cards (.work-screen--glass). home/transfer/reconcile carry their own wrapper class already.
+            The big list screens (count, receive, meds, report…) stay opaque: backdrop-filter on dozens of rows is what slows old tablets. */}
+        <div key={state.screen} className={(navDir === 'fwd' ? 'nav-slide-fwd' : 'nav-slide-back') + (OWN_STYLE.includes(state.screen) ? '' : ' work-screen') + (GLASS_SCREENS.includes(state.screen) ? ' work-screen--glass' : '')}>
           <Suspense fallback={<ScreenLoading />}>
             <Screens screen={state.screen} />
           </Suspense>

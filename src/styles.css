@@ -1179,3 +1179,44 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
   html, body, #root { background: var(--bg-app); }
   html, body { overflow: hidden; overscroll-behavior: none; }
 }
+
+/* ---------- "login look" carried into the working screens (round 1: header + home) ----------
+   Rule: brand + glass + gradient on the CHROME and summary cards; plain, high-contrast surfaces wherever data is read or typed.
+   Everything here is static (no looping animation) so it costs nothing on old tablets. */
+.login-art--calm { opacity: .5; }
+.login-art--calm svg { opacity: .55; }
+.login-art--calm::after { background: linear-gradient(90deg, rgba(0,60,58,.55), rgba(0,60,58,.05) 45%, rgba(0,60,58,.45)), linear-gradient(180deg, rgba(0,50,50,.0), rgba(0,50,50,.5)); }
+.login-art--calm .la-slats path, .login-art--calm .la-light, .login-art--calm .la-halo { animation: none; }
+.app-header .brand-mark-name { text-shadow: none; } /* text-shadow paints over a background-clip:text gradient and greys it — the name already has a drop-shadow filter */
+
+/* home: soft aurora behind the page so the glass cards have something to refract; cards become frosted glass with a teal hairline */
+.home-screen { position: relative; }
+.home-screen::before { content: ''; position: absolute; inset: -16px -14px auto; height: 360px; z-index: -1; pointer-events: none; background: radial-gradient(60% 70% at 15% 0%, rgba(var(--green-rgb), .20), transparent 70%), radial-gradient(55% 60% at 95% 10%, rgba(var(--brand-coral-rgb), .16), transparent 70%); }
+.home-screen .card { background-color: var(--glass-bg); -webkit-backdrop-filter: blur(14px) saturate(1.4); backdrop-filter: blur(14px) saturate(1.4); border-color: rgba(var(--green-rgb), .2); box-shadow: 0 12px 30px -16px rgba(var(--green-rgb), .45), inset 0 1px 0 rgba(255,255,255,.55); }
+[data-theme='dark'] .home-screen .card { box-shadow: 0 12px 30px -16px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.07); }
+.home-screen .section-eyebrow { color: var(--ink); }
+
+/* dark mode: stat/summary tiles carry WHITE text, but their gradients started from the bright "-bright" tints (≈2:1 contrast).
+   Deeper stops keep the tile colours recognisable (red / amber / teal) while white text is readable. */
+[data-theme='dark'] {
+  --grad-red: linear-gradient(135deg, #cf4234, #9d271f);
+  --grad-amber: linear-gradient(135deg, #a96809, #85540a);
+  --grad-brand: linear-gradient(135deg, #0d8682, #0a5a57);
+}
+
+/* ---------- "login look" — round 2: นำเข้า HOSxP + เติมหน้างาน ----------
+   Perf rule: backdrop-filter only on FEW large surfaces (summary cards, bars). The transfer list has dozens of rows → no blur there. */
+.work-screen, .home-screen { isolation: isolate; }
+.work-screen { position: relative; }
+.work-screen::before { content: ''; position: absolute; inset: 0 0 auto; height: 320px; z-index: -1; pointer-events: none; background: radial-gradient(60% 70% at 10% 0%, rgba(var(--green-rgb), .16), transparent 70%), radial-gradient(55% 60% at 100% 6%, rgba(var(--brand-coral-rgb), .12), transparent 70%); }
+.work-screen--glass .card, .work-screen--glass .rc-file, .work-screen--glass .rc-drop { -webkit-backdrop-filter: blur(12px) saturate(1.3); backdrop-filter: blur(12px) saturate(1.3); }
+.work-screen--glass .card { background-color: var(--glass-bg); border-color: rgba(var(--green-rgb), .22); box-shadow: 0 12px 28px -16px rgba(var(--green-rgb), .45), inset 0 1px 0 rgba(255,255,255,.5); }
+[data-theme='dark'] .work-screen--glass .card { box-shadow: 0 12px 28px -16px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.06); }
+
+/* HOSxP: the drop zone gets a teal-to-coral dashed glow; the commit bar becomes a frosted pill like the return screen's save bar */
+.rc-drop { background-image: radial-gradient(80% 120% at 50% 0%, rgba(var(--green-rgb), .12), transparent 70%); border-color: rgba(var(--green-rgb), .45); }
+.rc-commit { border-top: 1px solid rgba(var(--green-rgb), .25); box-shadow: 0 -14px 30px -18px rgba(var(--green-rgb), .5); }
+.rc-commit-btn { box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 10px 22px -10px rgba(var(--green-rgb), .7); }
+
+/* เติมหน้างาน: floating "ตรวจสอบ" bar = frosted glass pill (was a hard-coded light gradient, wrong in dark mode) */
+.tf-bar { left: 10px; right: 10px; padding: 10px 12px 10px 14px; border-radius: 18px; z-index: 6; background: var(--glass-bg, rgba(255,255,255,.86)); -webkit-backdrop-filter: blur(16px) saturate(1.5); backdrop-filter: blur(16px) saturate(1.5); border: 1px solid rgba(var(--green-rgb), .28); box-shadow: 0 14px 34px -14px rgba(var(--green-rgb), .55), var(--shadow-md); }

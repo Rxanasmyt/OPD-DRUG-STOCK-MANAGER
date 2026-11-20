@@ -161,7 +161,7 @@ export default function HomeScreen() {
   const pendingApprovals = myProfile?.role !== 'tech' ? state.pending : 0;
 
   return (
-    <div style={{ padding: '16px 14px 24px', animation: 'fade .18s' }}>
+    <div className="home-screen" style={{ padding: '16px 14px 24px', animation: 'fade .18s' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '2px 2px 16px' }}>
         <div style={{ width: 44, height: 44, borderRadius: 14, background: 'radial-gradient(circle at 35% 30%, #ffffff, #f4f2ec)', border: '1px solid var(--border-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 7, flex: 'none' }}>
           <HospitalCrest size={28} />

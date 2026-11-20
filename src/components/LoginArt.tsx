@@ -16,11 +16,11 @@ function slatPath(i: number): string {
   return `M${x0} -20 L${x0 + w0} -20 L${x1 + w1} ${VY} L${x1} ${VY} Z`;
 }
 
-export default function LoginArt() {
+export default function LoginArt({ calm = false }: { calm?: boolean }) {
   const slats = Array.from({ length: SLATS }, (_, i) => i);
   const lights = [-300, -150, 0, 150, 300].map((dx, i) => ({ i, dx }));
   return (
-    <div className="login-art" aria-hidden="true">
+    <div className={'login-art' + (calm ? ' login-art--calm' : '')} aria-hidden="true">
       <svg viewBox="0 0 1000 800" preserveAspectRatio="xMidYMin slice" focusable="false">
         <defs>
           <linearGradient id="la-wood" x1="0" y1="0" x2="0" y2="1">
@@ -61,7 +61,7 @@ export default function LoginArt() {
         {/* floor reflection */}
         <rect x="0" y="500" width="1000" height="300" fill="#0b2a2b" opacity=".35" />
         {/* drifting sparks */}
-        {Array.from({ length: 14 }, (_, i) => (
+        {!calm && Array.from({ length: 14 }, (_, i) => (
           <circle key={i} className="la-spark" cx={(i * 173) % 1000} cy={420 + ((i * 97) % 300)} r={1.6 + (i % 3)} fill="#ffd9c9"
             style={{ animationDelay: (i * 0.9).toFixed(1) + 's', animationDuration: 9 + (i % 5) * 2 + 's' }} />
         ))}

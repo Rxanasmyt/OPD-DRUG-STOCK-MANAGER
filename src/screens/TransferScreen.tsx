@@ -208,7 +208,7 @@ export default function TransferScreen() {
   const chip = (active: boolean) => ({ border: active ? '1px solid var(--green)' : '1px solid var(--border)', background: active ? 'var(--grad-brand)' : 'var(--bg-card)', color: active ? 'var(--ink-soft)' : 'var(--ink)' });
 
   return (
-    <div style={{ animation: 'fade .18s' }}>
+    <div className="work-screen" style={{ animation: 'fade .18s' }}>
       <StepIndicator steps={TRANSFER_STEPS} current={0} />
       <StockHoldBanner />
       {/* เตือนเฉยๆ ไม่กรอง/ไม่ซ่อนอะไร — คลินิกวันนี้อาจทำให้ยากลุ่มนี้ใช้เร็วกว่าปกติ เผื่อดูก่อน
@@ -459,7 +459,7 @@ export default function TransferScreen() {
       </div>
 
       {cartIds.length > 0 && (
-        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 66, padding: '10px 14px', background: 'linear-gradient(to top, var(--bg-app) 60%, rgba(247,246,242,0))', display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div className="tf-bar" style={{ position: 'absolute', bottom: 66, display: 'flex', gap: 10, alignItems: 'center' }}>
           <div className="muted" style={{ fontSize: 12.5, flex: 1, lineHeight: 1.35 }}>
             {cartIds.length} รายการ · {nf(cartIds.reduce((s, id) => s + state.cart[id], 0))} หน่วย
             {cartIds.some((id) => meds.find((m) => m.id === id)?.had) && (
