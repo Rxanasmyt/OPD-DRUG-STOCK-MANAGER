@@ -27,7 +27,7 @@ import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetch
 import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchAllTxs, fetchTxsByName, fetchTxsByNameSince, fetchTxsAfter, queryTxsByDateRange } from './repositories/txsRepo';
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
 import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, lastReconcileCoveredToIso, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, parseHosxpDayReport, buildReconcileMonth, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays, reqCategoryOf } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, lastReconcileCoveredToIso, priorReconcileByMed, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, parseHosxpDayReport, buildReconcileMonth, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays, reqCategoryOf } from './selectors';
 import { nf, thDate, lotLabel, expLabel, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -6357,7 +6357,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // risky" convention as guardOnce's own timeout-retry confirm above) — a deliberate re-run
     // (correcting a botched first import) is also a real, legitimate case this must not stop.
     const alreadyRanToday = !isResuming && lastReconcileDateIso(state.txs) === isoDate(Date.now());
-    if (alreadyRanToday && !(await confirmAsync(
+    // Re-attaching a file for a range that was ALREADY reconciled (a corrected/re-pulled export, or a
+    // plain double attach): per med, only the part the file reports ABOVE what that range already took
+    // is deducted — meds already deducted are never taken twice. See priorReconcileByMed.
+    const priorByMed = isResuming ? new Map<string, number>() : priorReconcileByMed(state.txs, state.hosxpCoveredFrom, state.hosxpCoveredTo);
+    const deltaMode = priorByMed.size > 0;
+    if (deltaMode && !(await confirmAsync(
+      'ช่วงวันที่ ' + state.hosxpCoveredFrom + (state.hosxpCoveredTo !== state.hosxpCoveredFrom ? ' ถึง ' + state.hosxpCoveredTo : '') + ' เคยตัดยอด HOSxP ไปแล้ว (' + priorByMed.size + ' รายการยา) — ระบบจะตัดเฉพาะส่วนที่ไฟล์นี้จ่ายมากกว่าที่เคยตัดไว้ (ยาที่ตัดไปแล้วจะไม่ถูกตัดซ้ำ) ดำเนินการต่อหรือไม่?'
+    ))) return;
+    if (alreadyRanToday && !deltaMode && !(await confirmAsync(
       'วันนี้ตัดยอด HOSxP ไปแล้ว 1 ครั้ง — ถ้าตัดซ้ำอีกครั้งจะหักสต็อกหน้างานซ้ำสอง (เกินจริง) ถ้ากำลังแก้ไฟล์ที่นำเข้าผิดไปก่อนหน้านี้ ทำต่อได้เลย แต่ถ้าไม่แน่ใจ ให้ยกเลิกแล้วตรวจสอบก่อน — ต้องการตัดยอดซ้ำต่อหรือไม่?'
     ))) return;
     // Real-world request: "ป้องกันการแนบไฟล์ผิดวัน หรือสามารถรู้ได้ว่าวันไหนที่ทำการแนบไฟล์ไปแล้ว
@@ -6377,7 +6385,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // back to yesterday at the latest, so a same-day double-run is always also a same-range
     // overlap), and stacking a second dialog for the identical risk would just be noise. Also
     // skipped when isResuming — same reasoning as alreadyRanToday's own skip above.
-    if (!alreadyRanToday && !isResuming) {
+    if (!alreadyRanToday && !isResuming && !deltaMode) {
       const lastCoveredTo = lastReconcileCoveredToIso(state.txs);
       if (lastCoveredTo) {
         if (state.hosxpCoveredFrom <= lastCoveredTo) {
@@ -6434,7 +6442,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (dup) lines.push('⚠ ไฟล์นี้เหมือนกับไฟล์ที่เคยตัดยอดไปแล้วเมื่อ ' + thDate(dup.e.ts) + ' (ช่วง ' + dup.r!.fromIso + ' ถึง ' + dup.r!.toIso + ') — น่าจะแนบซ้ำ');
       if (!(await confirmAsync(lines.join('\n')))) return;
     }
-    let applied = 0, skipped = 0, zeroQty = 0;
+    let applied = 0, skipped = 0, zeroQty = 0, alreadyDone = 0;
     // Bug fix (debugging gap — real incident, 2026-10-30): a failure here used to surface as a
     // completely anonymous "ประมวลผลไม่สำเร็จ (permission-denied)" — on a ward tablet with no
     // DevTools console (see toastErr's own comment on this exact gap), there was no way for
@@ -6488,14 +6496,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // once there's a confirmed mechanism and a fix for it, not before.
       const CHUNK_SIZE = 1;
       for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-        await Promise.all(rows.slice(i, i + CHUNK_SIZE).map(async (r, j) => {
+        await Promise.all(rows.slice(i, i + CHUNK_SIZE).map(async (r0, j) => {
           const rowIdx = i + j;
+          let r = r0;
           // Real-world request: "ยาที่ถูกตัดไปแล้ว จะถูกตัดซ้ำมั้ย" — this exact row index already
           // landed for real in an earlier (failed-partway) attempt on this SAME loaded batch
           // (see appliedIdx's own doc comment above) — counted toward `applied` for an accurate
           // final summary, but never re-run through runTx, which would double-deduct it.
           if (appliedIdx.has(rowIdx)) { applied++; return; }
           if (r.qty <= 0) { zeroQty++; return; }
+          // Delta mode: subtract what this med's same-range reconcile already took (shared across the med's rows).
+          if (deltaMode && (r.match.kind === 'exact' || r.match.kind === 'fuzzy')) {
+            const have = priorByMed.get(r.match.medId) || 0;
+            const consume = Math.min(have, r.qty);
+            if (consume > 0) priorByMed.set(r.match.medId, have - consume);
+            if (consume >= r.qty) { alreadyDone++; appliedIdx.add(rowIdx); patch({ hosxpAppliedRowIndexes: Array.from(appliedIdx) }); return; }
+            r = { ...r, qty: r.qty - consume };
+          }
           // Only 'exact' and 'fuzzy' (human-confirmed above) resolve to a single med —
           // 'ambiguous' and 'none' never touch stock, so a bad name in the source file can't
           // silently deduct from the wrong drug or get dropped without anyone noticing.
@@ -6531,7 +6548,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               trx.set(newTxRef(), {
                 type: 'reconcile_hosxp', name: m.name, medId: m.id, qty: -deducted, unit: m.unit,
                 reason: 'นำเข้าจากไฟล์ HOSxP',
-                note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP' + (r.match.kind === 'fuzzy' ? ' (จับคู่ชื่อแบบไม่ตรงเป๊ะ — ยืนยันโดยผู้ใช้แล้ว)' : ''),
+                note: 'จ่ายจริง ' + nf(r.qty) + ' ' + m.unit + ' ตามไฟล์ HOSxP' + (deltaMode && r !== r0 ? ' (ส่วนต่างจากที่เคยตัดไว้ ' + nf(r0.qty - r.qty) + ')' : '') + (r.match.kind === 'fuzzy' ? ' (จับคู่ชื่อแบบไม่ตรงเป๊ะ — ยืนยันโดยผู้ใช้แล้ว)' : ''),
                 loc: 'floor', by: userName(), ts: Date.now(),
                 // The real dispensing period this qty represents (e.g. Fri-Sun on a Monday
                 // catch-up), separate from `ts` above (when the admin actually clicked commit —
@@ -6668,6 +6685,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         'ตัดยอดหน้างานตามไฟล์แล้ว ' + applied + ' รายการ'
         + (skipped ? ' · ข้าม ' + skipped + ' รายการที่จับคู่ไม่ได้' : '')
         + (zeroQty ? ' · ' + zeroQty + ' รายการจำนวน 0 (ไม่ตัดยอด)' : '')
+        + (alreadyDone ? ' · ' + alreadyDone + ' รายการเคยตัดครบแล้ว (ไม่ตัดซ้ำ)' : '')
         + ' — บันทึกลง discrepancy log'
       );
       // Real-world request: "อยากให้รันอัตโนมัติหลักจากแนบไฟล์การใช้ยาจาก hosxp" (ตามด้วย "ให้ admin

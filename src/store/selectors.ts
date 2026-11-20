@@ -1647,6 +1647,19 @@ export function compareMedNames(appName: string, fileName: string): NameDiff | n
   return { fileName, score: rounded, onlyInApp, onlyInFile, appNumbers: a.numbers, fileNumbers: f.numbers, numbers, safe };
 }
 
+/** Per med, how much a reconcile_hosxp for EXACTLY this covered range already took (the file's reported
+ * qty, not the clamped floor delta). Re-attaching the same day's file then deducts only the remainder. */
+export function priorReconcileByMed(txs: readonly Tx[], from: string, to: string): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!from || !to) return out;
+  for (const t of txs) {
+    if (t.type !== 'reconcile_hosxp' || !t.medId || t.coveredFrom !== from || t.coveredTo !== to) continue;
+    const reported = t.reportedQty ?? -t.qty;
+    if (reported > 0) out.set(t.medId, (out.get(t.medId) || 0) + reported);
+  }
+  return out;
+}
+
 /** The reverse of diagnoseMiss: a file row that matched NO med → which app meds could it be, and
  * exactly which words/strength differ. Safe-to-alias first, then needs-a-human, then different
  * strength; best score first within each. Never decides anything itself. */
