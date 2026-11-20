@@ -1958,3 +1958,19 @@ describe('unusualDispense / weekdaysInRange — pre-commit sanity check', () => 
     expect(unusualDispense(m(0), 20, 1)).toBeNull();
   });
 });
+
+
+describe('hosxpDateCheck — is the attached file provably the right day?', () => {
+  it('verified only when the file date equals the covered range AND it is the range that is due', async () => {
+    const { hosxpDateCheck } = await import('./selectors');
+    const r = { from: '2026-11-19', to: '2026-11-19' };
+    expect(hosxpDateCheck(r, '2026-11-19', '2026-11-19', '2026-11-19', '2026-11-19')).toBe('verified');
+    expect(hosxpDateCheck({ from: '2026-11-14', to: '2026-11-16' }, '2026-11-14', '2026-11-16', '2026-11-14', '2026-11-19')).toBe('verified'); // catch-up inside the due window
+  });
+  it('flags an unreadable file date, a covered range that differs from the file, and a day that is not due', async () => {
+    const { hosxpDateCheck } = await import('./selectors');
+    expect(hosxpDateCheck(null, '2026-11-19', '2026-11-19', '2026-11-19', '2026-11-19')).toBe('unreadable');
+    expect(hosxpDateCheck({ from: '2026-11-18', to: '2026-11-18' }, '2026-11-19', '2026-11-19', '2026-11-19', '2026-11-19')).toBe('mismatch');
+    expect(hosxpDateCheck({ from: '2026-11-18', to: '2026-11-18' }, '2026-11-18', '2026-11-18', '2026-11-19', '2026-11-19')).toBe('off_schedule'); // already reconciled day
+  });
+});

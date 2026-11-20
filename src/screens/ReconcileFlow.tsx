@@ -7,7 +7,8 @@ import { nf } from '../utils/format';
 
 export const STEPS = ['แนบไฟล์', 'แก้รายการ', 'ตรวจสรุป', 'ตัดยอด'] as const;
 
-export function ReconcileStepper({ step }: { step: 1 | 2 | 3 | 4 }) {
+/** Finished steps are tappable = "go back": 1 discards the file (with confirmation), 2/3 jump to that part without losing anything. */
+export function ReconcileStepper({ step, onStep }: { step: 1 | 2 | 3 | 4; onStep?: (n: number) => void }) {
   return (
     <ol data-testid="reconcile-stepper" className="rc-steps" aria-label="ขั้นตอนการตัดยอด">
       {STEPS.map((label, i) => {
@@ -16,8 +17,17 @@ export function ReconcileStepper({ step }: { step: 1 | 2 | 3 | 4 }) {
         const cur = n === step;
         return (
           <li key={label} className="rc-step" data-done={done ? '1' : '0'} data-cur={cur ? '1' : '0'} aria-current={cur ? 'step' : undefined}>
-            <div className="rc-dot">{done ? '✓' : n}</div>
-            <div className="rc-step-label">{n}. {label}</div>
+            {done && onStep ? (
+              <button type="button" onClick={() => onStep(n)} aria-label={'กลับไปขั้นที่ ' + n + ' ' + label} style={{ border: 0, background: 'transparent', padding: 0, width: '100%', minHeight: 44, cursor: 'pointer' }}>
+                <div className="rc-dot">✓</div>
+                <div className="rc-step-label">{n}. {label}</div>
+              </button>
+            ) : (
+              <>
+                <div className="rc-dot">{done ? '✓' : n}</div>
+                <div className="rc-step-label">{n}. {label}</div>
+              </>
+            )}
           </li>
         );
       })}
@@ -34,15 +44,16 @@ function Tile({ n, label, warn }: { n: string; label: string; warn?: boolean }) 
   );
 }
 
-export function ReconcileStatusCard({ matched, needDecision, totalUnits, shortCount, alreadyCount, totalRows, ready, onGoFix, rangeLabel, unusualCount = 0, unusualPending = 0 }: {
+export function ReconcileStatusCard({ matched, needDecision, totalUnits, shortCount, alreadyCount, totalRows, ready, onGoFix, rangeLabel, unusualCount = 0, unusualPending = 0, dateBlocked = false }: {
   matched: number; needDecision: number; totalUnits: number; shortCount: number; alreadyCount: number; totalRows: number;
-  unusualCount?: number; unusualPending?: number;
+  unusualCount?: number; unusualPending?: number; dateBlocked?: boolean;
   ready: boolean; onGoFix: () => void; rangeLabel: string | null;
 }) {
   const title = ready ? 'พร้อมตัดยอด'
-    : needDecision > 0 ? 'ยังมี ' + nf(needDecision) + ' รายการที่ต้องตัดสินใจ'
-      : unusualPending > 0 ? 'ยืนยันตัวเลขที่สูงผิดปกติ ' + nf(unusualPending) + ' รายการ'
-        : 'ยังตัดยอดไม่ได้ — ตรวจช่วงวันที่';
+    : dateBlocked ? 'ยืนยันวันที่ของไฟล์ก่อน — ยังไม่แน่ใจว่าเป็นไฟล์ของวันที่ต้องตัด'
+      : needDecision > 0 ? 'ยังมี ' + nf(needDecision) + ' รายการที่ต้องตัดสินใจ'
+        : unusualPending > 0 ? 'ยืนยันตัวเลขที่สูงผิดปกติ ' + nf(unusualPending) + ' รายการ'
+          : 'ยังตัดยอดไม่ได้ — ตรวจช่วงวันที่';
   return (
     <div data-testid="reconcile-status" data-ready={ready ? '1' : '0'} role="status" className="rc-status">
       <div className="rc-status-head">
@@ -61,7 +72,7 @@ export function ReconcileStatusCard({ matched, needDecision, totalUnits, shortCo
         {shortCount > 0 && <Tile n={nf(shortCount)} label="ยอดหน้างานไม่พอ" warn />}
         {unusualCount > 0 && <Tile n={nf(unusualCount)} label="ตัวเลขสูงผิดปกติ" warn />}
       </div>
-      {!ready && (needDecision > 0 || unusualPending > 0) && (
+      {!ready && (needDecision > 0 || unusualPending > 0 || dateBlocked) && (
         <button type="button" className="rc-status-link" onClick={onGoFix}>ไปแก้รายการที่ค้างอยู่ ↓</button>
       )}
     </div>

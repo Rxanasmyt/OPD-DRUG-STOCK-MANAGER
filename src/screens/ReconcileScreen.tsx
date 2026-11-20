@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { wardOf, hosxpMissReasons, isRegularlyDispensed, lastReconcileCoveredToIso, priorReconcileByMed, suggestMedsForFileName, diagnoseMiss, unusualDispense, weekdaysInRange } from '../store/selectors';
+import { wardOf, hosxpMissReasons, isRegularlyDispensed, lastReconcileCoveredToIso, priorReconcileByMed, suggestMedsForFileName, diagnoseMiss, unusualDispense, weekdaysInRange, hosxpDateCheck } from '../store/selectors';
 import { downloadCsv } from '../utils/csv';
+import { thDateWithWeekday } from '../utils/format';
+import { smartHosxpCoveredFrom } from '../store/AppContext';
 import { nf, thDate, isoDate, bangkokWeekday } from '../utils/format';
 import type { HosxpMatch, Med, MedId, ReconcileGapDay, ReconcileMonthDay } from '../types';
 import { Badge } from '../components/Badge';
@@ -29,7 +31,7 @@ const MISS_REASON_BADGE: Record<'not_in_file' | 'ambiguous', { label: string; co
 };
 
 export default function ReconcileScreen() {
-  const { state, fetchPriorReconcile, resolveHosxpRowsBulk, undoLastReconcile, dismissReconcileResult, processHosxpFile, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, fetchReconcileMonth, toast, go, setMedsFocusId } = useApp();
+  const { state, setHosxpDateConfirmed, discardHosxpFile, unresolveHosxpRow, fetchPriorReconcile, resolveHosxpRowsBulk, undoLastReconcile, dismissReconcileResult, processHosxpFile, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, fetchReconcileMonth, toast, go, setMedsFocusId } = useApp();
 
   // Real-world request: "เพื่อนำไปสู่การแก้ไขปัญหายาที่อาจจะยังมีปัญหาครับ"/"สามารถเชื่อมโยงปัญหานั่น
   // ไปแก้ปัญหาจริงได้" — a miss-reasons row used to just explain what's wrong with no way to act
@@ -154,6 +156,12 @@ export default function ReconcileScreen() {
   const daysCovered = coveredValid
     ? Math.round((new Date(state.hosxpCoveredTo + 'T00:00:00').getTime() - new Date(state.hosxpCoveredFrom + 'T00:00:00').getTime()) / DAY) + 1
     : 0;
+  // Is the attached file provably the one due? (see hosxpDateCheck) — otherwise the pharmacist must pick + confirm.
+  const dueYesterday = isoDate(Date.now() - DAY);
+  const dueFrom = smartHosxpCoveredFrom(state.txs, dueYesterday);
+  const dateStatus = state.hosxpFileInfo ? hosxpDateCheck(state.hosxpFileInfo.dateRange, state.hosxpCoveredFrom, state.hosxpCoveredTo, dueFrom, dueYesterday) : 'verified';
+  const dateBlocked = !!state.hosxpFileInfo && dateStatus !== 'verified' && !state.hosxpDateConfirmed;
+  const dueLabel = dueFrom === dueYesterday ? thDateWithWeekday(dueYesterday) : thDateWithWeekday(dueFrom) + ' – ' + thDateWithWeekday(dueYesterday);
   // Quantities far above what the drug normally moves over this period (wrong-range file, wrong unit, typo).
   const businessDays = weekdaysInRange(state.hosxpCoveredFrom, state.hosxpCoveredTo);
   const unusualByIdx = new Map<number, NonNullable<ReturnType<typeof unusualDispense>>>();
@@ -162,7 +170,7 @@ export default function ReconcileScreen() {
   });
   const unusualCount = unusualByIdx.size;
   const unusualPending = ackUnusual ? 0 : unusualCount;
-  const canCommit = reconcileRows.length > 0 && (fuzzyCount === 0 || state.hosxpConfirmFuzzy) && coveredValid && unmatchedBig.length === 0 && unusualPending === 0;
+  const canCommit = reconcileRows.length > 0 && (fuzzyCount === 0 || state.hosxpConfirmFuzzy) && coveredValid && unmatchedBig.length === 0 && unusualPending === 0 && !dateBlocked;
 
   // ---- guided-flow summary (one status card, a stepper, only-what-needs-attention lists) ----
   const rowsWithIdx = reconcileRows.map((r, i) => ({ ...r, i }));
@@ -180,7 +188,7 @@ export default function ReconcileScreen() {
   const [editRange, setEditRange] = useState(false);
   const fileRange = state.hosxpFileInfo?.dateRange ?? null;
   const rangeMatchesFile = !!fileRange && fileRange.from === state.hosxpCoveredFrom && fileRange.to === state.hosxpCoveredTo;
-  const showRangePickers = editRange || !rangeMatchesFile;
+  const showRangePickers = editRange || (!!state.hosxpFileInfo ? dateStatus !== 'verified' : !rangeMatchesFile);
   // Unmatched rows whose single best suggestion passes every safety check → one-tap "accept all".
   const safePairs = useMemo(() => unmatchedBig.flatMap((r) => {
     const sg = suggestMedsForFileName(state.meds, r.fileText, 3);
@@ -341,6 +349,11 @@ export default function ReconcileScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.busy['reconcile']]);
 
+  const discardFile = async () => {
+    const hasDecisions = skippedRows.size > 0 || ackUnusual || state.hosxpConfirmFuzzy || state.hosxpDateConfirmed || (state.hosxpRows || []).some((r) => r.prevMatch);
+    await discardHosxpFile(hasDecisions);
+  };
+
   // One row per file line (what it matched, or exactly why not), then the app drugs absent from the file.
   const exportMatchCsv = async () => {
     const statusOf = (r: (typeof reconcileRows)[number], i: number) => r.applied ? 'ตัดแล้ว' : skippedRows.has(i) ? 'ข้ามโดยผู้ใช้'
@@ -396,7 +409,11 @@ export default function ReconcileScreen() {
         </div>
       )}
 
-      <ReconcileStepper step={step} />
+      <ReconcileStepper step={step} onStep={(n) => {
+        if (n === 1) void discardFile();
+        else if (n === 2) { setRowFilter('all'); scrollToFix(); }
+        else document.getElementById('reconcile-table')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }} />
       {state.reconcileResult && (
         <ReconcileResultCard result={state.reconcileResult} busy={!!state.busy['reconcile-undo']} onUndo={() => void undoLastReconcile()} onDismiss={dismissReconcileResult} />
       )}
@@ -423,13 +440,14 @@ export default function ReconcileScreen() {
           <div className="rc-drop-hint">แตะเพื่อเลือกไฟล์ หรือวางไฟล์ที่นี่ · .xls / .xlsx / .csv<br />ระบบตรวจวันที่ ชื่อยา และตัวเลขให้ก่อนตัดยอดทุกครั้ง</div>
         </button>
       ) : (
-        <button type="button" className="rc-attach-compact" data-testid="hosxp-attach-compact" onClick={() => fileInputRef.current?.click()}
+        <div className="rc-attach-compact" data-testid="hosxp-attach-compact"
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer?.files?.[0]; if (f) processHosxpFile(f); }}>
           <span style={{ fontSize: 20 }} aria-hidden="true">📎</span>
           <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{state.hosxpFileInfo?.name ?? 'ข้อมูลที่วางไว้'}</span>
-          <span style={{ flex: 'none', fontSize: 12, fontWeight: 700, color: 'var(--green)' }}>เปลี่ยนไฟล์</span>
-        </button>
+          <button type="button" onClick={() => fileInputRef.current?.click()} style={{ flex: 'none', border: 0, background: 'transparent', fontSize: 12, fontWeight: 700, color: 'var(--green)', minHeight: 40, padding: '0 6px' }}>เปลี่ยนไฟล์</button>
+          <button type="button" data-testid="hosxp-discard" onClick={() => void discardFile()} style={{ flex: 'none', border: '1px solid var(--red)', background: 'transparent', fontSize: 12, fontWeight: 700, color: 'var(--red)', borderRadius: 9, minHeight: 40, padding: '0 10px' }}>🗑 ลบไฟล์</button>
+        </div>
       )}
 
       {/* Wrong-day check: what the attached file says about itself next to the date range about to
@@ -438,7 +456,7 @@ export default function ReconcileScreen() {
         const fi = state.hosxpFileInfo!;
         const fr = fi.dateRange;
         const match = !!fr && fr.from === state.hosxpCoveredFrom && fr.to === state.hosxpCoveredTo;
-        const tone = !fr ? 'amber' : match ? 'green' : 'red';
+        const tone = dateStatus === 'verified' ? 'green' : dateStatus === 'unreadable' ? 'amber' : 'red';
         const bg = tone === 'green' ? 'var(--green-tint)' : tone === 'amber' ? 'var(--amber-bg)' : 'var(--red-bg)';
         const color = tone === 'green' ? 'var(--green)' : tone === 'amber' ? 'var(--amber-ink)' : 'var(--red)';
         return (
@@ -452,6 +470,11 @@ export default function ReconcileScreen() {
             {fr && match && !showRangePickers && (
               <button type="button" onClick={() => setEditRange(true)} style={{ border: 0, background: 'transparent', color, fontWeight: 700, fontSize: 12, padding: '4px 0', textDecoration: 'underline', minHeight: 32 }}>แก้วันที่</button>
             )}
+            <div data-testid="date-line" style={{ fontSize: 13.5, fontWeight: 800 }}>
+              ไฟล์ระบุวันที่ {fr ? (fr.from === fr.to ? thDateWithWeekday(fr.from) : thDateWithWeekday(fr.from) + ' – ' + thDateWithWeekday(fr.to)) : 'ไม่ระบุ (อ่านวันที่จากไฟล์ไม่ได้)'}
+              {' · '}ควรเป็น {dueLabel}{dateStatus === 'verified' ? ' — ตรงกับวันที่ควรตัด ✓' : ''}
+            </div>
+            {dateStatus === 'off_schedule' && <div>⚠ วันที่ในไฟล์ไม่ใช่ช่วงที่ถึงคิวตัดยอด (อาจเป็นวันที่ตัดไปแล้ว หรือไฟล์เก่า) — ถ้าเป็นวันที่ตัดไปแล้ว ระบบจะตัดเฉพาะส่วนต่าง ยืนยันก่อนตัดยอด</div>}
             {!fr && <div>ℹ ไฟล์นี้ไม่ได้ระบุวันที่ไว้ในตัวไฟล์ — ตรวจช่วงวันที่ด้านล่างให้ตรงกับรายงานที่ดึงมา ก่อนกดตัดยอด</div>}
             {fr && match && <div>✓ วันที่ที่ไฟล์ระบุ ({fr.from === fr.to ? fr.from : fr.from + ' ถึง ' + fr.to}) ตรงกับช่วงที่จะตัดยอด</div>}
             {fr && !match && <div>⚠ ไฟล์ระบุวันที่ {fr.from === fr.to ? fr.from : fr.from + ' ถึง ' + fr.to} แต่ช่วงที่จะตัดยอดคือ {state.hosxpCoveredFrom} ถึง {state.hosxpCoveredTo} — ไม่ตรงกัน ตรวจให้แน่ใจว่าเป็นไฟล์ของวันที่ถูกต้อง</div>}
@@ -462,7 +485,7 @@ export default function ReconcileScreen() {
       {reconcileRows.length > 0 && (
         <ReconcileStatusCard
           matched={matchedCount} needDecision={needDecision} totalUnits={totalUnits} shortCount={shortRows.length}
-          alreadyCount={alreadyCount} totalRows={reconcileRows.length} ready={ready} onGoFix={scrollToFix} unusualCount={unusualCount} unusualPending={unusualPending}
+          alreadyCount={alreadyCount} totalRows={reconcileRows.length} ready={ready} onGoFix={scrollToFix} unusualCount={unusualCount} unusualPending={unusualPending} dateBlocked={dateBlocked}
           rangeLabel={coveredValid ? (state.hosxpCoveredFrom === state.hosxpCoveredTo ? state.hosxpCoveredFrom : state.hosxpCoveredFrom + ' ถึง ' + state.hosxpCoveredTo) : null}
         />
       )}
@@ -509,7 +532,7 @@ export default function ReconcileScreen() {
               ))}
             </div>
           )}
-          <div className="card stagger" style={{ overflow: 'hidden', marginBottom: 13 }}>
+          <div id="reconcile-table" className="card stagger" style={{ overflow: 'hidden', marginBottom: 13 }}>
             {/* Bug fix (audit finding): width: 70 (below, both here and on the value row) clips a
                 large quantity (e.g. a 4-5 digit จ่ายจริง or ก่อน→หลัง pair) on a narrow phone
                 instead of letting the column grow — minWidth + nowrap keeps the right-alignment
@@ -542,6 +565,12 @@ export default function ReconcileScreen() {
                     ⚠ {u.kind === 'no_history' ? 'ยานี้ไม่มีประวัติการใช้ 30 วันล่าสุด แต่ไฟล์จ่าย ' + nf(u.qty) : 'สูงกว่าปกติ ~' + Math.round(u.ratio) + ' เท่า — ไฟล์จ่าย ' + nf(u.qty) + ' แต่ปกติ ~' + nf(Math.round(u.expected)) + ' ต่อ ' + businessDays + ' วันทำการ'} — ตรวจว่าไฟล์ถูกช่วงวันที่/หน่วยถูกต้อง
                   </div>
                 ); })()}
+                {!r.applied && state.hosxpRows?.[i]?.prevMatch && (
+                  <div style={{ fontSize: 10.5, color: 'var(--green)', fontWeight: 700, marginTop: 3 }}>
+                    ✎ จับคู่ด้วยมือ{' '}
+                    <button type="button" data-testid="unresolve-row" onClick={() => unresolveHosxpRow(i)} style={{ border: 0, background: 'transparent', color: 'var(--red)', fontWeight: 700, fontSize: 10.5, textDecoration: 'underline', padding: '6px 4px', minHeight: 32 }}>ยกเลิกการจับคู่</button>
+                  </div>
+                )}
                 {!r.applied && <MatchBadge match={r.match} fileText={r.fileText} medById={medById} />}
                 {!r.applied && (r.match.kind === 'none' || r.match.kind === 'ambiguous') && (
                   <FileRowFixer idx={i} fileText={r.fileText} qty={r.qty} skipped={skippedRows.has(i)}
@@ -632,6 +661,19 @@ export default function ReconcileScreen() {
             <div style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--amber-ink)' }}>
               {coveredValid ? 'รวม ' + daysCovered + ' วัน' + (daysCovered > 1 ? ' — เช่น กรณีตัดยอดเช้าวันจันทร์หลังวันหยุดสุดสัปดาห์' : '') : 'ระบุช่วงวันที่ให้ครบ (ถึงวันที่ต้องไม่ใช่วันนี้)'}
             </div>
+            {state.hosxpFileInfo && dateStatus !== 'verified' && (
+              <div style={{ marginTop: 9 }}>
+                <button type="button" data-testid="use-due-range" onClick={() => { setHosxpCoveredFrom(dueFrom); setHosxpCoveredTo(dueYesterday); }} style={{ border: '1px solid var(--amber)', background: 'transparent', color: 'var(--amber-ink)', borderRadius: 999, padding: '7px 12px', fontSize: 12, fontWeight: 700, minHeight: 38, marginBottom: 8 }}>
+                  ใช้วันที่ที่ควรตัด: {dueLabel}
+                </button>
+                <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', cursor: coveredValid ? 'pointer' : 'not-allowed', opacity: coveredValid ? 1 : 0.55 }}>
+                  <input type="checkbox" data-testid="ack-date" disabled={!coveredValid} checked={state.hosxpDateConfirmed} onChange={(e) => setHosxpDateConfirmed(e.target.checked)} style={{ marginTop: 2, flex: 'none', width: 18, height: 18 }} />
+                  <span style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--amber-ink)', fontWeight: 600 }}>
+                    ยืนยันว่าไฟล์นี้เป็นข้อมูลการจ่ายยาของวันที่ {coveredValid ? (state.hosxpCoveredFrom === state.hosxpCoveredTo ? thDateWithWeekday(state.hosxpCoveredFrom) : thDateWithWeekday(state.hosxpCoveredFrom) + ' – ' + thDateWithWeekday(state.hosxpCoveredTo)) : '(เลือกวันที่ก่อน)'} จริง
+                  </span>
+                </label>
+              </div>
+            )}
           </div>
           )}
 
