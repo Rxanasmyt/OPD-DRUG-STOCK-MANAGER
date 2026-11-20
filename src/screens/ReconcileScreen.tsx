@@ -383,7 +383,7 @@ export default function ReconcileScreen() {
   };
 
   return (
-    <div style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
+    <div className="work-screen work-screen--glass" style={{ padding: '14px 14px 24px', animation: 'fade .18s' }}>
       <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 12 }}>
         วิธีหลักในการตัดยอดหน้างาน — ใช้เป็นประจำทุกวัน เร็วกว่าการนับสต็อกจริง แนบไฟล์รายงานการใช้ยาจาก HOSxP (.xls/.xlsx) ของ<b>เมื่อวาน</b>โดยตรง (ถ้าเป็นเช้าวันจันทร์หลังวันหยุดสุดสัปดาห์ ครอบคลุมศุกร์-เสาร์-อาทิตย์ได้ตามจริง — ระบุช่วงวันที่ด้านล่างให้ตรง) — ระบบจะตัดยอดหน้างานให้ตรงกับที่จ่ายจริงโดยตรง
       </div>
