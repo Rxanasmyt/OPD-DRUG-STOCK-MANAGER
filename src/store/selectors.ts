@@ -1,4 +1,4 @@
-import type { AppState, User, HosxpMatch, Lot, Med, MedId, Role, Ward, Tx, TxType, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord, DayMissKind, ReconcileMonthDay } from '../types';
+import type { AppState, User, FileCompleteness, HosxpMatch, Lot, Med, MedId, Role, Ward, Tx, TxType, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord, DayMissKind, ReconcileMonthDay } from '../types';
 import { asMedId } from '../types';
 import { DAY, daysUntil, isoDate, nf } from '../utils/format';
 import { UNCATEGORIZED, DRUG_CATEGORIES, categoryLabel } from '../data/categories';
@@ -1158,6 +1158,32 @@ export function parseHosxpDayReport(note: string, ts: number): HosxpDayReport | 
   return { ts, fromIso: range[1], toIso: range[2], reasons, unmatchedNames, fingerprint: (lines[4] || '').trim() };
 }
 
+/** Whether one day's HOSxP file looks complete, judged against the med list's own usual behaviour.
+ * The file lists only DISPENSED drugs, so a drug with no row is normal on a day it wasn't given — this
+ * can't prove completeness, but it gives real evidence:
+ *  - expected absences: each regular drug is dispensed on ~dispenseDays30/21 of business days, so on a
+ *    normal day ~Σ(1 − p) of them have no row (with a binomial spread);
+ *  - typical size: how many drugs recent comparable days deducted.
+ * 'incomplete' when the file has materially fewer drugs than usual, or far more absences than chance
+ * explains; 'complete' when both look normal; 'unknown' when there's no baseline to compare. */
+export function assessFileCompleteness(args: {
+  deductedCount: number; actualAbsent: number; regularMeds: Med[]; recentDeductedCounts: number[];
+}): FileCompleteness {
+  const { deductedCount, actualAbsent, regularMeds, recentDeductedCounts } = args;
+  let expectedAbsent = 0, variance = 0;
+  for (const m of regularMeds) {
+    const p = typeof m.dispenseDays30 === 'number' ? Math.min(1, Math.max(0, m.dispenseDays30 / 21)) : 0.7;
+    expectedAbsent += 1 - p; variance += p * (1 - p);
+  }
+  const sorted = recentDeductedCounts.slice().sort((a, b) => a - b);
+  const typical = sorted.length >= 3 ? sorted[Math.floor(sorted.length / 2)] : null;
+  const tooFewDrugs = typical !== null && deductedCount < 0.85 * typical;
+  const tooManyAbsent = actualAbsent > expectedAbsent + 2 * Math.sqrt(variance) + 3;
+  const verdict: FileCompleteness['verdict'] = tooFewDrugs || tooManyAbsent ? 'incomplete'
+    : typical === null && regularMeds.length === 0 ? 'unknown' : typical === null ? 'unknown' : 'complete';
+  return { verdict, typicalDeducted: typical, expectedAbsent: Math.round(expectedAbsent), actualAbsent };
+}
+
 /** Builds every calendar day of `monthIso` ('YYYY-MM') for ReconcileScreen's attach calendar:
  * which days a HOSxP file covers, which have none, and — for days where a regularly-dispensed med
  * got no deduction — WHY (from the persisted per-run reports; 'unknown' when none explains it).
@@ -1175,6 +1201,9 @@ export function buildReconcileMonth(args: {
   const [y, mo] = monthIso.split('-').map(Number);
   const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
   const out: ReconcileMonthDay[] = [];
+  // deducted-drug counts of the earlier attached days of this month — the baseline for "is today's file a normal size"
+  const firstOfMonth = monthIso + '-01';
+  const recentCounts: number[] = Array.from(deductedByDay.keys()).filter((k) => k < firstOfMonth).sort().slice(-10).map((k) => deductedByDay.get(k)!.size);
   for (let d = 1; d <= daysInMonth; d++) {
     const dateIso = monthIso + '-' + String(d).padStart(2, '0');
     const wd = new Date(dateIso + 'T12:00:00+07:00').getUTCDay();
@@ -1190,7 +1219,9 @@ export function buildReconcileMonth(args: {
     const missing = regularMeds
       .filter((m) => !deducted.has(m.id))
       .map((m) => ({ med: m, reason: (covering?.reasons.get(m.name) ?? 'unknown') as DayMissKind }));
-    out.push({ dateIso, status: missing.length ? 'partial' : 'attached', deductedCount: deducted.size, missing, unmatchedNames: covering?.unmatchedNames ?? [] });
+    const completeness = assessFileCompleteness({ deductedCount: deducted.size, actualAbsent: missing.length, regularMeds, recentDeductedCounts: recentCounts.slice(-10) });
+    recentCounts.push(deducted.size);
+    out.push({ dateIso, status: missing.length ? 'partial' : 'attached', deductedCount: deducted.size, missing, unmatchedNames: covering?.unmatchedNames ?? [], completeness });
   }
   return out;
 }

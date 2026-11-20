@@ -1838,3 +1838,36 @@ describe('Min/Max/par — blank Min, Max of 1, monthly swings, malformed inputs'
     expect(s.sub).toBeGreaterThanOrEqual(s.floor);
   });
 });
+
+describe('assessFileCompleteness — is a HOSxP file complete, or are the absent drugs just not dispensed?', () => {
+  const mk = (days: number) => ({
+    id: 'm' + days + Math.random(), code: 'C', name: 'x', unit: 'เม็ด', dosageForm: 'เม็ด', price: 1, had: false, active: true,
+    parSub: 0, parFloor: 10, floor: 5, bin: 'A', used30: 100, usedPrev30: 100, volatility: 1, dispenseDays30: days,
+  }) as unknown as import('../types').Med;
+  // 40 regular drugs dispensed on ~14 of 21 business days → ~13 expected absent on a normal day
+  const meds = Array.from({ length: 40 }, () => mk(14));
+
+  it('a normal-sized file with about the expected number of absent drugs is "complete"', async () => {
+    const { assessFileCompleteness } = await import('./selectors');
+    const r = assessFileCompleteness({ deductedCount: 150, actualAbsent: 14, regularMeds: meds, recentDeductedCounts: [148, 152, 150, 149, 151] });
+    expect(r.verdict).toBe('complete');
+    expect(r.expectedAbsent).toBe(13);
+  });
+
+  it('a file with materially fewer drugs than usual is "incomplete"', async () => {
+    const { assessFileCompleteness } = await import('./selectors');
+    const r = assessFileCompleteness({ deductedCount: 100, actualAbsent: 14, regularMeds: meds, recentDeductedCounts: [148, 152, 150, 149, 151] });
+    expect(r.verdict).toBe('incomplete');
+  });
+
+  it('far more absent drugs than chance explains is "incomplete" even if the size looks normal', async () => {
+    const { assessFileCompleteness } = await import('./selectors');
+    const r = assessFileCompleteness({ deductedCount: 148, actualAbsent: 35, regularMeds: meds, recentDeductedCounts: [148, 152, 150] });
+    expect(r.verdict).toBe('incomplete');
+  });
+
+  it('is "unknown" (never "complete") with no baseline of earlier days', async () => {
+    const { assessFileCompleteness } = await import('./selectors');
+    expect(assessFileCompleteness({ deductedCount: 150, actualAbsent: 14, regularMeds: meds, recentDeductedCounts: [150] }).verdict).toBe('unknown');
+  });
+});

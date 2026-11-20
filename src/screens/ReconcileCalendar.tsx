@@ -146,6 +146,7 @@ export function ReconcileDayDetail({ day, onFixMed }: { day: ReconcileMonthDay; 
           {(day.status === 'attached' || day.status === 'partial') && (
             <div className="muted" style={{ fontSize: 12.5, marginBottom: 6 }}>ตัดยอดแล้ว {day.deductedCount} รายการยา</div>
           )}
+          {day.completeness && day.status === 'partial' && <CompletenessBanner c={day.completeness} deducted={day.deductedCount} />}
           {day.status === 'attached' && <div style={{ fontSize: 12.5, color: 'var(--green)' }}>ยาที่ปกติมีการจ่ายถูกตัดยอดครบทุกตัว</div>}
           {day.missing.length > 0 && (
             <>
@@ -183,5 +184,27 @@ export function ReconcileDayDetail({ day, onFixMed }: { day: ReconcileMonthDay; 
             </div>
           )}
         </div>
+  );
+}
+
+/** Day-level answer to "is the file complete, or are the missing drugs just not dispensed?" — with the evidence. */
+function CompletenessBanner({ c, deducted }: { c: NonNullable<ReconcileMonthDay['completeness']>; deducted: number }) {
+  const ui = c.verdict === 'complete' ? { color: 'var(--green)', bg: 'var(--green-tint)', head: '✓ ไฟล์ของวันนี้ดูครบถ้วนตามปกติ' }
+    : c.verdict === 'incomplete' ? { color: 'var(--red)', bg: 'var(--red-bg)', head: '⚠ ไฟล์ของวันนี้อาจไม่ครบ' }
+      : { color: 'var(--muted)', bg: 'var(--bg-subtle)', head: 'ยังประเมินความครบถ้วนของไฟล์วันนี้ไม่ได้ (ข้อมูลเปรียบเทียบไม่พอ)' };
+  return (
+    <div data-testid="file-completeness" data-verdict={c.verdict} style={{ background: ui.bg, borderRadius: 10, padding: '9px 11px', marginBottom: 10, fontSize: 12, lineHeight: 1.6 }}>
+      <div style={{ fontWeight: 700, color: ui.color }}>{ui.head}</div>
+      <div>
+        {c.typicalDeducted !== null && <>ไฟล์นี้ตัดยา <b>{deducted}</b> รายการ (วันทั่วไปประมาณ {c.typicalDeducted}) · </>}
+        ยาที่ไม่พบ <b>{c.actualAbsent}</b> รายการ (วันปกติคาดว่าจะไม่มีการจ่ายประมาณ {c.expectedAbsent} รายการ จากความถี่การจ่ายของยาแต่ละตัว)
+      </div>
+      <div className="muted" style={{ fontSize: 11 }}>
+        {c.verdict === 'complete' && 'ขนาดไฟล์และจำนวนยาที่ไม่พบอยู่ในช่วงปกติ — ยาที่ไม่พบส่วนใหญ่น่าจะไม่มีการจ่ายวันนั้นจริง (ยกเว้นตัวที่ขึ้นว่า "ชื่อคล้าย"/"น่าสงสัย" ด้านล่าง)'}
+        {c.verdict === 'incomplete' && 'มียาน้อยกว่าวันทั่วไปหรือไม่พบมากกว่าที่ควร — ตรวจว่ารายงาน HOSxP ดึงข้อมูลครบทั้งวันหรือไม่ แล้วแนบไฟล์ใหม่ (ระบบข้ามแถวที่ตัดไปแล้ว ไม่ตัดซ้ำ)'}
+        {c.verdict === 'unknown' && 'ยังไม่มีวันก่อนหน้าให้เทียบขนาดไฟล์'}
+        {' '}หมายเหตุ: ไฟล์ HOSxP มีเฉพาะยาที่จ่าย จึงพิสูจน์ 100% ไม่ได้ว่ายาตัวหนึ่ง "ไม่ได้จ่าย" — นี่คือหลักฐานจากสถิติ
+      </div>
+    </div>
   );
 }
