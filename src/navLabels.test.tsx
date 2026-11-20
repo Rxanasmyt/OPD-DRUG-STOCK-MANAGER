@@ -23,7 +23,8 @@ describe('manual ↔ app consistency', () => {
   });
 
   it('every highlighted tab/menu name in the manual is a real one', () => {
-    const { container } = render(<UserManual onClose={() => {}} />);
+    render(<UserManual onClose={() => {}} />);
+    const container = document.body; // the manual is portaled to <body>
     const real = new Set<string>([...Object.values(TAB), ...Object.values(MENU)]);
     const tabs = Array.from(container.querySelectorAll('.um-tab')).map((e) => e.textContent ?? '');
     expect(tabs.length).toBeGreaterThan(8);
@@ -31,7 +32,8 @@ describe('manual ↔ app consistency', () => {
   });
 
   it('every screenshot the manual references exists in public/manual (regenerate with `npm run manual:shots`)', () => {
-    const { container } = render(<UserManual onClose={() => {}} />);
+    render(<UserManual onClose={() => {}} />);
+    const container = document.body;
     const shots = Array.from(container.querySelectorAll('img[data-shot]')).map((e) => e.getAttribute('data-shot') ?? '');
     expect(shots.length).toBeGreaterThan(20);
     for (const f of shots) expect(existsSync(new URL('../public/manual/' + f + '.jpg', import.meta.url)), f + '.jpg missing').toBe(true);

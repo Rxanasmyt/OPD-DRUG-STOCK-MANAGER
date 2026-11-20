@@ -2,6 +2,7 @@
 // Everything here mirrors what the app really does today — tab names match the bottom nav (App.tsx NAV_DEF)
 // and the "เพิ่มเติม" menu (MoreScreen.tsx) literally, so "กดที่ …" can be followed word for word.
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 import { TAB, MENU } from '../navLabels';
 
@@ -296,7 +297,8 @@ export default function UserManual({ onClose, initialId }: { onClose: () => void
     if (el && 'scrollIntoView' in el) (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  return (
+  // Portal to <body>: opened from the "เพิ่มเติม" tab it would otherwise sit under the bottom nav (a stacking context of its own).
+  return createPortal(
     <div className="um-overlay" role="dialog" aria-modal="true" aria-label="คู่มือการใช้งานแอป" data-testid="user-manual">
       <header className="um-head">
         <div className="um-head-row">
@@ -326,6 +328,7 @@ export default function UserManual({ onClose, initialId }: { onClose: () => void
           <div className="um-end">จบคู่มือ · หากพบจุดที่ไม่ตรงกับหน้าจอจริง แจ้งผู้ดูแลระบบ</div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
