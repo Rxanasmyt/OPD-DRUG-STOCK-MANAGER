@@ -1039,7 +1039,7 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 /* ---------- app icon ---------- */
 .login-appicon { position: relative; width: 112px; height: 112px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 32px; animation: fade .5s var(--ease-out) both; }
 .login-appicon::before { content: ''; position: absolute; inset: -5px; border-radius: 36px; background: conic-gradient(from 0deg, #28e0d4, #ff9f7e, #fff, #28e0d4); filter: blur(10px); opacity: .75; animation: aiSpin 7s linear infinite; }
-.login-appicon svg { position: relative; filter: drop-shadow(0 14px 22px rgba(0,30,30,.55)); }
+.login-appicon svg, .login-appicon img { position: relative; filter: drop-shadow(0 14px 22px rgba(0,30,30,.55)); }
 @keyframes aiSpin { to { transform: rotate(360deg); } }
 .app-icon-spark { transform-box: fill-box; transform-origin: center; animation: aiTwinkle 3.2s ease-in-out infinite; }
 @keyframes aiTwinkle { 0%, 100% { transform: scale(.7) rotate(0); opacity: .7; } 50% { transform: scale(1.15) rotate(25deg); opacity: 1; } }
