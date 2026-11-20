@@ -181,8 +181,14 @@ export default function App() {
           </div>
         )}
         <div key={state.screen + '|' + title} style={{ position: 'relative', minWidth: 0, flex: 1, animation: 'fade .22s var(--ease-out)' }}>
-          <div style={{ fontSize: 16.5, fontWeight: 600, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
-          <div style={{ fontSize: 11.5, opacity: 0.65, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{headerSub}</div>
+          {/* App name — always visible so nobody has to guess which app they are in. Decorative
+              duplicate of the document title; the screen title below stays the accessible heading. */}
+          <div className="brand-mark" aria-hidden="true" data-testid="brand-mark">
+            <span className="brand-mark-name">Krongpinang Hospital</span>
+            <span className="brand-mark-tag">DRUG · SUBSTOCK</span>
+          </div>
+          <div style={{ fontSize: 17, fontWeight: 700, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
+          <div style={{ fontSize: 12.5, opacity: 0.82, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{headerSub}</div>
         </div>
         {/* Real request: "ค้นหายาแบบสแกนบาร์โค้ด/QR ได้ทุกหน้าจอ" — scan-to-find-a-drug used to
             live only as one icon button on จัดการรายการยา (MedsScreen), even though the

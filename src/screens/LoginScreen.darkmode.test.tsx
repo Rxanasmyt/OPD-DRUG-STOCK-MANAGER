@@ -21,7 +21,7 @@ describe('LoginScreen — dark-mode contrast regression', () => {
   it('colors the submit button, segmented control, and input fields with the theme-stable --login-ink tokens, never --ink/--ink-soft', async () => {
     renderWithApp(<LoginScreen />);
     fireAuth(null); // settles authStatus: 'loading' -> 'signedOut', same as a real cold load with nobody signed in
-    await waitFor(() => expect(screen.getByText('KPNHOS')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText('Krongpinang Hospital')).toBeInTheDocument());
 
     const submit = document.querySelector('button[type="submit"]') as HTMLElement;
     expect(submit).not.toBeNull();

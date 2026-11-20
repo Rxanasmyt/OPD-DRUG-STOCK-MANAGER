@@ -18,7 +18,7 @@ describe('LoginScreen — formal/institutional tone regression', () => {
   it('never references the old bouncy/pulsing/shimmering animation names, and scopes the static mesh-bg to Login only', async () => {
     const { container } = renderWithApp(<LoginScreen />);
     fireAuth(null); // settles authStatus: 'loading' -> 'signedOut'
-    await waitFor(() => expect(screen.getByText('KPNHOS')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText('Krongpinang Hospital')).toBeInTheDocument());
 
     const html = container.innerHTML;
     expect(html).not.toContain('glowPulse');

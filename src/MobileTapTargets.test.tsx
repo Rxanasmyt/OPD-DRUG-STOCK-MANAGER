@@ -83,7 +83,7 @@ describe('Mobile tap-target-size regression (real-device UX audit)', () => {
   it('sizes the Login password show/hide toggle to 44px', async () => {
     renderWithApp(<LoginScreen />);
     fireAuth(null);
-    await waitFor(() => expect(screen.getByText('KPNHOS')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText('Krongpinang Hospital')).toBeInTheDocument());
 
     const toggleBtn = screen.getByLabelText('แสดงรหัสผ่าน');
     // Without the fix, this was 32x32.
