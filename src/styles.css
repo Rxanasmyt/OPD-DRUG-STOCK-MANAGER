@@ -1108,3 +1108,25 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 @media (hover: hover) { * { scrollbar-width: thin; scrollbar-color: rgba(var(--green-rgb), .35) transparent; } }
 
 @media (prefers-reduced-motion: reduce) { .btn-primary::after { transition: none; } }
+
+/* ---------- app header: 2-row grid so the full app name always fits (phone + desktop) ---------- */
+.app-header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: 'lead brand brand' 'lead title actions'; column-gap: var(--header-gap); row-gap: 2px; align-items: center; }
+.app-header-actions { display: flex; align-items: center; gap: var(--header-gap); }
+.app-header .brand-mark-name { font-size: clamp(15px, 5.6vw, 26px); }
+.app-header .brand-mark { margin-bottom: 0; }
+@media (min-width: 900px) { .app-header .brand-mark-name { font-size: 27px; } .app-header .brand-mark-tag { font-size: 11.5px; } }
+
+/* ---------- manual screenshots ---------- */
+.um-gal { margin: 14px -4px 8px; border: 1px solid var(--border-soft, #e3e9e7); border-radius: 16px; background: linear-gradient(180deg, rgba(var(--green-rgb), .06), transparent); padding: 10px 8px 6px; }
+.um-gal-t { font-weight: 800; font-size: 14px; padding: 0 6px 8px; } .um-gal-t small { font-weight: 500; color: var(--muted, #5b6b68); font-size: 12px; }
+.um-gal-strip { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x proximity; padding: 2px 6px 10px; -webkit-overflow-scrolling: touch; }
+.um-fig { flex: none; width: min(230px, 62vw); margin: 0; scroll-snap-align: start; }
+.um-fig-btn { position: relative; display: block; width: 100%; padding: 0; border: 1px solid rgba(var(--green-rgb), .25); border-radius: 18px; overflow: hidden; background: #fff; cursor: zoom-in; box-shadow: var(--shadow-md); }
+.um-fig-btn img { display: block; width: 100%; height: auto; aspect-ratio: 390 / 844; object-fit: cover; object-position: top; background: var(--bg-page); }
+.um-fig-n { position: absolute; top: 8px; left: 8px; width: 28px; height: 28px; border-radius: 50%; background: var(--grad-brand); color: #fff; font-weight: 800; font-size: 14px; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 10px rgba(0,0,0,.35); border: 2px solid #fff; }
+.um-fig figcaption { font-size: 12.5px; line-height: 1.55; padding: 8px 4px 0; color: var(--ink, #14211f); }
+.um-zoom { position: fixed; inset: 0; z-index: 400; background: rgba(4, 18, 18, .88); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px; gap: 10px; animation: fade .18s var(--ease-out); }
+.um-zoom img { max-height: calc(100vh - 130px); max-width: min(100%, 480px); border-radius: 18px; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+.um-zoom-cap { color: #fff; font-size: 14px; line-height: 1.5; max-width: 520px; text-align: center; }
+.um-zoom-x { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 12px); right: 12px; width: 46px; height: 46px; border-radius: 50%; border: 0; background: rgba(255,255,255,.2); color: #fff; font-size: 20px; }
+@media (min-width: 900px) { .um-fig { width: 260px; } }

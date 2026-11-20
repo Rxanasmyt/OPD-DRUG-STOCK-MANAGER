@@ -1,7 +1,7 @@
 // Keeps the manual in step with the app: tab/menu names come from one place, every screen is mapped to a manual
 // section that exists, and the manual never hard-codes a tab name that isn't a real one.
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { render } from '@testing-library/react';
 import { TAB, MENU, SCREEN_MANUAL } from './navLabels';
 import UserManual, { MANUAL_SECTIONS } from './screens/UserManual';
@@ -28,6 +28,13 @@ describe('manual ↔ app consistency', () => {
     const tabs = Array.from(container.querySelectorAll('.um-tab')).map((e) => e.textContent ?? '');
     expect(tabs.length).toBeGreaterThan(8);
     for (const t of tabs) expect(real.has(t), '"' + t + '" is not a tab/menu name').toBe(true);
+  });
+
+  it('every screenshot the manual references exists in public/manual (regenerate with `npm run manual:shots`)', () => {
+    const { container } = render(<UserManual onClose={() => {}} />);
+    const shots = Array.from(container.querySelectorAll('img[data-shot]')).map((e) => e.getAttribute('data-shot') ?? '');
+    expect(shots.length).toBeGreaterThan(20);
+    for (const f of shots) expect(existsSync(new URL('../public/manual/' + f + '.jpg', import.meta.url)), f + '.jpg missing').toBe(true);
   });
 
   it('login guide steps quote the real tab names', () => {
