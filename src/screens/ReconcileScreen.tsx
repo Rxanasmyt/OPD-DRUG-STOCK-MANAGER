@@ -39,6 +39,7 @@ export default function ReconcileScreen() {
   // see MedsScreen.tsx's own "A QR scan...lands here with medsFocusId set" comment.
   const goFixMed = (medId: MedId) => { setMedsFocusId(medId); go('meds'); };
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
 
   const medById = (id: string) => state.meds.find((x) => x.id === id);
 
@@ -411,13 +412,25 @@ export default function ReconcileScreen() {
           e.target.value = '';
         }}
       />
-      <button
-        onClick={() => fileInputRef.current?.click()}
-        className="btn-primary"
-        style={{ width: '100%', padding: 11, borderRadius: 10, fontSize: 13.5, fontWeight: 600, minHeight: 46, marginBottom: 14 }}
-      >
-        📎 แนบไฟล์ HOSxP ของเมื่อวาน (.xls/.xlsx)
-      </button>
+      {!state.hosxpFileInfo && reconcileRows.length === 0 ? (
+        <button type="button" className="rc-drop" data-over={dragOver ? '1' : '0'} data-testid="hosxp-dropzone"
+          onClick={() => fileInputRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer?.files?.[0]; if (f) processHosxpFile(f); }}>
+          <span className="rc-drop-icon" aria-hidden="true">📎</span>
+          <div className="rc-drop-title">แนบไฟล์ HOSxP ของเมื่อวาน</div>
+          <div className="rc-drop-hint">แตะเพื่อเลือกไฟล์ หรือวางไฟล์ที่นี่ · .xls / .xlsx / .csv<br />ระบบตรวจวันที่ ชื่อยา และตัวเลขให้ก่อนตัดยอดทุกครั้ง</div>
+        </button>
+      ) : (
+        <button type="button" className="rc-attach-compact" data-testid="hosxp-attach-compact" onClick={() => fileInputRef.current?.click()}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer?.files?.[0]; if (f) processHosxpFile(f); }}>
+          <span style={{ fontSize: 20 }} aria-hidden="true">📎</span>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{state.hosxpFileInfo?.name ?? 'ข้อมูลที่วางไว้'}</span>
+          <span style={{ flex: 'none', fontSize: 12, fontWeight: 700, color: 'var(--green)' }}>เปลี่ยนไฟล์</span>
+        </button>
+      )}
 
       {/* Wrong-day check: what the attached file says about itself next to the date range about to
           be deducted. The same facts are asked again in commitReconcile's confirm dialog. */}
@@ -490,8 +503,7 @@ export default function ReconcileScreen() {
           {attentionIdx.size > 0 && (
             <div role="tablist" aria-label="กรองรายการ" style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
               {([['attention', 'ต้องดู (' + attentionIdx.size + ')'], ['all', 'ทั้งหมด (' + reconcileRows.length + ')']] as const).map(([k, label]) => (
-                <button key={k} type="button" role="tab" aria-selected={effectiveFilter === k} onClick={() => setRowFilter(k)}
-                  style={{ border: '1px solid ' + (effectiveFilter === k ? 'var(--green)' : 'var(--border)'), background: effectiveFilter === k ? 'var(--green-tint)' : 'var(--bg-card)', color: effectiveFilter === k ? 'var(--green)' : 'var(--ink)', borderRadius: 999, padding: '7px 13px', fontSize: 12.5, fontWeight: 700, minHeight: 38 }}>
+                <button key={k} type="button" role="tab" className="rc-chip" aria-selected={effectiveFilter === k} onClick={() => setRowFilter(k)}>
                   {label}
                 </button>
               ))}
@@ -506,7 +518,7 @@ export default function ReconcileScreen() {
               <span style={{ flex: 1 }}>รายการยา</span><span style={{ minWidth: 70, textAlign: 'right', flex: 'none', whiteSpace: 'nowrap' }}>จ่ายจริง</span><span style={{ minWidth: 70, textAlign: 'right', flex: 'none', whiteSpace: 'nowrap' }}>ก่อน → หลัง</span>
             </div>
             {rowsWithIdx.filter((r) => effectiveFilter === 'all' || attentionIdx.has(r.i)).map((r) => { const i = r.i; return (
-              <div key={i} style={{ padding: '10px 13px', borderBottom: '1px solid var(--border-soft)', opacity: r.applied ? 0.6 : 1 }}>
+              <div key={i} className="rc-row" data-tone={r.applied || skippedRows.has(i) ? 'ok' : (r.match.kind === 'none' || r.match.kind === 'ambiguous') ? 'bad' : (r.match.kind === 'fuzzy' || unusualByIdx.has(i) || (r.med && r.qty - r.already > r.before)) ? 'warn' : 'ok'} style={{ opacity: r.applied ? 0.6 : 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.3, fontWeight: r.match.kind === 'exact' ? 400 : 600 }}>
                     {r.med ? r.med.name : r.fileText}
@@ -623,19 +635,29 @@ export default function ReconcileScreen() {
           </div>
           )}
 
-          {unmatchedBig.length > 0 && (
-            <div role="status" style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600, marginBottom: 8, lineHeight: 1.5 }}>
-              ยังตัดยอดไม่ได้: เหลือ {unmatchedBig.length} รายการที่ยังไม่ได้จับคู่/ข้าม (ดูกรอบสีแดงในตารางด้านบน)
-            </div>
-          )}
-          {state.busy['reconcile'] && state.reconcileProgress && <ReconcileProgress done={state.reconcileProgress.done} total={state.reconcileProgress.total} />}
-          <button onClick={commitReconcile} disabled={!canCommit || !!state.busy['reconcile']} className="btn-primary" style={{ width: '100%', padding: 15, borderRadius: 12, fontSize: 15, minHeight: 52, opacity: canCommit && !state.busy['reconcile'] ? 1 : 0.5 }}>
+          <div className="rc-commit" data-testid="commit-bar">
+            {unmatchedBig.length > 0 && (
+              <div role="status" style={{ fontSize: 12, color: 'var(--red)', fontWeight: 700, marginBottom: 6, lineHeight: 1.5, textAlign: 'center' }}>
+                ยังตัดยอดไม่ได้: เหลือ {unmatchedBig.length} รายการที่ยังไม่ได้จับคู่/ข้าม
+              </div>
+            )}
+            {unmatchedBig.length === 0 && unusualPending > 0 && (
+              <div role="status" style={{ fontSize: 12, color: 'var(--amber-ink)', fontWeight: 700, marginBottom: 6, lineHeight: 1.5, textAlign: 'center' }}>ติ๊กยืนยันตัวเลขที่สูงผิดปกติก่อน</div>
+            )}
+            {canCommit && !state.busy['reconcile'] && (
+              <div className="rc-readback" data-testid="commit-readback">
+                จะตัด <b>{nf(matchedCount - alreadyCount)}</b> รายการ รวม <b>{nf(totalUnits)}</b> หน่วย · ช่วงวันที่ <b>{state.hosxpCoveredFrom === state.hosxpCoveredTo ? state.hosxpCoveredFrom : state.hosxpCoveredFrom + ' ถึง ' + state.hosxpCoveredTo}</b>{skippedCount > 0 ? ' · ข้าม ' + skippedCount : ''}
+              </div>
+            )}
+            {state.busy['reconcile'] && state.reconcileProgress && <ReconcileProgress done={state.reconcileProgress.done} total={state.reconcileProgress.total} />}
+          <button onClick={commitReconcile} disabled={!canCommit || !!state.busy['reconcile']} className="btn-primary rc-commit-btn">
             {state.busy['reconcile']
               ? 'กำลังตัดยอด…'
               : isResuming
                 ? `ตัดยอดส่วนที่เหลือต่อ (${reconcileRows.length - appliedCount} รายการ)`
                 : `ตัดยอดหน้างานตามไฟล์นี้ และบันทึก discrepancy log${skippedCount > 0 ? ' (ข้าม ' + skippedCount + ' รายการที่จับคู่ไม่ได้)' : ''}`}
           </button>
+          </div>
         </>
       )}
 
