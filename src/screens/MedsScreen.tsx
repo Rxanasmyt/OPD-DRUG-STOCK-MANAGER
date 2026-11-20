@@ -10,6 +10,7 @@ import type { Med, MedId, Ward } from '../types';
 import { EmptyState } from '../components/EmptyState';
 import { SearchInput } from '../components/SearchInput';
 import { CategoryPicker } from '../components/CategoryPicker';
+import { ParExplain } from './ParExplain';
 import { DRUG_CATEGORIES, categoryLabel, UNCATEGORIZED } from '../data/categories';
 import { FRIDGE_LOCS } from '../data/locations';
 import { suggestCategoryId } from '../data/categorySuggest';
@@ -798,6 +799,7 @@ export default function MedsScreen() {
               // existing med with real floor+substock data (daysOfStockLeft already returns null
               // with no used30 history), so never passed for the blank "เพิ่มยาใหม่" form below.
               currentDaysLeft={daysOfStockLeft(state, m)}
+              explainMed={m}
               onCancel={() => setEditingId(null)}
               onSubmit={async (v) => {
                 // Bug fix (flow friction): same fix as addMed's own onSubmit above — this used
@@ -845,8 +847,10 @@ export default function MedsScreen() {
 /** The one place every editable fact about a med lives — name+strength, dosage form, unit,
  * price, high-alert flag, shelf/bin, and both par levels — used both for "เพิ่มยาใหม่" (blank)
  * and a row's "แก้ไขข้อมูล" (pre-filled), so there's exactly one form to keep in sync. */
-function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, onSiblingBinChange, onMerge, mergeBusy, currentDaysLeft }: {
+function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, onSiblingBinChange, onMerge, mergeBusy, currentDaysLeft, explainMed }: {
   heading: string | null;
+  /** The existing med being edited — enables the "ทำไมได้เลขนี้" panel (see ParExplain.tsx). Not passed for the add form. */
+  explainMed?: Med | undefined;
   initial: MedFormValues;
   submitLabel: string;
   onCancel: () => void;
@@ -1145,6 +1149,7 @@ function MedForm({ heading, initial, submitLabel, onCancel, onSubmit, sibling, o
           </div>
         )}
       </label>
+      {explainMed && <ParExplain med={explainMed} />}
       <label style={{ display: 'block', marginBottom: 9 }}>
         <span className="muted" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>ตัวคูณกันชน (volatility) — ใช้ตอนคำนวณ "ค่าแนะนำ"</span>
         <input

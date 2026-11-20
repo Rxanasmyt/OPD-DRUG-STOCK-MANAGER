@@ -754,6 +754,10 @@ export interface AppCtx {
   /** The signed-in user sets their own new password (the forced change after an admin reset). */
   changeMyPassword: (newPassword: string) => Promise<boolean>;
   /** Admin-only. Reads the temporary password the reset workflow stored for `uid` (null if none yet). */
+  /** Per-business-day dispensed quantity per med over the last `days` calendar days (ending yesterday),
+   * from reconcile_hosxp txs — the input of the Min/Max back-test (ParBacktestTab). Same per-day
+   * spreading the usage analysis uses (a multi-day file's qty is split across the days it covers). */
+  fetchDemandSeries: (days: number) => Promise<{ dates: string[]; byMed: Map<MedId, number[]> }>;
   fetchTempPassword: (uid: string) => Promise<{ tempPassword: string; createdAt: number } | null>;
   /** Admin-only. Deletes that stored temporary password (do this once the user has been told). */
   clearTempPassword: (uid: string) => Promise<boolean>;
@@ -3537,7 +3541,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // export button for all three in favor of their own date-range-scoped export
     // (exportDailyMetricsCsv / exportUsageHistoryCsv / exportStockAsOfCsv) — but the map still
     // needs every ReportTab key to satisfy state.reportTab's type below.
-    const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', exec: 'executive_summary.csv', kpi: 'kpi_metrics.csv', usage: 'usage_history.csv', stockasof: 'stock_as_of.csv', returns: 'drug_returns.csv', replenish: 'floor_refills.csv' };
+    const names = { aging: 'stock_aging.csv', category: 'stock_by_category.csv', turn: 'turnover.csv', disc: 'discrepancy_log.csv', insights: 'usage_insights.csv', exec: 'executive_summary.csv', kpi: 'kpi_metrics.csv', usage: 'usage_history.csv', stockasof: 'stock_as_of.csv', returns: 'drug_returns.csv', replenish: 'floor_refills.csv', parsim: 'par_backtest.csv' };
     // Bug fix (report accuracy): ReportScreen.tsx dropped OPD/IPD ward tabs a while back ("reports
     // always cover the whole formulary" — see its own comment) and every on-screen computation
     // there (aging/category/turn/insights/exec/disc) reads straight from state.meds.filter(active)
@@ -7234,6 +7238,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [canEditMeds, state.meds, runTx, logAudit, toast, toastErr]);
 
+  const fetchDemandSeries = useCallback(async (days: number) => {
+    const now = Date.now();
+    const snap = await withTimeout(fetchTxsAfter(now - (days + 1) * DAY), 30000);
+    const dates: string[] = [];
+    const idx = new Map<string, number>();
+    for (let i = days; i >= 1; i--) {
+      const ts = now - i * DAY;
+      const wd = bangkokWeekday(ts);
+      if (wd === 0 || wd === 6) continue;
+      const iso = isoDate(ts);
+      if (!idx.has(iso)) { idx.set(iso, dates.length); dates.push(iso); }
+    }
+    const byMed = new Map<MedId, number[]>();
+    snap.docs.forEach((d) => {
+      const x = d.data() as { type?: string; medId?: string; qty?: number; reportedQty?: number; ts?: number; coveredFrom?: string; coveredTo?: string };
+      if (x.type !== 'reconcile_hosxp' || !x.medId || typeof x.qty !== 'number' || typeof x.ts !== 'number') return;
+      if (x.qty >= 0 && !((x.reportedQty ?? 0) > 0)) return; // dispensed only (same test as the usage stats)
+      const fromTs = new Date((x.coveredFrom || isoDate(x.ts)) + 'T00:00:00').getTime();
+      const toTs = new Date((x.coveredTo || isoDate(x.ts)) + 'T00:00:00').getTime();
+      const daysCovered = Math.max(1, Math.round((toTs - fromTs) / DAY) + 1);
+      const perDay = Math.abs(x.reportedQty ?? x.qty) / daysCovered;
+      for (let i = 0; i < daysCovered; i++) {
+        const j = idx.get(isoDate(fromTs + i * DAY));
+        if (j === undefined) continue; // weekend, or outside the window
+        let arr = byMed.get(x.medId as MedId);
+        if (!arr) { arr = new Array(dates.length).fill(0); byMed.set(x.medId as MedId, arr); }
+        arr[j] += perDay;
+      }
+    });
+    return { dates, byMed };
+  }, []);
+
   const fetchTempPassword = useCallback(async (uid: string) => {
     if (state.role !== 'admin') return null;
     try {
@@ -7366,7 +7402,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     confirmScanAndNext, confirmScanAndStop, cancelScanConfirm,
     doneAgain,
-    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, addHosxpAlias, changeMyPassword, fetchTempPassword, clearTempPassword, exportAudit,
+    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, addHosxpAlias, changeMyPassword, fetchDemandSeries, fetchTempPassword, clearTempPassword, exportAudit,
     setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, fetchExecTxsThisMonth,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [state, myProfile, theme, toggleTheme]);
