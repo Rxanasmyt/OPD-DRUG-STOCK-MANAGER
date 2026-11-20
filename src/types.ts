@@ -828,6 +828,22 @@ export type ReconcileGapDay =
 export type DayMissKind = 'zero_qty' | 'not_in_file' | 'ambiguous' | 'unknown';
 export type ReconcileMonthStatus = 'attached' | 'partial' | 'missing' | 'weekend' | 'today' | 'future';
 /** One calendar day on ReconcileScreen's month calendar. */
+export interface ReconcileResult {
+  at: number;
+  from: string;
+  to: string;
+  fileName: string | null;
+  applied: number;
+  alreadyDone: number;
+  zeroQty: number;
+  skipped: string[];
+  /** Drugs where the floor held LESS than the file reported — only the part that existed was deducted. */
+  clamped: { name: string; reported: number; deducted: number; unit: string }[];
+  /** One entry per real deduction — the data the "ย้อนการตัดยอด" button replays in reverse. */
+  entries: { medId: string; name: string; txId: string; deducted: number; reported: number; unit: string }[];
+  undone: boolean;
+}
+
 export interface ReconcileMonthDay {
   dateIso: string;
   status: ReconcileMonthStatus;
@@ -1024,6 +1040,10 @@ export interface AppState {
    * path) or nothing is loaded. `dateRange` is read from the report's own title rows (null when
    * the file states no date); `fingerprint` (row count : total qty : first name) lets a re-attach
    * of the SAME file be recognised against earlier runs' 'hosxp_day_report' audit entries. */
+  /** Live progress of a running commitReconcile (rows handled / total) — drives the progress bar. */
+  reconcileProgress: { done: number; total: number } | null;
+  /** What the LAST commitReconcile actually did — kept on screen (not a vanishing toast) until dismissed or a new file loads. */
+  reconcileResult: ReconcileResult | null;
   hosxpFileInfo: { name: string; rowCount: number; totalQty: number; dateRange: { from: string; to: string } | null; zeroRows?: number; fingerprint: string } | null;
 
   // Import usage totals from a file (a real HOSxP "รายงานการใช้ยา" export, .xls/.xlsx, or a

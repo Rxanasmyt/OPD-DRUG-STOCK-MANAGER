@@ -15,14 +15,14 @@ import { signInAs, fireCollection, hasListener } from '../test-utils/firebaseTes
 const MED_A = {
   id: 'm1', code: 'MED-0001', name: 'Paracetamol 500mg', unit: 'เม็ด', dosageForm: 'เม็ด',
   price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 40, bin: 'A1',
-  used30: 300, usedPrev30: 300, volatility: 0,
+  used30: 300, usedPrev30: 300, volatility: 0, dispenseDays30: 21,
 };
 // Never appears in any pasted file below — regularly dispensed, so it should surface as
 // "not_in_file", never silently dropped.
 const MED_MISSING = {
   id: 'm2', code: 'MED-0002', name: 'Amoxicillin 250mg', unit: 'เม็ด', dosageForm: 'เม็ด',
   price: 1, had: false, active: true, parSub: 500, parFloor: 100, floor: 40, bin: 'A2',
-  used30: 200, usedPrev30: 200, volatility: 0,
+  used30: 200, usedPrev30: 200, volatility: 0, dispenseDays30: 21,
 };
 // Genuinely rare (used30 === 0) — must never show up in the panel even though it's also absent
 // from the file, same "plenty of genuinely-rare drugs" reasoning every other miss-detector here
@@ -69,19 +69,18 @@ async function setup(pastedText: string, meds: Record<string, unknown>[]) {
 }
 
 describe('ReconcileScreen — miss-reasons panel regression', () => {
-  it('explains a med matched with qty=0 as "ปกติ" (zero_qty), not an unexplained gap', async () => {
+  it('folds a med matched with qty=0 (file says nothing dispensed) into the calm "ปกติ" count, not an alarm panel', async () => {
     await setup('Paracetamol 500mg,0', [MED_A]);
 
-    await screen.findByText('ยาที่ปกติจ่ายทุกวันแต่ไม่ถูกตัดยอดจากไฟล์นี้ (1 รายการ)');
-    expect(screen.getByText('ปกติ')).toBeInTheDocument();
-    expect(screen.getByText(/จำนวนจ่าย = 0 จึงไม่ตัดยอด — ไม่ใช่ปัญหา/)).toBeInTheDocument();
+    expect(await screen.findByTestId('miss-normal-count')).toHaveTextContent(/อีก 1 รายการ/);
+    expect(screen.queryByText(/ยาที่ปกติจ่ายทุกวันแต่ไม่ถูกตัดยอดจากไฟล์นี้ — ควรตรวจ/)).not.toBeInTheDocument();
   });
 
   it('flags a regularly-dispensed med with nothing in the file as "ไม่พบในไฟล์", and skips a genuinely-rare one', async () => {
     await setup('SomeOtherDrug,5', [MED_A, MED_MISSING, MED_RARE]);
 
     // MED_A also missing here (not in this file either), plus MED_MISSING — 2 total, never MED_RARE.
-    await screen.findByText(/ยาที่ปกติจ่ายทุกวันแต่ไม่ถูกตัดยอดจากไฟล์นี้ \(2 รายการ\)/);
+    await screen.findByText(/ยาที่ปกติจ่ายทุกวันแต่ไม่ถูกตัดยอดจากไฟล์นี้ — ควรตรวจ \(2 รายการ\)/);
     expect(screen.getAllByText('ไม่พบในไฟล์')).toHaveLength(2);
     expect(screen.queryByText('Rare Drug')).not.toBeInTheDocument();
   });
@@ -89,7 +88,7 @@ describe('ReconcileScreen — miss-reasons panel regression', () => {
   it('flags the OPD/IPD same-name collision with its specific explanation, for both records', async () => {
     await setup('Insulin NPH,8', [MED_OPD, MED_IPD]);
 
-    const heading = await screen.findByText('ยาที่ปกติจ่ายทุกวันแต่ไม่ถูกตัดยอดจากไฟล์นี้ (2 รายการ)');
+    const heading = await screen.findByText('ยาที่ปกติจ่ายทุกวันแต่ไม่ถูกตัดยอดจากไฟล์นี้ — ควรตรวจ (2 รายการ)');
     // Scoped to the miss-reasons panel itself — the per-row match-preview table above it ALSO
     // shows its own "OPD/IPD" explanation (MatchBadge) for the same ambiguous file row, which
     // would otherwise double-count against a page-wide query.
@@ -111,7 +110,7 @@ describe('ReconcileScreen — miss-reasons panel regression', () => {
   it('the "แก้ไขชื่อยา..." link on a not_in_file row jumps straight to that med\'s edit form', async () => {
     const user = await setup('SomeOtherDrug,5', [MED_A]);
 
-    await screen.findByText(/ยาที่ปกติจ่ายทุกวันแต่ไม่ถูกตัดยอดจากไฟล์นี้ \(1 รายการ\)/);
+    await screen.findByText(/ยาที่ปกติจ่ายทุกวันแต่ไม่ถูกตัดยอดจากไฟล์นี้ — ควรตรวจ \(1 รายการ\)/);
     expect(screen.getByTestId('nav-state')).not.toHaveTextContent('meds:' + MED_A.id);
     await user.click(screen.getByRole('button', { name: /แก้ไขชื่อยา\/เพิ่มชื่อ HOSxP ที่รู้จัก/ }));
     expect(screen.getByTestId('nav-state')).toHaveTextContent('meds:' + MED_A.id);
@@ -120,7 +119,7 @@ describe('ReconcileScreen — miss-reasons panel regression', () => {
   it('shows no fix-it link on an ambiguous (OPD/IPD clash) row — not a single-med fix', async () => {
     await setup('Insulin NPH,8', [MED_OPD, MED_IPD]);
 
-    const heading = await screen.findByText('ยาที่ปกติจ่ายทุกวันแต่ไม่ถูกตัดยอดจากไฟล์นี้ (2 รายการ)');
+    const heading = await screen.findByText('ยาที่ปกติจ่ายทุกวันแต่ไม่ถูกตัดยอดจากไฟล์นี้ — ควรตรวจ (2 รายการ)');
     const panel = heading.closest('.card') as HTMLElement;
     expect(within(panel).queryByRole('button', { name: /แก้ไขชื่อยา/ })).not.toBeInTheDocument();
   });

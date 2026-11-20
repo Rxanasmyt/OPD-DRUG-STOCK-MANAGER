@@ -1921,3 +1921,14 @@ describe('assessFileCompleteness — is a HOSxP file complete, or are the absent
     expect(assessFileCompleteness({ deductedCount: 150, actualAbsent: 14, regularMeds: meds, recentDeductedCounts: [150] }).verdict).toBe('unknown');
   });
 });
+
+describe('priorReconcileByMed — undo (reversal) rows net out', () => {
+  it('a reversal with negative reportedQty cancels the original, so a re-attach deducts in full again', async () => {
+    const { priorReconcileByMed } = await import('./selectors');
+    const base = { type: 'reconcile_hosxp', medId: 'm1', name: 'X', unit: 'u', by: 'a', coveredFrom: '2026-11-19', coveredTo: '2026-11-19' } as never;
+    const orig = { ...(base as object), id: 't1', qty: -100, reportedQty: 150, ts: 1 } as never;
+    const rev = { ...(base as object), id: 't2', qty: 100, reportedQty: -150, ts: 2 } as never;
+    expect(priorReconcileByMed([orig], '2026-11-19', '2026-11-19').get('m1')).toBe(150);
+    expect(priorReconcileByMed([orig, rev], '2026-11-19', '2026-11-19').has('m1')).toBe(false);
+  });
+});
