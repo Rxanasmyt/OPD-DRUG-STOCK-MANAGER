@@ -24,7 +24,7 @@ import { settingsRef, subscribeSettings, medSeqRef } from './repositories/metaRe
 import { floorLotRef, subscribeFloorLots, fetchAllFloorLots, fetchFloorLotsByMedId, fetchActiveFloorLotsByMedId } from './repositories/floorLotsRepo';
 import { userRef, usersCollection, queryAdminUsers, passwordResetRef } from './repositories/usersRepo';
 import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetchLotsByMedIds, fetchActiveLotsByMedId } from './repositories/lotsRepo';
-import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchAllTxs, fetchTxsByName, fetchTxsByNameSince, fetchTxsAfter, queryTxsByDateRange } from './repositories/txsRepo';
+import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchAllTxs, fetchTxsByName, fetchTxsByNameSince, fetchTxsAfter, queryTxsByDateRange, fetchTxsByCoveredRange } from './repositories/txsRepo';
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
 import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
 import { safeToAutoUpdate, probeActiveElement, deployedEntryDiffers, forceFreshReload } from '../utils/autoUpdate';
@@ -85,6 +85,8 @@ function returnCartStorageKey(uid: string): string { return 'opd-returncart-' + 
 function adjStorageKey(uid: string): string { return 'opd-adj-' + uid; }
 function wmStorageKey(uid: string): string { return 'opd-wm-' + uid; }
 function hosxpStorageKey(uid: string): string { return 'opd-hosxp-' + uid; }
+// The last reconcile's result card + undo data must survive the auto-update reload that can follow right after a commit.
+function reconcileResultStorageKey(uid: string): string { return 'opd-hosxp-result-' + uid; }
 function usageImportStorageKey(uid: string): string { return 'opd-usageimport-' + uid; }
 
 // Real-world request: "ป้องกันการแนบไฟล์ผิดวัน...ตอนนี้ไม่รู้อะไรเลย" — hosxpCoveredFrom used to
@@ -773,6 +775,8 @@ export interface AppCtx {
   /** Reverses the LAST reconcile (floor += what it took, one reversal tx per drug). */
   undoLastReconcile: () => Promise<void>;
   dismissReconcileResult: () => void;
+  /** What a covered range already took per med, read straight from Firestore (the live txs window only holds the newest 300). */
+  fetchPriorReconcile: (from: string, to: string) => Promise<Map<string, number>>;
   exportAudit: () => void;
   setHistoryFrom: (v: string) => void;
   setHistoryTo: (v: string) => void;
@@ -1142,6 +1146,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const wm = readPersisted<WmPersisted>(wmStorageKey(state.myUid));
     const hosxp = readPersisted<HosxpPersisted>(hosxpStorageKey(state.myUid));
     const usageImport = readPersisted<UsageImportPersisted>(usageImportStorageKey(state.myUid));
+    const savedResult = readPersisted<import('../types').ReconcileResult>(reconcileResultStorageKey(state.myUid));
+    if (savedResult) patch({ reconcileResult: savedResult });
     const hasCart = cart && Object.keys(cart).length > 0;
     const hasRecv = recvItems && recvItems.length > 0;
     const hasReturnCart = returnCart && returnCart.length > 0;
@@ -1203,6 +1209,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     writePersisted(hosxpStorageKey(state.myUid), v);
   }, [state.myUid, state.hosxpText, state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpCoveredFrom, state.hosxpCoveredTo, state.hosxpAppliedRowIndexes]);
+  useEffect(() => {
+    if (!state.myUid) return;
+    writePersisted(reconcileResultStorageKey(state.myUid), state.reconcileResult);
+  }, [state.myUid, state.reconcileResult]);
   useEffect(() => {
     if (!state.myUid) return;
     const v: UsageImportPersisted = { usageDateFrom: state.usageDateFrom, usageDateTo: state.usageDateTo, usageFileName: state.usageFileName, usageRows: state.usageRows, usageConfirmFuzzy: state.usageConfirmFuzzy };
@@ -6379,6 +6389,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setHosxpCoveredFrom = useCallback((v: string) => patch({ hosxpCoveredFrom: v }), [patch]);
   const setHosxpCoveredTo = useCallback((v: string) => patch({ hosxpCoveredTo: v }), [patch]);
 
+  const fetchPriorReconcile = useCallback(async (from: string, to: string): Promise<Map<string, number>> => {
+    const snap = await withTimeout(fetchTxsByCoveredRange(from, to), 20000);
+    const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) }) as unknown as import('../types').Tx);
+    const fetched = priorReconcileByMed(rows, from, to);
+    // union with whatever the live window already shows (never LESS protective than before)
+    const live = priorReconcileByMed(state.txs, from, to);
+    for (const [k, v] of live) fetched.set(k, Math.max(fetched.get(k) || 0, v));
+    return fetched;
+  }, [state.txs]);
+
   const commitReconcile = useCallback(guardOnce('reconcile', async () => {
     const rows = state.hosxpRows || [];
     const meds = state.meds;
@@ -6414,7 +6434,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Re-attaching a file for a range that was ALREADY reconciled (a corrected/re-pulled export, or a
     // plain double attach): per med, only the part the file reports ABOVE what that range already took
     // is deducted — meds already deducted are never taken twice. See priorReconcileByMed.
-    const priorByMed = isResuming ? new Map<string, number>() : priorReconcileByMed(state.txs, state.hosxpCoveredFrom, state.hosxpCoveredTo);
+    let priorByMed = new Map<string, number>();
+    if (!isResuming) {
+      try { priorByMed = await fetchPriorReconcile(state.hosxpCoveredFrom, state.hosxpCoveredTo); }
+      catch (e) { toastErr(e, 'ตรวจประวัติการตัดยอดของช่วงวันที่นี้ไม่สำเร็จ — ยังไม่ตัดยอด (กันตัดซ้ำ) ลองใหม่อีกครั้ง'); return; }
+    }
     const deltaMode = priorByMed.size > 0;
     if (deltaMode && !(await confirmAsync(
       'ช่วงวันที่ ' + state.hosxpCoveredFrom + (state.hosxpCoveredTo !== state.hosxpCoveredFrom ? ' ถึง ' + state.hosxpCoveredTo : '') + ' เคยตัดยอด HOSxP ไปแล้ว (' + priorByMed.size + ' รายการยา) — ระบบจะตัดเฉพาะส่วนที่ไฟล์นี้จ่ายมากกว่าที่เคยตัดไว้ (ยาที่ตัดไปแล้วจะไม่ถูกตัดซ้ำ) ดำเนินการต่อหรือไม่?'
@@ -6779,7 +6803,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       patch({ reconcileProgress: null, ...(resultEntries.length ? { reconcileResult: buildResult() } : {}) });
       toastErr(e, 'ประมวลผลไม่สำเร็จ' + (failedMedName ? ' (ยา: ' + failedMedName + ')' : '') + (applied > 0 ? ' — ตัดยอดไปแล้ว ' + applied + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง') + (failedDebug ? ' [' + failedDebug + ']' : ''));
     }
-  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpCoveredFrom, state.hosxpCoveredTo, state.hosxpAppliedRowIndexes, state.meds, state.txs, userName, logAudit, toast, toastErr, patch, guardOnce, confirmAsync, recomputeUsageStats, analyzeWeekdayUsage]);
+  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpCoveredFrom, state.hosxpCoveredTo, state.hosxpAppliedRowIndexes, state.meds, state.txs, fetchPriorReconcile, userName, logAudit, toast, toastErr, patch, guardOnce, confirmAsync, recomputeUsageStats, analyzeWeekdayUsage]);
 
   // Real-world request: "ป้องกันการหลุดยาที่มีในระบบแต่ไม่ได้ถูกตัดจำนวนยา และป้องกันการหลุดวันที่
   // ยังไม่ได้แนบไฟล์" — ReconcileScreen's own notDeductedLatestDay only ever checks the single
@@ -7564,7 +7588,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     confirmScanAndNext, confirmScanAndStop, cancelScanConfirm,
     doneAgain,
-    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, addHosxpAlias, resolveHosxpRow, resolveHosxpRowsBulk, undoLastReconcile, dismissReconcileResult, changeMyPassword, fetchDemandSeries, fetchTempPassword, clearTempPassword, exportAudit,
+    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, addHosxpAlias, resolveHosxpRow, resolveHosxpRowsBulk, undoLastReconcile, dismissReconcileResult, fetchPriorReconcile, changeMyPassword, fetchDemandSeries, fetchTempPassword, clearTempPassword, exportAudit,
     setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, fetchExecTxsThisMonth,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [state, myProfile, theme, toggleTheme]);

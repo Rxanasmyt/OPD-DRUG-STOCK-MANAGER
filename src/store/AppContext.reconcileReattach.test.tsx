@@ -8,7 +8,7 @@ import { useApp } from './AppContext';
 import { renderWithApp } from '../test-utils/renderWithApp';
 import Toast from '../components/Toast';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { signInAs, fireCollection, hasListener, getLastTransactionWrites, seedDoc } from '../test-utils/firebaseTestDouble';
+import { signInAs, fireCollection, hasListener, getLastTransactionWrites, seedDoc, seedCollection } from '../test-utils/firebaseTestDouble';
 import { isoDate } from '../utils/format';
 
 const YEST = isoDate(Date.now() - 86400000);
@@ -30,14 +30,18 @@ function Harness({ text }: { text: string }) {
   );
 }
 
-async function run(text: string, priorQty: number) {
+async function run(text: string, priorQty: number, opts: { liveWindow?: boolean } = {}) {
   const user = userEvent.setup();
   renderWithApp(<><Harness text={text} /><Toast /><ConfirmDialog /></>);
   await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
   await waitFor(() => expect(hasListener('meds')).toBe(true));
   fireCollection('meds', [MED]);
   await waitFor(() => expect(hasListener('txs')).toBe(true));
-  fireCollection('txs', [{ id: 't1', type: 'reconcile_hosxp', medId: 'm1', qty: -priorQty, ts: Date.now() - 3600000, coveredFrom: YEST, coveredTo: YEST }]);
+  const prior = { id: 't1', type: 'reconcile_hosxp', medId: 'm1', qty: -priorQty, ts: Date.now() - 3600000, coveredFrom: YEST, coveredTo: YEST };
+  // liveWindow:false models a busy day where the earlier reconcile has scrolled out of the newest-300 window:
+  // only the direct covered-range query (seedCollection) can still see it.
+  fireCollection('txs', opts.liveWindow === false ? [] : [prior]);
+  seedCollection('txs', [prior]);
   await user.click(screen.getByRole('button', { name: 'process' }));
   await waitFor(() => expect(screen.getByRole('button', { name: 'commit-reconcile' })).not.toBeDisabled());
   await user.click(screen.getByRole('button', { name: 'set-range' }));
@@ -59,5 +63,10 @@ describe('commitReconcile — re-attaching the same range', () => {
     const w = getLastTransactionWrites();
     const floorWrite = w.find((x) => 'floor' in (x.data as object));
     expect((floorWrite!.data as { floor: number }).floor).toBe(90 - 15);
+  });
+  it('still never double-deducts when the earlier reconcile has scrolled out of the live 300-row txs window', async () => {
+    await run('Paracetamol 500mg,10', 10, { liveWindow: false });
+    await screen.findByText(/เคยตัดครบแล้ว/);
+    expect(getLastTransactionWrites().length).toBe(0);
   });
 });
