@@ -1,3 +1,4 @@
+import LoginGuide from './LoginGuide';
 import { useState } from 'react';
 import { useApp } from '../store/AppContext';
 import HospitalCrest from '../components/HospitalCrest';
@@ -97,6 +98,9 @@ export default function LoginScreen() {
       <div className="login-pattern" aria-hidden="true" />
       {OnlineBadge}
       {ThemeToggleBtn}
+      <div className="login-wide">
+        <aside className="login-side login-side--guide"><LoginGuide /></aside>
+        <div className="login-main">
       {/* Trust strip — real, already-shipped features, not decoration. Shown above the form
           on every screen size (a single column on phones, where this app is actually used;
           the extra width on a tablet just gives the card more breathing room, not a second
@@ -218,6 +222,9 @@ export default function LoginScreen() {
           )}
         </div>
 
+      </div>
+        </div>
+        <aside className="login-side login-side--features">
         <div style={{ background: 'rgba(255,255,255,.045)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 18, padding: '4px 16px', marginTop: 18 }}>
           {FEATURES.map(([icon, title, sub], i) => (
             <div
@@ -236,6 +243,9 @@ export default function LoginScreen() {
             </div>
           ))}
         </div>
+        </aside>
+      </div>
+      <div style={{ position: 'relative', maxWidth: 440, margin: '0 auto', width: '100%', padding: '0 20px calc(env(safe-area-inset-bottom, 0px) + 28px)' }}>
         <div style={{ textAlign: 'center', fontSize: 10.5, color: 'rgba(242,245,239,.4)', letterSpacing: '.04em', marginTop: 18, lineHeight: 1.8 }}>
           <div>© งานเภสัชกรรม โรงพยาบาลกรงปินัง · เวอร์ชัน {APP_VERSION}</div>
           <div>พัฒนาแอพโดย ภก.อนัส มะยีแต</div>
