@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { wardOf, hosxpMissReasons, isRegularlyDispensed, lastReconcileCoveredToIso } from '../store/selectors';
+import { wardOf, hosxpMissReasons, isRegularlyDispensed, lastReconcileCoveredToIso, priorReconcileByMed } from '../store/selectors';
 import { nf, thDate, isoDate, bangkokWeekday } from '../utils/format';
 import type { HosxpMatch, Med, MedId, ReconcileGapDay, ReconcileMonthDay } from '../types';
 import { Badge } from '../components/Badge';
@@ -84,18 +84,25 @@ export default function ReconcileScreen() {
   const appliedRowSet = useMemo(() => new Set(state.hosxpAppliedRowIndexes || []), [state.hosxpAppliedRowIndexes]);
   const reconcileRows = (() => {
     const running = new Map<string, number>();
+    // Same range already reconciled → only the part above what it took is deducted (see commitReconcile).
+    const isResumingNow = appliedRowSet.size > 0 && appliedRowSet.size < (state.hosxpRows || []).length;
+    const priorLeft = isResumingNow ? new Map<string, number>() : priorReconcileByMed(state.txs, state.hosxpCoveredFrom, state.hosxpCoveredTo);
     return (state.hosxpRows || []).map((r, idx) => {
       const med = r.match.kind === 'exact' || r.match.kind === 'fuzzy' ? medById(r.match.medId) : undefined;
       if (appliedRowSet.has(idx)) {
         // med.floor already reflects this row's real deduction live — deliberately NOT seeded
         // into `running`, so the next row for the same med (if any, and if not itself already
         // applied) still starts from that real, already-reduced floor instead of double-counting.
-        return { fileText: r.name, qty: r.qty, match: r.match, med, before: med?.floor ?? 0, after: med?.floor ?? 0, applied: true };
+        return { fileText: r.name, qty: r.qty, already: 0, match: r.match, med, before: med?.floor ?? 0, after: med?.floor ?? 0, applied: true };
       }
+      const have = med ? priorLeft.get(med.id) || 0 : 0;
+      const already = Math.min(have, r.qty);
+      if (med && already > 0) priorLeft.set(med.id, have - already);
+      const qtyEff = r.qty - already;
       const before = med ? (running.has(med.id) ? running.get(med.id)! : med.floor) : 0;
-      const after = med ? Math.max(0, before - r.qty) : 0;
+      const after = med ? Math.max(0, before - qtyEff) : 0;
       if (med) running.set(med.id, after);
-      return { fileText: r.name, qty: r.qty, match: r.match, med, before, after, applied: false };
+      return { fileText: r.name, qty: r.qty, already, match: r.match, med, before, after, applied: false };
     });
   })();
   const appliedCount = reconcileRows.filter((r) => r.applied).length;
@@ -367,11 +374,16 @@ export default function ReconcileScreen() {
                     <Badge flexNone size={10.5} padding="2px 7px" color="var(--green)" bg="var(--green-tint)">✓ ตัดยอดแล้ว</Badge>
                   ) : (
                     <>
-                      <span style={{ minWidth: 70, textAlign: 'right', flex: 'none', fontSize: 13, fontWeight: 600, color: 'var(--red)', whiteSpace: 'nowrap' }}>{r.med ? '−' + nf(r.qty) : '—'}</span>
+                      <span style={{ minWidth: 70, textAlign: 'right', flex: 'none', fontSize: 13, fontWeight: 600, color: 'var(--red)', whiteSpace: 'nowrap' }}>{r.med ? '−' + nf(r.qty - r.already) : '—'}</span>
                       <span className="muted" style={{ minWidth: 70, textAlign: 'right', flex: 'none', fontSize: 12.5, whiteSpace: 'nowrap' }}>{r.med ? nf(r.before) + '→' + nf(r.after) : '—'}</span>
                     </>
                   )}
                 </div>
+                {!r.applied && r.already > 0 && (
+                  <div style={{ fontSize: 10.5, color: 'var(--green)', fontWeight: 600, marginTop: 3 }}>
+                    {r.already >= r.qty ? '✓ ช่วงวันที่นี้เคยตัดยอดยานี้ครบแล้ว (' + nf(r.already) + ') — ไม่ตัดซ้ำ' : 'เคยตัดไปแล้ว ' + nf(r.already) + ' จากไฟล์ ' + nf(r.qty) + ' — ตัดเพิ่มเฉพาะส่วนต่าง ' + nf(r.qty - r.already)}
+                  </div>
+                )}
                 {!r.applied && <MatchBadge match={r.match} fileText={r.fileText} medById={medById} />}
                 {!r.applied && (r.match.kind === 'none' || r.match.kind === 'ambiguous') && (
                   <FileRowFixer idx={i} fileText={r.fileText} qty={r.qty} skipped={skippedRows.has(i)}
