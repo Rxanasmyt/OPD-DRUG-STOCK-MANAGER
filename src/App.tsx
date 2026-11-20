@@ -1,3 +1,5 @@
+import { TAB } from './navLabels';
+import AppIcon from './components/AppIcon';
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from 'react';
 import { useApp } from './store/AppContext';
 import LoginScreen from './screens/LoginScreen';
@@ -15,7 +17,6 @@ import UpdateBanner from './components/UpdateBanner';
 import IdleLogoutWarning from './components/IdleLogoutWarning';
 import { SkeletonHome, SkeletonScreen } from './components/Skeleton';
 import { ContextBar } from './components/ContextBar';
-import HospitalCrest from './components/HospitalCrest';
 import type { Screen } from './types';
 
 // Code-split the screens that aren't part of the hot day-to-day path (settings, admin,
@@ -68,11 +69,11 @@ const CAN_BACK: Screen[] = ['tconfirm', 'adjust', 'report', 'labels', 'settings'
 // ⇄/⬓ glyphs in HomeScreen.tsx's two quick-action buttons and QrModal.tsx's scan-purpose theme
 // (same meaning, same icon, everywhere it appears — not just here).
 const NAV_DEF: [Screen, string, string][] = [
-  ['home', 'หน้าหลัก', '🏠'],
-  ['transfer', 'เติมหน้างาน', '🔄'],
-  ['reconcile', 'นำเข้า HOSxP', '🔃'],
-  ['receive', 'รับเข้า', '📦'],
-  ['more', 'เพิ่มเติม', '⚙️'],
+  ['home', TAB.home, '🏠'],
+  ['transfer', TAB.transfer, '🔄'],
+  ['reconcile', TAB.reconcile, '🔃'],
+  ['receive', TAB.receive, '📦'],
+  ['more', TAB.more, '⚙️'],
 ];
 
 export default function App() {
@@ -176,13 +177,17 @@ export default function App() {
           // is the back button's the moment there's somewhere to go back to. Sized to match the
           // back button above (44px) so the header doesn't jump in height depending on which of
           // the two this slot is showing.
-          <div aria-hidden="true" style={{ position: 'relative', width: 44, height: 44, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, #ffffff, #f4f2ec)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 7, flex: 'none', boxShadow: '0 2px 8px -3px rgba(0,0,0,.35)' }}>
-            <HospitalCrest size={26} />
-          </div>
+          <div aria-hidden="true" style={{ position: 'relative', width: 44, height: 44, flex: 'none', filter: 'drop-shadow(0 3px 8px rgba(0,40,40,.45))' }}><AppIcon size={44} /></div>
         )}
         <div key={state.screen + '|' + title} style={{ position: 'relative', minWidth: 0, flex: 1, animation: 'fade .22s var(--ease-out)' }}>
-          <div style={{ fontSize: 16.5, fontWeight: 600, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
-          <div style={{ fontSize: 11.5, opacity: 0.65, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{headerSub}</div>
+          {/* App name — always visible so nobody has to guess which app they are in. Decorative
+              duplicate of the document title; the screen title below stays the accessible heading. */}
+          <div className="brand-mark" aria-hidden="true" data-testid="brand-mark">
+            <span className="brand-mark-name">Krongpinang Hospital</span>
+            <span className="brand-mark-tag">DRUG · SUBSTOCK</span>
+          </div>
+          <div style={{ fontSize: 17, fontWeight: 700, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
+          <div style={{ fontSize: 12.5, opacity: 0.82, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{headerSub}</div>
         </div>
         {/* Real request: "ค้นหายาแบบสแกนบาร์โค้ด/QR ได้ทุกหน้าจอ" — scan-to-find-a-drug used to
             live only as one icon button on จัดการรายการยา (MedsScreen), even though the

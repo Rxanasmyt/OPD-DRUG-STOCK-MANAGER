@@ -1,5 +1,8 @@
 import { useApp } from '../store/AppContext';
 import type { Screen } from '../types';
+import { useState } from 'react';
+import { MENU } from '../navLabels';
+import UserManual from './UserManual';
 import versionRaw from '../../VERSION?raw';
 
 const APP_VERSION = versionRaw.trim();
@@ -17,6 +20,7 @@ interface MenuGroup { title: string; items: MenuItem[] }
  */
 export default function MoreScreen() {
   const { state, go, userName, roleLabel, logout, checkForUpdateNow } = useApp();
+  const [manualOpen, setManualOpen] = useState(false);
   // Real-world request: editing the master drug record is Admin-only now (was pharm+admin) —
   // hide the menu item entirely for anyone else, same as MedsScreen's own full-page block for
   // a non-admin who reaches it some other way (e.g. a bookmarked/QR deep link).
@@ -30,29 +34,29 @@ export default function MoreScreen() {
     {
       title: 'งานประจำวัน',
       items: [
-        { icon: '⚖️', label: 'ปรับยอด / คืนยา / ยาหมดอายุ', sub: 'บันทึกเหตุผลทุกครั้ง', screen: 'adjust' },
-        { icon: '🔢', label: 'นับสต็อกหน้างาน', sub: 'ใช้เมื่อสงสัยยอดคลาดเคลื่อน — ไม่บังคับ', screen: 'count' },
+        { icon: '⚖️', label: MENU.adjust, sub: 'บันทึกเหตุผลทุกครั้ง', screen: 'adjust' },
+        { icon: '🔢', label: MENU.count, sub: 'ใช้เมื่อสงสัยยอดคลาดเคลื่อน — ไม่บังคับ', screen: 'count' },
       ],
     },
     {
       title: 'จัดการยาและชั้นวาง',
       items: [
-        ...(canEditMeds ? [{ icon: '💊', label: 'จัดการรายการยา', sub: 'ชื่อ ขนาด หน่วย ราคา par ชั้นวาง — แก้ทุกอย่างของยาที่นี่', screen: 'meds' as Screen }] : []),
-        { icon: '↔️', label: 'ย้ายยาระหว่างชั้นวาง', sub: 'เช่น แบ่งยาฉีดจากลิ้นชักล็อก IPD มาวาง stat OPD', screen: 'wardmove' },
-        { icon: '📈', label: 'par อัตโนมัติ & เกณฑ์แจ้งเตือน', sub: 'คำนวณ par แนะนำจากสถิติการใช้ · ตั้งวันแจ้งเตือนหมดอายุ', screen: 'settings' },
+        ...(canEditMeds ? [{ icon: '💊', label: MENU.meds, sub: 'ชื่อ ขนาด หน่วย ราคา par ชั้นวาง — แก้ทุกอย่างของยาที่นี่', screen: 'meds' as Screen }] : []),
+        { icon: '↔️', label: MENU.wardmove, sub: 'เช่น แบ่งยาฉีดจากลิ้นชักล็อก IPD มาวาง stat OPD', screen: 'wardmove' },
+        { icon: '📈', label: MENU.par, sub: 'คำนวณ par แนะนำจากสถิติการใช้ · ตั้งวันแจ้งเตือนหมดอายุ', screen: 'settings' },
       ],
     },
     {
       title: 'รายงานและเอกสาร',
       items: [
-        { icon: '📊', label: 'รายงานและ Export CSV', sub: 'stock aging · turnover · discrepancy', screen: 'report' },
-        { icon: '🗂️', label: 'บัตรคุมยา', sub: 'รับ-จ่าย-คงเหลือ real-time แทนบัตรกระดาษ — ทุกยา รวมยาที่ไม่มี substock', screen: 'substockcard' },
-        { icon: '▣', label: 'ระบบฉลาก QR', sub: 'พิมพ์ฉลากตัวยา lot และชั้นวาง', screen: 'labels' },
+        { icon: '📊', label: MENU.report, sub: 'stock aging · turnover · discrepancy', screen: 'report' },
+        { icon: '🗂️', label: MENU.substockcard, sub: 'รับ-จ่าย-คงเหลือ real-time แทนบัตรกระดาษ — ทุกยา รวมยาที่ไม่มี substock', screen: 'substockcard' },
+        { icon: '▣', label: MENU.labels, sub: 'พิมพ์ฉลากตัวยา lot และชั้นวาง', screen: 'labels' },
       ],
     },
     ...(state.role === 'admin' ? [{
       title: 'ผู้ดูแลระบบ',
-      items: [{ icon: '🛡️', label: 'จัดการผู้ใช้ & Audit log', sub: 'ควบคุมบัญชีผู้ใช้ ตามรอยทุกธุรกรรมในระบบ', screen: 'admin' as Screen, badge: pendingUsers }],
+      items: [{ icon: '🛡️', label: MENU.admin, sub: 'ควบคุมบัญชีผู้ใช้ ตามรอยทุกธุรกรรมในระบบ', screen: 'admin' as Screen, badge: pendingUsers }],
     }] : []),
   ];
 
@@ -87,6 +91,8 @@ export default function MoreScreen() {
         <div className="muted" style={{ fontSize: 12.5 }}>{roleLabel()} · รพ.กรงปินัง</div>
       </div>
 
+      <button onClick={() => setManualOpen(true)} data-testid="more-open-manual" style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--ink)', padding: 12, borderRadius: 11, fontSize: 14, fontWeight: 700, minHeight: 48, marginBottom: 10 }}>📖 คู่มือการใช้งาน</button>
+      {manualOpen && <UserManual onClose={() => setManualOpen(false)} />}
       <button onClick={logout} style={{ width: '100%', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--red)', padding: 14, borderRadius: 11, fontSize: 14.5, fontWeight: 600, minHeight: 50 }}>ออกจากระบบ</button>
 
       {/* Real-world request: "อยากให้มีปุ่มที่ใช้สำหรับการตรวจหาว่ามีเวอร์ชั่นล่าสุดหรือยัง ดีกว่า

@@ -1,7 +1,10 @@
+import AppIcon from '../components/AppIcon';
+import LoginArt from '../components/LoginArt';
+import LoginFlow from './LoginFlow';
+import UserManual from './UserManual';
 import LoginGuide from './LoginGuide';
 import { useState } from 'react';
 import { useApp } from '../store/AppContext';
-import HospitalCrest from '../components/HospitalCrest';
 import versionRaw from '../../VERSION?raw';
 
 // Same "?raw" VERSION import MoreScreen already uses — one source of truth for the version
@@ -18,6 +21,7 @@ const FEATURES: [string, string, string][] = [
 ];
 
 export default function LoginScreen() {
+  const [manual, setManual] = useState<{ open: boolean; id?: string }>({ open: false });
   const {
     state, myProfile, setAuthMode, setAuthUsername, setAuthPassword, setAuthName, setAuthDept,
     setAuthRemember, signIn, signUp, logout, theme, toggleTheme,
@@ -55,7 +59,7 @@ export default function LoginScreen() {
   if (state.authStatus === 'loading') {
     return (
       <div className="app-shell" style={{ justifyContent: 'center', alignItems: 'center', background: 'var(--login-bg)', overflowY: 'auto' }}>
-        <div className="mesh-bg mesh-bg--static" aria-hidden="true" />
+      <div className="mesh-bg mesh-bg--static" aria-hidden="true" />
         <div className="login-pattern" aria-hidden="true" />
         <div style={{ position: 'relative', color: 'var(--login-ink)', opacity: 0.8, fontSize: 13 }}>กำลังเชื่อมต่อ…</div>
       </div>
@@ -94,6 +98,7 @@ export default function LoginScreen() {
 
   return (
     <div className="app-shell" style={{ background: 'var(--login-bg)', overflowY: 'auto' }}>
+      <LoginArt />
       <div className="mesh-bg mesh-bg--static" aria-hidden="true" />
       <div className="login-pattern" aria-hidden="true" />
       {OnlineBadge}
@@ -113,16 +118,17 @@ export default function LoginScreen() {
               motion. A plain fade-in (same .fade keyframe already used for every other block on
               this screen) still gives the crest an entrance, just a dignified one — no bounce, no
               looping glow. */}
-          <div style={{ width: 68, height: 68, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, #ffffff, #f4f2ec)', border: '1px solid rgba(255,255,255,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 11, flex: 'none', animation: 'fade .5s var(--ease-out) both', boxShadow: '0 10px 26px -8px rgba(0,0,0,.4), 0 0 0 6px rgba(var(--brand-coral-rgb),.14)' }}><HospitalCrest size={42} /></div>
-          {/* Formal wordmark lockup: hospital abbreviation as the primary mark (large, tight
-              tracking, the weight a logotype carries), the module name as a letter-spaced
-              uppercase eyebrow underneath, then the full Thai name/ward line last — same info
-              as before ("KPNHOS-DRUG SUBSTOCK-OPD-IPD-MANAGEMENT" run together on one line) but
-              now laid out in a clear, deliberate hierarchy instead of one dense string. */}
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 25, fontWeight: 800, letterSpacing: '.02em', color: 'var(--login-ink)', lineHeight: 1.15 }}>KPNHOS</div>
-            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.16em', textTransform: 'uppercase', color: 'rgba(var(--brand-coral-rgb),.95)', marginTop: 5 }}>Drug Substock · OPD–IPD Management</div>
-            <div style={{ fontSize: 12, color: 'rgba(242,245,239,.62)', marginTop: 7, letterSpacing: '.01em' }}>โรงพยาบาลกรงปินัง · งานเภสัชกรรม จ.ยะลา</div>
+          <div className="login-appicon"><AppIcon size={96} glow /></div>
+          <div className="login-brand" style={{ minWidth: 0 }}>
+            <div className="login-brand-name" role="heading" aria-level={1} aria-label="Krongpinang Hospital">
+              <span aria-hidden="true">Krongpinang</span>
+              <span aria-hidden="true" className="login-brand-sub">Hospital</span>
+            </div>
+            <div className="login-brand-tag"><span className="login-brand-tag-1">Drug Substock</span><span className="login-brand-tag-2">OPD · IPD Management</span></div>
+            <div style={{ fontSize: 13.5, color: 'rgba(242,245,239,.72)', marginTop: 9, letterSpacing: '.01em' }}>โรงพยาบาลกรงปินัง · งานเภสัชกรรม จ.ยะลา</div>
+            <button type="button" className="login-manual-btn press-spring" data-testid="open-manual" onClick={() => setManual({ open: true })}>
+              <span aria-hidden="true">📖</span> คู่มือการใช้งานฉบับสมบูรณ์ <span aria-hidden="true" className="login-arrow">›</span>
+            </button>
           </div>
         </div>
       </div>
@@ -225,6 +231,7 @@ export default function LoginScreen() {
       </div>
         </div>
         <aside className="login-side login-side--features">
+        <LoginFlow onOpen={(id) => setManual({ open: true, id })} />
         <div style={{ background: 'rgba(255,255,255,.045)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 18, padding: '4px 16px', marginTop: 18 }}>
           {FEATURES.map(([icon, title, sub], i) => (
             <div
@@ -251,6 +258,7 @@ export default function LoginScreen() {
           <div>พัฒนาแอพโดย ภก.อนัส มะยีแต</div>
         </div>
       </div>
+      {manual.open && <UserManual initialId={manual.id} onClose={() => setManual({ open: false })} />}
     </div>
   );
 }
