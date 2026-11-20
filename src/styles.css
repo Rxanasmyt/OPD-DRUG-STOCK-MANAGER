@@ -1057,3 +1057,54 @@ button:not(:disabled):active { transform: scale(.96); filter: brightness(.97); t
 /* text-shadow paints OVER a background-clip:text gradient (it turns the glyphs grey) — use filter drop-shadow only on those. */
 .login-brand-name > span:first-child, .login-brand-tag-1 { text-shadow: none; }
 .login-brand-name > span:first-child { filter: drop-shadow(0 3px 10px rgba(0,30,32,.7)); }
+
+/* =====================================================================================================
+   "AI-era, formal" design pass (v3.294.0). Purely additive tokens + selectors on existing classes:
+   no sizes/layout of any screen change. Static (no looping animation) except the login page, so it costs
+   nothing on the low-end tablets this app runs on. Sora covers Latin/numerals; Thai falls back to Bai Jamjuree.
+   ===================================================================================================== */
+:root {
+  --font-display: 'Sora', 'Bai Jamjuree', system-ui, -apple-system, sans-serif;
+  --ai-line: linear-gradient(90deg, #28e0d4, #0b9490 35%, #ff9f7e 70%, #28e0d4);
+  --ai-glow: 0 0 0 1px rgba(var(--green-rgb), .16), 0 10px 30px -12px rgba(var(--green-rgb), .35);
+}
+h1, h2, h3, .section-eyebrow, .btn, .stat-tile, .rpt-tile, .nav-float { font-family: var(--font-display); }
+h1, h2, h3 { letter-spacing: -.005em; }
+
+/* page: faint aurora washes (static) so the flat grey/green page reads as depth, not a blank sheet */
+.app-shell { background-image: radial-gradient(70% 38% at 8% 0%, rgba(var(--green-rgb), .09), transparent 70%), radial-gradient(60% 34% at 100% 12%, rgba(var(--brand-coral-rgb), .08), transparent 70%); background-repeat: no-repeat; }
+
+/* cards: top-lit glass sheet with a teal hairline and a lift-glow on hover/press */
+.card { background-image: linear-gradient(180deg, rgba(var(--green-rgb), .045), rgba(var(--green-rgb), 0) 46%); border-color: rgba(var(--green-rgb), .13); }
+@media (hover: hover) { .card:hover { box-shadow: var(--ai-glow); border-color: rgba(var(--green-rgb), .3); } }
+
+/* section labels: a small "spark" marker + display face = clearer hierarchy */
+.section-eyebrow { display: inline-flex; align-items: center; gap: 7px; letter-spacing: .09em; color: var(--ink); opacity: .78; }
+.section-eyebrow::before { content: ''; width: 7px; height: 7px; border-radius: 2px; transform: rotate(45deg); background: var(--ai-line); background-size: 200% 100%; flex: none; box-shadow: 0 0 8px rgba(var(--green-rgb), .55); }
+
+/* primary actions: glossy gradient with an inner highlight and a one-shot sheen sweep on hover/focus */
+.btn-primary { position: relative; overflow: hidden; background-image: linear-gradient(135deg, #12b0aa, var(--green) 55%, var(--green-dark)); box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 8px 20px -8px rgba(var(--green-rgb), .65); }
+.btn-primary::after { content: ''; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 35%, rgba(255,255,255,.32) 50%, transparent 65%); transform: translateX(-130%); pointer-events: none; }
+.btn-primary:not(:disabled):hover::after, .btn-primary:not(:disabled):focus-visible::after { transform: translateX(130%); transition: transform .7s var(--ease-out); }
+.btn-outline { border-image: none; background-image: linear-gradient(180deg, rgba(var(--green-rgb), .06), transparent); }
+
+/* bottom nav: glass bar with a hairline highlight; the active pill glows */
+.nav-float { border: 1px solid rgba(255,255,255,.35); box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255,255,255,.5); }
+.nav-pill { background: linear-gradient(135deg, rgba(var(--green-rgb), .18), rgba(var(--green-rgb), .08)); box-shadow: 0 0 0 1px rgba(var(--green-rgb), .22), 0 6px 16px -6px rgba(var(--green-rgb), .5); }
+
+/* header: a thin "AI line" along the bottom edge ties the chrome to the login page */
+.app-shell > header::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--ai-line); opacity: .9; pointer-events: none; }
+
+/* stat/summary tiles and chips: crisper numerals, subtle inner light */
+.stat-tile { box-shadow: inset 0 1px 0 rgba(255,255,255,.25), var(--shadow-sm); }
+.chip { letter-spacing: .005em; }
+
+/* focus: a visible, modern ring for keyboard / switch-access users */
+:focus-visible { outline: 2px solid var(--green-bright, #14b8b2); outline-offset: 2px; border-radius: 8px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offset: 0; }
+
+/* text selection + scrollbars in brand colour */
+::selection { background: rgba(var(--green-rgb), .25); }
+@media (hover: hover) { * { scrollbar-width: thin; scrollbar-color: rgba(var(--green-rgb), .35) transparent; } }
+
+@media (prefers-reduced-motion: reduce) { .btn-primary::after { transition: none; } }
