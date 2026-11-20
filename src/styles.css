@@ -1169,9 +1169,12 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 .rt-pill { font-size: 11px; font-weight: 800; border-radius: 999px; padding: 4px 10px; flex: none; } .rt-pill--off { background: var(--bg-subtle); color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .rt-hnchip, .rt-chip[data-active='1'], .rt-bar { animation: none; } }
 
-/* ---------- iPhone PWA: no grey band under the bottom nav ---------- */
+/* ---------- iPhone PWA: no grey band under the bottom nav ----------
+   The shell stays EXACTLY viewport-tall (100dvh, as before) so only <main> scrolls and the header + bottom nav stay pinned.
+   (3.296.0 tried height:100% + min-height/-webkit-fill-available here, which let the shell grow taller than the screen and the
+   whole page scrolled — nav off-screen. Reverted.) The grey band is hidden instead by painting the page behind the shell in the
+   app's own colour and forbidding document-level scroll/rubber-banding on phones. */
 @media (max-width: 559px) {
-  html, body, #root { min-height: 100%; background: var(--bg-app); }
-  .app-shell { height: 100%; min-height: -webkit-fill-available; }
+  html, body, #root { background: var(--bg-app); }
+  html, body { overflow: hidden; overscroll-behavior: none; }
 }
-@supports (height: 100svh) { @media (max-width: 559px) { html { height: -webkit-fill-available; } } }
