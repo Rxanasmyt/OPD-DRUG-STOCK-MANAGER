@@ -1728,6 +1728,17 @@ export function priorReconcileByMed(txs: readonly Tx[], from: string, to: string
   return out;
 }
 
+export type HosxpDateStatus = 'verified' | 'off_schedule' | 'mismatch' | 'unreadable';
+/** Is this attached file provably the one for the range about to be deducted? 'verified' only when the file's
+ * OWN stated date equals the covered range AND that range is exactly what is due (the day after the last
+ * reconcile … yesterday). Anything else needs an explicit human confirmation — the app never assumes. */
+export function hosxpDateCheck(fileRange: { from: string; to: string } | null, coveredFrom: string, coveredTo: string, expectedFrom: string, expectedTo: string): HosxpDateStatus {
+  if (!fileRange) return 'unreadable';
+  if (fileRange.from !== coveredFrom || fileRange.to !== coveredTo) return 'mismatch';
+  if (fileRange.from < expectedFrom || fileRange.to > expectedTo) return 'off_schedule';
+  return 'verified';
+}
+
 /** How many weekdays (Mon–Fri) an inclusive ISO range holds, at least 1 — the unit a med's daily usage rate is in. */
 export function weekdaysInRange(fromIso: string, toIso: string): number {
   if (!fromIso || !toIso || fromIso > toIso) return 1;

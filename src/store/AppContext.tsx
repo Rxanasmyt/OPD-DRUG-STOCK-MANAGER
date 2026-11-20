@@ -28,7 +28,7 @@ import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchA
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
 import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
 import { safeToAutoUpdate, probeActiveElement, deployedEntryDiffers, forceFreshReload } from '../utils/autoUpdate';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, lastReconcileCoveredToIso, priorReconcileByMed, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, parseHosxpDayReport, buildReconcileMonth, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays, reqCategoryOf } from './selectors';
+import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, lastReconcileCoveredToIso, priorReconcileByMed, hosxpDateCheck, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, parseHosxpDayReport, buildReconcileMonth, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays, reqCategoryOf } from './selectors';
 import { nf, thDate, lotLabel, expLabel, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -101,7 +101,7 @@ function usageImportStorageKey(uid: string): string { return 'opd-usageimport-' 
 // propose auto-covering weeks of history in one file — that needs a deliberate, manual decision
 // by whoever's fixing it, not a guess this function makes on their behalf.
 const HOSXP_AUTO_CATCHUP_MAX_DAYS = 14;
-function smartHosxpCoveredFrom(txs: Tx[], yesterdayIso: string): string {
+export function smartHosxpCoveredFrom(txs: Tx[], yesterdayIso: string): string {
   const lastCoveredTo = lastReconcileCoveredToIso(txs);
   if (!lastCoveredTo) return yesterdayIso;
   const nextDayTs = new Date(lastCoveredTo + 'T00:00:00').getTime() + DAY;
@@ -123,6 +123,7 @@ type WmPersisted = { wmFromSearch: string; wmFromMed: string | null; wmToSearch:
 type HosxpPersisted = {
   hosxpText: string; hosxpRows: AppState['hosxpRows']; hosxpConfirmFuzzy: boolean; hosxpCoveredFrom: string; hosxpCoveredTo: string;
   hosxpAppliedRowIndexes: number[];
+  hosxpFileInfo?: AppState['hosxpFileInfo']; hosxpDateConfirmed?: boolean;
 };
 type UsageImportPersisted = { usageDateFrom: string; usageDateTo: string; usageFileName: string | null; usageRows: AppState['usageRows']; usageConfirmFuzzy: boolean };
 function writePersisted<T>(key: string, value: T): void {
@@ -358,7 +359,7 @@ function freshState(): AppState {
 
     doneKind: null, doneRows: [], toast: null,
 
-    countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [], hosxpFileInfo: null, reconcileProgress: null, reconcileResult: null,
+    countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [], hosxpFileInfo: null, hosxpDateConfirmed: false, reconcileProgress: null, reconcileResult: null,
 
     usageDateFrom: '', usageDateTo: '', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
 
@@ -775,6 +776,9 @@ export interface AppCtx {
   /** Reverses the LAST reconcile (floor += what it took, one reversal tx per drug). */
   undoLastReconcile: () => Promise<void>;
   dismissReconcileResult: () => void;
+  setHosxpDateConfirmed: (v: boolean) => void;
+  discardHosxpFile: (hasDecisions: boolean) => Promise<boolean>;
+  unresolveHosxpRow: (idx: number) => void;
   /** What a covered range already took per med, read straight from Firestore (the live txs window only holds the newest 300). */
   fetchPriorReconcile: (from: string, to: string) => Promise<Map<string, number>>;
   exportAudit: () => void;
@@ -1164,7 +1168,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // own retry-skip check silently never match anything, which is harmless (worst case: one
       // extra re-run of an already-interrupted batch, not a double-deduction) but still worth
       // defaulting cleanly rather than leaving a stale `undefined` sitting in state.
-      ...(hasHosxp ? { ...hosxp!, hosxpAppliedRowIndexes: hosxp!.hosxpAppliedRowIndexes || [] } : {}),
+      ...(hasHosxp ? { ...hosxp!, hosxpAppliedRowIndexes: hosxp!.hosxpAppliedRowIndexes || [], hosxpFileInfo: hosxp!.hosxpFileInfo ?? null, hosxpDateConfirmed: !!hosxp!.hosxpDateConfirmed } : {}),
       ...(hasUsageImport ? usageImport! : {}),
     });
     const parts = [
@@ -1206,9 +1210,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const v: HosxpPersisted = {
       hosxpText: state.hosxpText, hosxpRows: state.hosxpRows, hosxpConfirmFuzzy: state.hosxpConfirmFuzzy,
       hosxpCoveredFrom: state.hosxpCoveredFrom, hosxpCoveredTo: state.hosxpCoveredTo, hosxpAppliedRowIndexes: state.hosxpAppliedRowIndexes,
+      hosxpFileInfo: state.hosxpFileInfo, hosxpDateConfirmed: state.hosxpDateConfirmed,
     };
     writePersisted(hosxpStorageKey(state.myUid), v);
-  }, [state.myUid, state.hosxpText, state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpCoveredFrom, state.hosxpCoveredTo, state.hosxpAppliedRowIndexes]);
+  }, [state.myUid, state.hosxpText, state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpCoveredFrom, state.hosxpCoveredTo, state.hosxpAppliedRowIndexes, state.hosxpFileInfo, state.hosxpDateConfirmed]);
   useEffect(() => {
     if (!state.myUid) return;
     writePersisted(reconcileResultStorageKey(state.myUid), state.reconcileResult);
@@ -1974,7 +1979,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
       adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [],
       qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: null, scanConfirmMedId: null, hadOk: {},
-      countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [], hosxpFileInfo: null, reconcileProgress: null, reconcileResult: null,
+      countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [], hosxpFileInfo: null, hosxpDateConfirmed: false, reconcileProgress: null, reconcileResult: null,
       usageDateFrom: '', usageDateTo: '', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
       labelSelected: {}, medsFocusId: null, substockFocusId: null, doneKind: null, doneRows: [],
     });
@@ -6366,11 +6371,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // file is visible immediately instead of being silently filed under yesterday. Only when it
       // is a sane past range (a range reaching into today is rejected by commitReconcile anyway).
       const useFileRange = !!fileDateRange && fileDateRange.from <= fileDateRange.to && fileDateRange.to < isoDate(Date.now());
-      const coveredFrom = useFileRange ? fileDateRange!.from : smartHosxpCoveredFrom(state.txs, yesterdayIso);
-      const coveredTo = useFileRange ? fileDateRange!.to : yesterdayIso;
+      // The file states its own date → that is the covered range. It does NOT → the app no longer assumes
+      // "yesterday": the range stays empty until the pharmacist picks it and confirms (see hosxpDateCheck).
+      const coveredFrom = useFileRange ? fileDateRange!.from : '';
+      const coveredTo = useFileRange ? fileDateRange!.to : '';
       const totalQty = rows.reduce((s, r) => s + r.qty, 0);
       patch({
-        hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpCoveredFrom: coveredFrom, hosxpCoveredTo: coveredTo, hosxpText: '', hosxpAppliedRowIndexes: [],
+        hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpDateConfirmed: false, hosxpCoveredFrom: coveredFrom, hosxpCoveredTo: coveredTo, hosxpText: '', hosxpAppliedRowIndexes: [],
         hosxpFileInfo: { name: file.name, rowCount: rows.length, totalQty, dateRange: fileDateRange, zeroRows, ...parseExtra, fingerprint: rows.length + ':' + totalQty + ':' + (rows[0]?.name ?? '') },
       });
       // Bug fix (silent data loss): a malformed line (no comma, empty/unparseable qty cell) used
@@ -6388,8 +6395,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.meds, state.txs, patch, toast]);
 
   const setHosxpConfirmFuzzy = useCallback((v: boolean) => patch({ hosxpConfirmFuzzy: v }), [patch]);
-  const setHosxpCoveredFrom = useCallback((v: string) => patch({ hosxpCoveredFrom: v }), [patch]);
-  const setHosxpCoveredTo = useCallback((v: string) => patch({ hosxpCoveredTo: v }), [patch]);
+  const setHosxpCoveredFrom = useCallback((v: string) => patch({ hosxpCoveredFrom: v, hosxpDateConfirmed: false }), [patch]);
+  const setHosxpCoveredTo = useCallback((v: string) => patch({ hosxpCoveredTo: v, hosxpDateConfirmed: false }), [patch]);
+  const setHosxpDateConfirmed = useCallback((v: boolean) => patch({ hosxpDateConfirmed: v }), [patch]);
+
+  // Throw the attached file away and start over from step 1. Refused once part of the batch has really been
+  // deducted (the remainder must be finished — see hosxpAppliedRowIndexes), otherwise always asks first.
+  const discardHosxpFile = useCallback(async (hasDecisions: boolean): Promise<boolean> => {
+    const rows = state.hosxpRows;
+    if (!rows) return false;
+    const done = (state.hosxpAppliedRowIndexes || []).length;
+    if (done > 0 && done < rows.length) { toast('ตัดยอดไปแล้ว ' + done + ' รายการจากไฟล์นี้ — ลบไฟล์ไม่ได้ ต้องกดตัดยอดส่วนที่เหลือต่อให้เสร็จก่อน'); return false; }
+    const ok = await confirmAsync('ลบไฟล์ที่แนบอยู่และเริ่มใหม่ตั้งแต่ขั้นแนบไฟล์? (ยังไม่มีการตัดยอดใด ๆ)' + (hasDecisions ? ' — การจับคู่/ข้าม/ยืนยันที่เลือกไว้จะหายไป' : ''));
+    if (!ok) return false;
+    patch({ hosxpRows: null, hosxpText: '', hosxpConfirmFuzzy: false, hosxpDateConfirmed: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [], hosxpFileInfo: null });
+    toast('ลบไฟล์แล้ว — แนบไฟล์ใหม่ได้เลย');
+    return true;
+  }, [state.hosxpRows, state.hosxpAppliedRowIndexes, patch, toast, confirmAsync]);
+
+  // Undo one manual mapping: the row goes back to whatever the matcher originally said.
+  const unresolveHosxpRow = useCallback((idx: number) => {
+    const rows = state.hosxpRows;
+    const r = rows?.[idx];
+    if (!rows || !r || !r.prevMatch || (state.hosxpAppliedRowIndexes || []).includes(idx)) return;
+    patch({ hosxpRows: rows.map((x, i) => (i === idx ? { name: x.name, qty: x.qty, match: x.prevMatch! } : x)) });
+  }, [state.hosxpRows, state.hosxpAppliedRowIndexes, patch]);
 
   const fetchPriorReconcile = useCallback(async (from: string, to: string): Promise<Map<string, number>> => {
     const snap = await withTimeout(fetchTxsByCoveredRange(from, to), 20000);
@@ -6423,6 +6453,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const coveredFromTs = new Date(state.hosxpCoveredFrom + 'T00:00:00').getTime();
     const coveredToTs = new Date(state.hosxpCoveredTo + 'T00:00:00').getTime();
     if (!(coveredFromTs <= coveredToTs)) { toast('วันที่เริ่มต้องไม่เกินวันที่สิ้นสุดของช่วงที่ครอบคลุม'); return; }
+    // Identity gate: an attached FILE must be provably the one for this range — its own stated date equals the
+    // covered range and that range is what is due — or the pharmacist explicitly confirmed the date.
+    if (state.hosxpFileInfo) {
+      const yIso = isoDate(Date.now() - DAY);
+      const dateStatus = hosxpDateCheck(state.hosxpFileInfo.dateRange, state.hosxpCoveredFrom, state.hosxpCoveredTo, smartHosxpCoveredFrom(state.txs, yIso), yIso);
+      if (dateStatus !== 'verified' && !state.hosxpDateConfirmed) { toast('ยังตัดยอดไม่ได้ — ยืนยันวันที่ของไฟล์ก่อน (ติ๊กยืนยันว่าไฟล์นี้เป็นของวันที่เลือกจริง)'); return; }
+    }
     if (state.hosxpCoveredTo >= isoDate(Date.now())) { toast('ช่วงวันที่ต้องไม่รวมวันนี้ — ใส่แค่เมื่อวานหรือก่อนหน้านั้น (ของวันนี้ยังไม่ควรมีไฟล์มาตัดยอด)'); return; }
     // Bug fix (double-run risk): `reconciledToday` (lastReconcileDateIso, selectors.ts) already
     // existed, but was only ever surfaced passively — a HomeScreen tile someone has to go look
@@ -6769,7 +6806,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             + (state.hosxpFileInfo?.fingerprint ?? ''),
         });
       }
-      patch({ hosxpRows: null, hosxpText: '', hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [], hosxpFileInfo: null, reconcileProgress: null, reconcileResult: buildResult() });
+      patch({ hosxpRows: null, hosxpText: '', hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [], hosxpFileInfo: null, hosxpDateConfirmed: false, reconcileProgress: null, reconcileResult: buildResult() });
       // Rows with qty <= 0 were previously silently dropped from this summary entirely —
       // applied + skipped could undercount rows.length with no explanation, which reads as
       // a miscount when a pharmacist checks the math. Named separately from "จับคู่ไม่ได้"
@@ -6805,7 +6842,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       patch({ reconcileProgress: null, ...(resultEntries.length ? { reconcileResult: buildResult() } : {}) });
       toastErr(e, 'ประมวลผลไม่สำเร็จ' + (failedMedName ? ' (ยา: ' + failedMedName + ')' : '') + (applied > 0 ? ' — ตัดยอดไปแล้ว ' + applied + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง') + (failedDebug ? ' [' + failedDebug + ']' : ''));
     }
-  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpCoveredFrom, state.hosxpCoveredTo, state.hosxpAppliedRowIndexes, state.meds, state.txs, fetchPriorReconcile, userName, logAudit, toast, toastErr, patch, guardOnce, confirmAsync, recomputeUsageStats, analyzeWeekdayUsage]);
+  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpCoveredFrom, state.hosxpCoveredTo, state.hosxpAppliedRowIndexes, state.hosxpFileInfo, state.hosxpDateConfirmed, state.meds, state.txs, fetchPriorReconcile, userName, logAudit, toast, toastErr, patch, guardOnce, confirmAsync, recomputeUsageStats, analyzeWeekdayUsage]);
 
   // Real-world request: "ป้องกันการหลุดยาที่มีในระบบแต่ไม่ได้ถูกตัดจำนวนยา และป้องกันการหลุดวันที่
   // ยังไม่ได้แนบไฟล์" — ReconcileScreen's own notDeductedLatestDay only ever checks the single
@@ -7364,7 +7401,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const med = state.meds.find((m) => m.id === medId && m.active);
     if (!rows || !r || !med) return false;
     if ((state.hosxpAppliedRowIndexes || []).includes(idx)) return false; // already deducted — never remap
-    patch({ hosxpRows: rows.map((x, i) => (i === idx ? { ...x, match: { kind: 'exact' as const, medId } } : x)) });
+    patch({ hosxpRows: rows.map((x, i) => (i === idx ? { ...x, prevMatch: x.prevMatch ?? x.match, match: { kind: 'exact' as const, medId } } : x)) });
     let saved = false;
     if (saveAlias && canEditMeds) saved = await addHosxpAlias(medId, r.name);
     if (!saved) logAudit({ type: 'med_edited', note: 'จับคู่แถวไฟล์ HOSxP "' + r.name + '" (' + r.qty + ') กับ ' + med.name + ' ด้วยมือ (เฉพาะครั้งนี้)' });
@@ -7378,7 +7415,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const valid = pairs.filter((p) => rows[p.idx] && !applied.has(p.idx) && state.meds.some((m) => m.id === p.medId && m.active));
     if (!valid.length) return 0;
     const byIdx = new Map(valid.map((p) => [p.idx, p.medId] as const));
-    patch({ hosxpRows: rows.map((x, i) => (byIdx.has(i) ? { ...x, match: { kind: 'exact' as const, medId: byIdx.get(i)! } } : x)) });
+    patch({ hosxpRows: rows.map((x, i) => (byIdx.has(i) ? { ...x, prevMatch: x.prevMatch ?? x.match, match: { kind: 'exact' as const, medId: byIdx.get(i)! } } : x)) });
     let saved = 0;
     if (saveAlias && canEditMeds) {
       for (const p of valid) { if (await addHosxpAlias(p.medId, rows[p.idx].name)) saved++; }
@@ -7590,7 +7627,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openScanSearch, closeQr, qrDecoded, qrManual, setQrCode, setQrManualReason, startHadScan,
     confirmScanAndNext, confirmScanAndStop, cancelScanConfirm,
     doneAgain,
-    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, addHosxpAlias, resolveHosxpRow, resolveHosxpRowsBulk, undoLastReconcile, dismissReconcileResult, fetchPriorReconcile, changeMyPassword, fetchDemandSeries, fetchTempPassword, clearTempPassword, exportAudit,
+    setAdminTab, setAuditFilter, setUserRole, toggleUserActive, rejectUser, addHosxpAlias, resolveHosxpRow, resolveHosxpRowsBulk, undoLastReconcile, dismissReconcileResult, fetchPriorReconcile, setHosxpDateConfirmed, discardHosxpFile, unresolveHosxpRow, changeMyPassword, fetchDemandSeries, fetchTempPassword, clearTempPassword, exportAudit,
     setHistoryFrom, setHistoryTo, searchHistory, clearHistorySearch, fetchExecTxsThisMonth,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [state, myProfile, theme, toggleTheme]);

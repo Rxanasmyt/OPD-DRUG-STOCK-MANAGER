@@ -36,6 +36,15 @@ export function lotLabel(lotNo: string | undefined): string {
  * to thDate()'s short "08 ก.ย. 69" used everywhere else in the app's own on-screen UI. Only
  * printed sheets meant to double as a formal paper document need this; screen text stays with
  * the compact thDate(). */
+const TH_WD = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
+/** "19/11/2569 (พฤ.)" for an ISO date — Buddhist-era year + weekday, how staff read dates. */
+export function thDateWithWeekday(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return iso;
+  const wd = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay();
+  return m[3] + '/' + m[2] + '/' + (+m[1] + 543) + ' (' + TH_WD[wd] + ')';
+}
+
 export function thDateLong(ms: number): string {
   return new Date(ms).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
 }

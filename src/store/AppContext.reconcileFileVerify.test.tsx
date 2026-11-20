@@ -22,18 +22,20 @@ const MED_ZERO = { ...MED_A, id: 'm2', code: 'MED-0002', name: 'Amoxicillin 250m
 const YESTERDAY = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
 function Harness({ csv }: { csv: string }) {
-  const { state, processHosxpFile, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile } = useApp();
+  const { state, processHosxpFile, setHosxpCoveredFrom, setHosxpCoveredTo, setHosxpDateConfirmed, commitReconcile } = useApp();
   return (
     <div>
       <button onClick={() => processHosxpFile(new File([csv], 'hosxp-report.csv', { type: 'text/csv' }))}>attach</button>
       <button onClick={() => { setHosxpCoveredFrom(YESTERDAY); setHosxpCoveredTo(YESTERDAY); }}>set-range</button>
+      <button onClick={() => setHosxpDateConfirmed(true)}>confirm-date</button>
       <button onClick={commitReconcile} disabled={!state.hosxpRows}>commit</button>
+      <div data-testid="range">{state.hosxpCoveredFrom + '|' + state.hosxpCoveredTo + '|' + (state.hosxpDateConfirmed ? 'confirmed' : 'unconfirmed')}</div>
       <div data-testid="file">{state.hosxpFileInfo ? state.hosxpFileInfo.name + '|' + (state.hosxpFileInfo.dateRange ? 'dated' : 'undated') : 'none'}</div>
     </div>
   );
 }
 
-async function setup(csv = 'Paracetamol 500mg,10\nAmoxicillin 250mg,0') {
+async function setup(csv = 'Paracetamol 500mg,10\nAmoxicillin 250mg,0', confirmDate = true) {
   const user = userEvent.setup();
   renderWithApp(<><Harness csv={csv} /><ConfirmDialog /></>);
   await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
@@ -43,6 +45,7 @@ async function setup(csv = 'Paracetamol 500mg,10\nAmoxicillin 250mg,0') {
   await user.click(screen.getByRole('button', { name: 'attach' }));
   await waitFor(() => expect(screen.getByTestId('file').textContent).toContain('hosxp-report.csv'));
   await user.click(screen.getByRole('button', { name: 'set-range' }));
+  if (confirmDate) await user.click(screen.getByRole('button', { name: 'confirm-date' }));
   return user;
 }
 
@@ -68,5 +71,28 @@ describe('commitReconcile — attached-file date verification', () => {
     // regularly-dispensed med absent from the file is persisted as not_in_file — the calendar text
     // explains both readings (not dispensed that day vs. name mismatch).
     expect(entry.note).toContain('[not_in_file] ' + MED_ZERO.name);
+  });
+
+  it('an undated file never gets an assumed range, and cannot be committed until the date is chosen AND confirmed', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<><Harness csv={'Paracetamol 500mg,10'} /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED_A]);
+    seedDoc('meds/m1', { floor: MED_A.floor });
+    await user.click(screen.getByRole('button', { name: 'attach' }));
+    await waitFor(() => expect(screen.getByTestId('file').textContent).toContain('undated'));
+    expect(screen.getByTestId('range').textContent).toBe('||unconfirmed'); // not "yesterday"
+    await user.click(screen.getByRole('button', { name: 'set-range' }));
+    expect(screen.getByTestId('range').textContent).toBe(YESTERDAY + '|' + YESTERDAY + '|unconfirmed');
+    const before = vi.mocked(addDoc).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'commit' }));
+    expect(screen.queryByText(/ตัดยอดหน้างานจากไฟล์/)).not.toBeInTheDocument(); // blocked before any confirm dialog
+    expect(vi.mocked(addDoc).mock.calls.length).toBe(before);
+    // changing the dates after confirming drops the confirmation again
+    await user.click(screen.getByRole('button', { name: 'confirm-date' }));
+    expect(screen.getByTestId('range').textContent).toContain('|confirmed');
+    await user.click(screen.getByRole('button', { name: 'set-range' }));
+    expect(screen.getByTestId('range').textContent).toContain('|unconfirmed');
   });
 });

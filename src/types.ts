@@ -1002,7 +1002,10 @@ export interface AppState {
   // whichever set of numbers someone already typed for the other location.
   subCountInputs: Record<string, string>;
   hosxpText: string;
-  hosxpRows: { name: string; qty: number; match: HosxpMatch }[] | null;
+  /** `prevMatch` is set when a pharmacist manually mapped the row — the original match, so it can be undone. */
+  hosxpRows: { name: string; qty: number; match: HosxpMatch; prevMatch?: HosxpMatch }[] | null;
+  /** The pharmacist explicitly confirmed the covered date range when the file's own date could not be verified. */
+  hosxpDateConfirmed: boolean;
   hosxpConfirmFuzzy: boolean;
   // Real-world explanation: "เช้าวันจันทร์จะตัดยอดหน้างานโดยแนบไฟล์ ของวันศุกร์ เสาร์และอาทิตย์ เป็น
   // จำนวน 3 วัน" (บางครั้งมากกว่า 3 วัน ถ้าวันศุกร์ตรงกับวันหยุดนักขัตฤกษ์ด้วย) — a single boolean
