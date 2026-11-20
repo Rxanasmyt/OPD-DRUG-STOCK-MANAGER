@@ -63,9 +63,9 @@ describe('AdjustScreen — ตะกร้าคืนยา (return cart) regre
     await addToCart(user, MED.name, '5');
     // HN still holds the same value — never cleared by the per-drug "เพิ่มลงตะกร้า" tap, unlike
     // the old single-item flow this replaced (which wiped HN after every commit).
-    expect(screen.getByPlaceholderText('เช่น 1234567')).toHaveValue('1234567');
+    expect(screen.getByTestId('hn-chip')).toHaveTextContent('HN 1234567'); // HN folds into a chip once a drug is added — same value, never re-typed
     await addToCart(user, MED2.name, '3');
-    expect(screen.getByPlaceholderText('เช่น 1234567')).toHaveValue('1234567');
+    expect(screen.getByTestId('hn-chip')).toHaveTextContent('HN 1234567');
 
     expect(screen.getByText(MED.name)).toBeInTheDocument();
     expect(screen.getByText(MED2.name)).toBeInTheDocument();
@@ -85,7 +85,7 @@ describe('AdjustScreen — ตะกร้าคืนยา (return cart) regre
 
     expect(screen.queryByText(MED.name)).not.toBeInTheDocument();
     expect(screen.getByText(MED2.name)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('เช่น 1234567')).toHaveValue('1234567');
+    expect(screen.getByTestId('hn-chip')).toHaveTextContent('HN 1234567');
     expect(screen.getByRole('button', { name: 'บันทึกรับคืนทั้งหมด (1 รายการ)' })).toBeEnabled();
   });
 

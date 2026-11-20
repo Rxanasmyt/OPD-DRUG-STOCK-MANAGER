@@ -40,3 +40,11 @@ export const txs = [
   { id: 't1', type: 'transfer', name: 'PARACETAMOL 500 mg เม็ด', medId: 'm2', qty: 200, unit: 'เม็ด', by: 'ภก.ตัวอย่าง ใจดี', ts: now - 3 * 3600000 },
   { id: 't2', type: 'adjust', name: 'METFORMIN 500 mg เม็ด', medId: 'm3', qty: 180, unit: 'เม็ด', by: 'ภก.ตัวอย่าง ใจดี', ts: now - 26 * 3600000 },
 ];
+
+const bkkToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+const ret = (id, hn, medId, medName, medCode, unit, qty, price, reason, minsAgo) => ({ id, medId, medName, medCode, unit, category: 'x', hn, qty, unitPrice: price, value: qty * price, reason, note: '—', date: bkkToday, ts: now - minsAgo * 60000, by: 'ภก.ตัวอย่าง ใจดี' });
+export const returnsToday = [
+  ret('r1', '6612345', 'm2', 'PARACETAMOL 500 mg เม็ด', 'MED-0002', 'เม็ด', 30, 1.2, 'ยาตามอาการเหลือ', 25),
+  ret('r2', '6612345', 'm3', 'METFORMIN 500 mg เม็ด', 'MED-0003', 'เม็ด', 60, 0.8, 'ยาโรคเรื้อรังเหลือเยอะ', 24),
+  ret('r3', '6698765', 'm6', 'AMOXICILLIN 500 mg แคปซูล', 'MED-0006', 'แคปซูล', 14, 2.5, 'แพ้ยา/ผลข้างเคียงการรักษา', 8),
+];

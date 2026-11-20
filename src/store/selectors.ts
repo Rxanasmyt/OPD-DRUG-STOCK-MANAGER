@@ -1,3 +1,4 @@
+import { ADR_RETURN_REASON, REVERSAL_PREFIX } from '../utils/returnReasons';
 import type { AppState, User, FileCompleteness, HosxpMatch, Lot, Med, MedId, Role, Ward, Tx, TxType, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord, DayMissKind, ReconcileMonthDay } from '../types';
 import { asMedId } from '../types';
 import { DAY, daysUntil, isoDate, nf } from '../utils/format';
@@ -339,11 +340,7 @@ export function discrepancyByCategory(rows: Tx[], meds: Med[]): CategoryDiscAgg[
   return Array.from(byCat.values()).sort((a, b) => b.count - a.count);
 }
 
-// Must stay byte-for-byte identical to the 'แพ้ยา/ผลข้างเคียงการรักษา' entry in AdjustScreen.tsx's
-// local REASONS.return array — that constant isn't exported (no cross-screen import precedent
-// elsewhere in this codebase), so this is a deliberate hand-kept duplicate, same "kept in sync by
-// hand" convention scripts/collect-daily-metrics.mjs already uses for selector logic it can't import.
-const ADR_RETURN_REASON = 'แพ้ยา/ผลข้างเคียงการรักษา';
+// Shared with AdjustScreen's reason chips via utils/returnReasons.ts (one source: must stay byte-identical to the stored reason).
 
 export interface AdrReturnAgg { medId: string; medName: string; count: number; totalQty: number; lastTs: number }
 
@@ -369,7 +366,10 @@ export function repeatAdrReturns(rows: Tx[], meds: Med[]): AdrReturnAgg[] {
   }
   const byMed = new Map<string, AdrReturnAgg>();
   for (const x of rows) {
-    if (x.type !== 'return' || x.reason !== ADR_RETURN_REASON) continue;
+    if (x.type !== 'return') continue;
+    // A cancelled return is its own row (reason = REVERSAL_PREFIX + original reason) that nets the original out.
+    const isReversal = x.reason === REVERSAL_PREFIX + ADR_RETURN_REASON;
+    if (x.reason !== ADR_RETURN_REASON && !isReversal) continue;
     let med = x.medId ? medById.get(asMedId(x.medId)) : undefined;
     if (!med) {
       const candidates = medsByName.get(x.name);
@@ -377,8 +377,8 @@ export function repeatAdrReturns(rows: Tx[], meds: Med[]): AdrReturnAgg[] {
     }
     if (!med) continue;
     const cur = byMed.get(med.id) || { medId: med.id, medName: med.name, count: 0, totalQty: 0, lastTs: 0 };
-    cur.count += 1;
-    cur.totalQty += Math.abs(x.qty);
+    cur.count += isReversal ? -1 : 1;
+    cur.totalQty += isReversal ? -Math.abs(x.qty) : Math.abs(x.qty);
     cur.lastTs = Math.max(cur.lastTs, x.ts);
     byMed.set(med.id, cur);
   }

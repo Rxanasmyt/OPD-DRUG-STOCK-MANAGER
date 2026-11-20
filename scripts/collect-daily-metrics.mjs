@@ -235,7 +235,8 @@ async function main() {
     // from before this field existed, or where the clamp never fired.
     else if (t.type === 'reconcile_hosxp') { dispensedQty += ((t.reportedQty ?? 0) < 0 ? t.reportedQty : Math.abs(t.reportedQty ?? t.qty ?? 0)); reconciledToday = true; }
     else if (['adjust', 'damaged', 'return', 'expired', 'ward_move_out', 'ward_move_in'].includes(t.type)) {
-      adjustQty += Math.abs(t.qty || 0);
+      // A cancelled return (คืนยา → ยกเลิก) is a NEGATIVE-qty 'return' row: it nets the original back out.
+      adjustQty += (t.type === 'return' && (t.qty || 0) < 0) ? -Math.abs(t.qty) : Math.abs(t.qty || 0);
       // Real-world request: realized waste/loss บาท — same `meds.find()` lookup style as the
       // nearExpiryValue/expiredValue loop above, but valued off THIS DAY's actual damaged/
       // expired txs instead of the live lots snapshot, so it stays correct on a `--date=`

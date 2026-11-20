@@ -121,7 +121,7 @@ export function NumberStepper({ value, onChange, unit, step, min = 0, max, input
         onBlur={() => setFocused(false)}
         onChange={(e) => onChange(e.target.value)}
         inputMode="numeric"
-        style={{ flex: 1, textAlign: 'center', border: '1px solid var(--border)', borderRadius: 10, padding: 12, fontSize: boxed ? 15 : 17, fontWeight: 600, minHeight: 48, ...inputStyle }}
+        style={{ flex: 1, minWidth: 0, textAlign: 'center', border: '1px solid var(--border)', borderRadius: 10, padding: 12, fontSize: boxed ? 15 : 17, fontWeight: 600, minHeight: 48, ...inputStyle }}
       />
       <button
         type="button"

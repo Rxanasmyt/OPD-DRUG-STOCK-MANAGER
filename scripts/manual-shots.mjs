@@ -8,7 +8,7 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { meds, lots, floorLots, users, txs } from './manual-shots/fixtures.mjs';
+import { meds, lots, floorLots, users, txs, returnsToday } from './manual-shots/fixtures.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const out = path.join(root, 'public', 'manual');
@@ -49,8 +49,8 @@ await page.waitForFunction(() => window.__demo.hasListener('meds'));
 await demo((d) => {
   const D = window.__demo;
   D.fireCollection('meds', d.meds); D.fireCollection('lots', d.lots); D.fireCollection('floorLots', d.floorLots);
-  D.fireCollection('txs', d.txs); D.fireCollection('users', d.users);
-}, { meds, lots, floorLots, txs, users });
+  D.fireCollection('txs', d.txs); D.fireCollection('users', d.users); D.seedCollection('returns', d.returnsToday);
+}, { meds, lots, floorLots, txs, users, returnsToday });
 await page.waitForTimeout(1200);
 await shot('02-home');
 
@@ -150,8 +150,20 @@ await page.waitForTimeout(1200); await shot('08f-receive-done');
 await probe('receive-done');
 // --- ปรับยอด/คืนยา
 await more('ปรับยอด / คืนยา');
-await page.locator('main button:has-text("คืนยา")').first().click(); await page.waitForTimeout(800); await shot('11b-adjust-return');
-await probe('adjust-return');
+await page.locator('main button:has-text("คืนยา")').first().click(); await page.waitForTimeout(800);
+await page.fill('input[placeholder="เช่น 1234567"]', '6611111');
+await page.waitForTimeout(400); await shot('11b-adjust-return');
+await page.fill('input[placeholder="ค้นหาชื่อยา"]', 'PARACETAMOL'); await page.waitForTimeout(500);
+await page.getByText('PARACETAMOL 500 mg เม็ด').first().click(); await page.waitForTimeout(600);
+await page.evaluate(() => { const e = Array.from(document.querySelectorAll('input')).filter((i) => i.type !== 'hidden'); });
+await page.locator('label:has-text("จำนวนที่คืน") input').first().fill('20');
+await page.waitForTimeout(300); await scrollMain(380); await shot('11c-return-reasons');
+await page.getByRole('button', { name: 'ไม่ประสงค์รับยา' }).click(); await page.waitForTimeout(500);
+await scrollMain(760); await shot('11d-return-bar');
+await page.evaluate(() => document.querySelector('[data-testid=today-returns]')?.scrollIntoView({ block: 'start' }));
+await page.locator('[data-testid=today-returns] button:has-text("รายการคืนวันนี้")').click(); await page.waitForTimeout(500);
+await page.evaluate(() => document.querySelector('[data-testid=today-returns]')?.scrollIntoView({ block: 'start' }));
+await shot('11e-return-today');
 // --- เพิ่มเติม และหน้าย่อย
 await nav('เพิ่มเติม'); await shot('10-more');
 for (const [id, label] of [['11-adjust', 'ปรับยอด / คืนยา'], ['12-count', 'นับสต็อกหน้างาน'], ['13-wardmove', 'ย้ายยาระหว่างชั้นวาง'], ['14-par', 'par อัตโนมัติ'], ['15-report', 'รายงานและ Export'], ['16-substockcard', 'บัตรคุมยา'], ['17-labels', 'ระบบฉลาก QR'], ['18-admin', 'จัดการผู้ใช้'], ['19-meds', 'จัดการรายการยา']]) {

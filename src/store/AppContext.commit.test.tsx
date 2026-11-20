@@ -551,7 +551,8 @@ describe('writeReturnBatch — Firestore read-budget regression', () => {
 
   it('applies two lines for the same drug as two independent increments, not a read-then-overwrite', async () => {
     const user = userEvent.setup();
-    renderWithApp(<ReturnCartSameMedHarness hn="1234567" />);
+    // Adding the same drug twice now asks "เพิ่มซ้ำอีกรายการใช่ไหม?" first — answer yes (this test is about the two increments).
+    renderWithApp(<><ReturnCartSameMedHarness hn="1234567" /><AutoConfirmYes /></>);
     await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
     await waitFor(() => expect(hasListener('meds')).toBe(true));
     fireCollection('meds', [MED]);

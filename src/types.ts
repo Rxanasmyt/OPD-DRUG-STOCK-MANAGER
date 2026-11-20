@@ -685,6 +685,8 @@ export interface ParAdjustmentRecord {
  * deliberately stays outside the box-primary entry convention the rest of the app now uses.
  */
 export interface DrugReturnRecord {
+  /** Firestore doc id — only present on records READ from `returns` (never written; firestore.rules hasOnly() forbids it). */
+  id?: string;
   medId: string;
   medName: string; // snapshot at return time — survives a later rename/deactivation of the med
   medCode: string;
@@ -953,6 +955,8 @@ export interface AppState {
   adjNote: string;
   adjHn: string; // HN ผู้ป่วย — only used/shown when adjType === 'return', see DrugReturnRecord
   returnCart: ReturnCartItem[]; // see ReturnCartItem's own doc comment
+  /** Today's `returns` rows (incl. reversal rows) — loaded when the คืนยา panel opens and after each save/cancel; drives the duplicate warning and the cancel list. */
+  todayReturns: DrugReturnRecord[];
 
   reportTab: ReportTab;
   labelType: LabelType;
