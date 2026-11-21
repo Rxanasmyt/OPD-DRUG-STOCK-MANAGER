@@ -26,17 +26,17 @@ import { settingsRef, subscribeSettings, medSeqRef } from './repositories/metaRe
 import { floorLotRef, subscribeFloorLots, fetchAllFloorLots, fetchFloorLotsByMedId, fetchActiveFloorLotsByMedId } from './repositories/floorLotsRepo';
 import { userRef, usersCollection, queryAdminUsers, passwordResetRef } from './repositories/usersRepo';
 import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetchLotsByMedIds, fetchActiveLotsByMedId } from './repositories/lotsRepo';
-import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchAllTxs, fetchTxsByName, fetchTxsByNameSince, fetchTxsAfter, queryTxsByDateRange, fetchTxsByCoveredRange } from './repositories/txsRepo';
+import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchAllTxs, fetchTxsByName, fetchTxsByNameSince, fetchTxsAfter, queryTxsByDateRange, fetchTxsByCoveredRange, fetchLatestReconcileRow } from './repositories/txsRepo';
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
 import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
 import { safeToAutoUpdate, probeActiveElement, deployedEntryDiffers, forceFreshReload } from '../utils/autoUpdate';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, lastReconcileCoveredToIso, priorReconcileByMed, hosxpDateCheck, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, parseHosxpDayReport, buildReconcileMonth, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays, reqCategoryOf } from './selectors';
+import { effectiveLastCoveredTo, subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, lastReconcileCoveredToIso, priorReconcileByMed, hosxpDateCheck, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, parseHosxpDayReport, buildReconcileMonth, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays, reqCategoryOf } from './selectors';
 import { nf, thDate, lotLabel, expLabel, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
 import { shortLabelName } from '../utils/labelName';
 import { printLabelSheet, printPickListSheet, printExecutiveSummarySheet, type PickListRow, type PrintLabel, type ExecSummaryStat, type ExecSummaryRow } from '../utils/print';
-import { parseHosxpUsageWorkbook, parseUsageCsvTextWithSkipped, splitNameQty, type RawUsageRow } from '../utils/usageImport';
+import { parseHosxpUsageWorkbook, parseUsageCsvTextWithSkipped, splitNameQty, detectDateFromFilename, type RawUsageRow } from '../utils/usageImport';
 import { LOCS, FRIDGE_LOCS } from '../data/locations';
 import { binCompare } from '../utils/binRange';
 import { suggestCategoryId } from '../data/categorySuggest';
@@ -353,7 +353,7 @@ function freshState(): AppState {
     recvNo: genDefaultRecvNo(), recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
     pendingReceives: [],
 
-    adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [], todayReturns: [],
+    adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [], todayReturns: [], lastReconcileFetched: null,
 
     reportTab: 'aging', labelType: 'med', labelSelected: {}, locScope: 'floor', labelWardScope: 'all',
 
@@ -1985,7 +1985,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       search: '', filter: 'low', wardFilter: 'all',
       wmFromSearch: '', wmFromMed: null, wmToSearch: '', wmToMed: null, wmQty: '', wmReason: '',
       recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
-      adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [], todayReturns: [],
+      adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [], todayReturns: [], lastReconcileFetched: null,
       qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: null, scanConfirmMedId: null, hadOk: {},
       countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [], hosxpFileInfo: null, hosxpDateConfirmed: false, reconcileProgress: null, reconcileResult: null,
       usageDateFrom: '', usageDateTo: '', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
@@ -3479,6 +3479,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       patch({ todayReturns: rows.slice().sort((a, b) => b.ts - a.ts) });
     } catch { /* offline / slow: keep whatever we had — the warning is a safety net, never a blocker */ }
   }, [patch]);
+
+  // "Has the daily HOSxP file been attached?" needs the last reconcile date. The live txs window (newest 300) normally holds one, but after
+  // a busy stretch it can scroll out — then ONE cheap indexed read finds it (once per sign-in). See utils/selectors reconcileReminder().
+  const fetchedReconcileRef = useRef(false);
+  const windowHasReconcile = useMemo(() => state.txs.some((t) => t.type === 'reconcile_hosxp'), [state.txs]);
+  useEffect(() => {
+    if (state.authStatus !== 'signedIn') { fetchedReconcileRef.current = false; return; }
+    if (!state.dbReady || windowHasReconcile || state.txs.length === 0 || fetchedReconcileRef.current) return;
+    fetchedReconcileRef.current = true;
+    fetchLatestReconcileRow()
+      .then((row) => patch({ lastReconcileFetched: { coveredTo: row?.coveredTo ?? null, uncertain: !!row && row.reason.startsWith('ย้อนการตัดยอด') } }))
+      .catch(() => { fetchedReconcileRef.current = false; });
+  }, [state.authStatus, state.dbReady, state.txs.length, windowHasReconcile, patch]);
 
   /** Same patient already had this drug returned today (and not cancelled) — usually a double tap or a repeated entry. */
   const returnedTodayFor = useCallback((hn: string, medId: string) => {
@@ -6499,8 +6512,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const useFileRange = !!fileDateRange && fileDateRange.from <= fileDateRange.to && fileDateRange.to < isoDate(Date.now());
       // The file states its own date → that is the covered range. It does NOT → the app no longer assumes
       // "yesterday": the range stays empty until the pharmacist picks it and confirms (see hosxpDateCheck).
-      const coveredFrom = useFileRange ? fileDateRange!.from : '';
-      const coveredTo = useFileRange ? fileDateRange!.to : '';
+      // No date inside the file → pre-fill from a date in the FILE NAME (real exports are saved as "..._20-11-69.xls").
+      // Still unverified (hosxpFileInfo.dateRange stays null), so the pharmacist must tick the confirmation.
+      const nameDay = useFileRange ? null : detectDateFromFilename(file.name);
+      const nameDayOk = !!nameDay && nameDay < isoDate(Date.now());
+      const coveredFrom = useFileRange ? fileDateRange!.from : nameDayOk ? nameDay! : '';
+      const coveredTo = useFileRange ? fileDateRange!.to : nameDayOk ? nameDay! : '';
       const totalQty = rows.reduce((s, r) => s + r.qty, 0);
       patch({
         hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpDateConfirmed: false, hosxpCoveredFrom: coveredFrom, hosxpCoveredTo: coveredTo, hosxpText: '', hosxpAppliedRowIndexes: [],
@@ -6513,7 +6530,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast('อ่านไฟล์ ' + file.name + ' แล้ว ' + rows.length + ' รายการ'
         + (zeroRows > 0 ? ' (ไฟล์ระบุจำนวน 0 อีก ' + zeroRows + ' รายการ = ไม่ได้จ่าย)' : '')
         + (skipped > 0 ? ' (ข้าม ' + skipped + ' แถวที่อ่านไม่ได้)' : '')
-        + (fileDateRange ? ' · ไฟล์ระบุวันที่ ' + fileDateRange.from + (fileDateRange.to !== fileDateRange.from ? ' ถึง ' + fileDateRange.to : '') : ' · ไฟล์ไม่ระบุวันที่ — ตรวจช่วงวันที่เองให้ถูกต้อง')
+        + (fileDateRange ? ' · ไฟล์ระบุวันที่ ' + fileDateRange.from + (fileDateRange.to !== fileDateRange.from ? ' ถึง ' + fileDateRange.to : '') : nameDayOk ? ' · ไฟล์ไม่ระบุวันที่ในเนื้อหา — ใส่วันที่ ' + nameDay + ' ตามชื่อไฟล์ให้ก่อน กรุณาตรวจและยืนยันวันที่' : ' · ไฟล์ไม่ระบุวันที่ — ตรวจช่วงวันที่เองให้ถูกต้อง')
         + ' — ตรวจสอบรายการด้านล่างก่อนตัดยอด');
     };
     if (isSpreadsheet) reader.readAsArrayBuffer(file);
@@ -6629,7 +6646,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // overlap), and stacking a second dialog for the identical risk would just be noise. Also
     // skipped when isResuming — same reasoning as alreadyRanToday's own skip above.
     if (!alreadyRanToday && !isResuming && !deltaMode) {
-      const lastCoveredTo = lastReconcileCoveredToIso(state.txs);
+      const lastCoveredTo = effectiveLastCoveredTo(state.txs, state.lastReconcileFetched);
       if (lastCoveredTo) {
         if (state.hosxpCoveredFrom <= lastCoveredTo) {
           const overlapDays = Math.round((new Date(lastCoveredTo + 'T00:00:00').getTime() - coveredFromTs) / DAY) + 1;

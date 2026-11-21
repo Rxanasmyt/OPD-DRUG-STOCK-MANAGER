@@ -152,6 +152,24 @@ function parseSheetRows(rows: unknown[][], allowFallback: boolean): (Omit<HosxpP
   return { rows: out, skipped, zeroRows, dateRange, repeatedHeaders, totalsIgnored, fractional, hadHeader };
 }
 
+/** A real HOSxP "รายงานสรุปการใช้เวชภัณฑ์ยา" export carries NO date in its own rows (only a print date in the
+ * footer, which is the day it was printed, not the day it covers) — the pharmacist's habit is to put the covered
+ * day in the file name, e.g. "..._Report_20-11-69.xls" (dd-mm-yy, Buddhist-era two-digit year). Returns that day as
+ * ISO 'YYYY-MM-DD', or null. Only ever used to PRE-FILL the covered date; the pharmacist must still confirm it. */
+export function detectDateFromFilename(fileName: string): string | null {
+  const base = fileName.replace(/\.[A-Za-z0-9]+$/, '');
+  const m = /(?:^|[^0-9])(\d{1,2})[-_.](\d{1,2})[-_.](\d{4}|\d{2})(?![0-9])/.exec(base);
+  if (!m) return null;
+  const d = +m[1], mo = +m[2];
+  let y = +m[3];
+  if (m[3].length === 2) y = y >= 40 ? 2500 + y : 2000 + y; // 69 → 2569 BE; 26 → 2026 CE
+  const year = y > 2400 ? y - 543 : y;
+  if (year < 2000 || year > 2100 || mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  const dt = new Date(Date.UTC(year, mo - 1, d));
+  if (dt.getUTCMonth() !== mo - 1) return null;
+  return year + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+}
+
 /** Reads EVERY sheet of the workbook that holds a recognisable report table (the old version read only the
  * first sheet, so drugs on later sheets vanished silently), ignores repeated page headers and "รวม" rows. */
 export async function parseHosxpUsageWorkbook(buf: ArrayBuffer): Promise<HosxpParseResult> {

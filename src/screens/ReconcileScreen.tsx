@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { wardOf, hosxpMissReasons, isRegularlyDispensed, lastReconcileCoveredToIso, priorReconcileByMed, suggestMedsForFileName, diagnoseMiss, unusualDispense, weekdaysInRange, hosxpDateCheck } from '../store/selectors';
+import { effectiveLastCoveredTo, wardOf, hosxpMissReasons, isRegularlyDispensed, lastReconcileCoveredToIso, priorReconcileByMed, suggestMedsForFileName, diagnoseMiss, unusualDispense, weekdaysInRange, hosxpDateCheck } from '../store/selectors';
 import { downloadCsv } from '../utils/csv';
 import { thDateWithWeekday } from '../utils/format';
 import { smartHosxpCoveredFrom } from '../store/AppContext';
@@ -58,7 +58,7 @@ export default function ReconcileScreen() {
   // "ตัดยอดล่าสุดถึงวันที่เท่าไร" — before anyone's even attached a file yet. Same
   // lastReconcileCoveredToIso()/weekday-skip convention commitReconcile's own continuity check
   // and fetchReconcileGaps use (see their own doc comments, selectors.ts/AppContext.tsx).
-  const lastCoveredTo = useMemo(() => lastReconcileCoveredToIso(state.txs), [state.txs]);
+  const lastCoveredTo = useMemo(() => effectiveLastCoveredTo(state.txs, state.lastReconcileFetched), [state.txs, state.lastReconcileFetched]);
   const missingWeekdaysSoFar = useMemo(() => {
     if (!lastCoveredTo) return 0;
     const yesterdayTs = new Date(isoDate(Date.now() - DAY) + 'T00:00:00').getTime();
