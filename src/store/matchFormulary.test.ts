@@ -69,4 +69,9 @@ describe('inactive meds (closed in the app but still in the hospital)', () => {
     expect(inactiveMatchesFor(meds, 'MORPHINE 30 mg/ml Amphule')).toEqual([]); // that one is ACTIVE
     expect(inactiveMatchesFor(meds, 'MORPHINE 50 mg/ml Amphule')).toEqual([]);
   });
+  it('also recognises a switched-off med whose app name is a shorter spelling of the file name (e.g. IV fluids)', () => {
+    const meds = [med('n', 'NSS 0.9 % ขวด', false), med('d', 'D-5-N/2 (5+0.45) %', false), med('x', 'Amoxicillin 250 mg', false)];
+    expect(inactiveMatchesFor(meds, 'NSS 0.9 % ขวด (1,000 ml.)').map((m) => m.id)).toEqual(['n']);
+    expect(inactiveMatchesFor(meds, 'Amoxicillin 500 mg แคปซูล')).toEqual([]); // different strength: still needs a human
+  });
 });

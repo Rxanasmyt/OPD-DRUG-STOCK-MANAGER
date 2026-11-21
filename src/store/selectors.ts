@@ -1127,7 +1127,15 @@ export function inactiveMatchesFor(meds: Med[], rawName: string): Med[] {
   const n = normalizeMedName(rawName);
   if (!n) return [];
   const sig = strictSignature(rawName);
-  return meds.filter((m) => !m.active && medNameCandidates(m).some((c) => normalizeMedName(c) === n || (!!sig && strictSignature(c) === sig)));
+  return meds.filter((m) => !m.active && medNameCandidates(m).some((c) => {
+    if (normalizeMedName(c) === n || (!!sig && strictSignature(c) === sig)) return true;
+    // Same drug, spelled a little differently (the app's name is a subset of the file's, strength agrees or is absent on a
+    // side). Only ever used to SKIP a row that is not deducted anyway, so it is allowed to be a little looser than an active match.
+    if (looksLikeCombination(rawName)) return false;
+    const a = tokenizeMedName(c), f = tokenizeMedName(rawName);
+    if (!a.words.length || (a.words.length < 2 && !a.numbers.length)) return false; // a lone short word proves nothing
+    return a.words.every((w) => f.words.some((x) => sameWord(w, x))) && a.numbers.every((x) => f.numbers.includes(x));
+  }));
 }
 
 /** Stable key for a HOSxP file name (same normalisation as matching) — what hosxpIgnoredNames stores. */
