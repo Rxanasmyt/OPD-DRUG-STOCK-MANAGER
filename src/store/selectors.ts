@@ -1143,9 +1143,12 @@ export function hosxpNameKey(rawName: string): string { return normalizeMedName(
 
 /** Why an UNMATCHED file row needs no daily decision: its drug exists but is switched off in the app ('inactive'), or an admin
  * told the app this name is not stock-tracked ('ignored'). null = the pharmacist must still decide. */
-export function autoSkipReason(meds: Med[], ignoredKeys: readonly string[], rawName: string): 'inactive' | 'ignored' | null {
+export function autoSkipReason(meds: Med[], ignoredKeys: readonly string[], rawName: string): 'inactive' | 'ignored' | 'unregistered' | null {
   if (inactiveMatchesFor(meds, rawName).length) return 'inactive';
-  return ignoredKeys.includes(normalizeMedName(rawName)) ? 'ignored' : null;
+  if (ignoredKeys.includes(normalizeMedName(rawName))) return 'ignored';
+  // Nothing in the app (active) even resembles this name → the hospital does not track it here: no decision needed. A name
+  // that DOES resemble an active med (possible spelling variant / different strength) still asks, so stock never drifts silently.
+  return suggestMedsForFileName(meds, rawName, 1).length === 0 ? 'unregistered' : null;
 }
 
 export function matchHosxpMed(meds: Med[], rawName: string): HosxpMatch {
