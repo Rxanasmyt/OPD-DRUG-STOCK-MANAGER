@@ -11,7 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { meds, lots, floorLots, users, txs, returnsToday } from './manual-shots/fixtures.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const out = path.join(root, 'public', 'manual');
+const SHOT_W = Number(process.env.SHOT_W || 390);
+const out = process.env.SHOT_OUT ? path.resolve(process.env.SHOT_OUT) : path.join(root, 'public', 'manual');
 const dist = path.join(root, '.manual-build');
 const only = process.argv[2];
 fs.mkdirSync(out, { recursive: true });
@@ -19,7 +20,7 @@ if (!only || only !== '--skip-build') execSync('npx vite build -c vite.manual.co
 
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.webmanifest': 'application/manifest+json' };
 const browser = await chromium.launch();
-const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, serviceWorkers: 'block', locale: 'th-TH', timezoneId: 'Asia/Bangkok' });
+const ctx = await browser.newContext({ viewport: { width: SHOT_W, height: 844 }, deviceScaleFactor: 2, serviceWorkers: 'block', locale: 'th-TH', timezoneId: 'Asia/Bangkok' });
 const page = await ctx.newPage();
 await page.route('**/*', (r) => {
   const u = new URL(r.request().url());
@@ -32,7 +33,21 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
 page.on('console', (m) => { if (m.type() === 'error') errors.push('console.error: ' + m.text().slice(0, 300)); });
 
-const shot = async (name) => { await page.waitForTimeout(500); await page.screenshot({ path: path.join(out, name + '.jpg'), type: 'jpeg', quality: 82 }); console.log('saved', name); };
+const overflowCheck = (name) => page.evaluate(({ name, W }) => {
+  const main = document.querySelector('main'); if (!main) return;
+  const bad = [];
+  if (main.scrollWidth > main.clientWidth + 1) bad.push('main scrollWidth ' + main.scrollWidth + ' > ' + main.clientWidth);
+  for (const e of main.querySelectorAll('*')) {
+    const r = e.getBoundingClientRect(); if (!r.width || !r.height) continue;
+    if (getComputedStyle(e).position === 'fixed') continue;
+    let p = e.parentElement, clipped = false; while (p && p !== main) { if (getComputedStyle(p).overflowX !== 'visible') { clipped = true; break; } p = p.parentElement; }
+    if (clipped) continue;
+    if (r.right > W + 1 || r.left < -1) bad.push(e.tagName + '.' + String(e.className || '').slice(0, 28) + ' "' + (e.textContent || '').trim().slice(0, 22) + '" R' + Math.round(r.right));
+    if (bad.length > 4) break;
+  }
+  return bad.length ? name + ': ' + bad.join(' | ') : null;
+}, { name, W: SHOT_W });
+const shot = async (name) => { await page.waitForTimeout(500); if (process.env.SHOT_CHECK) { const o = await overflowCheck(name); if (o) console.log('OVERFLOW ' + o); } await page.screenshot({ path: path.join(out, name + '.jpg'), type: 'jpeg', quality: 82 }); console.log('saved', name); };
 const demo = (fn, arg) => page.evaluate(fn, arg);
 
 await page.goto('http://localhost/');
