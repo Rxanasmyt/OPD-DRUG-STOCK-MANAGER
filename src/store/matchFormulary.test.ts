@@ -39,3 +39,20 @@ describe('matchHosxpMed on the real formulary', () => {
     expect(performance.now() - t0).toBeLessThan(3000);
   });
 });
+
+describe('HOSxP "(HAD) " high-alert prefix (seen on the real 20-11-69 export)', () => {
+  const med = (id: string, name: string) => ({ id, name, active: true, hosxpAliases: [] }) as unknown as Med;
+  it('matches the app name that kept no prefix EXACTLY (no "ไม่ตรงชื่อเป๊ะ" confirm)', () => {
+    const meds = [med('a', 'ADRENaline - PL 1 mg./ml. Amphule (1 mL)'), med('w', 'Warfarin (สีส้ม) 2 mg. เม็ด')];
+    expect(matchHosxpMed(meds, '(HAD) ADREnaline - PL 1 mg./ml. Amphule (1 ml.)')).toEqual({ kind: 'exact', medId: 'a' });
+    expect(matchHosxpMed(meds, '(HAD) Warfarin (สีส้ม) 2 mg. เม็ด')).toEqual({ kind: 'exact', medId: 'w' });
+  });
+  it('still never merges different strengths or different drugs', () => {
+    const meds = [med('a', 'MORPHINE 10 mg/ml Amphule'), med('b', 'MORPHINE 30 mg/ml Amphule')];
+    expect(matchHosxpMed(meds, '(HAD) MORPHINE 10 mg/ml Amphule')).toEqual({ kind: 'exact', medId: 'a' });
+    expect(matchHosxpMed(meds, '(HAD) MORPHINE 50 mg/ml Amphule').kind).not.toBe('exact');
+  });
+  it('a name that is only the prefix does not match everything', () => {
+    expect(matchHosxpMed([med('a', 'X 5 mg')], '(HAD)').kind).toBe('none');
+  });
+});

@@ -1024,6 +1024,8 @@ function normalizeMedNameUncached(raw: string): string {
     .replace(/[๐-๙]/g, (ch) => String(ch.charCodeAt(0) - 0x0E50)) // Thai digits → Arabic
     .replace(/[（]/g, '(').replace(/[）]/g, ')') // full-width parens → half-width
     .replace(/[，]/g, ',') // full-width comma → half-width
+    // HOSxP prefixes high-alert drugs with "(HAD) " in its name column; the app keeps that as Med.had, not in the name
+    .replace(/^\s*\(\s*had\s*\)\s*/i, '')
     // a period that is not a decimal point ("mg." vs "mg") → space (no lookbehind: Safari < 16.4 cannot parse it)
     .replace(/\./g, (m, off: number, str: string) => (/\d/.test(str[off - 1] || '') && /\d/.test(str[off + 1] || '') ? m : ' '))
     .replace(/\s*([()/,+])\s*/g, '$1') // spacing around brackets/slashes/commas/plus is not significant
