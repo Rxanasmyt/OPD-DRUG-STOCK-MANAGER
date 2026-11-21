@@ -235,6 +235,11 @@ describe('detectDateFromFilename', () => {
     expect(detectDateFromFilename('usage 20.11.2569.xlsx')).toBe('2026-11-20');
     expect(detectDateFromFilename('usage_05-01-2026.xls')).toBe('2026-01-05');
   });
+  it('reads ISO yyyy-mm-dd file names (CE or BE year)', () => {
+    expect(detectDateFromFilename('usage_2026-11-20.xls')).toBe('2026-11-20');
+    expect(detectDateFromFilename('รายงาน 2569-11-20.xlsx')).toBe('2026-11-20');
+    expect(detectDateFromFilename('usage_2026-13-40.xls')).toBeNull();
+  });
   it('returns null for impossible or absent dates', () => {
     expect(detectDateFromFilename('Report_31-02-69.xls')).toBeNull();
     expect(detectDateFromFilename('report.xls')).toBeNull();
