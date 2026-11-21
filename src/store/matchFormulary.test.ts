@@ -3,7 +3,7 @@
 // still resolve to itself.
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
-import { matchHosxpMed, diagnoseMiss } from './selectors';
+import { matchHosxpMed, diagnoseMiss, inactiveMatchesFor } from './selectors';
 import type { Med } from '../types';
 
 describe('matchHosxpMed on the real formulary', () => {
@@ -54,5 +54,19 @@ describe('HOSxP "(HAD) " high-alert prefix (seen on the real 20-11-69 export)', 
   });
   it('a name that is only the prefix does not match everything', () => {
     expect(matchHosxpMed([med('a', 'X 5 mg')], '(HAD)').kind).toBe('none');
+  });
+});
+
+describe('inactive meds (closed in the app but still in the hospital)', () => {
+  const med = (id: string, name: string, active: boolean, aliases: string[] = []) => ({ id, name, active, hosxpAliases: aliases }) as unknown as Med;
+  it('matchHosxpMed never resolves to an inactive med (so it can never be deducted)', () => {
+    expect(matchHosxpMed([med('a', 'MORPHINE 10 mg/ml Amphule', false)], '(HAD) MORPHINE 10 mg/ml Amphule').kind).toBe('none');
+  });
+  it('inactiveMatchesFor says "it exists but is off" — by name, spelling variant, or alias; never fuzzy', () => {
+    const meds = [med('a', 'MORPHINE 10 mg/ml Amphule', false), med('b', 'Oseltamivir susp', false, ['Oseltamivir - เฉพาะราย 10 mg./ml. ซีซี']), med('c', 'MORPHINE 30 mg/ml Amphule', true)];
+    expect(inactiveMatchesFor(meds, '(HAD) MORPHINE 10 mg./ml. Amphule').map((m) => m.id)).toEqual(['a']);
+    expect(inactiveMatchesFor(meds, 'Oseltamivir - เฉพาะราย 10 mg./ml. ซีซี').map((m) => m.id)).toEqual(['b']);
+    expect(inactiveMatchesFor(meds, 'MORPHINE 30 mg/ml Amphule')).toEqual([]); // that one is ACTIVE
+    expect(inactiveMatchesFor(meds, 'MORPHINE 50 mg/ml Amphule')).toEqual([]);
   });
 });

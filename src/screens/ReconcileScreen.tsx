@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { effectiveLastCoveredTo, wardOf, hosxpMissReasons, isRegularlyDispensed, lastReconcileCoveredToIso, priorReconcileByMed, suggestMedsForFileName, diagnoseMiss, unusualDispense, weekdaysInRange, hosxpDateCheck } from '../store/selectors';
+import { effectiveLastCoveredTo, wardOf, hosxpMissReasons, isRegularlyDispensed, lastReconcileCoveredToIso, priorReconcileByMed, suggestMedsForFileName, diagnoseMiss, unusualDispense, weekdaysInRange, hosxpDateCheck, inactiveMatchesFor } from '../store/selectors';
 import { downloadCsv } from '../utils/csv';
 import { thDateWithWeekday } from '../utils/format';
 import { smartHosxpCoveredFrom } from '../store/AppContext';
@@ -887,5 +887,11 @@ function MatchBadge({ match, fileText, medById }: { match: HosxpMatch; fileText:
       </div>
     );
   }
-  return <div style={{ fontSize: 10.5, color: 'var(--red)', fontWeight: 600, marginTop: 3 }}>✕ ไม่พบยานี้ในระบบ — ข้าม</div>;
+  return <NotFoundLabel fileText={fileText} />;
+}
+
+function NotFoundLabel({ fileText }: { fileText: string }) {
+  const { state } = useApp();
+  const off = inactiveMatchesFor(state.meds, fileText);
+  return <div style={{ fontSize: 10.5, color: 'var(--red)', fontWeight: 600, marginTop: 3 }}>{off.length ? '✕ ยานี้ “ปิดใช้งาน” อยู่ในแอพ (' + off[0].name + ') — ข้าม' : '✕ ไม่พบยานี้ในระบบ — ข้าม'}</div>;
 }

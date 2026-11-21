@@ -1119,6 +1119,17 @@ function matchIndexOf(meds: Med[]): MatchIndex {
   return idx;
 }
 
+/** Meds that are switched OFF in the app (active=false) whose name or HOSxP alias equals this file name (same
+ * normalisation / strict-signature rule as an exact match — never a fuzzy guess). matchHosxpMed deliberately ignores
+ * inactive meds (a closed drug must never be deducted), so such a row reads "not found"; this lets the screen say the
+ * truer thing: "it exists but is turned off". */
+export function inactiveMatchesFor(meds: Med[], rawName: string): Med[] {
+  const n = normalizeMedName(rawName);
+  if (!n) return [];
+  const sig = strictSignature(rawName);
+  return meds.filter((m) => !m.active && medNameCandidates(m).some((c) => normalizeMedName(c) === n || (!!sig && strictSignature(c) === sig)));
+}
+
 export function matchHosxpMed(meds: Med[], rawName: string): HosxpMatch {
   const idx = matchIndexOf(meds);
   const memo = idx.results.get(rawName);
