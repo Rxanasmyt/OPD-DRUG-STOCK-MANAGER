@@ -151,7 +151,8 @@ export default function ReconcileScreen() {
     .filter((r) => (r.match.kind === 'none' || r.match.kind === 'ambiguous') && r.qty > 0 && !r.applied && !skippedRows.has(r.i) && !autoSkip.has(r.i))
     .sort((a, b) => b.qty - a.qty);
   const fuzzyCount = reconcileRows.filter((r) => r.match.kind === 'fuzzy').length;
-  const skippedCount = reconcileRows.filter((r) => r.match.kind === 'ambiguous' || r.match.kind === 'none').length;
+  // Auto-skipped rows (drug off / not in the app) are not "จับคู่ไม่ได้" — they are expected and reported separately above.
+  const skippedCount = reconcileRows.filter((r, i) => (r.match.kind === 'ambiguous' || r.match.kind === 'none') && !autoSkip.has(i)).length;
   // Real-world explanation: "เช้าวันจันทร์จะตัดยอดหน้างานโดยแนบไฟล์ ของวันศุกร์ เสาร์และอาทิตย์ เป็น
   // จำนวน 3 วัน" — the old single boolean "confirm this covers 1 day" checkbox was factually
   // wrong every Monday. hosxpCoveredFrom/To now state the real range directly (see their own doc
