@@ -36,8 +36,17 @@ describe('ReconcileScreen — auto-skip rows', () => {
     expect(screen.queryByTestId('unmatched-big-warning')).not.toBeInTheDocument();
     expect(screen.queryByTestId('file-row-fixer')).not.toBeInTheDocument();
   });
-  it('an unknown name still demands a decision', async () => {
-    const user = await boot('PARACETAMOL,10\nMYSTERY DRUG 5 mg,1558', [med({})]);
+  it('a name that resembles NOTHING the app tracks is skipped automatically for a non-admin (no decision, no red box)', async () => {
+    const user = await boot('PARACETAMOL,10\nD-5-N (5+0.9) % ถุง (1,000 ml.),8', [med({})], 'pharm');
+    await user.click(screen.getByRole('button', { name: 'process' }));
+    const row = await screen.findByTestId('auto-skip-row');
+    expect(row.textContent).toContain('ไม่มียานี้ในแอพ');
+    expect(screen.getByTestId('auto-skip-summary').textContent).toContain('1 รายการ');
+    expect(screen.queryByTestId('unmatched-big-warning')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('file-row-fixer')).not.toBeInTheDocument();
+  });
+  it('a name that resembles a TRACKED drug (e.g. other strength) still asks, so stock never drifts silently', async () => {
+    const user = await boot('PARACETAMOL,10\nPARACETAMOL 650 mg,1558', [med({ name: 'PARACETAMOL 500 mg' })]);
     await user.click(screen.getByRole('button', { name: 'process' }));
     expect(await screen.findByTestId('unmatched-big-warning')).toBeInTheDocument();
     expect(screen.queryByTestId('auto-skip-row')).not.toBeInTheDocument();
@@ -58,12 +67,12 @@ describe('ReconcileScreen — auto-skip rows', () => {
     expect(screen.queryByTestId('auto-skip-row')).not.toBeInTheDocument();
   });
   it('admin gets a "skip every day" button on an unknown name; pharm does not', async () => {
-    const u1 = await boot('PARACETAMOL,10\nMYSTERY DRUG 5 mg,1558', [med({})], 'admin');
+    const u1 = await boot('PARACETAMOL,10\nPARACETAMOL 650 mg,1558', [med({ name: 'PARACETAMOL 500 mg' })], 'admin');
     await u1.click(screen.getByRole('button', { name: 'process' }));
     expect(await screen.findByTestId('ignore-forever')).toBeInTheDocument();
   });
   it('pharm has no ignore-forever button', async () => {
-    const u = await boot('PARACETAMOL,10\nMYSTERY DRUG 5 mg,1558', [med({})], 'pharm');
+    const u = await boot('PARACETAMOL,10\nPARACETAMOL 650 mg,1558', [med({ name: 'PARACETAMOL 500 mg' })], 'pharm');
     await u.click(screen.getByRole('button', { name: 'process' }));
     await screen.findByTestId('file-row-fixer');
     expect(screen.queryByTestId('ignore-forever')).not.toBeInTheDocument();

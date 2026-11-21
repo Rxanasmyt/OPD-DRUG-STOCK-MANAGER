@@ -142,7 +142,7 @@ export default function ReconcileScreen() {
   // Unmatched rows ranked by quantity — a big one (e.g. a daily staple) must never be a quiet skip.
   // Rows that need no daily decision: drug switched off in the app, or an admin marked the name "not stock-tracked".
   const autoSkip = useMemo(() => {
-    const m = new Map<number, 'inactive' | 'ignored'>();
+    const m = new Map<number, 'inactive' | 'ignored' | 'unregistered'>();
     (state.hosxpRows || []).forEach((r, i) => { if (r.match.kind === 'none') { const why = autoSkipReason(state.meds, state.hosxpIgnoredNames, r.name); if (why) m.set(i, why); } });
     return m;
   }, [state.hosxpRows, state.meds, state.hosxpIgnoredNames]);
@@ -511,6 +511,11 @@ export default function ReconcileScreen() {
       {acceptedCount > 0 && (
         <div style={{ fontSize: 12, color: 'var(--green)', fontWeight: 600, marginBottom: 10 }}>จับคู่ตามคำแนะนำไปแล้ว {acceptedCount} รายการ</div>
       )}
+      {autoSkip.size > 0 && (
+        <div data-testid="auto-skip-summary" style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 10 }}>
+          ⏭ ข้ามอัตโนมัติ {autoSkip.size} รายการ ({nf([...autoSkip.keys()].reduce((s, i) => s + (reconcileRows[i]?.qty || 0), 0))} หน่วย) — ยาที่ปิดใช้งาน/ไม่มีในแอพ จึงไม่ตัดยอด (ดูรายชื่อได้ในตารางด้านล่าง)
+        </div>
+      )}
       {unmatchedBig.length > 0 && (
         <div data-testid="unmatched-big-warning" style={{ background: 'var(--red-bg)', color: 'var(--red)', borderRadius: 10, padding: '10px 13px', marginBottom: 12, fontSize: 12.5, lineHeight: 1.6, fontWeight: 600 }}>
           ⚠ มี {unmatchedBig.length} รายการในไฟล์ที่ยังจับคู่กับยาในแอพไม่ได้ (รวม {nf(unmatchedBig.reduce((a, r) => a + r.qty, 0))} หน่วย) — ต้องจับคู่หรือกดข้ามทีละรายการก่อน จึงจะตัดยอดได้:
@@ -580,7 +585,7 @@ export default function ReconcileScreen() {
                 {!r.applied && !autoSkip.has(i) && <MatchBadge match={r.match} fileText={r.fileText} medById={medById} />}
                 {!r.applied && autoSkip.has(i) && (
                   <div data-testid="auto-skip-row" style={{ marginTop: 4, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-                    ⏭ ข้ามอัตโนมัติ — {autoSkip.get(i) === 'inactive' ? 'ยานี้ปิดใช้งานอยู่ในแอพ (ไม่ตัดยอด)' : 'ตั้งไว้ว่าไม่ตามสต็อก'} · {r.qty.toLocaleString()} หน่วยไม่ถูกตัดยอด
+                    ⏭ ข้ามอัตโนมัติ — {autoSkip.get(i) === 'inactive' ? 'ยานี้ปิดใช้งานอยู่ในแอพ (ไม่ตัดยอด)' : autoSkip.get(i) === 'unregistered' ? 'ไม่มียานี้ในแอพ (ไม่ได้ตามสต็อก)' : 'ตั้งไว้ว่าไม่ตามสต็อก'} · {r.qty.toLocaleString()} หน่วยไม่ถูกตัดยอด
                     {autoSkip.get(i) === 'ignored' && state.role === 'admin' && <button type="button" onClick={() => void ignoreHosxpName(r.fileText, false)} style={{ border: 0, background: 'transparent', color: 'var(--red)', fontWeight: 700, fontSize: 11, textDecoration: 'underline', padding: '6px 4px', minHeight: 32 }}>เลิกข้ามทุกวัน</button>}
                   </div>
                 )}
