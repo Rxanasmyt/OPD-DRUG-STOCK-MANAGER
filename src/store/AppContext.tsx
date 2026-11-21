@@ -31,7 +31,7 @@ import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchA
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
 import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
 import { safeToAutoUpdate, probeActiveElement, deployedEntryDiffers, forceFreshReload } from '../utils/autoUpdate';
-import { effectiveLastCoveredTo, subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, lastReconcileCoveredToIso, priorReconcileByMed, hosxpDateCheck, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, parseHosxpDayReport, buildReconcileMonth, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays, reqCategoryOf } from './selectors';
+import { effectiveLastCoveredTo, hosxpNameKey, subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, lastReconcileCoveredToIso, priorReconcileByMed, hosxpDateCheck, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, parseHosxpDayReport, buildReconcileMonth, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays, reqCategoryOf } from './selectors';
 import { nf, thDate, lotLabel, expLabel, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -404,6 +404,7 @@ function freshState(): AppState {
     // ready, and back on once they are, same self-service pattern as every other global setting
     // here (see updateGlobalSettings/SettingsScreen.tsx).
     requireHadScan: true,
+    hosxpIgnoredNames: [],
 
     confirmDialog: null,
     promptDialog: null,
@@ -611,6 +612,7 @@ export interface AppCtx {
   /** Same escape hatch as clearMedWeekdayPattern, for the separate peakDayQty/peakDayDate
    * signal — see its own doc comment at the implementation. */
   clearMedPeakDay: (medId: MedId) => void;
+  ignoreHosxpName: (fileText: string, ignore: boolean) => Promise<void>;
   updateGlobalSettings: (patch: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; idleLogoutMinutes: number; requireHadScan: boolean }>) => void;
 
   // meds (formulary) management
@@ -1622,13 +1624,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // already has sane defaults, so a snapshot with no data simply leaves them as-is.
       subscribeSettings((snap) => {
         if (!snap.exists()) return;
-        const d = snap.data() as Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; idleLogoutMinutes: number; requireHadScan: boolean; usageStatsRecomputedAt: number; latestVersion: string; effectiveLeadTimeDays: number }>;
+        const d = snap.data() as Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; idleLogoutMinutes: number; requireHadScan: boolean; hosxpIgnoredNames: unknown; usageStatsRecomputedAt: number; latestVersion: string; effectiveLeadTimeDays: number }>;
         patch((st) => ({
           expiryWarnDays: typeof d.expiryWarnDays === 'number' ? d.expiryWarnDays : st.expiryWarnDays,
           parFloorCoverDays: typeof d.parFloorCoverDays === 'number' ? d.parFloorCoverDays : st.parFloorCoverDays,
           parSubCoverDays: typeof d.parSubCoverDays === 'number' ? d.parSubCoverDays : st.parSubCoverDays,
           idleLogoutMinutes: typeof d.idleLogoutMinutes === 'number' ? d.idleLogoutMinutes : st.idleLogoutMinutes,
           requireHadScan: typeof d.requireHadScan === 'boolean' ? d.requireHadScan : st.requireHadScan,
+          hosxpIgnoredNames: Array.isArray(d.hosxpIgnoredNames) ? d.hosxpIgnoredNames.filter((x): x is string => typeof x === 'string') : st.hosxpIgnoredNames,
           // Real-world request: "used30 ไม่มีการคำนวณใหม่อัตโนมัติ...ไม่มีสัญญาณเตือนว่าข้อมูลเก่า
           // แค่ไหนแล้ว" — written by recomputeUsageStats() (this file) and by the scheduled
           // scripts/recompute-usage-stats.mjs GitHub Actions job, whichever last ran. null until
@@ -4969,6 +4972,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Persists to meta/settings (see the onSnapshot listener above) — a merge write so this
   // can be called with just the one field that changed without clobbering the other two.
+  // Admin: mark a HOSxP name as "not stock-tracked — skip every day" (or undo). Stored as normalised keys in meta/settings.
+  const ignoreHosxpName = useCallback(async (fileText: string, ignore: boolean) => {
+    if (state.role !== 'admin') { toast('เฉพาะ Admin ตั้งค่า “ข้ามทุกวัน” ได้'); return; }
+    const key = hosxpNameKey(fileText);
+    if (!key) return;
+    const cur = state.hosxpIgnoredNames;
+    const next = ignore ? (cur.includes(key) ? cur : [...cur, key]) : cur.filter((k) => k !== key);
+    try {
+      await withTimeout(setDoc(settingsRef(), { hosxpIgnoredNames: next }, { merge: true }));
+      logAudit({ type: 'par_updated', note: (ignore ? 'ตั้งให้ข้ามทุกวัน (ไม่ตามสต็อก) ในการตัดยอด HOSxP: ' : 'ยกเลิกการข้ามทุกวัน: ') + fileText });
+      toast(ignore ? 'บันทึกแล้ว — ชื่อนี้จะถูกข้ามอัตโนมัติทุกวัน' : 'ยกเลิกแล้ว — ชื่อนี้จะกลับมาให้ตัดสินใจ');
+    } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
+  }, [state.role, state.hosxpIgnoredNames, toast, toastErr, logAudit]);
+
   const updateGlobalSettings = useCallback(async (patchFields: Partial<{ expiryWarnDays: number; parFloorCoverDays: number; parSubCoverDays: number; idleLogoutMinutes: number; requireHadScan: boolean }>) => {
     if (!canEditMeds) return;
     // Bug fix (data integrity): parFloorCoverDays/parSubCoverDays feed suggestPar()'s
@@ -7852,7 +7869,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     printWarehouseRequestByCategory,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
-    pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, commitSingleReturn, addToReturnCart, removeReturnCartItem, commitReturnCart, reverseCount, reverseMove, refreshTodayReturns, reverseReturn, fetchDrugReturns, exportDrugReturnsCsv, fetchFloorRefills, exportFloorRefillsCsv, scrapLot, scrapFloorLot,
+    pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, commitSingleReturn, addToReturnCart, removeReturnCartItem, commitReturnCart, reverseCount, reverseMove, ignoreHosxpName, refreshTodayReturns, reverseReturn, fetchDrugReturns, exportDrugReturnsCsv, fetchFloorRefills, exportFloorRefillsCsv, scrapLot, scrapFloorLot,
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setAllMinSuggested, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, clearMedPeakDay, updateGlobalSettings,

@@ -1024,6 +1024,8 @@ function normalizeMedNameUncached(raw: string): string {
     .replace(/[๐-๙]/g, (ch) => String(ch.charCodeAt(0) - 0x0E50)) // Thai digits → Arabic
     .replace(/[（]/g, '(').replace(/[）]/g, ')') // full-width parens → half-width
     .replace(/[，]/g, ',') // full-width comma → half-width
+    // HOSxP prefixes high-alert drugs with "(HAD) " in its name column; the app keeps that as Med.had, not in the name
+    .replace(/^\s*\(\s*had\s*\)\s*/i, '')
     // a period that is not a decimal point ("mg." vs "mg") → space (no lookbehind: Safari < 16.4 cannot parse it)
     .replace(/\./g, (m, off: number, str: string) => (/\d/.test(str[off - 1] || '') && /\d/.test(str[off + 1] || '') ? m : ' '))
     .replace(/\s*([()/,+])\s*/g, '$1') // spacing around brackets/slashes/commas/plus is not significant
@@ -1115,6 +1117,35 @@ function matchIndexOf(meds: Med[]): MatchIndex {
   }
   matchIndexCache.set(meds, idx);
   return idx;
+}
+
+/** Meds that are switched OFF in the app (active=false) whose name or HOSxP alias equals this file name (same
+ * normalisation / strict-signature rule as an exact match — never a fuzzy guess). matchHosxpMed deliberately ignores
+ * inactive meds (a closed drug must never be deducted), so such a row reads "not found"; this lets the screen say the
+ * truer thing: "it exists but is turned off". */
+export function inactiveMatchesFor(meds: Med[], rawName: string): Med[] {
+  const n = normalizeMedName(rawName);
+  if (!n) return [];
+  const sig = strictSignature(rawName);
+  return meds.filter((m) => !m.active && medNameCandidates(m).some((c) => {
+    if (normalizeMedName(c) === n || (!!sig && strictSignature(c) === sig)) return true;
+    // Same drug, spelled a little differently (the app's name is a subset of the file's, strength agrees or is absent on a
+    // side). Only ever used to SKIP a row that is not deducted anyway, so it is allowed to be a little looser than an active match.
+    if (looksLikeCombination(rawName)) return false;
+    const a = tokenizeMedName(c), f = tokenizeMedName(rawName);
+    if (!a.words.length || (a.words.length < 2 && !a.numbers.length)) return false; // a lone short word proves nothing
+    return a.words.every((w) => f.words.some((x) => sameWord(w, x))) && a.numbers.every((x) => f.numbers.includes(x));
+  }));
+}
+
+/** Stable key for a HOSxP file name (same normalisation as matching) — what hosxpIgnoredNames stores. */
+export function hosxpNameKey(rawName: string): string { return normalizeMedName(rawName); }
+
+/** Why an UNMATCHED file row needs no daily decision: its drug exists but is switched off in the app ('inactive'), or an admin
+ * told the app this name is not stock-tracked ('ignored'). null = the pharmacist must still decide. */
+export function autoSkipReason(meds: Med[], ignoredKeys: readonly string[], rawName: string): 'inactive' | 'ignored' | null {
+  if (inactiveMatchesFor(meds, rawName).length) return 'inactive';
+  return ignoredKeys.includes(normalizeMedName(rawName)) ? 'ignored' : null;
 }
 
 export function matchHosxpMed(meds: Med[], rawName: string): HosxpMatch {

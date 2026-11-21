@@ -3,7 +3,7 @@
 // still resolve to itself.
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
-import { matchHosxpMed, diagnoseMiss } from './selectors';
+import { matchHosxpMed, diagnoseMiss, inactiveMatchesFor } from './selectors';
 import type { Med } from '../types';
 
 describe('matchHosxpMed on the real formulary', () => {
@@ -37,5 +37,41 @@ describe('matchHosxpMed on the real formulary', () => {
     const unmatched = rows.filter((_, i) => matches[i].kind === 'none');
     for (const m of meds.slice(0, 60)) diagnoseMiss(m, unmatched, meds);
     expect(performance.now() - t0).toBeLessThan(3000);
+  });
+});
+
+describe('HOSxP "(HAD) " high-alert prefix (seen on the real 20-11-69 export)', () => {
+  const med = (id: string, name: string) => ({ id, name, active: true, hosxpAliases: [] }) as unknown as Med;
+  it('matches the app name that kept no prefix EXACTLY (no "ไม่ตรงชื่อเป๊ะ" confirm)', () => {
+    const meds = [med('a', 'ADRENaline - PL 1 mg./ml. Amphule (1 mL)'), med('w', 'Warfarin (สีส้ม) 2 mg. เม็ด')];
+    expect(matchHosxpMed(meds, '(HAD) ADREnaline - PL 1 mg./ml. Amphule (1 ml.)')).toEqual({ kind: 'exact', medId: 'a' });
+    expect(matchHosxpMed(meds, '(HAD) Warfarin (สีส้ม) 2 mg. เม็ด')).toEqual({ kind: 'exact', medId: 'w' });
+  });
+  it('still never merges different strengths or different drugs', () => {
+    const meds = [med('a', 'MORPHINE 10 mg/ml Amphule'), med('b', 'MORPHINE 30 mg/ml Amphule')];
+    expect(matchHosxpMed(meds, '(HAD) MORPHINE 10 mg/ml Amphule')).toEqual({ kind: 'exact', medId: 'a' });
+    expect(matchHosxpMed(meds, '(HAD) MORPHINE 50 mg/ml Amphule').kind).not.toBe('exact');
+  });
+  it('a name that is only the prefix does not match everything', () => {
+    expect(matchHosxpMed([med('a', 'X 5 mg')], '(HAD)').kind).toBe('none');
+  });
+});
+
+describe('inactive meds (closed in the app but still in the hospital)', () => {
+  const med = (id: string, name: string, active: boolean, aliases: string[] = []) => ({ id, name, active, hosxpAliases: aliases }) as unknown as Med;
+  it('matchHosxpMed never resolves to an inactive med (so it can never be deducted)', () => {
+    expect(matchHosxpMed([med('a', 'MORPHINE 10 mg/ml Amphule', false)], '(HAD) MORPHINE 10 mg/ml Amphule').kind).toBe('none');
+  });
+  it('inactiveMatchesFor says "it exists but is off" — by name, spelling variant, or alias; never fuzzy', () => {
+    const meds = [med('a', 'MORPHINE 10 mg/ml Amphule', false), med('b', 'Oseltamivir susp', false, ['Oseltamivir - เฉพาะราย 10 mg./ml. ซีซี']), med('c', 'MORPHINE 30 mg/ml Amphule', true)];
+    expect(inactiveMatchesFor(meds, '(HAD) MORPHINE 10 mg./ml. Amphule').map((m) => m.id)).toEqual(['a']);
+    expect(inactiveMatchesFor(meds, 'Oseltamivir - เฉพาะราย 10 mg./ml. ซีซี').map((m) => m.id)).toEqual(['b']);
+    expect(inactiveMatchesFor(meds, 'MORPHINE 30 mg/ml Amphule')).toEqual([]); // that one is ACTIVE
+    expect(inactiveMatchesFor(meds, 'MORPHINE 50 mg/ml Amphule')).toEqual([]);
+  });
+  it('also recognises a switched-off med whose app name is a shorter spelling of the file name (e.g. IV fluids)', () => {
+    const meds = [med('n', 'NSS 0.9 % ขวด', false), med('d', 'D-5-N/2 (5+0.45) %', false), med('x', 'Amoxicillin 250 mg', false)];
+    expect(inactiveMatchesFor(meds, 'NSS 0.9 % ขวด (1,000 ml.)').map((m) => m.id)).toEqual(['n']);
+    expect(inactiveMatchesFor(meds, 'Amoxicillin 500 mg แคปซูล')).toEqual([]); // different strength: still needs a human
   });
 });

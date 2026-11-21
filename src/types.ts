@@ -1105,6 +1105,9 @@ export interface AppState {
   // transfer. Shared hospital-wide setting like expiryWarnDays above (meta/settings) — see
   // updateGlobalSettings/SettingsScreen.tsx.
   requireHadScan: boolean;
+  // HOSxP file names the admin marked "ไม่ตามสต็อก — ข้ามทุกวัน" (normalised keys, meta/settings.hosxpIgnoredNames). Only consulted for
+  // rows that match NO med, so it can never hide a drug the app does track.
+  hosxpIgnoredNames: string[];
   // When used30/usedPrev30 (the par-suggestion inputs) were last recomputed from real HOSxP
   // dispensing history — by recomputeUsageStats() (this app) or the scheduled
   // scripts/recompute-usage-stats.mjs job, whichever ran last. null means neither has ever run.

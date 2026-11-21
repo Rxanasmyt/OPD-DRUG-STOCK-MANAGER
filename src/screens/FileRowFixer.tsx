@@ -4,18 +4,19 @@
 // is guessed: a non-"safe" suggestion needs an extra confirmation, and a skipped row is a recorded choice.
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { suggestMedsForFileName, tokenizeMedName } from '../store/selectors';
+import { suggestMedsForFileName, tokenizeMedName, inactiveMatchesFor } from '../store/selectors';
 import type { Med } from '../types';
 import { Badge } from '../components/Badge';
 
 export function FileRowFixer({ idx, fileText, qty, skipped, onSkip }: {
   idx: number; fileText: string; qty: number; skipped: boolean; onSkip: (skip: boolean) => void;
 }) {
-  const { state, resolveHosxpRow, promptAsync } = useApp();
+  const { state, resolveHosxpRow, promptAsync, ignoreHosxpName } = useApp();
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const isAdmin = state.role === 'admin';
   const sugg = useMemo(() => suggestMedsForFileName(state.meds, fileText, 3), [state.meds, fileText]);
+  const inactive = useMemo(() => inactiveMatchesFor(state.meds, fileText), [state.meds, fileText]);
   const results = useMemo(() => {
     const terms = tokenizeMedName(q).words.concat(tokenizeMedName(q).numbers);
     if (!q.trim() || !terms.length) return [] as Med[];
@@ -49,7 +50,13 @@ export function FileRowFixer({ idx, fileText, qty, skipped, onSkip }: {
       <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--red)', marginBottom: 4 }}>
         จับคู่ไม่ได้ — {qty.toLocaleString()} หน่วยนี้จะไม่ถูกตัดยอด จนกว่าจะเลือกทางใดทางหนึ่ง:
       </div>
-      {sugg.length === 0 && <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.5, marginBottom: 4 }}>ไม่มียาในแอพที่ชื่อคล้ายกับ "{fileText}" — อาจเป็นยาที่ยังไม่ได้ลงทะเบียนในแอพ (เพิ่มได้ที่หน้าจัดการรายการยา) หรือค้นหาด้วยตัวเองด้านล่าง</div>}
+      {inactive.length > 0 && (
+        <div data-testid="inactive-hint" style={{ fontSize: 12, lineHeight: 1.55, marginBottom: 6, padding: '6px 8px', borderRadius: 8, background: 'var(--amber-bg)', color: 'var(--amber-ink)' }}>
+          <b>ยานี้มีในแอพ แต่ “ปิดใช้งาน” อยู่:</b> {inactive.map((m) => m.name).join(' / ')}<br />
+          ถ้าเลิกใช้จริง → กด “ข้าม” (ไม่ตัดยอด) · ถ้ายังใช้อยู่ → Admin เปิดใช้งานที่หน้าจัดการรายการยา แล้วแนบไฟล์ใหม่ (ระบบไม่ตัดยอดยาที่ปิดใช้งานให้เอง)
+        </div>
+      )}
+      {sugg.length === 0 && inactive.length === 0 && <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.5, marginBottom: 4 }}>ไม่มียาในแอพที่ชื่อคล้ายกับ "{fileText}" — อาจเป็นยาที่ยังไม่ได้ลงทะเบียนในแอพ (เพิ่มได้ที่หน้าจัดการรายการยา) หรือค้นหาด้วยตัวเองด้านล่าง</div>}
       {sugg.map(({ med, diff }) => (
         <div key={med.id} style={{ borderTop: '1px solid var(--border-soft)', paddingTop: 6, marginTop: 6 }}>
           <div style={{ fontSize: 12, lineHeight: 1.5 }}><span className="muted">ในแอพ: </span><b>{med.name}</b> <span className="muted">(คล้าย {Math.round(diff.score * 100)}%)</span></div>
@@ -73,6 +80,11 @@ export function FileRowFixer({ idx, fileText, qty, skipped, onSkip }: {
         ))}
       </div>
       {!isAdmin && <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>จับคู่ได้เฉพาะรอบนี้ — ให้ Admin เพิ่ม "{fileText}" เป็นชื่อ HOSxP ของยา เพื่อให้ตัดอัตโนมัติครั้งต่อไป</div>}
+      {isAdmin && (
+        <button type="button" data-testid="ignore-forever" onClick={() => void ignoreHosxpName(fileText, true)} style={{ ...linkBtn, display: 'block', marginTop: 8, color: 'var(--green)' }}>
+          ไม่ตามสต็อกในแอพ — ข้ามทุกวัน (ไม่ต้องถามอีก) · Admin
+        </button>
+      )}
       <button type="button" onClick={() => onSkip(true)} style={{ ...linkBtn, marginTop: 8, color: 'var(--muted)' }}>ไม่ใช่ยาของหน่วยนี้ / ไม่ต้องตัดรายการนี้ — ข้าม</button>
     </div>
   );
