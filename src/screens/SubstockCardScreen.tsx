@@ -57,7 +57,10 @@ const TYPE_META: Record<string, { icon: string; label: string; color: string; bg
 // (the loc:'substock'/loc:'floor' guard in fetchSubstockLedger/fetchFloorLedger already keeps
 // them from bleeding into each other's ledger) — so `hasSub`, already known at every call site
 // below, is enough on its own to pick the right wording, with no new data needed.
-function labelFor(type: string, hasSub: boolean): string {
+function labelFor(type: string, hasSub: boolean, note?: string): string {
+  // A cancel (ยกเลิกการนับ / เติมหน้างาน / รับเข้า) is logged as a 'count' row whose note starts "#<id> · ย้อนยอด…/ยกเลิก…" —
+  // it is a reversal, not a recount, so the card must not call it "นับสต็อกใหม่".
+  if (type === 'count' && note && /^#[A-Za-z0-9]+ · (ย้อนยอด|ยกเลิก)/.test(note)) return 'ยกเลิกรายการ (ย้อนยอด)';
   if (type === 'count') return hasSub ? 'นับสต็อก substock ใหม่ (ปรับยอด)' : 'นับสต็อกหน้างานใหม่ (ปรับยอด)';
   return TYPE_META[type]?.label || type;
 }
@@ -355,7 +358,7 @@ export default function SubstockCardScreen() {
     if (!med || !viewRows) return;
     const cardRows = viewRows.map((r) => ({
       ts: r.ts, received: r.qty > 0 ? r.qty : 0, dispensed: r.qty < 0 ? -r.qty : 0, balance: r.balance, by: r.by,
-      typeLabel: labelFor(r.type, hasSub), note: r.note || undefined, type: r.type,
+      typeLabel: labelFor(r.type, hasSub, r.note), note: r.note || undefined, type: r.type,
     }));
     // ยอดยกมา — the balance right before this printed period's first row, backed out of that
     // row's own signed qty (same math the running balance itself uses).
@@ -385,7 +388,7 @@ export default function SubstockCardScreen() {
     if (!med || !viewRows) return;
     const header = ['วันที่', 'ประเภท', 'รับ', 'จ่าย', 'คงเหลือ', 'โดย', 'หมายเหตุ'];
     const body = viewRows.map((r) => [
-      thDate(r.ts), labelFor(r.type, hasSub),
+      thDate(r.ts), labelFor(r.type, hasSub, r.note),
       r.qty > 0 ? r.qty : '', r.qty < 0 ? -r.qty : '', r.balance, r.by, r.note,
     ]);
     const fname = (hasSub ? 'substock_card_' : 'floor_card_') + med.code + '_' + (year === 'all' ? 'ทุกปี' : 'FY' + year) + '.csv';
@@ -649,7 +652,7 @@ export default function SubstockCardScreen() {
                 <tbody>
                   {viewRows.map((r, i) => {
                     const meta = TYPE_META[r.type];
-                    const label = labelFor(r.type, hasSub);
+                    const label = labelFor(r.type, hasSub, r.note);
                     const title = label + (r.note ? ' — ' + r.note : '');
                     // Real-world request: "ให้ทุกส่วนที่เติมข้อมูลเรื่องจำนวน...ในส่วนบัตรสต็อค
                     // หรือบัตรหน้างาน เขียนรูปแบบนี้ด้วย" — every row's รับ/จ่าย/คงเหลือ shows the

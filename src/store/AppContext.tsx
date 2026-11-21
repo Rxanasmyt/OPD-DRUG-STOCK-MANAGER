@@ -6172,11 +6172,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const toMs = new Date(toDate + 'T23:59:59.999').getTime();
     const snap = await withTimeout(getDocs(queryTxsByDateRange(fromMs, toMs)));
     const rows: import('../types').Tx[] = [];
+    const all: { type: string; reason?: string; note?: string }[] = [];
     snap.docs.forEach((d) => {
       const x = d.data() as Omit<import('../types').Tx, 'id'>;
+      all.push(x);
       if (x.type === 'transfer_to_floor') rows.push({ id: d.id, ...x });
     });
-    return rows;
+    // A refill the user cancelled (reverseMove) is not a refill — keep it out of the replenishment report.
+    const cancelled = cancelledMoveIds(all, isReversalReason);
+    return rows.filter((r) => !cancelled.has(r.id));
   }, []);
 
   const exportFloorRefillsCsv = useCallback(async (records: import('../types').Tx[]) => {
