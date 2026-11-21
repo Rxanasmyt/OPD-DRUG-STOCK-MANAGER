@@ -1191,7 +1191,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 
 /* home: soft aurora behind the page so the glass cards have something to refract; cards become frosted glass with a teal hairline */
 .home-screen { position: relative; }
-.home-screen::before { content: ''; position: absolute; inset: -16px -14px auto; height: 360px; z-index: -1; pointer-events: none; background: radial-gradient(60% 70% at 15% 0%, rgba(var(--green-rgb), .20), transparent 70%), radial-gradient(55% 60% at 95% 10%, rgba(var(--brand-coral-rgb), .16), transparent 70%); }
+.home-screen::before { content: ''; position: absolute; inset: -16px 0 auto; height: 360px; z-index: -1; pointer-events: none; background: radial-gradient(60% 70% at 15% 0%, rgba(var(--green-rgb), .20), transparent 70%), radial-gradient(55% 60% at 95% 10%, rgba(var(--brand-coral-rgb), .16), transparent 70%); }
 .home-screen .card { background-color: var(--glass-bg); -webkit-backdrop-filter: blur(14px) saturate(1.4); backdrop-filter: blur(14px) saturate(1.4); border-color: rgba(var(--green-rgb), .2); box-shadow: 0 12px 30px -16px rgba(var(--green-rgb), .45), inset 0 1px 0 rgba(255,255,255,.55); }
 [data-theme='dark'] .home-screen .card { box-shadow: 0 12px 30px -16px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.07); }
 .home-screen .section-eyebrow { color: var(--ink); }
@@ -1223,3 +1223,24 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 
 /* header screen title: wrap up to 2 lines instead of cutting a long name ("ปรับยอด / คืนยา / ย…") now that the action buttons share its row */
 .app-header-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+
+/* narrow phones (320px): a two-column grid of date inputs used 1fr = minmax(auto,1fr), and a date input's intrinsic width pushed the page sideways */
+.grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid-2 > * { min-width: 0; }
+input[type='date'], input[type='time'], input[type='month'] { min-width: 0; max-width: 100%; box-sizing: border-box; }
+
+/* ---------- entry guard UI: count scope banner + live warnings ---------- */
+.eg-scope { display: flex; gap: 9px; align-items: flex-start; padding: 9px 12px; margin: 0 0 10px; border-radius: 14px; font-size: 12.5px; line-height: 1.5; border: 1px solid rgba(var(--green-rgb), .3); background: linear-gradient(135deg, rgba(var(--green-rgb), .14), rgba(var(--green-rgb), .05)); }
+.eg-scope[data-loc='sub'] { border-color: var(--amber-border, #e0b46a); background: linear-gradient(135deg, var(--amber-bg, #fff3d6), transparent); color: var(--amber-ink, #6b4a00); }
+.eg-scope b { font-weight: 800; }
+.eg-warn { margin-top: 4px; padding: 6px 9px; border-radius: 10px; font-size: 12px; line-height: 1.5; font-weight: 600; background: var(--amber-bg, #fff3d6); color: var(--amber-ink, #6b4a00); border: 1px solid var(--amber-border, #e0b46a); animation: rtPop .22s var(--ease-spring) both; }
+.eg-warn[data-severity='stop'] { background: var(--red-bg, #fde8e6); color: var(--red, #a32b22); border-color: var(--red, #c4382b); }
+
+/* ---------- HOSxP file reminder banner ---------- */
+.rr-banner { flex: none; display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 14px; background: var(--amber-bg, #fff3d6); color: var(--amber-ink, #6b4a00); border-bottom: 1px solid var(--amber-border, #e0b46a); animation: fade .25s var(--ease-out); }
+.rr-banner[data-level='overdue'] { background: var(--red-bg, #fde8e6); color: var(--red, #a32b22); border-bottom-color: var(--red, #c4382b); }
+.rr-ico { font-size: 20px; flex: none; }
+.rr-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 12px; line-height: 1.4; } .rr-txt b { font-size: 13.5px; }
+.rr-go { flex: none; border: 0; border-radius: 999px; padding: 0 14px; min-height: 40px; font-weight: 800; font-size: 13px; cursor: pointer; background: currentColor; }
+.rr-go { color: #fff; background: var(--amber, #b9740b); } .rr-banner[data-level='overdue'] .rr-go { background: var(--red, #a32b22); }
+.rr-x { flex: none; border: 0; background: transparent; color: inherit; font-size: 16px; min-width: 40px; min-height: 40px; opacity: .7; cursor: pointer; }

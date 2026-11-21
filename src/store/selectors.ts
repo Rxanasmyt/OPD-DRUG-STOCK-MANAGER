@@ -1,7 +1,7 @@
 import { ADR_RETURN_REASON, REVERSAL_PREFIX } from '../utils/returnReasons';
 import type { AppState, User, FileCompleteness, HosxpMatch, Lot, Med, MedId, Role, Ward, Tx, TxType, UsageHistoryRecord, DailyMetrics, ParAdjustmentRecord, DayMissKind, ReconcileMonthDay } from '../types';
 import { asMedId } from '../types';
-import { DAY, daysUntil, isoDate, nf } from '../utils/format';
+import { DAY, daysUntil, isoDate, nf, bangkokWeekday } from '../utils/format';
 import { UNCATEGORIZED, DRUG_CATEGORIES, categoryLabel } from '../data/categories';
 import { suggestRoute } from '../data/routeSuggest';
 import type { RouteType } from '../data/routes';
@@ -1825,4 +1825,50 @@ export function diagnoseMiss(med: Med, fileNames: readonly string[], meds: Med[]
   else if (days !== null && days >= 18) verdict = 'suspicious';
   else verdict = 'likely_no_dispense';
   return { verdict, candidates: top, dispenseDays30: days };
+}
+
+
+export interface ReconcileReminder {
+  /** 'ok' = nothing to do; 'due' = yesterday's file not attached yet; 'overdue' = 2+ working days behind */
+  level: 'ok' | 'due' | 'overdue';
+  /** working days (Mon–Fri) after the last covered day, up to yesterday, that no file has covered */
+  missingWeekdays: number;
+  /** first / last missing working day (ISO) */
+  firstMissingIso: string | null;
+  lastMissingIso: string | null;
+}
+
+/** "Has the daily HOSxP file been attached?" — pure. This hospital never reconciles on Sat/Sun (a Monday file covers Fri–Sun), so
+ * weekends never nag and weekend days are never counted as missing. One missing day = 'due' (shown from 08:00 Bangkok, when
+ * yesterday's file exists); two or more = 'overdue' (shown any time). `lastCoveredTo` null = never reconciled / unknown → 'ok'
+ * (never claim a delay we cannot prove). */
+export function reconcileReminder(lastCoveredTo: string | null, nowTs: number): ReconcileReminder {
+  const none: ReconcileReminder = { level: 'ok', missingWeekdays: 0, firstMissingIso: null, lastMissingIso: null };
+  if (!lastCoveredTo) return none;
+  const todayWd = bangkokWeekday(nowTs);
+  if (todayWd === 0 || todayWd === 6) return none;
+  const yesterdayIso = isoDate(nowTs - DAY);
+  if (lastCoveredTo >= yesterdayIso) return none;
+  let first: string | null = null; let last: string | null = null; let n = 0;
+  const startTs = new Date(lastCoveredTo + 'T00:00:00').getTime() + DAY;
+  const endTs = new Date(yesterdayIso + 'T00:00:00').getTime();
+  for (let ts = startTs; ts <= endTs; ts += DAY) {
+    const wd = bangkokWeekday(ts + 12 * 3600000);
+    if (wd === 0 || wd === 6) continue;
+    const iso = isoDate(ts + 12 * 3600000);
+    n++; first = first ?? iso; last = iso;
+  }
+  if (n === 0) return none;
+  if (n === 1) {
+    const hour = Number(new Date(nowTs).toLocaleString('en-GB', { hour: '2-digit', hour12: false, timeZone: 'Asia/Bangkok' }));
+    if (hour < 8) return { level: 'ok', missingWeekdays: n, firstMissingIso: first, lastMissingIso: last };
+    return { level: 'due', missingWeekdays: n, firstMissingIso: first, lastMissingIso: last };
+  }
+  return { level: 'overdue', missingWeekdays: n, firstMissingIso: first, lastMissingIso: last };
+}
+
+/** Last day a reconcile covers: the live txs window first, else the one-off server read (see AppContext's fetchLatestReconcileRow).
+ * An "uncertain" fetched row (the newest one was a reversal) is ignored — never claim coverage we cannot prove. */
+export function effectiveLastCoveredTo(txs: Tx[], fetched: { coveredTo: string | null; uncertain: boolean } | null): string | null {
+  return lastReconcileCoveredToIso(txs) ?? (fetched && !fetched.uncertain ? fetched.coveredTo : null);
 }

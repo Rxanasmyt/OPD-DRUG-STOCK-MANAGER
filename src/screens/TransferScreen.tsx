@@ -1,3 +1,4 @@
+import RecentMoves from './RecentMoves';
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import type { MedId } from '../types';
@@ -456,6 +457,7 @@ export default function TransferScreen() {
           );
         })}
         {visibleRows.length === 0 && <EmptyState icon="💊" title="ไม่พบรายการยาที่ค้นหา" sub="ลองพิมพ์ชื่อยาแบบสั้นลง หรือเปลี่ยนตัวกรองด้านบน" />}
+        <RecentMoves kind="transfer" />
       </div>
 
       {cartIds.length > 0 && (

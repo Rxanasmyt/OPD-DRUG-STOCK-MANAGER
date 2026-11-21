@@ -104,3 +104,11 @@ export function queryTxsByDateRange(from: number, to: number): Query {
 export function fetchTxsByCoveredRange(from: string, to: string) {
   return getDocs(query(txsCollection(), where('coveredFrom', '==', from), where('coveredTo', '==', to)));
 }
+
+/** The newest txs row that carries a `coveredTo` (= a reconcile_hosxp row), ONE read, via the automatic single-field index.
+ * The live txs window (300 rows) can lose the last reconcile after a busy stretch — this is the cheap way to still know it. */
+export async function fetchLatestReconcileRow(): Promise<{ coveredTo: string; ts: number; reason: string } | null> {
+  const snap = await getDocs(query(txsCollection(), orderBy('coveredTo', 'desc'), limit(1)));
+  const d = snap.docs[0]?.data() as { coveredTo?: string; ts?: number; reason?: string } | undefined;
+  return d?.coveredTo ? { coveredTo: d.coveredTo, ts: d.ts ?? 0, reason: d.reason ?? '' } : null;
+}

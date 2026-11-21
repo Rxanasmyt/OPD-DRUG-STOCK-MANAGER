@@ -19,23 +19,25 @@ import { fetchDailyMetricsByDateRange } from './repositories/dailyMetricsRepo';
 import { fetchUsageHistoryByPeriod, newUsageHistoryRef } from './repositories/usageHistoryRepo';
 import { fetchParAdjustmentsSince, addParAdjustmentRecord, newParAdjustmentRef } from './repositories/parAdjustmentsRepo';
 import { fetchDrugReturnsByDateRange, newDrugReturnRef } from './repositories/returnsRepo';
-import { REVERSAL_PREFIX, reversalNote, reversedIds, netReturnRecords } from '../utils/returnReasons';
+import { assessCount, assessTransfer, assessReceive, describeFindings, summarizeFlagged, type Finding } from '../utils/entryGuard';
+import { transferNote, parseTransferNote, parseReceiveNote, cancelledMoveIds } from '../utils/moveUndo';
+import { REVERSAL_PREFIX, isReversalReason, reversalNote, reversedIds, netReturnRecords } from '../utils/returnReasons';
 import { subscribeRecentPendingReceives, newPendingReceiveRef, pendingReceiveRef } from './repositories/pendingReceivesRepo';
 import { settingsRef, subscribeSettings, medSeqRef } from './repositories/metaRepo';
 import { floorLotRef, subscribeFloorLots, fetchAllFloorLots, fetchFloorLotsByMedId, fetchActiveFloorLotsByMedId } from './repositories/floorLotsRepo';
 import { userRef, usersCollection, queryAdminUsers, passwordResetRef } from './repositories/usersRepo';
 import { lotRef, newLotRef, subscribeLots, fetchAllLots, fetchLotsByMedId, fetchLotsByMedIds, fetchActiveLotsByMedId } from './repositories/lotsRepo';
-import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchAllTxs, fetchTxsByName, fetchTxsByNameSince, fetchTxsAfter, queryTxsByDateRange, fetchTxsByCoveredRange } from './repositories/txsRepo';
+import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchAllTxs, fetchTxsByName, fetchTxsByNameSince, fetchTxsAfter, queryTxsByDateRange, fetchTxsByCoveredRange, fetchLatestReconcileRow } from './repositories/txsRepo';
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
 import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
 import { safeToAutoUpdate, probeActiveElement, deployedEntryDiffers, forceFreshReload } from '../utils/autoUpdate';
-import { subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, lastReconcileCoveredToIso, priorReconcileByMed, hosxpDateCheck, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, parseHosxpDayReport, buildReconcileMonth, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays, reqCategoryOf } from './selectors';
+import { effectiveLastCoveredTo, subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, lastReconcileCoveredToIso, priorReconcileByMed, hosxpDateCheck, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, parseHosxpDayReport, buildReconcileMonth, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays, reqCategoryOf } from './selectors';
 import { nf, thDate, lotLabel, expLabel, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
 import { shortLabelName } from '../utils/labelName';
 import { printLabelSheet, printPickListSheet, printExecutiveSummarySheet, type PickListRow, type PrintLabel, type ExecSummaryStat, type ExecSummaryRow } from '../utils/print';
-import { parseHosxpUsageWorkbook, parseUsageCsvTextWithSkipped, splitNameQty, type RawUsageRow } from '../utils/usageImport';
+import { parseHosxpUsageWorkbook, parseUsageCsvTextWithSkipped, splitNameQty, detectDateFromFilename, type RawUsageRow } from '../utils/usageImport';
 import { LOCS, FRIDGE_LOCS } from '../data/locations';
 import { binCompare } from '../utils/binRange';
 import { suggestCategoryId } from '../data/categorySuggest';
@@ -352,7 +354,7 @@ function freshState(): AppState {
     recvNo: genDefaultRecvNo(), recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
     pendingReceives: [],
 
-    adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [], todayReturns: [],
+    adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [], todayReturns: [], lastReconcileFetched: null,
 
     reportTab: 'aging', labelType: 'med', labelSelected: {}, locScope: 'floor', labelWardScope: 'all',
 
@@ -546,6 +548,9 @@ export interface AppCtx {
   addToReturnCart: () => Promise<void>;
   removeReturnCartItem: (i: number) => void;
   commitReturnCart: () => void;
+  /** Cancels one of the caller's recent stock COUNTS (floor: lossless; substock: only when the count had ADDED stock). Appends a reversal tx — nothing is edited or deleted. */
+  reverseCount: (tx: import('../types').Tx) => Promise<void>;
+  reverseMove: (tx: import('../types').Tx) => Promise<void>;
   /** Loads today's `returns` rows into state.todayReturns (duplicate warning + cancel list). */
   refreshTodayReturns: () => Promise<void>;
   /** Cancels one return: appends a reversal row (txs + returns are append-only) and takes the qty back off the floor. */
@@ -1982,7 +1987,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       search: '', filter: 'low', wardFilter: 'all',
       wmFromSearch: '', wmFromMed: null, wmToSearch: '', wmToMed: null, wmQty: '', wmReason: '',
       recvSearch: '', recvMed: null, recvLot: '', recvExp: '', recvQty: '', recvItems: [],
-      adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [], todayReturns: [],
+      adjType: null, adjSearch: '', adjMed: null, adjQty: '', adjReason: '', adjNote: '', adjHn: '', returnCart: [], todayReturns: [], lastReconcileFetched: null,
       qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: null, scanConfirmMedId: null, hadOk: {},
       countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [], hosxpFileInfo: null, hosxpDateConfirmed: false, reconcileProgress: null, reconcileResult: null,
       usageDateFrom: '', usageDateTo: '', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
@@ -2595,6 +2600,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const cart = { ...state.cart };
     const ids = Object.keys(cart) as MedId[];
     if (!ids.length) return;
+    // Entry guard: a refill that would push a shelf past its Max is usually a typed-quantity slip (or the wrong drug's row).
+    const overMax = ids.map((id) => { const m = state.meds.find((x) => x.id === id); return m ? { name: m.name, f: assessTransfer({ name: m.name, unit: m.unit, qty: cart[id] ?? 0, floor: m.floor, parFloor: m.parFloor }) } : null; })
+      .filter((x): x is { name: string; f: Finding[] } => !!x && x.f.length > 0);
+    if (overMax.length && !(await confirmAsync(summarizeFlagged('เติมหน้างาน', ids.length, overMax)))) return;
     const meds = state.meds;
     let resultRows: AppState['doneRows'] = [];
     try {
@@ -2750,6 +2759,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         for (const medId of ids) {
           let need = cart[medId];
           const used: string[] = [];
+          const takes: { lotNo: string | undefined; exp: number | undefined; take: number }[] = [];
           // Floor-lot tracking: accumulate per-(medId,lotNo,exp) qty drawn this round so a batch
           // split across more than one substock lot doc still lands in a single floorLots doc —
           // see floorLotDocId's own doc comment (selectors.ts) for why exp must be part of this
@@ -2762,7 +2772,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const take = Math.min(need, lotData.qty);
             trx.update(lotRef(lotId), { qty: lotData.qty - take });
             need -= take;
-            used.push(lotLabel(lotData.lotNo) + ' (' + nf(take) + ')');
+            used.push(lotLabel(lotData.lotNo) + ' exp ' + expLabel(lotData.exp) + ' (' + nf(take) + ')');
+            takes.push({ lotNo: lotData.lotNo, exp: lotData.exp, take });
             const flId = floorLotDocId(medId, lotData.lotNo, lotData.exp);
             if (!floorTake[flId]) floorTake[flId] = { add: 0, exp: lotData.exp, lotNo: lotData.lotNo };
             floorTake[flId].add += take;
@@ -2789,9 +2800,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const boxNote = boxBreakdownLabel(m, cart[medId]);
           trx.set(newTxRef(), {
             type: 'transfer_to_floor', name: m.name, medId, qty: cart[medId], unit: m.unit, from: 'substock', to: 'floor',
-            note: 'FEFO lot ' + used.join(', ') + (boxNote ? ' · ' + boxNote : ''), by: userName(), ts,
+            note: transferNote(takes, boxNote || undefined), by: userName(), ts,
           } satisfies Omit<import('../types').Tx, 'id'>);
-          rows.push({ name: m.name, sub: 'lot ' + used.join(', '), qty: nf(cart[medId]) + ' ' + m.unit, medId });
+          rows.push({ name: m.name, sub: 'lot ' + takes.map((t) => lotLabel(t.lotNo) + ' (' + nf(t.take) + ')').join(', '), qty: nf(cart[medId]) + ' ' + m.unit, medId });
         }
         resultRows = rows;
       });
@@ -2882,6 +2893,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (q > Math.max(par, 20) * 8 && !(await confirmAsync(
       'จำนวนที่กรอก (' + nf(q) + ' ' + m.unit + ') มากผิดปกติเมื่อเทียบกับ par (' + nf(par) + ') ของ ' + m.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
     ))) return;
+    const recvFindings = assessReceive({ name: m.name, unit: m.unit, qty: q, sub: subQty(state, m.id), parSub: m.parSub, packSize: m.packSize });
+    if (recvFindings.length && !(await confirmAsync(describeFindings('รับเข้า — ' + m.name, recvFindings)))) return;
     const item: RecvItem = { medId: m.id, name: m.name, unit: m.unit, lotNo, exp: expMs, qty: q };
     patch((st) => ({
       recvItems: [...st.recvItems, item], recvLot: '', recvExp: '', recvQty: '', recvSearch: '',
@@ -3402,6 +3415,156 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }), [state, userName, toast, toastErr, patch, guardOnce, confirmAsync]);
 
+  // ---------- cancel a recent count (กลับไปแก้ไขการนับที่ลงผิด) ----------
+  // txs are append-only (firestore.rules), so a cancel is a NEW 'count' row (reason = REVERSAL_PREFIX + original) with the opposite delta,
+  // never an edit. Floor counts are lossless (one number). Substock counts that REMOVED stock were taken from real lots (FEFO) — their
+  // lot identity/expiry can't be rebuilt from the log, so those are refused with a pointer to "นับใหม่"; counts that ADDED stock went
+  // into one "ปรับยอด (นับสต็อก)" lot, which is reduced back (never below what is still in that lot).
+  const reverseCount = useCallback(guardOnce('countReverse', async (tx: import('../types').Tx) => {
+    if (tx.type !== 'count' || isReversalReason(tx.reason)) return;
+    if (tx.by !== userName() && state.role !== 'admin') { toast('ยกเลิกได้เฉพาะรายการที่คุณบันทึกเอง (หรือ Admin)'); return; }
+    if (Date.now() - tx.ts > 24 * 3600000) { toast('รายการนี้เก่ากว่า 24 ชั่วโมง — ยกเลิกอัตโนมัติไม่ได้ ให้นับใหม่หรือปรับยอดพร้อมเหตุผลแทน'); return; }
+    if (state.txs.some((x) => x.type === 'count' && isReversalReason(x.reason) && (x.note ?? '').startsWith('#' + tx.id))) { toast('รายการนี้ถูกยกเลิกไปแล้ว'); return; }
+    const med = state.meds.find((x) => x.id === tx.medId);
+    if (!med) { toast('ยานี้ถูกลบออกจากระบบแล้ว — ยกเลิกไม่ได้'); return; }
+    const isSub = tx.loc === 'substock';
+    if (isSub && tx.qty < 0) { toast('การนับ substock ที่ตัดยอดออก ยกเลิกอัตโนมัติไม่ได้ (ตัดจาก lot จริง) — ให้ไปแท็บนับ substock แล้วนับใหม่ให้ตรงของจริง'); return; }
+    if (tx.qty === 0) { toast('การนับนี้ตรงกับระบบ ไม่มีอะไรต้องยกเลิก'); return; }
+    if (!(await confirmAsync(
+      'ยกเลิกการนับ ' + (isSub ? 'substock' : 'หน้างาน') + ' นี้?\n' + tx.name + ' — การนับครั้งนั้นปรับยอด ' + (tx.qty > 0 ? '+' : '') + nf(tx.qty) + ' ' + tx.unit
+      + '\nระบบจะปรับยอดกลับ ' + (tx.qty > 0 ? '−' : '+') + nf(Math.abs(tx.qty)) + ' ' + tx.unit + ' และบันทึกเป็นรายการ "ยกเลิก" (ประวัติเดิมไม่ถูกลบ)'
+    ))) return;
+    const now = Date.now();
+    let applied = 0;
+    try {
+      if (!isSub) {
+        await runTx(async (trx) => {
+          const ref = medRef(asMedId(tx.medId as string));
+          const snap = await trx.get(ref);
+          const cur = (snap.data() as { floor?: number } | undefined)?.floor ?? med.floor;
+          const next = Math.max(0, cur - tx.qty);
+          applied = next - cur;
+          trx.update(ref, { floor: next });
+          trx.set(newTxRef(), {
+            type: 'count', name: tx.name, medId: tx.medId as string, qty: applied, unit: tx.unit, reason: REVERSAL_PREFIX + tx.reason,
+            note: '#' + tx.id + ' · ย้อนยอดหน้างานกลับ ' + nf(Math.abs(applied)) + ' ' + tx.unit, loc: 'floor', by: userName(), ts: now,
+          } satisfies Omit<import('../types').Tx, 'id'>);
+        });
+      } else {
+        const lotIds = (await fetchActiveLotsByMedId(asMedId(tx.medId as string))).map((d) => d.id);
+        await runTx(async (trx) => {
+          let need = tx.qty;
+          applied = 0;
+          const lots: { id: string; qty: number; lotNo: string | undefined }[] = [];
+          for (const id of lotIds) { const sn = await trx.get(lotRef(id)); const d = sn.data() as { qty?: number; lotNo?: string } | undefined; lots.push({ id, qty: d?.qty ?? 0, lotNo: d?.lotNo }); }
+          for (const l of lots.filter((x) => x.lotNo === 'ปรับยอด (นับสต็อก)' && x.qty > 0)) {
+            if (need <= 0) break;
+            const take = Math.min(need, l.qty);
+            trx.update(lotRef(l.id), { qty: l.qty - take });
+            need -= take; applied -= take;
+          }
+          trx.update(medRef(asMedId(tx.medId as string)), { lastSubCountTs: now });
+          trx.set(newTxRef(), {
+            type: 'count', name: tx.name, medId: tx.medId as string, qty: applied, unit: tx.unit, reason: REVERSAL_PREFIX + tx.reason,
+            note: '#' + tx.id + ' · ย้อนยอด substock กลับ ' + nf(Math.abs(applied)) + ' ' + tx.unit + (need > 0 ? ' (lot ปรับยอดเหลือไม่พอ ย้อนได้เท่านี้)' : ''), loc: 'substock', by: userName(), ts: now,
+          } satisfies Omit<import('../types').Tx, 'id'>);
+        });
+      }
+      hapticSuccess();
+      toast('ยกเลิกการนับแล้ว · ' + tx.name + ' ' + (applied > 0 ? '+' : applied < 0 ? '−' : '') + nf(Math.abs(applied)) + ' ' + tx.unit);
+    } catch (e) { toastErr(e, 'ยกเลิกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
+  }), [state.txs, state.meds, state.role, userName, toast, toastErr, guardOnce, confirmAsync, runTx]);
+
+  // ---------- undo เติมหน้างาน / รับเข้า ----------
+  // Appends reversal rows (txs are append-only) and puts the quantities back into the SAME lots, found from the lot
+  // provenance in the original note (utils/moveUndo.ts). Refuses — never guesses — when the note does not parse, the lot
+  // is gone, or the stock has already moved on (floor used / lot partly transferred).
+  const reverseMove = useCallback(guardOnce('moveReverse', async (tx: import('../types').Tx) => {
+    const isTransfer = tx.type === 'transfer_to_floor';
+    const isReceive = tx.type === 'receive_from_central';
+    if (!isTransfer && !isReceive) return;
+    if (tx.by !== userName() && state.role !== 'admin') { toast('ยกเลิกได้เฉพาะรายการที่คุณบันทึกเอง (หรือ Admin)'); return; }
+    if (Date.now() - tx.ts > 24 * 3600000) { toast('รายการนี้เก่ากว่า 24 ชั่วโมง — ยกเลิกอัตโนมัติไม่ได้ ใช้ “ปรับยอด” พร้อมเหตุผลแทน'); return; }
+    if (cancelledMoveIds(state.txs, isReversalReason).has(tx.id)) { toast('รายการนี้ถูกยกเลิกไปแล้ว'); return; }
+    const medId = tx.medId as string | undefined;
+    const med = medId ? state.meds.find((x) => x.id === medId) : undefined;
+    if (!medId || !med) { toast('ยานี้ถูกลบออกจากระบบแล้ว — ยกเลิกไม่ได้'); return; }
+    const qty = Math.abs(tx.qty);
+    const toFloorReceive = isReceive && tx.to === 'floor';
+    const takes = isTransfer ? parseTransferNote(tx.note, qty) : null;
+    const rlot = isReceive ? parseReceiveNote(tx.note) : null;
+    if ((isTransfer && !takes) || (isReceive && !rlot)) { toast('อ่านข้อมูล lot ของรายการนี้ไม่ได้ (รายการเก่าก่อนมีระบบยกเลิก) — ใช้ “ปรับยอด” พร้อมเหตุผลแทน'); return; }
+    const kind = isTransfer ? 'เติมหน้างาน' : 'รับเข้า';
+    if (!(await confirmAsync(
+      'ยกเลิก' + kind + 'นี้?\n' + tx.name + ' ' + nf(qty) + ' ' + tx.unit
+      + (isTransfer ? '\nระบบจะคืนยาจากหน้างานกลับ substock (lot เดิม) · ต้องมียาหน้างานเหลืออยู่ครบ' : '\nระบบจะหักยอดที่รับเข้าออกจาก' + (toFloorReceive ? 'หน้างาน' : ' substock (lot เดิม)') + ' · ต้องยังไม่ถูกเติม/ใช้ไป')
+      + '\nบันทึกเป็นรายการ "ยกเลิก" (ประวัติเดิมไม่ถูกลบ)'
+    ))) return;
+    const now = Date.now();
+    const rsn = REVERSAL_PREFIX + kind;
+    const mk = (loc: 'floor' | 'substock', q: number, detail: string) => ({ type: 'count' as const, name: tx.name, medId, qty: q, unit: tx.unit, reason: rsn, note: '#' + tx.id + ' · ' + detail, loc, by: userName(), ts: now });
+    try {
+      const allLots = await fetchLotsByMedId(medId);
+      const lotsInfo = allLots.docs.map((d) => ({ id: d.id, ...(d.data() as { lotNo?: string; exp?: number; qty?: number }) }));
+      const matchLots = (label: string, expText: string) => lotsInfo.filter((l) => lotLabel(l.lotNo) === label && expLabel(l.exp) === expText).sort((a, b) => (b.qty ?? 0) - (a.qty ?? 0));
+      await runTx(async (trx) => {
+        const medSnap = await trx.get(medRef(asMedId(medId)));
+        const floor = (medSnap.data() as { floor?: number } | undefined)?.floor ?? 0;
+        if (isTransfer) {
+          if (floor < qty) throw new Error('moved-on:หน้างานเหลือ ' + nf(floor) + ' น้อยกว่าที่เติมไป ' + nf(qty));
+          const plan: { flId: string; flQty: number; lotNo: string | undefined; exp: number | undefined; subId: string | null; subQty: number; take: number }[] = [];
+          for (const t of takes!) {
+            const ref = matchLots(t.lotLabel, t.expText)[0];
+            if (!ref && t.expText !== 'ไม่ทราบวันหมดอายุ') throw new Error('lot-missing:' + t.lotLabel);
+            const lotNo = ref ? ref.lotNo : (t.lotLabel === 'ไม่ระบุ lot' ? undefined : t.lotLabel);
+            const exp = ref ? ref.exp : undefined;
+            const flId = floorLotDocId(asMedId(medId), lotNo, exp);
+            const flSnap = await trx.get(floorLotRef(flId));
+            const flQty = (flSnap.data() as { qty?: number } | undefined)?.qty ?? 0;
+            if (flQty < t.take) throw new Error('moved-on:lot ' + t.lotLabel + ' หน้างานเหลือ ' + nf(flQty) + ' น้อยกว่าที่เติมไป ' + nf(t.take));
+            let subQty = 0;
+            if (ref) { const sn = await trx.get(lotRef(ref.id)); subQty = (sn.data() as { qty?: number } | undefined)?.qty ?? 0; }
+            plan.push({ flId, flQty, lotNo, exp, subId: ref ? ref.id : null, subQty, take: t.take });
+          }
+          for (const p of plan) {
+            trx.set(floorLotRef(p.flId), { medId, ...(p.lotNo ? { lotNo: p.lotNo } : {}), ...(p.exp != null ? { exp: p.exp } : {}), qty: p.flQty - p.take });
+            if (p.subId) trx.update(lotRef(p.subId), { qty: p.subQty + p.take });
+            else { const nr = newLotRef(); trx.set(nr, { code: genLotCode(med.code, asMedId(medId), nr.id), medId, ...(p.lotNo ? { lotNo: p.lotNo } : {}), qty: p.take, loc: 'ชั้น bulk' }); }
+          }
+          trx.update(medRef(asMedId(medId)), { floor: floor - qty });
+          trx.set(newTxRef(), mk('floor', -qty, 'ยกเลิกเติมหน้างาน หักหน้างาน ' + nf(qty) + ' ' + tx.unit));
+          trx.set(newTxRef(), mk('substock', qty, 'ยกเลิกเติมหน้างาน คืน substock ' + nf(qty) + ' ' + tx.unit));
+        } else if (toFloorReceive) {
+          if (floor < qty) throw new Error('moved-on:หน้างานเหลือ ' + nf(floor) + ' น้อยกว่าที่รับเข้า ' + nf(qty));
+          trx.update(medRef(asMedId(medId)), { floor: floor - qty });
+          trx.set(newTxRef(), mk('floor', -qty, 'ยกเลิกรับเข้า หักหน้างาน ' + nf(qty) + ' ' + tx.unit));
+        } else {
+          const cands = matchLots(rlot!.lotLabel, rlot!.expText);
+          if (!cands.length) throw new Error('lot-missing:' + rlot!.lotLabel);
+          let need = qty;
+          const cut: { id: string; qty: number; take: number }[] = [];
+          for (const c of cands) {
+            if (need <= 0) break;
+            const sn = await trx.get(lotRef(c.id));
+            const q = (sn.data() as { qty?: number } | undefined)?.qty ?? 0;
+            const take = Math.min(need, q);
+            if (take > 0) { cut.push({ id: c.id, qty: q, take }); need -= take; }
+          }
+          if (need > 0) throw new Error('moved-on:lot ' + rlot!.lotLabel + ' เหลือไม่พอ (ถูกเติมขึ้นหน้างาน/ใช้ไปบางส่วนแล้ว)');
+          for (const c of cut) trx.update(lotRef(c.id), { qty: c.qty - c.take });
+          trx.set(newTxRef(), mk('substock', -qty, 'ยกเลิกรับเข้า หัก lot ' + rlot!.lotLabel + ' ' + nf(qty) + ' ' + tx.unit));
+        }
+      });
+      hapticSuccess();
+      toast('ยกเลิก' + kind + 'แล้ว · ' + tx.name + ' ' + nf(qty) + ' ' + tx.unit);
+    } catch (e) {
+      const msg = (e as Error)?.message || '';
+      if (msg.startsWith('moved-on:')) { toast('ยกเลิกไม่ได้ — ' + msg.slice(9) + ' (ยาถูกใช้/เคลื่อนไหวต่อไปแล้ว) ใช้ “ปรับยอด” พร้อมเหตุผลแทน'); return; }
+      if (msg.startsWith('lot-missing:')) { toast('ยกเลิกไม่ได้ — หา lot ' + msg.slice(12) + ' ไม่พบในระบบ ใช้ “ปรับยอด” พร้อมเหตุผลแทน'); return; }
+      toastErr(e, 'ยกเลิกไม่สำเร็จ ลองใหม่อีกครั้ง');
+    }
+  }), [state.txs, state.meds, state.role, userName, toast, toastErr, guardOnce, confirmAsync, runTx]);
+
   // ---------- today's returns: duplicate warning + cancel ----------
   const refreshTodayReturns = useCallback(async () => {
     try {
@@ -3410,6 +3573,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       patch({ todayReturns: rows.slice().sort((a, b) => b.ts - a.ts) });
     } catch { /* offline / slow: keep whatever we had — the warning is a safety net, never a blocker */ }
   }, [patch]);
+
+  // "Has the daily HOSxP file been attached?" needs the last reconcile date. The live txs window (newest 300) normally holds one, but after
+  // a busy stretch it can scroll out — then ONE cheap indexed read finds it (once per sign-in). See utils/selectors reconcileReminder().
+  const fetchedReconcileRef = useRef(false);
+  const windowHasReconcile = useMemo(() => state.txs.some((t) => t.type === 'reconcile_hosxp'), [state.txs]);
+  useEffect(() => {
+    if (state.authStatus !== 'signedIn') { fetchedReconcileRef.current = false; return; }
+    if (!state.dbReady || windowHasReconcile || state.txs.length === 0 || fetchedReconcileRef.current) return;
+    fetchedReconcileRef.current = true;
+    fetchLatestReconcileRow()
+      .then((row) => patch({ lastReconcileFetched: { coveredTo: row?.coveredTo ?? null, uncertain: !!row && row.reason.startsWith('ย้อนการตัดยอด') } }))
+      .catch(() => { fetchedReconcileRef.current = false; });
+  }, [state.authStatus, state.dbReady, state.txs.length, windowHasReconcile, patch]);
 
   /** Same patient already had this drug returned today (and not cancelled) — usually a double tap or a repeated entry. */
   const returnedTodayFor = useCallback((hn: string, medId: string) => {
@@ -6015,11 +6191,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // at all. Flags (not blocks) a count that implies a delta far outside anything this med's
     // own par level would ever plausibly produce — cheap for a legitimate large count (one
     // extra tap), but catches the real, common typo case.
-    const implausible = Math.abs(q - m.floor) > Math.max(m.parFloor, 20) * 8;
-    if (implausible && !(await confirmAsync(
-      'นับได้ ' + nf(q) + ' ' + m.unit + ' — ต่างจากยอดระบบ (' + nf(m.floor) + ') มากผิดปกติเมื่อเทียบกับ par ('
-      + nf(m.parFloor) + ') ของ ' + m.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
-    ))) return;
+    // Entry guard (utils/entryGuard.ts): counted number looks like the OTHER store's (นับหน้างานแต่เลขเป็นของ substock), an extra
+    // digit, a 0 for stock that exists, or far outside par — reads the numbers back and asks before saving.
+    const countFindings = assessCount({ name: m.name, unit: m.unit, scope: 'floor', counted: q, system: m.floor, other: subQty(state, medId), par: m.parFloor });
+    if (countFindings.length && !(await confirmAsync(describeFindings('นับ หน้างาน — ' + m.name, countFindings)))) return;
     try {
       let delta = 0;
       let note = '';
@@ -6067,15 +6242,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // protection against the exact fat-finger typo (an extra digit) that button was built to
     // catch. One summary confirm for the whole batch, not one popup per row, since asking N
     // separate times for a single bulk action would defeat the point of batching it.
-    const implausibleRows = entries
-      .map((e) => ({ ...e, m: state.meds.find((x) => x.id === e.medId) }))
-      .filter((e): e is typeof e & { m: NonNullable<typeof e.m> } => !!e.m && Math.abs(e.q - e.m.floor) > Math.max(e.m.parFloor, 20) * 8);
-    if (implausibleRows.length && !(await confirmAsync(
-      implausibleRows.length + ' จาก ' + entries.length + ' รายการ มีจำนวนที่นับได้ต่างจากยอดระบบมากผิดปกติเทียบกับ par เช่น '
-      + implausibleRows.slice(0, 3).map((e) => e.m.name + ' (นับได้ ' + nf(e.q) + ' ยอดระบบ ' + nf(e.m.floor) + ')').join(', ')
-      + (implausibleRows.length > 3 ? ' และอีก ' + (implausibleRows.length - 3) + ' รายการ' : '')
-      + ' — พิมพ์จำนวนถูกต้องแล้วใช่ไหม? ต้องการบันทึกทั้งหมดนี้ต่อหรือไม่?'
-    ))) return;
+    const flaggedRows = entries
+      .map((e) => { const m = state.meds.find((x) => x.id === e.medId); return m ? { m, q: e.q, f: assessCount({ name: m.name, unit: m.unit, scope: 'floor', counted: e.q, system: m.floor, other: subQty(state, m.id), par: m.parFloor }) } : null; })
+      .filter((x): x is { m: Med; q: number; f: Finding[] } => !!x && x.f.length > 0);
+    if (flaggedRows.length && !(await confirmAsync(summarizeFlagged('นับ หน้างาน', entries.length, flaggedRows.map((r) => ({ name: r.m.name, f: r.f })))))) return;
     let ok = 0;
     let diffs = 0;
     let failed = 0;
@@ -6167,11 +6337,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Bug fix (typo safety net): same gap as commitCount's own fix above — nothing here ever
     // checked the typed count against anything plausible before committing it.
     const curSub = subQty(state, medId);
-    const implausible = Math.abs(q - curSub) > Math.max(m.parSub, 20) * 8;
-    if (implausible && !(await confirmAsync(
-      'นับได้ ' + nf(q) + ' ' + m.unit + ' — ต่างจากยอดระบบ (' + nf(curSub) + ') มากผิดปกติเมื่อเทียบกับ par ('
-      + nf(m.parSub) + ') ของ ' + m.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
-    ))) return;
+    const subFindings = assessCount({ name: m.name, unit: m.unit, scope: 'sub', counted: q, system: curSub, other: m.floor, par: m.parSub });
+    if (subFindings.length && !(await confirmAsync(describeFindings('นับ substock — ' + m.name, subFindings)))) return;
     try {
       let delta = 0;
       let note = '';
@@ -6261,15 +6428,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Bug fix (typo safety net — bulk gap): same gap as commitAllCounts's own fix — commitSubCount's
     // plausibility check never applied to the "บันทึกทั้งหมด" bulk path. One summary confirm for
     // the whole batch rather than one popup per row.
-    const implausibleSubRows = entries
-      .map((e) => ({ ...e, m: state.meds.find((x) => x.id === e.medId), curSub: subQty(state, e.medId) }))
-      .filter((e): e is typeof e & { m: NonNullable<typeof e.m> } => !!e.m && Math.abs(e.q - e.curSub) > Math.max(e.m.parSub, 20) * 8);
-    if (implausibleSubRows.length && !(await confirmAsync(
-      implausibleSubRows.length + ' จาก ' + entries.length + ' รายการ มีจำนวนที่นับได้ต่างจากยอดระบบมากผิดปกติเทียบกับ par เช่น '
-      + implausibleSubRows.slice(0, 3).map((e) => e.m.name + ' (นับได้ ' + nf(e.q) + ' ยอดระบบ ' + nf(e.curSub) + ')').join(', ')
-      + (implausibleSubRows.length > 3 ? ' และอีก ' + (implausibleSubRows.length - 3) + ' รายการ' : '')
-      + ' — พิมพ์จำนวนถูกต้องแล้วใช่ไหม? ต้องการบันทึกทั้งหมดนี้ต่อหรือไม่?'
-    ))) return;
+    const flaggedSubRows = entries
+      .map((e) => { const m = state.meds.find((x) => x.id === e.medId); return m ? { m, q: e.q, f: assessCount({ name: m.name, unit: m.unit, scope: 'sub', counted: e.q, system: subQty(state, m.id), other: m.floor, par: m.parSub }) } : null; })
+      .filter((x): x is { m: Med; q: number; f: Finding[] } => !!x && x.f.length > 0);
+    if (flaggedSubRows.length && !(await confirmAsync(summarizeFlagged('นับ substock', entries.length, flaggedSubRows.map((r) => ({ name: r.m.name, f: r.f })))))) return;
     let ok = 0;
     let diffs = 0;
     let failed = 0;
@@ -6444,8 +6606,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const useFileRange = !!fileDateRange && fileDateRange.from <= fileDateRange.to && fileDateRange.to < isoDate(Date.now());
       // The file states its own date → that is the covered range. It does NOT → the app no longer assumes
       // "yesterday": the range stays empty until the pharmacist picks it and confirms (see hosxpDateCheck).
-      const coveredFrom = useFileRange ? fileDateRange!.from : '';
-      const coveredTo = useFileRange ? fileDateRange!.to : '';
+      // No date inside the file → pre-fill from a date in the FILE NAME (real exports are saved as "..._20-11-69.xls").
+      // Still unverified (hosxpFileInfo.dateRange stays null), so the pharmacist must tick the confirmation.
+      const nameDay = useFileRange ? null : detectDateFromFilename(file.name);
+      const nameDayOk = !!nameDay && nameDay < isoDate(Date.now());
+      const coveredFrom = useFileRange ? fileDateRange!.from : nameDayOk ? nameDay! : '';
+      const coveredTo = useFileRange ? fileDateRange!.to : nameDayOk ? nameDay! : '';
       const totalQty = rows.reduce((s, r) => s + r.qty, 0);
       patch({
         hosxpRows: rows, hosxpConfirmFuzzy: false, hosxpDateConfirmed: false, hosxpCoveredFrom: coveredFrom, hosxpCoveredTo: coveredTo, hosxpText: '', hosxpAppliedRowIndexes: [],
@@ -6458,7 +6624,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast('อ่านไฟล์ ' + file.name + ' แล้ว ' + rows.length + ' รายการ'
         + (zeroRows > 0 ? ' (ไฟล์ระบุจำนวน 0 อีก ' + zeroRows + ' รายการ = ไม่ได้จ่าย)' : '')
         + (skipped > 0 ? ' (ข้าม ' + skipped + ' แถวที่อ่านไม่ได้)' : '')
-        + (fileDateRange ? ' · ไฟล์ระบุวันที่ ' + fileDateRange.from + (fileDateRange.to !== fileDateRange.from ? ' ถึง ' + fileDateRange.to : '') : ' · ไฟล์ไม่ระบุวันที่ — ตรวจช่วงวันที่เองให้ถูกต้อง')
+        + (fileDateRange ? ' · ไฟล์ระบุวันที่ ' + fileDateRange.from + (fileDateRange.to !== fileDateRange.from ? ' ถึง ' + fileDateRange.to : '') : nameDayOk ? ' · ไฟล์ไม่ระบุวันที่ในเนื้อหา — ใส่วันที่ ' + nameDay + ' ตามชื่อไฟล์ให้ก่อน กรุณาตรวจและยืนยันวันที่' : ' · ไฟล์ไม่ระบุวันที่ — ตรวจช่วงวันที่เองให้ถูกต้อง')
         + ' — ตรวจสอบรายการด้านล่างก่อนตัดยอด');
     };
     if (isSpreadsheet) reader.readAsArrayBuffer(file);
@@ -6574,7 +6740,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // overlap), and stacking a second dialog for the identical risk would just be noise. Also
     // skipped when isResuming — same reasoning as alreadyRanToday's own skip above.
     if (!alreadyRanToday && !isResuming && !deltaMode) {
-      const lastCoveredTo = lastReconcileCoveredToIso(state.txs);
+      const lastCoveredTo = effectiveLastCoveredTo(state.txs, state.lastReconcileFetched);
       if (lastCoveredTo) {
         if (state.hosxpCoveredFrom <= lastCoveredTo) {
           const overlapDays = Math.round((new Date(lastCoveredTo + 'T00:00:00').getTime() - coveredFromTs) / DAY) + 1;
@@ -7686,7 +7852,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     printWarehouseRequestByCategory,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
-    pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, commitSingleReturn, addToReturnCart, removeReturnCartItem, commitReturnCart, refreshTodayReturns, reverseReturn, fetchDrugReturns, exportDrugReturnsCsv, fetchFloorRefills, exportFloorRefillsCsv, scrapLot, scrapFloorLot,
+    pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, commitSingleReturn, addToReturnCart, removeReturnCartItem, commitReturnCart, reverseCount, reverseMove, refreshTodayReturns, reverseReturn, fetchDrugReturns, exportDrugReturnsCsv, fetchFloorRefills, exportFloorRefillsCsv, scrapLot, scrapFloorLot,
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setAllMinSuggested, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, clearMedPeakDay, updateGlobalSettings,

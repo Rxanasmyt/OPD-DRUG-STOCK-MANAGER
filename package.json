@@ -1,7 +1,7 @@
 {
   "name": "kpnhos-drug-substock-opd-ipd-management",
   "private": true,
-  "version": "3.299.1",
+  "version": "3.303.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,7 +14,9 @@
     "restore-preset": "node scripts/restore-preresetsnapshot.mjs",
     "verify-backup": "node scripts/verify-backup.mjs",
     "notify-low-stock": "node scripts/notify-low-stock.mjs",
-    "manual:shots": "node scripts/manual-shots.mjs"
+    "manual:shots": "node scripts/manual-shots.mjs",
+    "test:rules": "npx -y firebase-tools@13 emulators:exec --only firestore --project demo-opd-rules \"node --test rules-tests/*.spec.mjs\"",
+    "test:restore-drill": "npx -y firebase-tools@13 emulators:exec --only firestore --project demo-opd-rules \"node scripts/restore-drill.mjs\""
   },
   "dependencies": {
     "@sentry/react": "^11.6.0",
@@ -29,6 +31,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@google-cloud/firestore": "^9.1.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",

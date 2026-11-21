@@ -1385,7 +1385,7 @@ describe('commitAllCounts — bulk plausibility-check regression', () => {
     seedDoc('meds/m1', { floor: MED.floor });
 
     await user.click(screen.getByRole('button', { name: 'commit-all-counts' }));
-    await screen.findByText(/มีจำนวนที่นับได้ต่างจากยอดระบบมากผิดปกติ/);
+    await screen.findByText(/มีตัวเลขผิดปกติ/);
     await user.click(screen.getByRole('button', { name: 'ยกเลิก' }));
 
     expect(getLastTransactionWrites().length).toBe(0);

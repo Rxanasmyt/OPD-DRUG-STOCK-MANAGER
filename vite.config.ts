@@ -109,5 +109,6 @@ export default defineConfig({
   // the new screen-level integration tests alongside them. setupFiles wires in jest-dom's
   // matchers (toBeInTheDocument() etc.) globally so individual test files don't each need to
   // import it themselves.
-  test: { environment: 'jsdom', setupFiles: ['./src/test-setup.ts'] },
+  // rules-tests/ run under node:test against the Firestore emulator (npm run test:rules), not vitest.
+  test: { environment: 'jsdom', setupFiles: ['./src/test-setup.ts'], exclude: ['**/node_modules/**', '**/dist/**', 'rules-tests/**'] },
 });

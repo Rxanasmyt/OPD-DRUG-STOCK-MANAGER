@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as XLSX from 'xlsx';
-import { parseUsageCsvText, parseUsageCsvTextWithSkipped, parseHosxpUsageWorkbook, detectDateRange } from './usageImport';
+import { parseUsageCsvText, parseUsageCsvTextWithSkipped, parseHosxpUsageWorkbook, detectDateRange, detectDateFromFilename } from './usageImport';
 
 // Builds a minimal in-memory .xlsx workbook (same shape parseHosxpUsageWorkbook reads via
 // XLSX.read) from plain header/data rows, so these tests exercise the real header-detection
@@ -224,5 +224,39 @@ describe('parseHosxpUsageWorkbook — real-export shapes', () => {
   it('reports rows with a fractional quantity (rounded later) instead of hiding the rounding', async () => {
     const r = await parseHosxpUsageWorkbook(workbookBuffer([HDR, [1, 'Drug A', '10 mg', 'เม็ด', 3, 2.5]]));
     expect(r.fractional).toEqual([{ name: 'Drug A 10 mg เม็ด', qty: 2.5 }]);
+  });
+});
+
+describe('detectDateFromFilename', () => {
+  it('reads dd-mm-yy Buddhist-era file names like the real HOSxP export', () => {
+    expect(detectDateFromFilename('รายงานสรุปการใช้เวชภัณฑ์ยา_Report_20-11-69.xls')).toBe('2026-11-20');
+  });
+  it('reads 4-digit years (BE or CE) and other separators', () => {
+    expect(detectDateFromFilename('usage 20.11.2569.xlsx')).toBe('2026-11-20');
+    expect(detectDateFromFilename('usage_05-01-2026.xls')).toBe('2026-01-05');
+  });
+  it('returns null for impossible or absent dates', () => {
+    expect(detectDateFromFilename('Report_31-02-69.xls')).toBeNull();
+    expect(detectDateFromFilename('report.xls')).toBeNull();
+    expect(detectDateFromFilename('Report_v2.1.3.xls')).toBeNull();
+  });
+});
+
+describe('real HOSxP export shape (no title rows, strength-first names, print footer)', () => {
+  it('reads header at row 0, keeps zero rows out, ignores the print-date footer', async () => {
+    const buf = workbookBuffer([
+      ['No.', 'รายการยา', 'ความแรง', 'หน่วย', 'รายการ', 'จำนวน', 'มูลค่า(บาท)', 'ต้นทุน(บาท)'],
+      [1, '(HAD) ADREnaline - PL', '1 mg./ml.', 'Amphule (1 ml.)', '5', 9, 69.75, 54],
+      [2, '(HAD) Adenosine', '3 mg/ml', 'Vial', '0', 0, 0, 0],
+      [17, '10 mg. AMLODIPINE', '10 mg', 'เม็ด', '4', 121, 121, 38.72],
+      ['ผู้พิมพ์ : x', 'พิมพ์จากเครื่อง RX-FRONT3  วันที่พิมพ์ 21 พฤศจิกายน 2569 เวลา 09:48 น.', 'CUSTOM-FORM', 'Page 16 of 16', '', '', '', ''],
+    ]);
+    const r = await parseHosxpUsageWorkbook(buf);
+    expect(r.rows).toEqual([
+      { name: '(HAD) ADREnaline - PL 1 mg./ml. Amphule (1 ml.)', qty: 9 },
+      { name: '10 mg. AMLODIPINE 10 mg เม็ด', qty: 121 },
+    ]);
+    expect(r.zeroRows).toBe(1);
+    expect(r.dateRange).toBeNull(); // the print date must never be mistaken for the covered day
   });
 });

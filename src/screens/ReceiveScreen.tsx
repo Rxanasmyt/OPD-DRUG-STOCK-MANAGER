@@ -1,3 +1,4 @@
+import RecentMoves from './RecentMoves';
 import { useMemo } from 'react';
 import { useApp } from '../store/AppContext';
 import { usesSubstock, needsWarehouseRequest, subTone, daysOfStockLeft, packStep, boxBreakdownLabel, reqCategoryOf } from '../store/selectors';
@@ -408,6 +409,7 @@ export default function ReceiveScreen() {
           </button>
         </>
       )}
+      <RecentMoves kind="receive" />
       </div>
     </div>
   );

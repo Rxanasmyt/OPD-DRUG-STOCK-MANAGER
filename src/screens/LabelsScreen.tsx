@@ -274,7 +274,7 @@ export default function LabelsScreen() {
           labels instead of always getting a shared med's OPD+IPD pair mixed into one sheet.
           See AppState.labelWardScope's doc comment for why this exists. */}
       {state.labelType === 'med' && (
-        <div style={{ display: 'flex', gap: 7, marginBottom: 12 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 12 }}>
           <button className="chip" style={{ ...chip(state.labelWardScope === 'all'), flex: 1, minHeight: 40 }} onClick={() => setLabelWardScope('all')}>ทั้งหมด (OPD+IPD)</button>
           <button className="chip" style={{ ...chip(state.labelWardScope === 'opd'), flex: 1, minHeight: 40 }} onClick={() => setLabelWardScope('opd')}>เฉพาะ OPD</button>
           <button className="chip" style={{ ...chip(state.labelWardScope === 'ipd'), flex: 1, minHeight: 40 }} onClick={() => setLabelWardScope('ipd')}>เฉพาะ IPD</button>

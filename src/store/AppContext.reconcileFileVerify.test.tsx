@@ -21,11 +21,11 @@ const MED_ZERO = { ...MED_A, id: 'm2', code: 'MED-0002', name: 'Amoxicillin 250m
 
 const YESTERDAY = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
-function Harness({ csv }: { csv: string }) {
+function Harness({ csv, fileName = 'hosxp-report.csv' }: { csv: string; fileName?: string }) {
   const { state, processHosxpFile, setHosxpCoveredFrom, setHosxpCoveredTo, setHosxpDateConfirmed, commitReconcile } = useApp();
   return (
     <div>
-      <button onClick={() => processHosxpFile(new File([csv], 'hosxp-report.csv', { type: 'text/csv' }))}>attach</button>
+      <button onClick={() => processHosxpFile(new File([csv], fileName, { type: 'text/csv' }))}>attach</button>
       <button onClick={() => { setHosxpCoveredFrom(YESTERDAY); setHosxpCoveredTo(YESTERDAY); }}>set-range</button>
       <button onClick={() => setHosxpDateConfirmed(true)}>confirm-date</button>
       <button onClick={commitReconcile} disabled={!state.hosxpRows}>commit</button>
@@ -94,5 +94,20 @@ describe('commitReconcile — attached-file date verification', () => {
     expect(screen.getByTestId('range').textContent).toContain('|confirmed');
     await user.click(screen.getByRole('button', { name: 'set-range' }));
     expect(screen.getByTestId('range').textContent).toContain('|unconfirmed');
+  });
+
+  it('pre-fills the covered day from a date in the file name but still requires confirmation', async () => {
+    const d = new Date(Date.now() - 2 * 86400000);
+    const dd = String(d.getUTCDate()).padStart(2, '0'), mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const iso = d.toISOString().slice(0, 10);
+    const user = userEvent.setup();
+    renderWithApp(<><Harness csv={'Paracetamol 500mg,10'} fileName={'Report_' + dd + '-' + mm + '-' + String(d.getUTCFullYear() + 543).slice(2) + '.csv'} /><ConfirmDialog /></>);
+    await signInAs('u1', { role: 'admin', name: 'ทดสอบ Admin', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [MED_A]);
+    seedDoc('meds/m1', { floor: MED_A.floor });
+    await user.click(screen.getByRole('button', { name: 'attach' }));
+    await waitFor(() => expect(screen.getByTestId('file').textContent).toContain('undated'));
+    expect(screen.getByTestId('range').textContent).toBe(iso + '|' + iso + '|unconfirmed');
   });
 });

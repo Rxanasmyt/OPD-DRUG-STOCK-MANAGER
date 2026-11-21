@@ -957,6 +957,8 @@ export interface AppState {
   returnCart: ReturnCartItem[]; // see ReturnCartItem's own doc comment
   /** Today's `returns` rows (incl. reversal rows) — loaded when the คืนยา panel opens and after each save/cancel; drives the duplicate warning and the cancel list. */
   todayReturns: DrugReturnRecord[];
+  /** newest reconcile_hosxp coveredTo read straight from Firestore when the live 300-row txs window no longer contains one (null = not fetched yet / none found) */
+  lastReconcileFetched: { coveredTo: string | null; uncertain: boolean } | null;
 
   reportTab: ReportTab;
   labelType: LabelType;
