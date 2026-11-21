@@ -15,3 +15,6 @@ tsconfig.tsbuildinfo
 # Local output of scripts/backup-firestore.mjs — never committed (see .github/workflows/firestore-backup.yml, which uploads it as an Actions artifact instead)
 backups/
 .manual-build
+
+# firebase emulator logs
+*-debug.log

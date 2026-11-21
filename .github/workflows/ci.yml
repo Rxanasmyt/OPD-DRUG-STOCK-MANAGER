@@ -33,3 +33,22 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+
+  # Checks firestore.rules against the real Firestore emulator (rules-tests/*.spec.mjs): append-only txs/returns,
+  # role limits, Infinity/negative guards, immutable lot fields. Fails the PR if a rules change opens a hole.
+  firestore-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm run test:rules
+      # Backup → wipe → restore round trip on a throwaway emulator: proves the backup file can really bring the data back.
+      - run: npm run test:restore-drill

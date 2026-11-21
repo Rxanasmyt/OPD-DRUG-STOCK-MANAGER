@@ -98,3 +98,7 @@ jobs:
           git add -A
           git diff --cached --quiet && echo "Nothing new to commit." || git commit -m "Firestore backup $(date -u +%Y-%m-%dT%H-%M-%SZ)"
           git push
+      # Only reached when everything above succeeded: stamps the time so the app can warn admins if backups stop.
+      - run: node scripts/mark-backup-status.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
