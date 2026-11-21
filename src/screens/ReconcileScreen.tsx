@@ -187,7 +187,8 @@ export default function ReconcileScreen() {
   const totalUnits = reconcileRows.reduce((a, r) => a + (r.med && !r.applied ? r.qty - r.already : 0), 0);
   const fuzzyPending = state.hosxpConfirmFuzzy ? 0 : fuzzyCount;
   const needDecision = unmatchedBig.length + fuzzyPending;
-  const attentionIdx = useMemo(() => new Set(rowsWithIdx.filter((r) => !r.applied && (r.match.kind === 'none' || r.match.kind === 'ambiguous' || r.match.kind === 'fuzzy' || unusualByIdx.has(r.i) || (r.med && r.qty - r.already > r.before))).map((r) => r.i)), [rowsWithIdx]);
+  // Auto-skipped rows (drug off / not in the app) need no attention: they stay out of "ต้องดู" and appear under "ทั้งหมด".
+  const attentionIdx = useMemo(() => new Set(rowsWithIdx.filter((r) => !r.applied && !autoSkip.has(r.i) && (r.match.kind === 'none' || r.match.kind === 'ambiguous' || r.match.kind === 'fuzzy' || unusualByIdx.has(r.i) || (r.med && r.qty - r.already > r.before))).map((r) => r.i)), [rowsWithIdx, autoSkip, unusualByIdx]);
   const [rowFilter, setRowFilter] = useState<'attention' | 'all'>('attention');
   const effectiveFilter = attentionIdx.size === 0 ? 'all' : rowFilter;
   const step: 1 | 2 | 3 | 4 = state.busy['reconcile'] ? 4 : reconcileRows.length === 0 ? 1 : needDecision > 0 ? 2 : 3;
@@ -514,7 +515,7 @@ export default function ReconcileScreen() {
       )}
       {autoSkip.size > 0 && (
         <div data-testid="auto-skip-summary" style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 10 }}>
-          ⏭ ข้ามอัตโนมัติ {autoSkip.size} รายการ ({nf([...autoSkip.keys()].reduce((s, i) => s + (reconcileRows[i]?.qty || 0), 0))} หน่วย) — ยาที่ปิดใช้งาน/ไม่มีในแอพ จึงไม่ตัดยอด (ดูรายชื่อได้ในตารางด้านล่าง)
+          ⏭ ข้ามอัตโนมัติ {autoSkip.size} รายการ ({nf([...autoSkip.keys()].reduce((s, i) => s + (reconcileRows[i]?.qty || 0), 0))} หน่วย) — ยาที่ปิดใช้งาน/ไม่มีในแอพ จึงไม่ตัดยอด (ดูรายชื่อได้ที่แท็บ “ทั้งหมด” ในตารางด้านล่าง)
         </div>
       )}
       {unmatchedBig.length > 0 && (

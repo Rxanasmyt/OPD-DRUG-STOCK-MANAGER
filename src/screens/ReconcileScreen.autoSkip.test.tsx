@@ -44,6 +44,8 @@ describe('ReconcileScreen — auto-skip rows', () => {
     expect(screen.getByTestId('auto-skip-summary').textContent).toContain('1 รายการ');
     expect(screen.queryByTestId('unmatched-big-warning')).not.toBeInTheDocument();
     expect(screen.queryByTestId('file-row-fixer')).not.toBeInTheDocument();
+    // auto-skipped rows are not "ต้องดู" (no attention tab is even offered when nothing else needs a look)
+    expect(screen.queryByRole('tab', { name: /ต้องดู/ })).not.toBeInTheDocument();
   });
   it('a name that resembles a TRACKED drug (e.g. other strength) still asks, so stock never drifts silently', async () => {
     const user = await boot('PARACETAMOL,10\nPARACETAMOL 650 mg,1558', [med({ name: 'PARACETAMOL 500 mg' })]);

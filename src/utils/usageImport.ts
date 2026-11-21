@@ -158,6 +158,16 @@ function parseSheetRows(rows: unknown[][], allowFallback: boolean): (Omit<HosxpP
  * ISO 'YYYY-MM-DD', or null. Only ever used to PRE-FILL the covered date; the pharmacist must still confirm it. */
 export function detectDateFromFilename(fileName: string): string | null {
   const base = fileName.replace(/\.[A-Za-z0-9]+$/, '');
+  // ISO first (usage_2026-11-20.xls): the dd-mm pattern below cannot start in the middle of a 4-digit year.
+  const iso = /(?:^|[^0-9])(\d{4})[-_.](\d{1,2})[-_.](\d{1,2})(?![0-9])/.exec(base);
+  if (iso) {
+    const y = +iso[1] > 2400 ? +iso[1] - 543 : +iso[1], mo = +iso[2], d = +iso[3];
+    if (y >= 2000 && y <= 2100 && mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+      const dt = new Date(Date.UTC(y, mo - 1, d));
+      if (dt.getUTCMonth() === mo - 1) return y + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+    }
+    return null;
+  }
   const m = /(?:^|[^0-9])(\d{1,2})[-_.](\d{1,2})[-_.](\d{4}|\d{2})(?![0-9])/.exec(base);
   if (!m) return null;
   const d = +m[1], mo = +m[2];
