@@ -1228,3 +1228,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .grid-2 > * { min-width: 0; }
 input[type='date'], input[type='time'], input[type='month'] { min-width: 0; max-width: 100%; box-sizing: border-box; }
+
+/* ---------- entry guard UI: count scope banner + live warnings ---------- */
+.eg-scope { display: flex; gap: 9px; align-items: flex-start; padding: 9px 12px; margin: 0 0 10px; border-radius: 14px; font-size: 12.5px; line-height: 1.5; border: 1px solid rgba(var(--green-rgb), .3); background: linear-gradient(135deg, rgba(var(--green-rgb), .14), rgba(var(--green-rgb), .05)); }
+.eg-scope[data-loc='sub'] { border-color: var(--amber-border, #e0b46a); background: linear-gradient(135deg, var(--amber-bg, #fff3d6), transparent); color: var(--amber-ink, #6b4a00); }
+.eg-scope b { font-weight: 800; }
+.eg-warn { margin-top: 4px; padding: 6px 9px; border-radius: 10px; font-size: 12px; line-height: 1.5; font-weight: 600; background: var(--amber-bg, #fff3d6); color: var(--amber-ink, #6b4a00); border: 1px solid var(--amber-border, #e0b46a); animation: rtPop .22s var(--ease-spring) both; }
+.eg-warn[data-severity='stop'] { background: var(--red-bg, #fde8e6); color: var(--red, #a32b22); border-color: var(--red, #c4382b); }

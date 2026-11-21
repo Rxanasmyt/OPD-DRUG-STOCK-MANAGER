@@ -145,6 +145,8 @@ await scrollMain(560); await shot('03b-transfer-added');
 await page.locator('button:has-text("ตรวจสอบ")').last().click();
 await page.waitForTimeout(1000); await shot('03c-transfer-confirm');
 await page.locator('button:has-text("ยืนยันการเติมหน้างาน")').click();
+await page.waitForTimeout(500);
+if (await page.locator('text=ตรวจก่อนบันทึก').count()) { await shot('03c2-transfer-warn'); await page.locator('button:has-text("ยืนยัน")').last().click(); }
 await page.waitForTimeout(1200); await shot('03d-transfer-done');
 // --- รับเข้า
 await nav('รับเข้า'); await scrollMain(0); await shot('08-receive');
@@ -185,6 +187,12 @@ await nav('เพิ่มเติม'); await shot('10-more');
 for (const [id, label] of [['11-adjust', 'ปรับยอด / คืนยา'], ['12-count', 'นับสต็อกหน้างาน'], ['13-wardmove', 'ย้ายยาระหว่างชั้นวาง'], ['14-par', 'par อัตโนมัติ'], ['15-report', 'รายงานและ Export'], ['16-substockcard', 'บัตรคุมยา'], ['17-labels', 'ระบบฉลาก QR'], ['18-admin', 'จัดการผู้ใช้'], ['19-meds', 'จัดการรายการยา']]) {
   await more(label); await shot(id);
 }
+// --- นับสต็อก: เตือนเลขผิดที่ (เลขเป็นของ substock แต่นับหน้างาน)
+await more('นับสต็อกหน้างาน');
+await page.getByLabel('จำนวนที่นับได้ AMLODIPINE 10 mg เม็ด').first().fill('1300');
+await page.waitForTimeout(400);
+await page.evaluate(() => document.querySelector('[data-testid=entry-warn]')?.scrollIntoView({ block: 'center' }));
+await shot('12b-count-warn');
 console.log('listeners:', JSON.stringify(await demo(() => window.__demo.listenerPaths())));
 if (errors.length) console.log('page errors:', errors.slice(0, 5));
 await browser.close();

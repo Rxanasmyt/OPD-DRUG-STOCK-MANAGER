@@ -1,3 +1,5 @@
+import RecentCounts from './RecentCounts';
+import { assessCount } from '../utils/entryGuard';
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly, parseIntSafe } from '../utils/format';
@@ -159,6 +161,10 @@ export default function CountScreen() {
       <div style={{ display: 'flex', gap: 7, marginBottom: 10 }}>
         <button className="chip" style={{ ...chip(loc === 'floor'), flex: 1, minHeight: 40 }} onClick={() => setLoc('floor')}>นับหน้างาน (floor)</button>
         <button className="chip" style={{ ...chip(loc === 'sub'), flex: 1, minHeight: 40 }} onClick={() => setLoc('sub')}>นับ substock</button>
+      </div>
+      <div className="eg-scope" data-loc={loc} data-testid="count-scope" role="status">
+        <span aria-hidden="true">{loc === 'floor' ? '🏥' : '📦'}</span>
+        <span>กำลังนับ <b>{loc === 'floor' ? 'หน้างาน (ชั้นจ่ายยา)' : 'substock (คลังย่อย)'}</b> — ตัวเลขที่กรอกจะกลายเป็นยอด{loc === 'floor' ? 'หน้างาน' : ' substock'}ของแต่ละยา ตรวจให้ตรงกับที่ที่กำลังนับอยู่</span>
       </div>
 
       {/* Only meaningful for a med with "จำนวนต่อกล่อง" set at the หน้าจัดการยา screen
@@ -331,6 +337,10 @@ export default function CountScreen() {
                   {has && delta === 0 && (
                     <div style={{ fontSize: 11.5, marginTop: 2, fontWeight: 600, color: 'var(--green)' }}>ตรงกับระบบ</div>
                   )}
+                  {has && (() => {
+                    const fs = assessCount({ name: m.name, unit: m.unit, scope: loc, counted: parsed, system: sysQty, other: loc === 'floor' ? subQty(state, m.id) : m.floor, par: loc === 'floor' ? m.parFloor : m.parSub });
+                    return fs.length > 0 ? <div className="eg-warn" data-testid="entry-warn" data-severity={fs[0]!.severity} role="alert">{fs[0]!.severity === 'stop' ? '⛔ ' : '⚠️ '}{fs[0]!.message}</div> : null;
+                  })()}
                 </div>
                 {/* Row itself now navigates to the stock card (rowToCard above) — the inputs
                     and commit button are the row's OTHER real actions, so their own taps must
@@ -386,6 +396,7 @@ export default function CountScreen() {
         {meds.length === 0 && <EmptyState icon="🔢" title="ไม่พบยาตามเงื่อนไขนี้" sub="ลองเปลี่ยนคำค้นหา หมวดกลุ่มยา หรือตัวกรองด้านบน" />}
       </div>
       {meds.length >= 150 && <div className="muted" style={{ fontSize: 11.5, textAlign: 'center', marginTop: 10 }}>แสดง 150 รายการแรกตามลำดับที่เลือก — ค้นหาหรือกรองเพิ่มเพื่อดูรายการอื่น</div>}
+      <RecentCounts />
     </div>
   );
 }

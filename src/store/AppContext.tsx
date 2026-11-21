@@ -19,7 +19,8 @@ import { fetchDailyMetricsByDateRange } from './repositories/dailyMetricsRepo';
 import { fetchUsageHistoryByPeriod, newUsageHistoryRef } from './repositories/usageHistoryRepo';
 import { fetchParAdjustmentsSince, addParAdjustmentRecord, newParAdjustmentRef } from './repositories/parAdjustmentsRepo';
 import { fetchDrugReturnsByDateRange, newDrugReturnRef } from './repositories/returnsRepo';
-import { REVERSAL_PREFIX, reversalNote, reversedIds, netReturnRecords } from '../utils/returnReasons';
+import { assessCount, assessTransfer, assessReceive, describeFindings, summarizeFlagged, type Finding } from '../utils/entryGuard';
+import { REVERSAL_PREFIX, isReversalReason, reversalNote, reversedIds, netReturnRecords } from '../utils/returnReasons';
 import { subscribeRecentPendingReceives, newPendingReceiveRef, pendingReceiveRef } from './repositories/pendingReceivesRepo';
 import { settingsRef, subscribeSettings, medSeqRef } from './repositories/metaRepo';
 import { floorLotRef, subscribeFloorLots, fetchAllFloorLots, fetchFloorLotsByMedId, fetchActiveFloorLotsByMedId } from './repositories/floorLotsRepo';
@@ -546,6 +547,8 @@ export interface AppCtx {
   addToReturnCart: () => Promise<void>;
   removeReturnCartItem: (i: number) => void;
   commitReturnCart: () => void;
+  /** Cancels one of the caller's recent stock COUNTS (floor: lossless; substock: only when the count had ADDED stock). Appends a reversal tx — nothing is edited or deleted. */
+  reverseCount: (tx: import('../types').Tx) => Promise<void>;
   /** Loads today's `returns` rows into state.todayReturns (duplicate warning + cancel list). */
   refreshTodayReturns: () => Promise<void>;
   /** Cancels one return: appends a reversal row (txs + returns are append-only) and takes the qty back off the floor. */
@@ -2595,6 +2598,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const cart = { ...state.cart };
     const ids = Object.keys(cart) as MedId[];
     if (!ids.length) return;
+    // Entry guard: a refill that would push a shelf past its Max is usually a typed-quantity slip (or the wrong drug's row).
+    const overMax = ids.map((id) => { const m = state.meds.find((x) => x.id === id); return m ? { name: m.name, f: assessTransfer({ name: m.name, unit: m.unit, qty: cart[id] ?? 0, floor: m.floor, parFloor: m.parFloor }) } : null; })
+      .filter((x): x is { name: string; f: Finding[] } => !!x && x.f.length > 0);
+    if (overMax.length && !(await confirmAsync(summarizeFlagged('เติมหน้างาน', ids.length, overMax)))) return;
     const meds = state.meds;
     let resultRows: AppState['doneRows'] = [];
     try {
@@ -2882,6 +2889,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (q > Math.max(par, 20) * 8 && !(await confirmAsync(
       'จำนวนที่กรอก (' + nf(q) + ' ' + m.unit + ') มากผิดปกติเมื่อเทียบกับ par (' + nf(par) + ') ของ ' + m.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
     ))) return;
+    const recvFindings = assessReceive({ name: m.name, unit: m.unit, qty: q, sub: subQty(state, m.id), parSub: m.parSub, packSize: m.packSize });
+    if (recvFindings.length && !(await confirmAsync(describeFindings('รับเข้า — ' + m.name, recvFindings)))) return;
     const item: RecvItem = { medId: m.id, name: m.name, unit: m.unit, lotNo, exp: expMs, qty: q };
     patch((st) => ({
       recvItems: [...st.recvItems, item], recvLot: '', recvExp: '', recvQty: '', recvSearch: '',
@@ -3401,6 +3410,66 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
     }
   }), [state, userName, toast, toastErr, patch, guardOnce, confirmAsync]);
+
+  // ---------- cancel a recent count (กลับไปแก้ไขการนับที่ลงผิด) ----------
+  // txs are append-only (firestore.rules), so a cancel is a NEW 'count' row (reason = REVERSAL_PREFIX + original) with the opposite delta,
+  // never an edit. Floor counts are lossless (one number). Substock counts that REMOVED stock were taken from real lots (FEFO) — their
+  // lot identity/expiry can't be rebuilt from the log, so those are refused with a pointer to "นับใหม่"; counts that ADDED stock went
+  // into one "ปรับยอด (นับสต็อก)" lot, which is reduced back (never below what is still in that lot).
+  const reverseCount = useCallback(guardOnce('countReverse', async (tx: import('../types').Tx) => {
+    if (tx.type !== 'count' || isReversalReason(tx.reason)) return;
+    if (tx.by !== userName() && state.role !== 'admin') { toast('ยกเลิกได้เฉพาะรายการที่คุณบันทึกเอง (หรือ Admin)'); return; }
+    if (Date.now() - tx.ts > 24 * 3600000) { toast('รายการนี้เก่ากว่า 24 ชั่วโมง — ยกเลิกอัตโนมัติไม่ได้ ให้นับใหม่หรือปรับยอดพร้อมเหตุผลแทน'); return; }
+    if (state.txs.some((x) => x.type === 'count' && isReversalReason(x.reason) && (x.note ?? '').startsWith('#' + tx.id))) { toast('รายการนี้ถูกยกเลิกไปแล้ว'); return; }
+    const med = state.meds.find((x) => x.id === tx.medId);
+    if (!med) { toast('ยานี้ถูกลบออกจากระบบแล้ว — ยกเลิกไม่ได้'); return; }
+    const isSub = tx.loc === 'substock';
+    if (isSub && tx.qty < 0) { toast('การนับ substock ที่ตัดยอดออก ยกเลิกอัตโนมัติไม่ได้ (ตัดจาก lot จริง) — ให้ไปแท็บนับ substock แล้วนับใหม่ให้ตรงของจริง'); return; }
+    if (tx.qty === 0) { toast('การนับนี้ตรงกับระบบ ไม่มีอะไรต้องยกเลิก'); return; }
+    if (!(await confirmAsync(
+      'ยกเลิกการนับ ' + (isSub ? 'substock' : 'หน้างาน') + ' นี้?\n' + tx.name + ' — การนับครั้งนั้นปรับยอด ' + (tx.qty > 0 ? '+' : '') + nf(tx.qty) + ' ' + tx.unit
+      + '\nระบบจะปรับยอดกลับ ' + (tx.qty > 0 ? '−' : '+') + nf(Math.abs(tx.qty)) + ' ' + tx.unit + ' และบันทึกเป็นรายการ "ยกเลิก" (ประวัติเดิมไม่ถูกลบ)'
+    ))) return;
+    const now = Date.now();
+    let applied = 0;
+    try {
+      if (!isSub) {
+        await runTx(async (trx) => {
+          const ref = medRef(asMedId(tx.medId as string));
+          const snap = await trx.get(ref);
+          const cur = (snap.data() as { floor?: number } | undefined)?.floor ?? med.floor;
+          const next = Math.max(0, cur - tx.qty);
+          applied = next - cur;
+          trx.update(ref, { floor: next });
+          trx.set(newTxRef(), {
+            type: 'count', name: tx.name, medId: tx.medId as string, qty: applied, unit: tx.unit, reason: REVERSAL_PREFIX + tx.reason,
+            note: '#' + tx.id + ' · ย้อนยอดหน้างานกลับ ' + nf(Math.abs(applied)) + ' ' + tx.unit, loc: 'floor', by: userName(), ts: now,
+          } satisfies Omit<import('../types').Tx, 'id'>);
+        });
+      } else {
+        const lotIds = (await fetchActiveLotsByMedId(asMedId(tx.medId as string))).map((d) => d.id);
+        await runTx(async (trx) => {
+          let need = tx.qty;
+          applied = 0;
+          const lots: { id: string; qty: number; lotNo: string | undefined }[] = [];
+          for (const id of lotIds) { const sn = await trx.get(lotRef(id)); const d = sn.data() as { qty?: number; lotNo?: string } | undefined; lots.push({ id, qty: d?.qty ?? 0, lotNo: d?.lotNo }); }
+          for (const l of lots.filter((x) => x.lotNo === 'ปรับยอด (นับสต็อก)' && x.qty > 0)) {
+            if (need <= 0) break;
+            const take = Math.min(need, l.qty);
+            trx.update(lotRef(l.id), { qty: l.qty - take });
+            need -= take; applied -= take;
+          }
+          trx.update(medRef(asMedId(tx.medId as string)), { lastSubCountTs: now });
+          trx.set(newTxRef(), {
+            type: 'count', name: tx.name, medId: tx.medId as string, qty: applied, unit: tx.unit, reason: REVERSAL_PREFIX + tx.reason,
+            note: '#' + tx.id + ' · ย้อนยอด substock กลับ ' + nf(Math.abs(applied)) + ' ' + tx.unit + (need > 0 ? ' (lot ปรับยอดเหลือไม่พอ ย้อนได้เท่านี้)' : ''), loc: 'substock', by: userName(), ts: now,
+          } satisfies Omit<import('../types').Tx, 'id'>);
+        });
+      }
+      hapticSuccess();
+      toast('ยกเลิกการนับแล้ว · ' + tx.name + ' ' + (applied > 0 ? '+' : applied < 0 ? '−' : '') + nf(Math.abs(applied)) + ' ' + tx.unit);
+    } catch (e) { toastErr(e, 'ยกเลิกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
+  }), [state.txs, state.meds, state.role, userName, toast, toastErr, guardOnce, confirmAsync, runTx]);
 
   // ---------- today's returns: duplicate warning + cancel ----------
   const refreshTodayReturns = useCallback(async () => {
@@ -6015,11 +6084,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // at all. Flags (not blocks) a count that implies a delta far outside anything this med's
     // own par level would ever plausibly produce — cheap for a legitimate large count (one
     // extra tap), but catches the real, common typo case.
-    const implausible = Math.abs(q - m.floor) > Math.max(m.parFloor, 20) * 8;
-    if (implausible && !(await confirmAsync(
-      'นับได้ ' + nf(q) + ' ' + m.unit + ' — ต่างจากยอดระบบ (' + nf(m.floor) + ') มากผิดปกติเมื่อเทียบกับ par ('
-      + nf(m.parFloor) + ') ของ ' + m.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
-    ))) return;
+    // Entry guard (utils/entryGuard.ts): counted number looks like the OTHER store's (นับหน้างานแต่เลขเป็นของ substock), an extra
+    // digit, a 0 for stock that exists, or far outside par — reads the numbers back and asks before saving.
+    const countFindings = assessCount({ name: m.name, unit: m.unit, scope: 'floor', counted: q, system: m.floor, other: subQty(state, medId), par: m.parFloor });
+    if (countFindings.length && !(await confirmAsync(describeFindings('นับ หน้างาน — ' + m.name, countFindings)))) return;
     try {
       let delta = 0;
       let note = '';
@@ -6067,15 +6135,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // protection against the exact fat-finger typo (an extra digit) that button was built to
     // catch. One summary confirm for the whole batch, not one popup per row, since asking N
     // separate times for a single bulk action would defeat the point of batching it.
-    const implausibleRows = entries
-      .map((e) => ({ ...e, m: state.meds.find((x) => x.id === e.medId) }))
-      .filter((e): e is typeof e & { m: NonNullable<typeof e.m> } => !!e.m && Math.abs(e.q - e.m.floor) > Math.max(e.m.parFloor, 20) * 8);
-    if (implausibleRows.length && !(await confirmAsync(
-      implausibleRows.length + ' จาก ' + entries.length + ' รายการ มีจำนวนที่นับได้ต่างจากยอดระบบมากผิดปกติเทียบกับ par เช่น '
-      + implausibleRows.slice(0, 3).map((e) => e.m.name + ' (นับได้ ' + nf(e.q) + ' ยอดระบบ ' + nf(e.m.floor) + ')').join(', ')
-      + (implausibleRows.length > 3 ? ' และอีก ' + (implausibleRows.length - 3) + ' รายการ' : '')
-      + ' — พิมพ์จำนวนถูกต้องแล้วใช่ไหม? ต้องการบันทึกทั้งหมดนี้ต่อหรือไม่?'
-    ))) return;
+    const flaggedRows = entries
+      .map((e) => { const m = state.meds.find((x) => x.id === e.medId); return m ? { m, q: e.q, f: assessCount({ name: m.name, unit: m.unit, scope: 'floor', counted: e.q, system: m.floor, other: subQty(state, m.id), par: m.parFloor }) } : null; })
+      .filter((x): x is { m: Med; q: number; f: Finding[] } => !!x && x.f.length > 0);
+    if (flaggedRows.length && !(await confirmAsync(summarizeFlagged('นับ หน้างาน', entries.length, flaggedRows.map((r) => ({ name: r.m.name, f: r.f })))))) return;
     let ok = 0;
     let diffs = 0;
     let failed = 0;
@@ -6167,11 +6230,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Bug fix (typo safety net): same gap as commitCount's own fix above — nothing here ever
     // checked the typed count against anything plausible before committing it.
     const curSub = subQty(state, medId);
-    const implausible = Math.abs(q - curSub) > Math.max(m.parSub, 20) * 8;
-    if (implausible && !(await confirmAsync(
-      'นับได้ ' + nf(q) + ' ' + m.unit + ' — ต่างจากยอดระบบ (' + nf(curSub) + ') มากผิดปกติเมื่อเทียบกับ par ('
-      + nf(m.parSub) + ') ของ ' + m.name + ' พิมพ์จำนวนถูกต้องแล้วใช่ไหม?'
-    ))) return;
+    const subFindings = assessCount({ name: m.name, unit: m.unit, scope: 'sub', counted: q, system: curSub, other: m.floor, par: m.parSub });
+    if (subFindings.length && !(await confirmAsync(describeFindings('นับ substock — ' + m.name, subFindings)))) return;
     try {
       let delta = 0;
       let note = '';
@@ -6261,15 +6321,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Bug fix (typo safety net — bulk gap): same gap as commitAllCounts's own fix — commitSubCount's
     // plausibility check never applied to the "บันทึกทั้งหมด" bulk path. One summary confirm for
     // the whole batch rather than one popup per row.
-    const implausibleSubRows = entries
-      .map((e) => ({ ...e, m: state.meds.find((x) => x.id === e.medId), curSub: subQty(state, e.medId) }))
-      .filter((e): e is typeof e & { m: NonNullable<typeof e.m> } => !!e.m && Math.abs(e.q - e.curSub) > Math.max(e.m.parSub, 20) * 8);
-    if (implausibleSubRows.length && !(await confirmAsync(
-      implausibleSubRows.length + ' จาก ' + entries.length + ' รายการ มีจำนวนที่นับได้ต่างจากยอดระบบมากผิดปกติเทียบกับ par เช่น '
-      + implausibleSubRows.slice(0, 3).map((e) => e.m.name + ' (นับได้ ' + nf(e.q) + ' ยอดระบบ ' + nf(e.curSub) + ')').join(', ')
-      + (implausibleSubRows.length > 3 ? ' และอีก ' + (implausibleSubRows.length - 3) + ' รายการ' : '')
-      + ' — พิมพ์จำนวนถูกต้องแล้วใช่ไหม? ต้องการบันทึกทั้งหมดนี้ต่อหรือไม่?'
-    ))) return;
+    const flaggedSubRows = entries
+      .map((e) => { const m = state.meds.find((x) => x.id === e.medId); return m ? { m, q: e.q, f: assessCount({ name: m.name, unit: m.unit, scope: 'sub', counted: e.q, system: subQty(state, m.id), other: m.floor, par: m.parSub }) } : null; })
+      .filter((x): x is { m: Med; q: number; f: Finding[] } => !!x && x.f.length > 0);
+    if (flaggedSubRows.length && !(await confirmAsync(summarizeFlagged('นับ substock', entries.length, flaggedSubRows.map((r) => ({ name: r.m.name, f: r.f })))))) return;
     let ok = 0;
     let diffs = 0;
     let failed = 0;
@@ -7686,7 +7741,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     printWarehouseRequestByCategory,
     approvePendingReceive, rejectPendingReceive, goReceiveFor,
     setWmFromSearch, pickWmFromMed, setWmToSearch, pickWmToMed, setWmQty, setWmReason, commitWardMove,
-    pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, commitSingleReturn, addToReturnCart, removeReturnCartItem, commitReturnCart, refreshTodayReturns, reverseReturn, fetchDrugReturns, exportDrugReturnsCsv, fetchFloorRefills, exportFloorRefillsCsv, scrapLot, scrapFloorLot,
+    pickAdjType, setAdjSearch, pickAdjMed, setAdjQty, setAdjReason, setAdjNote, setAdjHn, commitAdjust, commitSingleReturn, addToReturnCart, removeReturnCartItem, commitReturnCart, reverseCount, refreshTodayReturns, reverseReturn, fetchDrugReturns, exportDrugReturnsCsv, fetchFloorRefills, exportFloorRefillsCsv, scrapLot, scrapFloorLot,
     setReportTab, exportReportCsv, exportAllReports, printExecutiveSummary,
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setAllMinSuggested, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, clearMedPeakDay, updateGlobalSettings,
