@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { effectiveLastCoveredTo, wardOf, hosxpMissReasons, isRegularlyDispensed, lastReconcileCoveredToIso, priorReconcileByMed, suggestMedsForFileName, diagnoseMiss, unusualDispense, weekdaysInRange, hosxpDateCheck, inactiveMatchesFor } from '../store/selectors';
+import { effectiveLastCoveredTo, wardOf, hosxpMissReasons, isRegularlyDispensed, lastReconcileCoveredToIso, priorReconcileByMed, suggestMedsForFileName, diagnoseMiss, unusualDispense, weekdaysInRange, hosxpDateCheck, inactiveMatchesFor, autoSkipReason } from '../store/selectors';
 import { downloadCsv } from '../utils/csv';
 import { thDateWithWeekday } from '../utils/format';
 import { smartHosxpCoveredFrom } from '../store/AppContext';
@@ -31,7 +31,7 @@ const MISS_REASON_BADGE: Record<'not_in_file' | 'ambiguous', { label: string; co
 };
 
 export default function ReconcileScreen() {
-  const { state, setHosxpDateConfirmed, discardHosxpFile, unresolveHosxpRow, fetchPriorReconcile, resolveHosxpRowsBulk, undoLastReconcile, dismissReconcileResult, processHosxpFile, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, fetchReconcileMonth, toast, go, setMedsFocusId } = useApp();
+  const { state, setHosxpDateConfirmed, discardHosxpFile, unresolveHosxpRow, fetchPriorReconcile, resolveHosxpRowsBulk, undoLastReconcile, dismissReconcileResult, processHosxpFile, ignoreHosxpName, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, fetchReconcileMonth, toast, go, setMedsFocusId } = useApp();
 
   // Real-world request: "เพื่อนำไปสู่การแก้ไขปัญหายาที่อาจจะยังมีปัญหาครับ"/"สามารถเชื่อมโยงปัญหานั่น
   // ไปแก้ปัญหาจริงได้" — a miss-reasons row used to just explain what's wrong with no way to act
@@ -140,9 +140,15 @@ export default function ReconcileScreen() {
   const missEntries = useMemo(() => hosxpMissReasons(state.meds, state.hosxpRows || []), [state.meds, state.hosxpRows]);
 
   // Unmatched rows ranked by quantity — a big one (e.g. a daily staple) must never be a quiet skip.
+  // Rows that need no daily decision: drug switched off in the app, or an admin marked the name "not stock-tracked".
+  const autoSkip = useMemo(() => {
+    const m = new Map<number, 'inactive' | 'ignored'>();
+    (state.hosxpRows || []).forEach((r, i) => { if (r.match.kind === 'none') { const why = autoSkipReason(state.meds, state.hosxpIgnoredNames, r.name); if (why) m.set(i, why); } });
+    return m;
+  }, [state.hosxpRows, state.meds, state.hosxpIgnoredNames]);
   const unmatchedBig = reconcileRows
     .map((r, i) => ({ ...r, i }))
-    .filter((r) => (r.match.kind === 'none' || r.match.kind === 'ambiguous') && r.qty > 0 && !r.applied && !skippedRows.has(r.i))
+    .filter((r) => (r.match.kind === 'none' || r.match.kind === 'ambiguous') && r.qty > 0 && !r.applied && !skippedRows.has(r.i) && !autoSkip.has(r.i))
     .sort((a, b) => b.qty - a.qty);
   const fuzzyCount = reconcileRows.filter((r) => r.match.kind === 'fuzzy').length;
   const skippedCount = reconcileRows.filter((r) => r.match.kind === 'ambiguous' || r.match.kind === 'none').length;
@@ -541,7 +547,7 @@ export default function ReconcileScreen() {
               <span style={{ flex: 1 }}>รายการยา</span><span style={{ minWidth: 70, textAlign: 'right', flex: 'none', whiteSpace: 'nowrap' }}>จ่ายจริง</span><span style={{ minWidth: 70, textAlign: 'right', flex: 'none', whiteSpace: 'nowrap' }}>ก่อน → หลัง</span>
             </div>
             {rowsWithIdx.filter((r) => effectiveFilter === 'all' || attentionIdx.has(r.i)).map((r) => { const i = r.i; return (
-              <div key={i} className="rc-row" data-tone={r.applied || skippedRows.has(i) ? 'ok' : (r.match.kind === 'none' || r.match.kind === 'ambiguous') ? 'bad' : (r.match.kind === 'fuzzy' || unusualByIdx.has(i) || (r.med && r.qty - r.already > r.before)) ? 'warn' : 'ok'} style={{ opacity: r.applied ? 0.6 : 1 }}>
+              <div key={i} className="rc-row" data-tone={r.applied || skippedRows.has(i) || autoSkip.has(i) ? 'ok' : (r.match.kind === 'none' || r.match.kind === 'ambiguous') ? 'bad' : (r.match.kind === 'fuzzy' || unusualByIdx.has(i) || (r.med && r.qty - r.already > r.before)) ? 'warn' : 'ok'} style={{ opacity: r.applied ? 0.6 : 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.3, fontWeight: r.match.kind === 'exact' ? 400 : 600 }}>
                     {r.med ? r.med.name : r.fileText}
@@ -571,8 +577,14 @@ export default function ReconcileScreen() {
                     <button type="button" data-testid="unresolve-row" onClick={() => unresolveHosxpRow(i)} style={{ border: 0, background: 'transparent', color: 'var(--red)', fontWeight: 700, fontSize: 10.5, textDecoration: 'underline', padding: '6px 4px', minHeight: 32 }}>ยกเลิกการจับคู่</button>
                   </div>
                 )}
-                {!r.applied && <MatchBadge match={r.match} fileText={r.fileText} medById={medById} />}
-                {!r.applied && (r.match.kind === 'none' || r.match.kind === 'ambiguous') && (
+                {!r.applied && !autoSkip.has(i) && <MatchBadge match={r.match} fileText={r.fileText} medById={medById} />}
+                {!r.applied && autoSkip.has(i) && (
+                  <div data-testid="auto-skip-row" style={{ marginTop: 4, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                    ⏭ ข้ามอัตโนมัติ — {autoSkip.get(i) === 'inactive' ? 'ยานี้ปิดใช้งานอยู่ในแอพ (ไม่ตัดยอด)' : 'ตั้งไว้ว่าไม่ตามสต็อก'} · {r.qty.toLocaleString()} หน่วยไม่ถูกตัดยอด
+                    {autoSkip.get(i) === 'ignored' && state.role === 'admin' && <button type="button" onClick={() => void ignoreHosxpName(r.fileText, false)} style={{ border: 0, background: 'transparent', color: 'var(--red)', fontWeight: 700, fontSize: 11, textDecoration: 'underline', padding: '6px 4px', minHeight: 32 }}>เลิกข้ามทุกวัน</button>}
+                  </div>
+                )}
+                {!r.applied && !autoSkip.has(i) && (r.match.kind === 'none' || r.match.kind === 'ambiguous') && (
                   <FileRowFixer idx={i} fileText={r.fileText} qty={r.qty} skipped={skippedRows.has(i)}
                     onSkip={(sk) => setSkippedRows((prev) => { const n = new Set(prev); if (sk) n.add(i); else n.delete(i); return n; })} />
                 )}

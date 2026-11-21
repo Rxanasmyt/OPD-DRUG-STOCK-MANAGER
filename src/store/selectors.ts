@@ -1130,6 +1130,16 @@ export function inactiveMatchesFor(meds: Med[], rawName: string): Med[] {
   return meds.filter((m) => !m.active && medNameCandidates(m).some((c) => normalizeMedName(c) === n || (!!sig && strictSignature(c) === sig)));
 }
 
+/** Stable key for a HOSxP file name (same normalisation as matching) — what hosxpIgnoredNames stores. */
+export function hosxpNameKey(rawName: string): string { return normalizeMedName(rawName); }
+
+/** Why an UNMATCHED file row needs no daily decision: its drug exists but is switched off in the app ('inactive'), or an admin
+ * told the app this name is not stock-tracked ('ignored'). null = the pharmacist must still decide. */
+export function autoSkipReason(meds: Med[], ignoredKeys: readonly string[], rawName: string): 'inactive' | 'ignored' | null {
+  if (inactiveMatchesFor(meds, rawName).length) return 'inactive';
+  return ignoredKeys.includes(normalizeMedName(rawName)) ? 'ignored' : null;
+}
+
 export function matchHosxpMed(meds: Med[], rawName: string): HosxpMatch {
   const idx = matchIndexOf(meds);
   const memo = idx.results.get(rawName);

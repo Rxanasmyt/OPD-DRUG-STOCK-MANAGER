@@ -11,7 +11,7 @@ import { Badge } from '../components/Badge';
 export function FileRowFixer({ idx, fileText, qty, skipped, onSkip }: {
   idx: number; fileText: string; qty: number; skipped: boolean; onSkip: (skip: boolean) => void;
 }) {
-  const { state, resolveHosxpRow, promptAsync } = useApp();
+  const { state, resolveHosxpRow, promptAsync, ignoreHosxpName } = useApp();
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const isAdmin = state.role === 'admin';
@@ -80,6 +80,11 @@ export function FileRowFixer({ idx, fileText, qty, skipped, onSkip }: {
         ))}
       </div>
       {!isAdmin && <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>จับคู่ได้เฉพาะรอบนี้ — ให้ Admin เพิ่ม "{fileText}" เป็นชื่อ HOSxP ของยา เพื่อให้ตัดอัตโนมัติครั้งต่อไป</div>}
+      {isAdmin && (
+        <button type="button" data-testid="ignore-forever" onClick={() => void ignoreHosxpName(fileText, true)} style={{ ...linkBtn, display: 'block', marginTop: 8, color: 'var(--green)' }}>
+          ไม่ตามสต็อกในแอพ — ข้ามทุกวัน (ไม่ต้องถามอีก) · Admin
+        </button>
+      )}
       <button type="button" onClick={() => onSkip(true)} style={{ ...linkBtn, marginTop: 8, color: 'var(--muted)' }}>ไม่ใช่ยาของหน่วยนี้ / ไม่ต้องตัดรายการนี้ — ข้าม</button>
     </div>
   );
