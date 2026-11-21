@@ -110,4 +110,17 @@ describe('commitReconcile — attached-file date verification', () => {
     await waitFor(() => expect(screen.getByTestId('file').textContent).toContain('undated'));
     expect(screen.getByTestId('range').textContent).toBe(iso + '|' + iso + '|unconfirmed');
   });
+
+  it('auto-skipped rows (drug not in the app) are NOT logged as "จับคู่ไม่ได้" — only a real unmatched name is', async () => {
+    const user = await setup('Paracetamol 500mg,10\nD-5-N (5+0.9) % ถุง (1,000 ml.),8\nAmoxicillin 500mg แคปซูล,4');
+    const before = vi.mocked(addDoc).mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'commit' }));
+    await user.click(await screen.findByRole('button', { name: 'ยืนยัน' }));
+    await waitFor(() => expect(vi.mocked(addDoc).mock.calls.slice(before).some((c) => (c[1] as { type?: string }).type === 'hosxp_day_report')).toBe(true));
+    const logs = vi.mocked(addDoc).mock.calls.slice(before).map((c) => c[1] as unknown as { type: string; note: string });
+    const unmatched = logs.find((e) => e.type === 'hosxp_unmatched');
+    // "Amoxicillin 500mg" resembles a tracked drug (Amoxicillin 250mg) → a real decision/skip; the IV fluid resembles nothing → silent by design.
+    expect(unmatched?.note ?? '').not.toContain('D-5-N');
+    expect(logs.find((e) => e.type === 'hosxp_day_report')!.note).not.toContain('D-5-N');
+  });
 });

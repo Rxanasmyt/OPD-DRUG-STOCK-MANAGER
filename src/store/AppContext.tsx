@@ -31,7 +31,7 @@ import { txRef, newTxRef, subscribeRecentTxs, queryAllTxs, queryTxsSince, fetchA
 import { medRef, newMedRef, subscribeMeds, fetchAllMeds } from './repositories/medsRepo';
 import { preResetSnapshotRef } from './repositories/preResetSnapshotsRepo';
 import { safeToAutoUpdate, probeActiveElement, deployedEntryDiffers, forceFreshReload } from '../utils/autoUpdate';
-import { effectiveLastCoveredTo, hosxpNameKey, subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, lastReconcileCoveredToIso, priorReconcileByMed, hosxpDateCheck, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, parseHosxpDayReport, buildReconcileMonth, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays, reqCategoryOf } from './selectors';
+import { effectiveLastCoveredTo, hosxpNameKey, autoSkipReason, subQty, fefoLot, roleLabelFor, suggestPar, suggestTransferQty, daysUntil, matchHosxpMed, DAY, wardOf, wardLabel, usesSubstock, floorMinOf, halfOfMaxRounded, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, lastReconcileCoveredToIso, priorReconcileByMed, hosxpDateCheck, isSharedMed, matchesWard, binFor, binDisplayAll, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, packStep, isOnStockHold, categoryOf, effectiveRouteOf, monthlyDaySplits, floorLotDocId, fefoFloorLot, boxBreakdownLabel, isNewerVersionAvailable, hosxpMissReasons, parseHosxpDayReport, buildReconcileMonth, isRegularlyDispensed, percentile, clampVolatility, coefficientOfVariation, effectiveSubCoverDays, reqCategoryOf } from './selectors';
 import { nf, thDate, lotLabel, expLabel, isoDate, parseIntSafe, digitsOnly, bangkokWeekday } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
 import { encodeQr, parseQr } from '../utils/qr';
@@ -6902,7 +6902,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // silently deduct from the wrong drug or get dropped without anyone noticing.
           const medId = r.match.kind === 'exact' || r.match.kind === 'fuzzy' ? r.match.medId : null;
           const m = medId ? meds.find((x) => x.id === medId) : null;
-          if (!m) { skipped++; skippedNames.push(r.name); return; }
+          if (!m) {
+            // Switched-off / not-in-app drugs are skipped by design (ReconcileScreen shows them as "ข้ามอัตโนมัติ") — they must not
+            // be logged as "จับคู่ไม่ได้", or the unmatched audit + "ยาที่หลุดบ่อย" panel would list the same IV fluids every day.
+            if (r.match.kind === 'none' && autoSkipReason(meds, state.hosxpIgnoredNames, r.name)) return;
+            skipped++; skippedNames.push(r.name); return;
+          }
           // Bug fix (data integrity): tx-log write folded into the same transaction as the floor
           // deduction — was a separate logTx() call after runTx() resolved, the exact "stock
           // changed but no matching history row if the second call drops" gap commitTransfer's
@@ -7100,7 +7105,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       patch({ reconcileProgress: null, ...(resultEntries.length ? { reconcileResult: buildResult() } : {}) });
       toastErr(e, 'ประมวลผลไม่สำเร็จ' + (failedMedName ? ' (ยา: ' + failedMedName + ')' : '') + (applied > 0 ? ' — ตัดยอดไปแล้ว ' + applied + ' รายการก่อนเกิดปัญหา ตรวจสอบก่อนลองใหม่' : ' ลองใหม่อีกครั้ง') + (failedDebug ? ' [' + failedDebug + ']' : ''));
     }
-  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpCoveredFrom, state.hosxpCoveredTo, state.hosxpAppliedRowIndexes, state.hosxpFileInfo, state.hosxpDateConfirmed, state.meds, state.txs, fetchPriorReconcile, userName, logAudit, toast, toastErr, patch, guardOnce, confirmAsync, recomputeUsageStats, analyzeWeekdayUsage]);
+  }), [state.hosxpRows, state.hosxpConfirmFuzzy, state.hosxpCoveredFrom, state.hosxpCoveredTo, state.hosxpAppliedRowIndexes, state.hosxpFileInfo, state.hosxpDateConfirmed, state.hosxpIgnoredNames, state.meds, state.txs, fetchPriorReconcile, userName, logAudit, toast, toastErr, patch, guardOnce, confirmAsync, recomputeUsageStats, analyzeWeekdayUsage]);
 
   // Real-world request: "ป้องกันการหลุดยาที่มีในระบบแต่ไม่ได้ถูกตัดจำนวนยา และป้องกันการหลุดวันที่
   // ยังไม่ได้แนบไฟล์" — ReconcileScreen's own notDeductedLatestDay only ever checks the single
