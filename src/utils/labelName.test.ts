@@ -228,3 +228,16 @@ describe('formulary admin notes / stray quotes are not printed on the shelf labe
     expect(shortLabelName('"ANTIVENUM SERA,COBRA neut 0.6 "')).not.toContain('"');
   });
 });
+
+describe('generic name first: known brand names are dropped from the label', () => {
+  it('generic-brand and brand-generic both end up as generic + strength', () => {
+    expect(shortLabelName('HYDRALAZINE-Apresoline - PL 25 mg เม็ด')).toBe('HYDRALAZINE 25 mg');
+    expect(shortLabelName('levothyroxine-Elthroxin - PL 0.1 mg. เม็ด')).toBe('levothyroxine 0.1 mg');
+    expect(shortLabelName('Plavix-Clopidogel 75 mg. เม็ด')).toBe('Clopidogel 75 mg');
+    expect(shortLabelName('ATArax-Hydroxyzine  SYR 10 mg. ขวด (60 ml.)')).toBe('Hydroxyzine SYR 10 mg');
+    expect(shortLabelName('Proluton-HYDROXYPROGESTERONE CAPROATE 250 mg. Amphule')).toBe('HYDROXYPROGESTERONE CAPROATE 250 mg');
+  });
+  it('never touches an unknown hyphenated name (no guessing which part is the generic)', () => {
+    expect(shortLabelName('Foobarzine-Quuxistan Longname 25 mg')).toBe('Foobarzine-Quuxistan Longname 25 mg');
+  });
+});
