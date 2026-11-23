@@ -36,6 +36,9 @@ const NOISE_WORDS_EN =
 const BRAND_MARKER_TH = /ตรา\S+/g;
 const NOISE_WORDS_TH =
   /(?:เม็ด|แคปซูล|แค็บซูล|ยาฉีด|ฉีด|ครีม|ยาน้ำ|น้ำเชื่อม|ยาพ่น|ผง|เจล|ขี้ผึ้ง|ยาหยอด|ยาทา|ซอง|ขวด|หลอด|แผง|ชุด|กระปุก|หยด|ยาโครงการ|ยาสนับสนุน)/g;
+// Formulary admin notes that are not part of the drug's identity ("ยา refer back" = supplied via the referring hospital,
+// "เฉพาะราย"/"เตรียมเฉพาะราย" = case-by-case / compounded) and stray typing quotes copied from the source sheet.
+const ADMIN_NOTES = /(?:ยา\s*)?refer\s*back|(?:เตรียม)?เฉพาะราย|["“”]/gi;
 const TRAILING_PUNCT = /[.,;:\-–]+\s*$/;
 const LEADING_PUNCT = /^[.,;:\-–]+\s*/;
 
@@ -112,6 +115,7 @@ function stripNoiseAndClean(s: string): string {
   s = s.replace(NOISE_WORDS_EN, ' ');
   s = s.replace(NOISE_WORDS_TH, ' ');
   s = s.replace(BRAND_MARKER_TH, ' ');
+  s = s.replace(ADMIN_NOTES, ' ');
   s = s.replace(/\s+-\s+/g, ' ');
   s = s.replace(/\s{2,}/g, ' ').trim();
   s = s.replace(TRAILING_PUNCT, '').replace(LEADING_PUNCT, '').trim();
@@ -206,7 +210,42 @@ export function shortLabelName(raw: string): string {
   }
   // Don't return an empty/near-empty string for a name that's nothing but noise words once
   // trimmed — the original (however long) is still more useful on the shelf than nothing.
-  return s.length >= 3 ? s : trimmedRaw;
+  const out = s.length >= 3 ? s : trimmedRaw;
+  // Full name first. Only when the full title is long enough that the strip would print it visibly smaller than its
+  // neighbours (titleSizeStep ≥ 4, i.e. effective length > ABBREV_ABOVE) fall back to "ABBREV + strength".
+  return effectiveLength(out) > ABBREV_ABOVE ? abbreviateLongName(out) : out;
+}
+
+/** Titles whose effective length is above this render at a smaller font step than the usual names (titleSizeStep ≥ 4). */
+const ABBREV_ABOVE = 26;
+
+/** True when every letter of `abbr` can be found in `full` (case-insensitive, each letter used at most as often as it
+ * occurs) — i.e. `abbr` can be an initialism of `full` ("HCTZ" ← HYDROCHLOROTHIAZIDE, "DMPA" ← Depot MEDROXYPROGESTERONE
+ * ACETATE: order is not required because some initialisms add a word the spelled-out name omits). A brand such as
+ * CONCON or ZOCOR fails because its letters are not all present. */
+function isInitialismOf(abbr: string, full: string): boolean {
+  const counts = new Map<string, number>();
+  for (const ch of full.toUpperCase().replace(/[^A-Z]/g, '')) counts.set(ch, (counts.get(ch) ?? 0) + 1);
+  for (const ch of abbr.toUpperCase()) { const n = counts.get(ch) ?? 0; if (n <= 0) return false; counts.set(ch, n - 1); }
+  return true;
+}
+
+/** A few formulary names are written "ABBREV-Full spelled-out name <strength>" (HCTZ-HYDROCHLOROTHIAZIDE 25 mg,
+ * CPZ-CHLORPROMAZINE 100 mg, DMPA-MEDROXYPROGESTERONE ACETATE 150 mg, ERIG-Rabies Immunoglobulin …). The long spelled-out
+ * half forces the auto-fit title to a much smaller font than its neighbours, so the shelf strip looks uneven. Keep just
+ * "ABBREV + strength" when it is SAFE to (and shortLabelName only asks for it when the full name would print smaller than the other labels): the prefix is 2–6 ALL-CAPS letters, the spelled-out part is long (≥12 chars),
+ * and the prefix really is an initialism of it (letters in order) — so a brand ("CONCON-SALICYLIC ACID…", "GPO-VIR",
+ * "Plavix-Clopidogel") is never collapsed into something that hides the active ingredient. Display only. */
+export function abbreviateLongName(title: string): string {
+  const idx = title.search(/\d/);
+  if (idx < 0) return title;
+  const namePart = title.slice(0, idx).trim();
+  const dose = title.slice(idx).trim();
+  const m = /^([A-Z]{2,6})-(\S.*)$/.exec(namePart);
+  if (!m) return title;
+  const spelled = m[2].trim();
+  if (spelled.length < 12 || !isInitialismOf(m[1], spelled)) return title;
+  return m[1] + ' ' + dose;
 }
 
 /**
