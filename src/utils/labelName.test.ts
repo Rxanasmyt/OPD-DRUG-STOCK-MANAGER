@@ -195,3 +195,32 @@ describe('titleSizeStep', () => {
     expect(titleSizeStep(longHighAlertName)).toBeGreaterThan(5);
   });
 });
+
+describe('ABBREV-Full name → ABBREV + strength (even-looking shelf labels)', () => {
+  it('collapses a safe initialism prefix with a long spelled-out name', () => {
+    expect(shortLabelName('HCTZ-HYDROCHLOROTHIAZIDE 25 mg.')).toBe('HCTZ 25 mg');
+    expect(shortLabelName('CPZ-CHLORPROMAZINE 100 mg. เม็ด')).toBe('CPZ 100 mg');
+    expect(shortLabelName('DMPA-MEDROXYPROGESTERONE ACETATE 150 mg')).toBe('DMPA 150 mg');
+    expect(shortLabelName('PTU-PROPYLTHIOURACIL 50 mg')).toBe('PTU 50 mg');
+    expect(shortLabelName('PZA-PYRAZINAMIDE 500 mg')).toBe('PZA 500 mg');
+  });
+  it('never collapses a brand or a short/non-initialism prefix (the active ingredient must stay visible)', () => {
+    expect(shortLabelName('CONCON-SALICYLIC ACID+LACTIC ACID . 15 ml')).toContain('SALICYLIC');
+    expect(shortLabelName('Plavix-Clopidogel 75 mg')).toContain('Clopidogel');
+    expect(shortLabelName('GPO-VIR 200+150+30 mg')).toContain('GPO-VIR');
+    expect(shortLabelName('Proluton-HYDROXYPROGESTERONE CAPROATE 250 mg')).toContain('HYDROXYPROGESTERONE');
+    expect(shortLabelName('ZOCOR-SIMVASTATIN 20 mg')).toContain('SIMVASTATIN');
+  });
+  it('keeps names without a strength untouched', () => {
+    expect(shortLabelName('SOFRA-TULLE')).toBe('SOFRA-TULLE');
+  });
+});
+
+describe('formulary admin notes / stray quotes are not printed on the shelf label', () => {
+  it('drops "refer back", "เฉพาะราย" and typing quotes but keeps name + strength', () => {
+    expect(shortLabelName('Enoxaparin ยา refer back 60 mg')).toBe('Enoxaparin 60 mg');
+    expect(shortLabelName('PANTOPRAZOLE refer back 40 mg')).toBe('PANTOPRAZOLE 40 mg');
+    expect(shortLabelName('Oseltamivir เฉพาะราย 10 mg./ml. ซีซี')).toContain('Oseltamivir 10 mg');
+    expect(shortLabelName('"ANTIVENUM SERA,COBRA neut 0.6 "')).not.toContain('"');
+  });
+});
