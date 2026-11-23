@@ -229,16 +229,15 @@ describe('formulary admin notes / stray quotes are not printed on the shelf labe
   });
 });
 
-describe('known brand names are dropped only when the label would print small', () => {
-  it('generic-brand: keeps the generic name', () => {
+describe('generic name first: known brand names are dropped from the label', () => {
+  it('generic-brand and brand-generic both end up as generic + strength', () => {
     expect(shortLabelName('HYDRALAZINE-Apresoline - PL 25 mg เม็ด')).toBe('HYDRALAZINE 25 mg');
     expect(shortLabelName('levothyroxine-Elthroxin - PL 0.1 mg. เม็ด')).toBe('levothyroxine 0.1 mg');
-  });
-  it('brand-generic: keeps the generic name', () => {
+    expect(shortLabelName('Plavix-Clopidogel 75 mg. เม็ด')).toBe('Clopidogel 75 mg');
+    expect(shortLabelName('ATArax-Hydroxyzine  SYR 10 mg. ขวด (60 ml.)')).toBe('Hydroxyzine SYR 10 mg');
     expect(shortLabelName('Proluton-HYDROXYPROGESTERONE CAPROATE 250 mg. Amphule')).toBe('HYDROXYPROGESTERONE CAPROATE 250 mg');
   });
-  it('keeps the full name when it already fits, and never touches an unknown hyphenated name', () => {
-    expect(shortLabelName('Plavix-Clopidogel 75 mg. เม็ด')).toBe('Plavix-Clopidogel 75 mg');
+  it('never touches an unknown hyphenated name (no guessing which part is the generic)', () => {
     expect(shortLabelName('Foobarzine-Quuxistan Longname 25 mg')).toBe('Foobarzine-Quuxistan Longname 25 mg');
   });
 });

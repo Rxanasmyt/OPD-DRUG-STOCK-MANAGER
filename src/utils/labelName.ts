@@ -213,9 +213,10 @@ export function shortLabelName(raw: string): string {
   const out = s.length >= 3 ? s : trimmedRaw;
   // Full name first. Only when the full title is long enough that the strip would print it visibly smaller than its
   // neighbours (titleSizeStep ≥ 4, i.e. effective length > ABBREV_ABOVE) fall back to "ABBREV + strength".
-  if (effectiveLength(out) <= ABBREV_ABOVE) return out;
-  const abbreviated = abbreviateLongName(out);
-  return abbreviated !== out ? abbreviated : stripKnownBrand(out);
+  // Generic (drug) name first: a KNOWN brand name glued on with a hyphen is always dropped. Then, only if the result is
+  // still long enough to print smaller than the other labels, fall back to "ABBREV + strength".
+  const generic = stripKnownBrand(out);
+  return effectiveLength(generic) > ABBREV_ABOVE ? abbreviateLongName(generic) : generic;
 }
 
 /** Brand names that this formulary glues onto the generic name with a hyphen ("HYDRALAZINE-Apresoline",
@@ -223,7 +224,7 @@ export function shortLabelName(raw: string): string {
  * part that is not on the list is never guessed at, so the generic name can never be lost by mistake. */
 const KNOWN_BRANDS = new Set(['apresoline', 'elthroxin', 'lasix', 'lopid', 'fulcin', 'tanzaril', 'syntocinon', 'ventolin', 'exluton', 'atarax', 'plavix', 'proluton', 'terramycin']);
 
-/** When a name is too long to print at the normal size, drop a known brand part: "HYDRALAZINE-Apresoline 25 mg" → "HYDRALAZINE 25 mg". */
+/** Drop a known brand part so the generic name leads: "HYDRALAZINE-Apresoline 25 mg" → "HYDRALAZINE 25 mg". */
 export function stripKnownBrand(title: string): string {
   const idx = title.search(/\d/);
   const namePart = (idx < 0 ? title : title.slice(0, idx)).trim();

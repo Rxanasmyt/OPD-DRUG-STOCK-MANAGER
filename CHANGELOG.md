@@ -9,10 +9,11 @@
 
 ## [3.305.1] - 2026-11-23
 
-### ฉลากชั้นวาง: ชื่อ “สามัญ-ชื่อการค้า” ที่ยาวตัดชื่อการค้าที่รู้จักออก
+### ฉลากชั้นวาง: เน้นชื่อสามัญทางยา + ความแรง
 
-- `HYDRALAZINE-Apresoline 25 mg` ทำให้ฟอนต์เล็กกว่าฉลากอื่น → เมื่อชื่อเต็มยาวเกิน และส่วนหนึ่งเป็นชื่อการค้าที่ **รู้จักแน่นอน** (Apresoline, Elthroxin, Lasix, lopid, fulcin, tanzaril, Syntocinon, Ventolin, Exluton, ATArax, Plavix, Proluton, Terramycin) จะพิมพ์เฉพาะส่วนชื่อสามัญ เช่น `HYDRALAZINE 25 mg`, `levothyroxine 0.1 mg`; ชื่อที่พอดีอยู่แล้ว (เช่น Plavix-Clopidogel 75 mg) ยังพิมพ์ชื่อเต็ม และส่วนที่ไม่อยู่ในรายการไม่ถูกเดาตัด
-- เทสต์ใหม่ 3 ข้อ · แสดงผลเท่านั้น (ไม่แตะชื่อยาในระบบ) คู่มือหัวข้อฉลากอธิบายหลัก “ชื่อเต็มก่อน” ไว้แล้ว
+- ตัด **ชื่อการค้าที่รู้จักแน่นอน** ออกจากฉลากทุกกรณี (Apresoline, Elthroxin, Lasix, lopid, fulcin, tanzaril, Syntocinon, Ventolin, Exluton, ATArax, Plavix, Proluton, Terramycin) ให้ชื่อสามัญนำ: `HYDRALAZINE-Apresoline 25 mg` → `HYDRALAZINE 25 mg`, `Plavix-Clopidogel 75 mg` → `Clopidogel 75 mg`; ชื่อที่ไม่อยู่ในรายการไม่ถูกเดาตัด (ตัวยาสามัญไม่หายแน่นอน)
+- ถ้าตัดแล้วยังยาวจนฟอนต์เล็กกว่าฉลากอื่น ค่อยใช้ “ตัวย่อ + ความแรง” (HCTZ 25 mg) ตามเดิม
+- เทสต์ใหม่ · แสดงผลเท่านั้น (ไม่แตะชื่อยาในระบบ)
 
 ## [3.305.0] - 2026-11-23
 
