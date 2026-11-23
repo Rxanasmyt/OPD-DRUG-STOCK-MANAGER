@@ -213,7 +213,28 @@ export function shortLabelName(raw: string): string {
   const out = s.length >= 3 ? s : trimmedRaw;
   // Full name first. Only when the full title is long enough that the strip would print it visibly smaller than its
   // neighbours (titleSizeStep ≥ 4, i.e. effective length > ABBREV_ABOVE) fall back to "ABBREV + strength".
-  return effectiveLength(out) > ABBREV_ABOVE ? abbreviateLongName(out) : out;
+  if (effectiveLength(out) <= ABBREV_ABOVE) return out;
+  const abbreviated = abbreviateLongName(out);
+  return abbreviated !== out ? abbreviated : stripKnownBrand(out);
+}
+
+/** Brand names that this formulary glues onto the generic name with a hyphen ("HYDRALAZINE-Apresoline",
+ * "levothyroxine-Elthroxin", "Terramycin-Oxytetracycline…"). Only these exact, known brands are ever dropped — a hyphenated
+ * part that is not on the list is never guessed at, so the generic name can never be lost by mistake. */
+const KNOWN_BRANDS = new Set(['apresoline', 'elthroxin', 'lasix', 'lopid', 'fulcin', 'tanzaril', 'syntocinon', 'ventolin', 'exluton', 'atarax', 'plavix', 'proluton', 'terramycin']);
+
+/** When a name is too long to print at the normal size, drop a known brand part: "HYDRALAZINE-Apresoline 25 mg" → "HYDRALAZINE 25 mg". */
+export function stripKnownBrand(title: string): string {
+  const idx = title.search(/\d/);
+  const namePart = (idx < 0 ? title : title.slice(0, idx)).trim();
+  const rest = idx < 0 ? '' : ' ' + title.slice(idx).trim();
+  const m = /^([^-\s][^-]*?)-(\S.*)$/.exec(namePart);
+  if (!m) return title;
+  const [, a, b] = m;
+  const first = a.trim(), second = b.trim();
+  if (KNOWN_BRANDS.has(second.toLowerCase().split(/\s+/)[0]) && !KNOWN_BRANDS.has(first.toLowerCase())) return (first + ' ' + second.split(/\s+/).slice(1).join(' ')).trim() + rest;
+  if (KNOWN_BRANDS.has(first.toLowerCase()) && second.length >= 3) return second + rest;
+  return title;
 }
 
 /** Titles whose effective length is above this render at a smaller font step than the usual names (titleSizeStep ≥ 4). */
