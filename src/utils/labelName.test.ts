@@ -197,12 +197,16 @@ describe('titleSizeStep', () => {
 });
 
 describe('ABBREV-Full name → ABBREV + strength (even-looking shelf labels)', () => {
-  it('collapses a safe initialism prefix with a long spelled-out name', () => {
+  it('uses ABBREV + strength only when the full name is long enough to print smaller than the other labels', () => {
     expect(shortLabelName('HCTZ-HYDROCHLOROTHIAZIDE 25 mg.')).toBe('HCTZ 25 mg');
-    expect(shortLabelName('CPZ-CHLORPROMAZINE 100 mg. เม็ด')).toBe('CPZ 100 mg');
+    expect(shortLabelName('HCTZ-Hydrochlorothiazide 25 mg')).toBe('HCTZ 25 mg');
     expect(shortLabelName('DMPA-MEDROXYPROGESTERONE ACETATE 150 mg')).toBe('DMPA 150 mg');
-    expect(shortLabelName('PTU-PROPYLTHIOURACIL 50 mg')).toBe('PTU 50 mg');
-    expect(shortLabelName('PZA-PYRAZINAMIDE 500 mg')).toBe('PZA 500 mg');
+    expect(shortLabelName('ERIG-Rabies Immunoglobulin 400U/2ml')).toBe('ERIG 400U/2ml');
+  });
+  it('keeps the FULL name whenever it prints at a normal size (abbreviation is only a fallback)', () => {
+    expect(shortLabelName('CPZ-CHLORPROMAZINE 100 mg. เม็ด')).toBe('CPZ-CHLORPROMAZINE 100 mg');
+    expect(shortLabelName('PTU-PROPYLTHIOURACIL 50 mg')).toBe('PTU-PROPYLTHIOURACIL 50 mg');
+    expect(shortLabelName('PZA-PYRAZINAMIDE 500 mg')).toBe('PZA-PYRAZINAMIDE 500 mg');
   });
   it('never collapses a brand or a short/non-initialism prefix (the active ingredient must stay visible)', () => {
     expect(shortLabelName('CONCON-SALICYLIC ACID+LACTIC ACID . 15 ml')).toContain('SALICYLIC');

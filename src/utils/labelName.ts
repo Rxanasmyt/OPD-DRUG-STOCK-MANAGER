@@ -211,8 +211,13 @@ export function shortLabelName(raw: string): string {
   // Don't return an empty/near-empty string for a name that's nothing but noise words once
   // trimmed — the original (however long) is still more useful on the shelf than nothing.
   const out = s.length >= 3 ? s : trimmedRaw;
-  return abbreviateLongName(out);
+  // Full name first. Only when the full title is long enough that the strip would print it visibly smaller than its
+  // neighbours (titleSizeStep ≥ 4, i.e. effective length > ABBREV_ABOVE) fall back to "ABBREV + strength".
+  return effectiveLength(out) > ABBREV_ABOVE ? abbreviateLongName(out) : out;
 }
+
+/** Titles whose effective length is above this render at a smaller font step than the usual names (titleSizeStep ≥ 4). */
+const ABBREV_ABOVE = 26;
 
 /** True when every letter of `abbr` can be found in `full` (case-insensitive, each letter used at most as often as it
  * occurs) — i.e. `abbr` can be an initialism of `full` ("HCTZ" ← HYDROCHLOROTHIAZIDE, "DMPA" ← Depot MEDROXYPROGESTERONE
@@ -228,7 +233,7 @@ function isInitialismOf(abbr: string, full: string): boolean {
 /** A few formulary names are written "ABBREV-Full spelled-out name <strength>" (HCTZ-HYDROCHLOROTHIAZIDE 25 mg,
  * CPZ-CHLORPROMAZINE 100 mg, DMPA-MEDROXYPROGESTERONE ACETATE 150 mg, ERIG-Rabies Immunoglobulin …). The long spelled-out
  * half forces the auto-fit title to a much smaller font than its neighbours, so the shelf strip looks uneven. Keep just
- * "ABBREV + strength" when it is SAFE to: the prefix is 2–6 ALL-CAPS letters, the spelled-out part is long (≥12 chars),
+ * "ABBREV + strength" when it is SAFE to (and shortLabelName only asks for it when the full name would print smaller than the other labels): the prefix is 2–6 ALL-CAPS letters, the spelled-out part is long (≥12 chars),
  * and the prefix really is an initialism of it (letters in order) — so a brand ("CONCON-SALICYLIC ACID…", "GPO-VIR",
  * "Plavix-Clopidogel") is never collapsed into something that hides the active ingredient. Display only. */
 export function abbreviateLongName(title: string): string {
