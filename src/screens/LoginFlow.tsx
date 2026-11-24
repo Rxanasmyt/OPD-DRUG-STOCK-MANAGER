@@ -13,7 +13,7 @@ export const FLOW_NODES: FlowNode[] = [
 ];
 
 export const FLOW_LINKS: FlowLink[] = [
-  { label: 'รับเข้า', tab: `แท็บ “${TAB.receive}”`, dir: 'down', note: 'ใส่ Lot + วันหมดอายุ (ถ่ายรูปฉลากได้)' },
+  { label: 'รับเข้า', tab: `แท็บ “${TAB.receive}”`, dir: 'down', note: 'ใส่ Lot + วันหมดอายุ (สแกนกล่องอัตโนมัติได้)' },
   { label: 'เติมหน้างาน', tab: `แท็บ “${TAB.transfer}”`, dir: 'down', note: 'FEFO — หมดอายุก่อน ออกก่อน' },
   { label: 'ตัดยอดตาม HOSxP', tab: `แท็บ “${TAB.reconcile}”`, dir: 'down', note: 'ทุกเช้า ตัดตามที่จ่ายจริงของเมื่อวาน' },
 ];

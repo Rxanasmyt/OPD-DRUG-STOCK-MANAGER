@@ -124,3 +124,26 @@ export async function scanLabelPhoto(file: Blob, onStage?: (s: string) => void):
   }
   return { ...merged, text: texts };
 }
+
+/** Copies the current video frame to a JPEG blob (null when the video has no size yet). */
+export async function grabFrame(video: HTMLVideoElement): Promise<Blob | null> {
+  const w = video.videoWidth, h = video.videoHeight;
+  if (!w || !h) return null;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(video, 0, 0, w, h);
+  return new Promise((res) => c.toBlob((b) => res(b), 'image/jpeg', 0.92));
+}
+
+/** One OCR pass over a live-camera frame. Frames alternate between the three preprocessing modes (frame k uses mode k % 3),
+ * so a glare/shadow problem that defeats one mode on a frame is usually fine on the next — and the 2-frame agreement rule
+ * (liveScanVerdict) still protects against a single misread. */
+export async function scanLiveFrame(frame: Blob, k: number, onStage?: (s: string) => void): Promise<LabelParse> {
+  onStage?.('กำลังโหลดตัวอ่านตัวอักษร (ครั้งแรกอาจใช้เวลาสักครู่)…');
+  const w = await getWorker();
+  onStage?.('กำลังอ่านฉลาก…');
+  const text = (await w.recognize(await preprocess(frame, PASSES[k % PASSES.length]))).data.text;
+  return parseLabelText(text);
+}
