@@ -1,6 +1,6 @@
 import RecentCounts from './RecentCounts';
 import { assessCount } from '../utils/entryGuard';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly, parseIntSafe } from '../utils/format';
 import { SearchInput } from '../components/SearchInput';
@@ -38,7 +38,7 @@ type Loc = 'floor' | 'sub';
 type EntryMode = 'unit' | 'box';
 
 export default function CountScreen() {
-  const { state, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts, goSubstockCardFor, clearCountFocus } = useApp();
+  const { state, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts, goSubstockCardFor, clearCountFocus, back } = useApp();
   // Real-world request: "ให้ทุกหน้าที่แสดงชื่อยาจำนวนยา...ให้สามารถดูบัตรสต็อคได้" — this screen
   // never got the same treatment HomeScreen/TransferScreen/ReceiveScreen/ReportScreen already
   // have. A real gap: hitting a row with "มากกว่าระบบ"/"น้อยกว่าระบบ" during a cycle count is
@@ -62,8 +62,18 @@ export default function CountScreen() {
   const [catTab, setCatTab] = useState<'all' | string>('all');
   // Arrived from a list row's "นับ" button (goCountFor): show just that med on the floor tab, then focus its box.
   const focusMed = state.countFocusId ? state.meds.find((x) => x.id === state.countFocusId) : undefined;
+  // Remember the med + its lastCountTs at arrival; once that med's count is saved (lastCountTs moves), go back to where we came from.
+  const shortcut = useRef<{ id: string; baseline: number } | null>(null);
+  const shortcutMed = shortcut.current ? state.meds.find((x) => x.id === shortcut.current!.id) : undefined;
+  useEffect(() => {
+    const sc = shortcut.current;
+    if (!sc || !shortcutMed) return;
+    if ((shortcutMed.lastCountTs ?? 0) > sc.baseline) { shortcut.current = null; back(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shortcutMed?.lastCountTs]);
   useEffect(() => {
     if (!state.countFocusId || !focusMed) return;
+    shortcut.current = { id: focusMed.id, baseline: focusMed.lastCountTs ?? 0 };
     setLoc('floor'); setScope('all'); setCatTab('all'); setQ(focusMed.code);
     clearCountFocus();
     window.setTimeout(() => {
