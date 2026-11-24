@@ -78,7 +78,7 @@ const FLOOR_LEDGER_TYPES = new Set(['receive_from_central', 'transfer_to_floor',
  * live, or print an A4 sheet in the same shape as the card for anyone who still wants a
  * physical printout on file. */
 export default function SubstockCardScreen() {
-  const { state, fetchSubstockLedger, fetchFloorLedger, toast, setSubstockFocusId, go, setAdminTab, setAuditFilter, userName } = useApp();
+  const { state, fetchSubstockLedger, fetchFloorLedger, toast, setSubstockFocusId, go, setAdminTab, setAuditFilter, userName, goCountFor, goReceiveFor, setSearch: setAppSearch, pickAdjType, pickAdjMed } = useApp();
   const [search, setSearch] = useState('');
   const [medId, setMedId] = useState<MedId | null>(null);
   const [loading, setLoading] = useState(false);
@@ -461,6 +461,17 @@ export default function SubstockCardScreen() {
                 </select>
                 <button onClick={() => { setMedId(null); setSearch(''); setRows(null); }} style={{ border: '1px solid rgba(42,31,10,.35)', background: 'rgba(255,255,255,.4)', color: '#2a1f0a', padding: '5px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 600 }}>เปลี่ยนยา</button>
               </div>
+            </div>
+            {/* Jump straight to the next job for THIS drug — no searching for it again on another screen. */}
+            <div data-testid="card-actions" style={{ display: 'flex', gap: 7, flexWrap: 'wrap', padding: '10px 12px', background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-soft)' }}>
+              {([
+                ['🔢 นับหน้างาน', () => goCountFor(med.id), true],
+                ['🔄 เติมหน้างาน', () => { setAppSearch(med.name); go('transfer'); }, usesSubstock(med)],
+                ['📦 รับเข้า', () => goReceiveFor(med.id), true],
+                ['⚖️ ปรับยอด/คืนยา', () => { pickAdjType('adjust'); pickAdjMed(med.id); go('adjust'); }, true],
+              ] as const).filter(([, , show]) => show).map(([label, fn]) => (
+                <button key={label} type="button" onClick={fn} className="btn-outline press-spring" style={{ padding: '8px 12px', borderRadius: 10, fontSize: 12.5, fontWeight: 700, minHeight: 40, border: '1px solid var(--green)', color: 'var(--green)', background: 'var(--bg-card)' }}>{label}</button>
+              ))}
             </div>
             {/* Real-world request: "ยาหน้างาน ไม่มีประวัติว่าแต่ละวันถูกตัดยอดไปเท่าไร คงเหลือ
                 เท่าไร" — a med with a substock stage used to only ever show its substock

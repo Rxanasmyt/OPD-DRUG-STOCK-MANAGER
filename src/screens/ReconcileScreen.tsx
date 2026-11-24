@@ -31,7 +31,7 @@ const MISS_REASON_BADGE: Record<'not_in_file' | 'ambiguous', { label: string; co
 };
 
 export default function ReconcileScreen() {
-  const { state, setHosxpDateConfirmed, discardHosxpFile, unresolveHosxpRow, fetchPriorReconcile, resolveHosxpRowsBulk, undoLastReconcile, dismissReconcileResult, processHosxpFile, ignoreHosxpName, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, fetchReconcileMonth, toast, go, setMedsFocusId } = useApp();
+  const { state, setHosxpDateConfirmed, discardHosxpFile, unresolveHosxpRow, fetchPriorReconcile, resolveHosxpRowsBulk, undoLastReconcile, dismissReconcileResult, processHosxpFile, ignoreHosxpName, goCountFor, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, fetchReconcileMonth, toast, go, setMedsFocusId } = useApp();
 
   // Real-world request: "เพื่อนำไปสู่การแก้ไขปัญหายาที่อาจจะยังมีปัญหาครับ"/"สามารถเชื่อมโยงปัญหานั่น
   // ไปแก้ปัญหาจริงได้" — a miss-reasons row used to just explain what's wrong with no way to act
@@ -598,6 +598,7 @@ export default function ReconcileScreen() {
                 {!r.applied && r.med && r.qty - r.already > r.before && (
                   <div style={{ fontSize: 10.5, color: 'var(--red)', fontWeight: 600, marginTop: 3 }}>
                     ⚠ ยอดหน้างานมีแค่ {nf(r.before)} {r.med.unit} แต่ไฟล์จ่าย {nf(r.qty - r.already)} — จะตัดได้เท่าที่มี (ตรวจนับ/เติมยา)
+                    <button type="button" data-testid="count-shortcut" onClick={() => goCountFor(r.med!.id)} style={{ marginLeft: 8, border: '1px solid var(--green)', background: 'transparent', color: 'var(--green)', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 8, minHeight: 28 }}>🔢 นับหน้างาน</button>
                   </div>
                 )}
               </div>
