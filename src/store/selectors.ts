@@ -187,6 +187,17 @@ export function isUrgentLow(m: Med): boolean {
  * warehouse closed for fiscal year-end) never belongs on this list — nothing a requisition can
  * do gets it back on the shelf until supply itself resumes, so requesting it over and over is
  * pure noise that also buries the requests that CAN actually be fulfilled today. */
+/** A med whose floor reads 0 but that the hospital normally stocks (it has a Max, or recent use) and that nobody has
+ * counted TODAY. A 0 in the app is often an artefact (a HOSxP deduction larger than the recorded floor clamps at 0), so it
+ * should be physically checked before anyone trusts it. Counting it today (even to confirm 0) clears the flag. */
+export function needsZeroFloorCheck(m: Med, now: number = Date.now()): boolean {
+  if (!m.active || isOnStockHold(m) || m.floor !== 0) return false;
+  if (!(m.parFloor > 0 || m.used30 > 0)) return false;
+  const last = m.lastCountTs;
+  if (typeof last === 'number' && isFinite(last) && new Date(last + 7 * 3600000).toISOString().slice(0, 10) === new Date(now + 7 * 3600000).toISOString().slice(0, 10)) return false;
+  return true;
+}
+
 export function needsWarehouseRequest(m: Med, curSub: number): boolean {
   if (isOnStockHold(m)) return false;
   return usesSubstock(m) ? curSub < m.parSub : m.floor < m.parFloor;
