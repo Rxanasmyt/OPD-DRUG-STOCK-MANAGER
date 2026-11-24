@@ -77,7 +77,9 @@ export default function CountScreen() {
     setLoc('floor'); setScope('all'); setCatTab('all'); setQ(focusMed.code);
     clearCountFocus();
     window.setTimeout(() => {
-      const el = document.querySelector<HTMLInputElement>('input[aria-label="จำนวนที่นับได้ ' + focusMed.name.replace(/"/g, '\\"') + '"]');
+      const nm = focusMed.name.replace(/"/g, '\\"');
+      // a box-capable med shows กล่อง / เศษ boxes instead of the single total box
+      const el = document.querySelector<HTMLInputElement>('input[aria-label="จำนวนที่นับได้ ' + nm + '"]') ?? document.querySelector<HTMLInputElement>('input[aria-label="จำนวนกล่องที่นับได้ ' + nm + '"]');
       el?.focus();
     }, 80);
     // eslint-disable-next-line react-hooks/exhaustive-deps
