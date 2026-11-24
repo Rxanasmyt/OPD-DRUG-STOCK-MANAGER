@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly, parseIntSafe } from '../utils/format';
 import { SearchInput } from '../components/SearchInput';
-import { categoryOf, subQty, usesSubstock, binDisplayAll, daysOfStockLeft } from '../store/selectors';
+import { categoryOf, subQty, usesSubstock, binDisplayAll, daysOfStockLeft, needsZeroFloorCheck } from '../store/selectors';
 import { CategoryPicker } from '../components/CategoryPicker';
 import { EmptyState } from '../components/EmptyState';
 import { DaysLeftBadge, UsageRateBadge } from '../components/Qty';
@@ -20,7 +20,7 @@ const DAY = 86400000;
 type Sort = 'stale' | 'name' | 'bin';
 /** Extra narrowing on top of search/category — 'typed' is for reviewing what's about to be
  * committed (the batch-save preview), 'never' for "which drugs have never been counted at all". */
-type Scope = 'all' | 'never' | 'typed';
+type Scope = 'all' | 'never' | 'typed' | 'zero';
 /** Which quantity is being counted — the shelf (floor) or the back-room substock. They're
  * tracked completely differently under the hood (floor is one plain number on the med, substock
  * is the sum of real lots — see subQty() in selectors.ts), so nearly everything on this screen
@@ -125,6 +125,7 @@ export default function CountScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typedIds, active, countInputs, loc]);
 
+  const zeroCount = useMemo(() => active.filter((m) => needsZeroFloorCheck(m)).length, [active]);
   const staleness = (m: Med) => { const ts = lastTsOf(m); return ts ? Date.now() - ts : Number.MAX_SAFE_INTEGER; };
 
   const meds = useMemo(() => {
@@ -132,7 +133,7 @@ export default function CountScreen() {
     return active
       .filter((m) => !needle || m.name.toLowerCase().indexOf(needle) >= 0 || m.code.toLowerCase().indexOf(needle) >= 0)
       .filter((m) => catTab === 'all' || categoryOf(m) === catTab)
-      .filter((m) => scope === 'all' || (scope === 'never' ? !lastTsOf(m) : typedSet.has(m.id)))
+      .filter((m) => scope === 'all' || (scope === 'never' ? !lastTsOf(m) : scope === 'zero' ? needsZeroFloorCheck(m) : typedSet.has(m.id)))
       .sort((a, b) => {
         if (sort === 'name') return a.name.localeCompare(b.name, 'th');
         if (sort === 'bin') {
@@ -218,6 +219,9 @@ export default function CountScreen() {
       <div className="scroll-fade-x" style={{ display: 'flex', gap: 7, marginBottom: 8, overflowX: 'auto', paddingBottom: 2 }}>
         <button className="chip" style={{ ...chip(scope === 'all'), flex: 'none' }} onClick={() => setScope('all')}>ทั้งหมด</button>
         <button className="chip" style={{ ...chip(scope === 'never'), flex: 'none' }} onClick={() => setScope('never')}>ยังไม่เคยนับ ({nf(active.length - countedEver)})</button>
+        {loc === 'floor' && (
+          <button className="chip" data-testid="zero-chip" style={{ ...chip(scope === 'zero'), flex: 'none', ...(zeroCount > 0 && scope !== 'zero' ? { borderColor: 'var(--amber)', color: 'var(--amber-ink)' } : {}) }} onClick={() => setScope('zero')}>⚠ ยอด 0 ควรนับจริง ({nf(zeroCount)})</button>
+        )}
         <button className="chip" style={{ ...chip(scope === 'typed'), flex: 'none' }} onClick={() => setScope('typed')}>ที่กรอกไว้ ({nf(typedIds.length)})</button>
       </div>
       <CategoryPicker value={catTab} onChange={setCatTab} counts={catCounts} total={Object.values(catCounts).reduce((a, b) => a + b, 0)} />
