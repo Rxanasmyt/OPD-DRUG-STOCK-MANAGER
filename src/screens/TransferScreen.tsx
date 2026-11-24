@@ -2,7 +2,7 @@ import RecentMoves from './RecentMoves';
 import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import type { MedId } from '../types';
-import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, effectiveRouteOf, binDisplayAll, daysOfStockLeft, expTone, isOnStockHold, boxBreakdownLabel } from '../store/selectors';
+import { toneFor, subTone, usesSubstock, floorMinOf, isUrgentLow, categoryOf, effectiveRouteOf, binDisplayAll, daysOfStockLeft, expTone, isOnStockHold, boxBreakdownLabel, needsZeroFloorCheck } from '../store/selectors';
 import { nf, lotLabel, expLabel, digitsOnly, isoDate, daysUntil, bangkokWeekday } from '../utils/format';
 import { medColor } from '../utils/color';
 import { MedDot } from '../components/MedDot';
@@ -69,7 +69,7 @@ function CartQtyInput({ med, value, onChange }: { med: { packSize?: number | und
 const routeGroups = ROUTES.map((r) => ({ key: r.id, label: routeGroupLabel(r.id) }));
 
 export default function TransferScreen() {
-  const { state, sub, fefo, fefoFloor, setSearch, setFilter, bump, setCartQty, fillAll, fillUrgent, clearCart, printPickList, printTodayReplenishList, go, openScanSearch, goSubstockCardFor } = useApp();
+  const { state, sub, fefo, fefoFloor, setSearch, setFilter, bump, setCartQty, fillAll, fillUrgent, clearCart, printPickList, printTodayReplenishList, go, openScanSearch, goSubstockCardFor, goReceiveFor } = useApp();
   // Real-world request: "ให้ทุกหน้าที่แสดงชื่อยาจำนวนยา...ให้สามารถดูบัตรสต็อคได้" — this screen
   // already had an indirect path (tap "ดูภาพรวม" to expand MedMiniCard, which has its own "ดู
   // บัตรสต็อกเต็ม →" link at the bottom), but that's an extra tap before the extra tap. Making
@@ -139,20 +139,26 @@ export default function TransferScreen() {
   // "Bug fix" comments in AppContext.tsx) means this now only recomputes when the inputs that
   // actually matter change.
   const meds = useMemo(() => state.meds.filter((m) => m.active && usesSubstock(m) && !isOnStockHold(m)), [state.meds]);
+  // What the list SHOWS: also the meds with no substock stage (they are restocked by "รับเข้า" straight onto the floor,
+  // not by a transfer) — the same usage / Min-Max / days-left information, just a รับเข้า button instead of a cart stepper.
+  // `meds` above stays the cart-able set (fill-all / fill-urgent / the pick list never include them).
+  const shown = useMemo(() => state.meds.filter((m) => m.active && !isOnStockHold(m)), [state.meds]);
+  const lowShown = useMemo(() => shown.filter((m) => m.floor < floorMinOf(m)), [shown]);
+  const urgentShown = useMemo(() => shown.filter(isUrgentLow), [shown]);
   const low = useMemo(() => meds.filter((m) => m.floor < floorMinOf(m)), [meds]);
   // Subset of `low` already at/below half of Min — see isUrgentLow()'s doc comment
   // (selectors.ts) for why this exists: a short-staffed day needs a way to do just the
   // can't-wait items without either doing everything below Min or guessing which ones matter.
   const urgent = useMemo(() => meds.filter(isUrgentLow), [meds]);
   const q = state.search.trim().toLowerCase();
-  const filteredByStatus = useMemo(() => meds.filter((m) => {
+  const filteredByStatus = useMemo(() => shown.filter((m) => {
     if (q && m.name.toLowerCase().indexOf(q) < 0 && m.code.toLowerCase().indexOf(q) < 0) return false;
     if (state.filter === 'low') return m.floor < floorMinOf(m);
     if (state.filter === 'urgent') return isUrgentLow(m);
     if (state.filter === 'had') return m.had;
     if (state.filter === 'fridge') return m.fridge;
     return true;
-  }), [meds, q, state.filter]);
+  }), [shown, q, state.filter]);
   // Counts per category under the low/all/had + search filter above but BEFORE the category
   // tab itself narrows anything — same reasoning as MedsScreen's catCounts: seeing "ยาแก้ปวด…
   // (18)" next to "ยาฉุกเฉิน… (2)" is what makes a high-volume vs. low-volume group visible at
@@ -162,7 +168,7 @@ export default function TransferScreen() {
     filteredByStatus.forEach((m) => { const c = categoryOf(m); counts[c] = (counts[c] || 0) + 1; });
     return counts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meds, state.filter, q]);
+  }, [shown, state.filter, q]);
   const filtered = useMemo(() => filteredByStatus
     .filter((m) => catTab === 'all' || categoryOf(m) === catTab)
     // Bug fix: a brand-new med with parFloor still 0 (Max not set yet) made this divide by
@@ -243,8 +249,8 @@ export default function TransferScreen() {
         <div className="scroll-fade-x" style={{ display: 'flex', gap: 7, marginTop: 9, overflowX: 'auto', paddingBottom: 2 }}>
           {/* "เร่งด่วนวันนี้" — ต่ำกว่าครึ่งหนึ่งของ Min เท่านั้น (isUrgentLow) — วันที่กำลังคนน้อย
               กดดูแค่กลุ่มนี้ก่อนได้ ไม่ต้องเติมทุกอย่างที่ต่ำกว่า Min ในครั้งเดียว */}
-          <button className="chip" style={{ ...chip(state.filter === 'urgent'), ...(state.filter === 'urgent' ? { background: 'var(--red)', borderColor: 'var(--red)' } : { color: urgent.length ? 'var(--red)' : undefined, borderColor: urgent.length ? 'var(--red)' : undefined }) }} onClick={() => setFilter('urgent')}>🔴 เร่งด่วนวันนี้ ({urgent.length})</button>
-          <button className="chip" style={chip(state.filter === 'low')} onClick={() => setFilter('low')}>ต่ำกว่า Min ({low.length})</button>
+          <button className="chip" style={{ ...chip(state.filter === 'urgent'), ...(state.filter === 'urgent' ? { background: 'var(--red)', borderColor: 'var(--red)' } : { color: urgentShown.length ? 'var(--red)' : undefined, borderColor: urgentShown.length ? 'var(--red)' : undefined }) }} onClick={() => setFilter('urgent')}>🔴 เร่งด่วนวันนี้ ({urgentShown.length})</button>
+          <button className="chip" style={chip(state.filter === 'low')} onClick={() => setFilter('low')}>ต่ำกว่า Min ({lowShown.length})</button>
           <button className="chip" style={chip(state.filter === 'all')} onClick={() => setFilter('all')}>ทั้งหมด</button>
           <button className="chip" style={chip(state.filter === 'had')} onClick={() => setFilter('had')}>High alert</button>
           <button className="chip" style={{ ...chip(state.filter === 'fridge'), ...(state.filter === 'fridge' ? { background: 'var(--fridge)', borderColor: 'var(--fridge)' } : {}) }} onClick={() => setFilter('fridge')}>🧊 ตู้เย็น</button>
@@ -340,9 +346,10 @@ export default function TransferScreen() {
                         <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>
                           หน้างาน <Qty value={m.floor} unit={m.unit} tone={toneFor(m)} size={12.5} /> ·{' '}
                           <span style={{ color: PAR_LABEL_COLOR.min, fontWeight: 700 }}>Min {nf(floorMinOf(m))}</span> /{' '}
-                          <span style={{ color: PAR_LABEL_COLOR.max, fontWeight: 700 }}>Max {nf(m.parFloor)}</span> · substock{' '}
+                          <span style={{ color: PAR_LABEL_COLOR.max, fontWeight: 700 }}>Max {nf(m.parFloor)}</span>
+                          {usesSubstock(m) ? (<> · substock{' '}
                           <Qty value={sub(m.id)} tone={subTone(sub(m.id), m.parSub)} size={12.5} /> /{' '}
-                          <span style={{ color: PAR_LABEL_COLOR.sub, fontWeight: 700 }}>par {nf(m.parSub)}</span> {m.unit}
+                          <span style={{ color: PAR_LABEL_COLOR.sub, fontWeight: 700 }}>par {nf(m.parSub)}</span></>) : <span style={{ color: 'var(--amber-ink)', fontWeight: 700 }}> · ไม่มี substock (รับเข้าขึ้นหน้างานตรง)</span>} {m.unit}
                         </div>
                         {/* Same at-a-glance floor-vs-par bar HomeScreen's low-stock list already uses
                             — brought here too so the screen someone actually works from all day shows
@@ -359,7 +366,7 @@ export default function TransferScreen() {
                             moment before that write actually happens to flag it. expTone() already
                             existed in selectors.ts for exactly this color scale but had no call site
                             anywhere in the app until now. */}
-                        {(() => {
+                        {usesSubstock(m) && (() => {
                           // Bug fix (type-safety audit): a lot doc missing `exp` (a real past
                           // bug per this codebase's own comments elsewhere) used to make
                           // daysUntil()/thDate() render "Invalid Date"/NaN-driven styling here —
@@ -419,6 +426,11 @@ export default function TransferScreen() {
                           <PackSizeBadge packSize={m.packSize} unit={m.unit} />
                           <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={isUrgentLow(m)} packSize={m.packSize} />
                           <DaysLeftBadge days={daysOfStockLeft(state, m)} />
+                          {needsZeroFloorCheck(m) && (
+                            <button data-testid="zero-check" onClick={stopRowNav(() => go('count'))} title="ยอดหน้างานในแอปเป็น 0 — ไปนับยืนยันว่ายาหมดจริงหรือไม่" style={{ border: '1px solid var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 8 }}>
+                              ⚠ ยอด 0 — ตรวจนับจริงหรือยัง? นับ ›
+                            </button>
+                          )}
                           {/* Follow-up request: "มีอะไรตกหล่นบ้าง...ทำทั้งหมด" — surfaces the
                               weekday-usage-pattern analysis (analyzeWeekdayUsage, AppContext.tsx)
                               right where someone's actually deciding how much to fill TODAY,
@@ -445,9 +457,13 @@ export default function TransferScreen() {
                             target — tapped repeatedly per line item while building a transfer, unlike
                             every other actionable button on this screen (scan/clear/print/submit),
                             which already used 44px+. */}
+                        {!usesSubstock(m) ? (
+                          <button onClick={() => goReceiveFor(m.id)} className="btn-outline press-spring" title="ยานี้ไม่มี substock — รับเข้าแล้วขึ้นหน้างานทันที" aria-label={'รับเข้า ' + m.name} style={{ padding: '9px 13px', borderRadius: 10, fontSize: 13, fontWeight: 700, minHeight: 44, border: '1px solid var(--amber)', color: 'var(--amber-ink)' }}>รับเข้า</button>
+                        ) : (<>
                         <button onClick={() => bump(m.id, -1)} aria-label={'ลดจำนวน ' + m.name} className="press-spring" style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', width: 44, height: 44, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>−</button>
                         <CartQtyInput med={m} value={state.cart[m.id] || 0} onChange={(v) => setCartQty(m.id, v)} />
                         <button onClick={() => bump(m.id, 1)} aria-label={'เพิ่มจำนวน ' + m.name} className="press-spring" style={{ border: '1px solid var(--green)', background: 'var(--green-tint)', color: 'var(--green)', width: 44, height: 44, borderRadius: 10, fontSize: 19, lineHeight: 1 }}>+</button>
+                        </>)}
                       </div>
                     </div>
                   </div>
