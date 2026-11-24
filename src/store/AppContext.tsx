@@ -6202,6 +6202,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---------- count ----------
   const setCountInput = useCallback((medId: MedId, v: string) => patch((st) => ({ countInputs: { ...st.countInputs, [medId]: digitsOnly(v) } })), [patch]);
 
+  // A floor count sets med.floor but used to leave the floorLots (per-lot shelf batches) untouched, so after counting a shelf
+  // down to 0 the transfer list still showed "บนชั้น: lot X · เหลือ 60" for stock that is no longer there (and the lot tracker
+  // overstated the shelf). Mirrors the HOSxP reconcile: when the counted total is BELOW what the lots add up to, take the excess
+  // out soonest-expiry-first. Best-effort and after the count itself committed — it can never block or fail a count.
+  const trimFloorLotsTo = useCallback(async (medId: MedId, counted: number) => {
+    try {
+      const docs = await fetchActiveFloorLotsByMedId(medId);
+      const lots = docs.map((d) => ({ id: d.id, exp: (d.data() as { exp?: number }).exp ?? Infinity })).sort((a, b) => a.exp - b.exp);
+      if (!lots.length) return;
+      await runTx(async (trx) => {
+        const cur: { id: string; qty: number }[] = [];
+        for (const l of lots.slice(0, 12)) { const sn = await trx.get(floorLotRef(l.id)); cur.push({ id: l.id, qty: (sn.data() as { qty?: number } | undefined)?.qty ?? 0 }); }
+        let need = cur.reduce((s, l) => s + Math.max(0, l.qty), 0) - Math.max(0, counted);
+        for (const l of cur) {
+          if (need <= 0) break;
+          if (l.qty <= 0) continue;
+          const take = Math.min(need, l.qty);
+          trx.update(floorLotRef(l.id), { qty: l.qty - take });
+          need -= take;
+        }
+      });
+    } catch { /* best-effort */ }
+  }, [runTx]);
+
   const commitCount = useCallback(guardOnce('count', async (medId: MedId) => {
     const raw = state.countInputs[medId];
     const q = parseInt(raw, 10);
@@ -6246,10 +6270,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } satisfies Omit<import('../types').Tx, 'id'>);
       });
       patch((st) => { const ci = { ...st.countInputs }; delete ci[medId]; return { countInputs: ci }; });
+      if (delta < 0) void trimFloorLotsTo(medId, q);
       hapticSuccess();
       toast(m.name + ' — ' + note);
     } catch (e) { toastErr(e, 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง'); }
-  }), [state.countInputs, state.meds, userName, toast, toastErr, patch, guardOnce, confirmAsync]);
+  }), [state.countInputs, state.meds, userName, toast, toastErr, patch, guardOnce, confirmAsync, trimFloorLotsTo]);
 
   // Batch version of commitCount() for a real cycle count: someone walks the shelf typing
   // numbers into 20-40 rows, then commits the lot in one tap. Deliberately NOT one big
@@ -6322,6 +6347,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           } satisfies Omit<import('../types').Tx, 'id'>);
         });
         patch((st) => { const ci = { ...st.countInputs }; delete ci[medId]; return { countInputs: ci }; });
+        if (delta < 0) await trimFloorLotsTo(asMedId(medId), q);
         ok++;
         if (delta !== 0) diffs++;
       } catch (e) {
@@ -6337,7 +6363,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ? 'บันทึกแล้ว ' + ok + ' รายการ · ไม่สำเร็จ ' + failed + ' รายการ: ' + failedNames.slice(0, 5).join(', ')
         + (failedNames.length > 5 ? ' และอีก ' + (failedNames.length - 5) + ' รายการ' : '') + ' (ยังค้างอยู่ในหน้าจอ ลองกดบันทึกอีกครั้ง)'
       : 'บันทึกครบ ' + ok + ' รายการ' + (diffs > 0 ? ' · มีส่วนต่าง ' + diffs + ' รายการ (ดูได้ใน Discrepancy log)' : ' · ตรงกับระบบทุกรายการ'));
-  }), [state.countInputs, state.meds, toast, patch, guardOnce, confirmAsync]);
+  }), [state.countInputs, state.meds, toast, patch, guardOnce, confirmAsync, trimFloorLotsTo]);
 
   // ---------- substock count ----------
   const setSubCountInput = useCallback((medId: MedId, v: string) => patch((st) => ({ subCountInputs: { ...st.subCountInputs, [medId]: digitsOnly(v) } })), [patch]);
