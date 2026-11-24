@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react';
 import { useApp } from '../store/AppContext';
 import type { MedId } from '../types';
-import { toneFor, subTone, daysUntil, usesSubstock, floorMinOf, isUrgentLow, needsWarehouseRequest, lastReconcileDateIso, suggestTransferQty, isOnStockHold } from '../store/selectors';
+import { toneFor, subTone, daysUntil, usesSubstock, floorMinOf, isUrgentLow, needsWarehouseRequest, needsZeroFloorCheck, lastReconcileDateIso, suggestTransferQty, isOnStockHold } from '../store/selectors';
 import { nf, lotLabel, expLabel, isoDate } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge, UsageRateBadge, PAR_LABEL_COLOR } from '../components/Qty';
@@ -104,6 +104,7 @@ export default function HomeScreen() {
   // on TransferScreen, pending approvals on ReceiveScreen, ตัดยอด HOSxP status on
   // ReconcileScreen, the warehouse-request count) into one glance here instead.
   const urgent = useMemo(() => meds.filter((m) => usesSubstock(m) && isUrgentLow(m) && !isOnStockHold(m)), [meds]);
+  const zeroFloor = useMemo(() => meds.filter((m) => needsZeroFloorCheck(m)), [meds]);
   const needsWarehouse = useMemo(() => meds.filter((m) => needsWarehouseRequest(m, sub(m.id))), [meds, sub]);
   const W = warn();
   const medIds = useMemo(() => new Set(meds.map((m) => m.id)), [meds]);
@@ -204,6 +205,10 @@ export default function HomeScreen() {
           <ChecklistRow
             icon="🔴" label="ยาเร่งด่วนวันนี้" value={urgent.length ? urgent.length + ' รายการ' : 'ไม่มี'}
             tone={urgent.length ? 'var(--red)' : 'var(--green)'} onClick={() => go('transfer')}
+          />
+          <ChecklistRow
+            icon="0️⃣" label="ยอดหน้างานเป็น 0 — ควรนับจริง" value={zeroFloor.length ? zeroFloor.length + ' รายการ' : 'ไม่มี'}
+            tone={zeroFloor.length ? 'var(--amber)' : 'var(--green)'} onClick={() => go('count')}
           />
           <ChecklistRow
             icon="🧾" label="ตัดยอด HOSxP วันนี้" value={reconciledToday ? 'ทำแล้ว ✓' : 'ยังไม่ได้ทำ'}
