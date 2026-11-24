@@ -495,7 +495,8 @@ export interface AppCtx {
   setSearch: (v: string) => void;
   setFilter: (f: AppState['filter']) => void;
   setWardFilter: (w: AppState['wardFilter']) => void;
-  bump: (id: MedId, d: number) => void;
+  /** `opts.step`: the first + on an empty cart adds exactly ONE box/step (the เติมหน้างาน list's own + button) instead of jumping to the suggested fill-to-Max amount (the home quick-add / QR-scan default). */
+  bump: (id: MedId, d: number, opts?: { step?: boolean }) => void;
   setCartQty: (id: MedId, raw: string) => void;
   fillAll: () => void;
   fillUrgent: () => void;
@@ -2180,7 +2181,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // box/magnitude step (packStep) once confirmed — there's no real "need" to size a suggestion
   // off here, so a single step is the same reasonable starting point a normal first tap gives,
   // left for the person to bump further or type an exact pre-pack quantity into the field.
-  const bump = useCallback(async (id: MedId, d: number) => {
+  const bump = useCallback(async (id: MedId, d: number, opts?: { step?: boolean }) => {
     if (d > 0 && !(state.cart[id] > 0)) {
       const m = state.meds.find((x) => x.id === id);
       if (m) {
@@ -2204,7 +2205,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const cap = subQty(st, id);
       const step = packStep(m);
       const cur = st.cart[id] || 0;
-      let v = cur === 0 && d > 0 ? (suggestTransferQty(st, m) || step) : cur + d * step;
+      let v = cur === 0 && d > 0 && !opts?.step ? (suggestTransferQty(st, m) || step) : cur + d * step;
       v = Math.max(0, Math.min(cap, v));
       const cart = { ...st.cart };
       if (v <= 0) delete cart[id]; else cart[id] = v;
