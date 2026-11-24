@@ -1561,7 +1561,14 @@ export function parBreakdown(m: Med, floorCoverDays: number, subCoverDays: numbe
   // signal (peak-day floor, volatility, stockout boost) is untouched — those are real risk
   // signals, not a day-unit mismatch.
   const dailyCalendar = daily * (WEEKDAYS_PER_30_DAYS / 30);
-  const avgSub = roundStep(dailyCalendar * subCoverDays * effectiveVolatility * stockoutBoost);
+  // Real-world report: "ตัวเลข min max par ดูเยอะผิดปกติ". `effectiveVolatility` (1 + usageCv, up to 3) is a buffer for the
+  // day-to-day swing over a SHORT shelf window; applied unchanged to a 28-day substock window it doubled/tripled a figure that
+  // already carries a full cycle of cover (e.g. CV 1.0 → par = 2.1x the plain 28-day need), because day-to-day swings largely
+  // cancel out over a long window (the relative spread of an N-day total shrinks ~1/sqrt(N)). Scale the EXTRA buffer by
+  // sqrt(floorDays/subDays) for the substock stage; the shelf (floor) number is untouched, and a med with no substock stage
+  // (floorDays === subDays) gets the factor 1, i.e. identical to before.
+  const subVolatility = 1 + (effectiveVolatility - 1) * Math.sqrt(Math.min(1, floorDays / Math.max(1, subCoverDays)));
+  const avgSub = roundStep(dailyCalendar * subCoverDays * subVolatility * stockoutBoost);
   const peakBasis = m.peakDayP90Qty ?? m.peakDayQty;
   const peakFloor = peakBasis ? roundStep(peakBasis) : 0;
   const floor = Math.max(avgFloor, peakFloor);
