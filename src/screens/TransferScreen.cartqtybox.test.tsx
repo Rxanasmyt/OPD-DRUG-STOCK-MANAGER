@@ -86,9 +86,26 @@ describe('TransferScreen — CartQtyInput box notation regression', () => {
 
     const input = await screen.findByLabelText('จำนวน ' + PLAIN_MED.name);
     await user.click(screen.getByLabelText('เพิ่มจำนวน ' + PLAIN_MED.name));
-    // suggestTransferQty() rounds the raw 75 deficit up to the generic 10-unit step (80) for a
-    // med with no real box size — this field must show that plain number, never an "x" notation.
-    expect(input).toHaveValue('80');
+    // One tap adds ONE step (the generic 10-unit step for a med with no real box size), not the whole
+    // fill-to-Max deficit — this field must show that plain number, never an "x" notation.
+    expect(input).toHaveValue('10');
     expect(input.getAttribute('value')).not.toMatch(/x/);
+  });
+
+  it('each + adds exactly ONE box (not a jump to Max), and − steps back one box', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<TransferScreen />);
+    await signInAs('u1', { role: 'pharm', name: 'ทดสอบ ภก.', username: 'test' });
+    await waitFor(() => expect(hasListener('meds')).toBe(true));
+    fireCollection('meds', [BOXED_MED]);
+    fireCollection('lots', [BOXED_LOT]);
+    const input = await screen.findByLabelText('จำนวน ' + BOXED_MED.name);
+    const plus = screen.getByLabelText('เพิ่มจำนวน ' + BOXED_MED.name);
+    await user.click(plus);
+    expect(input).toHaveValue('1x60'); // deficit is 75, but the first tap is one box
+    await user.click(plus);
+    expect(input).toHaveValue('2x60');
+    await user.click(screen.getByLabelText('ลดจำนวน ' + BOXED_MED.name));
+    expect(input).toHaveValue('1x60');
   });
 });
