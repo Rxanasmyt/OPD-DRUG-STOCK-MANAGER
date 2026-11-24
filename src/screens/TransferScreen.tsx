@@ -69,7 +69,7 @@ function CartQtyInput({ med, value, onChange }: { med: { packSize?: number | und
 const routeGroups = ROUTES.map((r) => ({ key: r.id, label: routeGroupLabel(r.id) }));
 
 export default function TransferScreen() {
-  const { state, sub, fefo, fefoFloor, setSearch, setFilter, bump, setCartQty, fillAll, fillUrgent, clearCart, printPickList, printTodayReplenishList, go, openScanSearch, goSubstockCardFor, goReceiveFor } = useApp();
+  const { state, sub, fefo, fefoFloor, setSearch, setFilter, bump, setCartQty, fillAll, fillUrgent, clearCart, printPickList, printTodayReplenishList, go, openScanSearch, goSubstockCardFor, goReceiveFor, goCountFor } = useApp();
   // Real-world request: "ให้ทุกหน้าที่แสดงชื่อยาจำนวนยา...ให้สามารถดูบัตรสต็อคได้" — this screen
   // already had an indirect path (tap "ดูภาพรวม" to expand MedMiniCard, which has its own "ดู
   // บัตรสต็อกเต็ม →" link at the bottom), but that's an extra tap before the extra tap. Making
@@ -427,7 +427,7 @@ export default function TransferScreen() {
                           <DeficitBadge amount={Math.max(0, m.parFloor - m.floor)} unit={m.unit} urgent={isUrgentLow(m)} packSize={m.packSize} />
                           <DaysLeftBadge days={daysOfStockLeft(state, m)} />
                           {needsZeroFloorCheck(m) && (
-                            <button data-testid="zero-check" onClick={stopRowNav(() => go('count'))} title="ยอดหน้างานในแอปเป็น 0 — ไปนับยืนยันว่ายาหมดจริงหรือไม่" style={{ border: '1px solid var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 8 }}>
+                            <button data-testid="zero-check" onClick={stopRowNav(() => goCountFor(m.id))} title="ยอดหน้างานในแอปเป็น 0 — ไปนับยืนยันว่ายาหมดจริงหรือไม่" style={{ border: '1px solid var(--amber)', background: 'var(--amber-bg)', color: 'var(--amber-ink)', fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 8 }}>
                               ⚠ ยอด 0 — ตรวจนับจริงหรือยัง? นับ ›
                             </button>
                           )}
@@ -440,6 +440,15 @@ export default function TransferScreen() {
                               📅 มักใช้มากวันนี้
                             </span>
                           )}
+                          <button
+                            data-testid="count-shortcut"
+                            onClick={stopRowNav(() => goCountFor(m.id))}
+                            title="ไปนับยอดหน้างานของยานี้ทันที"
+                            aria-label={'นับหน้างาน ' + m.name}
+                            style={{ border: '1px solid var(--green)', background: 'transparent', color: 'var(--green)', fontSize: 11.5, fontWeight: 700, padding: '3px 9px', borderRadius: 8 }}
+                          >
+                            🔢 นับหน้างาน
+                          </button>
                           <button
                             onClick={stopRowNav(() => setExpandedId(expandedId === m.id ? null : m.id))}
                             style={{ border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 11, fontWeight: 600, padding: '2px 0' }}

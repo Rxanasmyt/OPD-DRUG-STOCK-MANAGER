@@ -368,6 +368,7 @@ function freshState(): AppState {
 
     medsFocusId: null,
     substockFocusId: null,
+    countFocusId: null,
 
     adminTab: 'users', auditFilter: 'all',
     historyFrom: '', historyTo: '', historyResults: null, historyLoading: false, historyTruncated: false,
@@ -676,6 +677,9 @@ export interface AppCtx {
   repairMedCountTsIssues: (issues: MedCountTsIssue[]) => Promise<boolean>;
   setMedsFocusId: (id: MedId | null) => void;
   goSubstockCardFor: (medId: MedId) => void;
+  /** Open the count screen on the floor (หน้างาน) tab for just this med, so it can be counted right away. */
+  goCountFor: (medId: MedId) => void;
+  clearCountFocus: () => void;
   setSubstockFocusId: (id: MedId | null) => void;
 
   // count
@@ -1995,7 +1999,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       qrOpen: false, qrManualOpen: false, qrCode: '', qrManualReason: '', qrPurpose: null, scanConfirmMedId: null, hadOk: {},
       countInputs: {}, subCountInputs: {}, hosxpText: '', hosxpRows: null, hosxpConfirmFuzzy: false, hosxpCoveredFrom: '', hosxpCoveredTo: '', hosxpAppliedRowIndexes: [], hosxpFileInfo: null, hosxpDateConfirmed: false, reconcileProgress: null, reconcileResult: null,
       usageDateFrom: '', usageDateTo: '', usageFileName: null, usageRows: null, usageConfirmFuzzy: false,
-      labelSelected: {}, medsFocusId: null, substockFocusId: null, doneKind: null, doneRows: [],
+      labelSelected: {}, medsFocusId: null, substockFocusId: null, countFocusId: null, doneKind: null, doneRows: [],
     });
   }, [patch]);
   const setDevice = useCallback((d: 'phone' | 'tablet') => patch({ device: d }), [patch]);
@@ -5853,6 +5857,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const goSubstockCardFor = useCallback((medId: MedId) => {
     setState((st) => ({ ...st, screen: 'substockcard', navStack: pushNav(st.navStack, st.screen), substockFocusId: medId }));
   }, []);
+  const goCountFor = useCallback((medId: MedId) => {
+    setState((st) => ({ ...st, screen: 'count', navStack: pushNav(st.navStack, st.screen), countFocusId: medId }));
+  }, []);
+  const clearCountFocus = useCallback(() => patch({ countFocusId: null }), [patch]);
   const setSubstockFocusId = useCallback((id: MedId | null) => patch({ substockFocusId: id }), [patch]);
 
   // ---------- virtual substock card ----------
@@ -7884,7 +7892,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setLabelType, setLocScope, setLabelWardScope, toggleLabelSelected, selectAllLabels, clearLabelSelected, printLabels,
     applyOnePar, applyAllSuggested, setAllMinHalfOfMax, setAllMinSuggested, setParSub, setParFloor, setMedBin, setMedBinSub, setMedCategory, setMedRoute, recomputeUsageStats, analyzeWeekdayUsage, clearMedWeekdayPattern, clearMedPeakDay, updateGlobalSettings,
     addMed, updateMedFull, mergeWardMeds, mergeAllWardPairs, shareAllMeds, autoCategorizeAll, autoRouteAll, toggleMedActive, startStockHold, endStockHold, deleteMed, deleteAllInactiveMeds, resetAllStockLedgers, resetAllQuantities, scanMedCountTsIssues, repairMedCountTsIssues, setMedsFocusId,
-    goSubstockCardFor, setSubstockFocusId,
+    goSubstockCardFor, goCountFor, clearCountFocus, setSubstockFocusId,
     fetchSubstockLedger, fetchFloorLedger, fetchStockAsOf, exportStockAsOfCsv, fetchDailyMetrics, exportDailyMetricsCsv, fetchUsageHistory, exportUsageHistoryCsv, fetchParAdjustments, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts,
     setHosxpText, processHosxp, processHosxpFile, setHosxpConfirmFuzzy, setHosxpCoveredFrom, setHosxpCoveredTo, commitReconcile, fetchReconcileGaps, fetchReconcileMonth,
     setUsageDateFrom, setUsageDateTo, importUsageFile, setUsageConfirmFuzzy, clearUsageImport, commitUsageImport,

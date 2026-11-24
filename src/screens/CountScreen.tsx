@@ -1,6 +1,6 @@
 import RecentCounts from './RecentCounts';
 import { assessCount } from '../utils/entryGuard';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { nf, digitsOnly, parseIntSafe } from '../utils/format';
 import { SearchInput } from '../components/SearchInput';
@@ -38,7 +38,7 @@ type Loc = 'floor' | 'sub';
 type EntryMode = 'unit' | 'box';
 
 export default function CountScreen() {
-  const { state, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts, goSubstockCardFor } = useApp();
+  const { state, setCountInput, commitCount, commitAllCounts, setSubCountInput, commitSubCount, commitAllSubCounts, goSubstockCardFor, clearCountFocus } = useApp();
   // Real-world request: "ให้ทุกหน้าที่แสดงชื่อยาจำนวนยา...ให้สามารถดูบัตรสต็อคได้" — this screen
   // never got the same treatment HomeScreen/TransferScreen/ReceiveScreen/ReportScreen already
   // have. A real gap: hitting a row with "มากกว่าระบบ"/"น้อยกว่าระบบ" during a cycle count is
@@ -60,6 +60,18 @@ export default function CountScreen() {
   const [sort, setSort] = useState<Sort>('stale');
   const [scope, setScope] = useState<Scope>('all');
   const [catTab, setCatTab] = useState<'all' | string>('all');
+  // Arrived from a list row's "นับ" button (goCountFor): show just that med on the floor tab, then focus its box.
+  const focusMed = state.countFocusId ? state.meds.find((x) => x.id === state.countFocusId) : undefined;
+  useEffect(() => {
+    if (!state.countFocusId || !focusMed) return;
+    setLoc('floor'); setScope('all'); setCatTab('all'); setQ(focusMed.code);
+    clearCountFocus();
+    window.setTimeout(() => {
+      const el = document.querySelector<HTMLInputElement>('input[aria-label="จำนวนที่นับได้ ' + focusMed.name.replace(/"/g, '\\"') + '"]');
+      el?.focus();
+    }, 80);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.countFocusId, focusMed?.id]);
   const [entryMode, setEntryMode] = useState<EntryMode>('box');
   // Per-row กล่อง/เศษ breakdown, kept purely as local UI state (never sent anywhere on its
   // own) — the actual value that gets committed is always the multiplied-out total written into

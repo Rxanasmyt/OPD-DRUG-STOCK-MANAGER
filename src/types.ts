@@ -1072,6 +1072,8 @@ export interface AppState {
 
   medsFocusId: MedId | null;
   substockFocusId: MedId | null;
+  /** set by goCountFor(): the count screen opens on the floor tab filtered to this one med (then clears it) */
+  countFocusId: MedId | null;
 
   adminTab: AdminTab;
   auditFilter: AuditFilter;
