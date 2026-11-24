@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { scanLabelPhoto, type LabelScanResult } from '../utils/ocrEngine';
+import { LabelLiveScan } from './LabelLiveScan';
 
 /**
  * "📷 ถ่ายกล่องยา" — photograph the box, OCR reads Lot and expiry, the pharmacist CONFIRMS. Uses the
@@ -16,6 +17,7 @@ export function LabelPhotoScan({ onLot, onExp, currentLot, currentExp }: {
   const [res, setRes] = useState<LabelScanResult | null>(null);
   const [thumb, setThumb] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [liveOpen, setLiveOpen] = useState(false);
 
   async function onFile(f: File | undefined) {
     if (!f) return;
@@ -46,9 +48,13 @@ export function LabelPhotoScan({ onLot, onExp, currentLot, currentExp }: {
 
   return (
     <div style={{ marginBottom: 9 }}>
+      <button type="button" data-testid="live-scan-btn" disabled={!!busy} onClick={() => setLiveOpen(true)} style={{ width: '100%', marginBottom: 7, border: '1.5px solid var(--green)', background: 'var(--grad-brand)', color: 'var(--ink-soft)', borderRadius: 12, padding: '13px 14px', fontSize: 15, fontWeight: 800, minHeight: 48 }}>
+        📹 สแกนอัตโนมัติ — เปิดกล้องแล้วอ่านเอง ไม่ต้องกดถ่าย
+      </button>
+      {liveOpen && <LabelLiveScan onLot={onLot} onExp={onExp} currentLot={currentLot} currentExp={currentExp} onClose={() => setLiveOpen(false)} />}
       <input ref={inputRef} type="file" accept="image/*" capture="environment" hidden data-testid="label-photo-input" onChange={(e) => void onFile(e.target.files?.[0])} />
       <button type="button" disabled={!!busy} onClick={() => inputRef.current?.click()} style={{ width: '100%', border: '1.5px dashed var(--green)', background: 'var(--green-tint)', color: 'var(--green)', borderRadius: 10, padding: '11px 12px', fontSize: 13.5, fontWeight: 700, minHeight: 46 }}>
-        {busy ? '⏳ ' + busy : '📷 ถ่ายกล่องยา — อ่าน Lot และวันหมดอายุอัตโนมัติ'}
+        {busy ? '⏳ ' + busy : '📷 ถ่ายรูปกล่องยา (ทางเลือกสำรอง) — อ่าน Lot และวันหมดอายุ'}
       </button>
       {err && <div style={{ color: 'var(--red)', fontSize: 12.5, marginTop: 6, lineHeight: 1.5 }}>{err}</div>}
       {res && (

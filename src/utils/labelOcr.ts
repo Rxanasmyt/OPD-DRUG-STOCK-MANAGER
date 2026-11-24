@@ -304,3 +304,14 @@ export function mergeParses(parses: LabelParse[], now = Date.now()): LabelParse 
     expiryConfident: isConfident(ex),
   };
 }
+
+/** Live camera scan: when to stop reading frames. A value must be seen in 2+ separate frames (the same agreement rule as the
+ * multi-pass photo scan) — one lucky misread of a moving frame is never enough. The Lot is optional (some boxes have none),
+ * so after `lotGraceFrames` frames an expiry that is already confident is accepted without it. */
+export function liveScanVerdict(merged: LabelParse, frames: number, lotGraceFrames = 8): 'done' | 'continue' {
+  const eOk = (merged.expiries[0]?.votes || 0) >= 2 && merged.expiryConfident;
+  const lOk = (merged.lots[0]?.votes || 0) >= 2;
+  if (eOk && lOk) return 'done';
+  if (eOk && frames >= lotGraceFrames) return 'done';
+  return 'continue';
+}
