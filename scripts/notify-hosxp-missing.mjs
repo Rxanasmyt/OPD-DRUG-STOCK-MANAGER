@@ -7,7 +7,7 @@
 //   FIREBASE_SERVICE_ACCOUNT_KEY=... MOPH_NOTIFY_CLIENT_KEY=... MOPH_NOTIFY_SECRET_KEY=... node scripts/notify-hosxp-missing.mjs [--dry-run]
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { alertFlex, sendIfConfigured } from './moph-notify.mjs';
+import { alertFlex, sendIfConfigured, waitUntilBangkokTime } from './moph-notify.mjs';
 
 const BKK = 7 * 3600000;
 const bkkDay = (ms) => new Date(ms + BKK).toISOString().slice(0, 10);
@@ -43,6 +43,7 @@ export async function main() {
   const dryRun = process.argv.includes('--dry-run');
   const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (!keyJson) { console.error('FIREBASE_SERVICE_ACCOUNT_KEY env var is not set.'); process.exit(1); }
+  await waitUntilBangkokTime(process.env.TARGET_TIME_BKK); // start early, send on the exact Bangkok minute
   initializeApp({ credential: cert(JSON.parse(keyJson)) });
   const db = getFirestore();
   const now = Date.now();

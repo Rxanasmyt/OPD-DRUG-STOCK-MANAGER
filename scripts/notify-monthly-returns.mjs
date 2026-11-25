@@ -7,7 +7,7 @@
 //   FIREBASE_SERVICE_ACCOUNT_KEY=... MOPH_NOTIFY_CLIENT_KEY=... MOPH_NOTIFY_SECRET_KEY=... node scripts/notify-monthly-returns.mjs [--dry-run] [--month=2026-10]
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { APP_URL, sendIfConfigured } from './moph-notify.mjs';
+import { APP_URL, sendIfConfigured, waitUntilBangkokTime } from './moph-notify.mjs';
 
 // ---- copies of the app's constants (src/utils/returnReasons.ts, src/data/categories.ts) --------------------------------------
 export const REVERSAL_PREFIX = '↩ ยกเลิกรายการคืน · ';
@@ -216,6 +216,7 @@ export async function main() {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) { console.error('Bad month (expected YYYY-MM): ' + month); process.exit(1); }
   const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (!keyJson) { console.error('FIREBASE_SERVICE_ACCOUNT_KEY env var is not set.'); process.exit(1); }
+  await waitUntilBangkokTime(process.env.TARGET_TIME_BKK); // start early, send on the exact Bangkok minute
   initializeApp({ credential: cert(JSON.parse(keyJson)) });
   const db = getFirestore();
   const from = monthRange(shiftMonth(month, -5)).from; const to = monthRange(month).to;

@@ -98,3 +98,28 @@ describe('notify-monthly-returns main()', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe('scheduled runs wait for the exact Bangkok minute BEFORE reading data', () => {
+  it('hosxp reminder started at 14:30 Bangkok reads Firestore and sends only at 15:00', async () => {
+    vi.resetModules();
+    process.env.FIREBASE_SERVICE_ACCOUNT_KEY = JSON.stringify({ project_id: 'p' });
+    process.env.MOPH_NOTIFY_CLIENT_KEY = 'ck'; process.env.MOPH_NOTIFY_SECRET_KEY = 'sk';
+    process.env.TARGET_TIME_BKK = '15:00'; delete process.env.HOLIDAYS;
+    process.argv = ['node', 'x'];
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-25T07:30:00Z')); // Wed 14:30 Bangkok
+    const calls = mockDb({ txs: [] });
+    const f = fetchOk(); vi.stubGlobal('fetch', f);
+    const { main } = await import('./notify-hosxp-missing.mjs');
+    const done = main();
+    await vi.advanceTimersByTimeAsync(29 * 60000);
+    expect(calls.txs).toEqual([]);      // still waiting: nothing read, nothing sent
+    expect(f).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(60000 + 1000);
+    await done;
+    expect(f).toHaveBeenCalledTimes(1);  // sent at 15:00
+    expect(new Date(calls.txs[0][3]).toISOString()).toBe('2026-11-24T17:00:00.000Z'); // "today" is the Bangkok day
+    delete process.env.TARGET_TIME_BKK;
+    vi.useRealTimers(); vi.unstubAllGlobals();
+  });
+});

@@ -28,9 +28,11 @@ name: Low-Stock LINE Notify
 # Until a channel's secrets exist, this workflow fails every run with a clear "env var is not set"
 # error (see the script) rather than silently sending nothing.
 
+# Exact Thai time: GitHub's scheduler is UTC and often starts runs minutes late, so the job starts 30 min EARLY and the script waits for the exact
+# Bangkok minute (TARGET_TIME_BKK, set only for scheduled runs) before reading data and sending. A manual run sends at once.
 on:
   schedule:
-    - cron: '0 0 * * 1-5' # 07:00 Asia/Bangkok, Mon–Fri — before the day's restocking starts
+    - cron: '30 23 * * 0-4' # starts 06:30 Asia/Bangkok Mon–Fri (= 23:30 UTC Sun–Thu); sends at exactly 07:00 — before the day's restocking starts
   workflow_dispatch:
     inputs:
       dry_run:
@@ -41,6 +43,7 @@ on:
 jobs:
   notify:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -55,6 +58,7 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           # MOPH Notify → a LINE group with the "หมอพร้อม" bot (same channel EB Notify uses). Optional; either or both channels may be set.
+          TARGET_TIME_BKK: ${{ github.event_name == 'schedule' && '07:00' || '' }}
           MOPH_NOTIFY_CLIENT_KEY: ${{ secrets.MOPH_NOTIFY_CLIENT_KEY }}
           MOPH_NOTIFY_SECRET_KEY: ${{ secrets.MOPH_NOTIFY_SECRET_KEY }}
           # Emergency-requisition horizon (optional repo *variables*, Settings → Variables): NEXT_DELIVERY_DATE = YYYY-MM-DD of the
