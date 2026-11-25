@@ -5,9 +5,11 @@ name: Monthly Returns Report (LINE)
 # app's ↩️ รายงานคืนยา at that month/view. Needs FIREBASE_SERVICE_ACCOUNT_KEY, MOPH_NOTIFY_CLIENT_KEY, MOPH_NOTIFY_SECRET_KEY.
 # Run by hand for any month: Actions → Run workflow → month (YYYY-MM); tick dry_run to only print the totals in the log.
 
+# Exact Thai time: GitHub's scheduler is UTC and often starts runs minutes late, so the job starts 30 min EARLY and the script waits for the exact
+# Bangkok minute (TARGET_TIME_BKK, set only for scheduled runs) before reading data and sending. A manual run sends at once.
 on:
   schedule:
-    - cron: '0 2 1 * *' # 09:00 Asia/Bangkok on the 1st
+    - cron: '30 1 1 * *' # starts 08:30 Asia/Bangkok on the 1st (= 01:30 UTC); sends at exactly 09:00
   workflow_dispatch:
     inputs:
       month:
@@ -22,6 +24,7 @@ on:
 jobs:
   report:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -31,6 +34,7 @@ jobs:
       - run: npm ci
       - run: node scripts/notify-monthly-returns.mjs ${{ inputs.dry_run && '--dry-run' || '' }}
         env:
+          TARGET_TIME_BKK: ${{ github.event_name == 'schedule' && '09:00' || '' }}
           REPORT_MONTH: ${{ inputs.month }}
           FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
           MOPH_NOTIFY_CLIENT_KEY: ${{ secrets.MOPH_NOTIFY_CLIENT_KEY }}

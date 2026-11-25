@@ -6,6 +6,7 @@ import { EmptyState } from '../../components/EmptyState';
 import { SkeletonList } from '../../components/Skeleton';
 import { chip, ExecStat } from './shared';
 import { useState } from 'react';
+import { markReturnsMonthSeen } from '../../utils/deepLink';
 import { groupReturns, monthRange, previousMonth, type ReturnGroup, type ReturnsView } from '../../utils/returnsSummary';
 
 export function ReturnsTab({
@@ -44,7 +45,7 @@ export function ReturnsTab({
       </div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
         <button className="chip" style={chip(false)} onClick={() => { setRtnFrom(isoDate(Date.now()).slice(0, 8) + '01'); setRtnTo(isoDate(Date.now())); }}>เดือนนี้</button>
-        <button className="chip" style={chip(false)} data-testid="rtn-last-month" onClick={() => { const r = monthRange(previousMonth()); setRtnFrom(r.from); setRtnTo(r.to); loadReturns(r); }}>เดือนที่แล้ว</button>
+        <button className="chip" style={chip(false)} data-testid="rtn-last-month" onClick={() => { const pm = previousMonth(); const r = monthRange(pm); setRtnFrom(r.from); setRtnTo(r.to); loadReturns(r); markReturnsMonthSeen(pm); }}>เดือนที่แล้ว</button>
         <button className="chip" style={chip(false)} onClick={() => { setRtnFrom(fiscalYearStartIso(Date.now())); setRtnTo(isoDate(Date.now())); }}>ปีงบประมาณนี้</button>
         <button onClick={() => loadReturns()} disabled={rtnLoading || rtnFrom > rtnTo} className="btn-primary" style={{ marginLeft: 'auto', padding: '9px 16px', borderRadius: 9, fontSize: 12.5, fontWeight: 700, minHeight: 38, opacity: rtnLoading || rtnFrom > rtnTo ? 0.6 : 1 }}>
           {rtnLoading ? 'กำลังโหลด…' : 'ดึงรายงาน'}

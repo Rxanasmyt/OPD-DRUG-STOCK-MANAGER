@@ -86,3 +86,10 @@ export function previousMonth(ms: number = Date.now()): string {
   d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - 1);
   return d.toISOString().slice(0, 7);
 }
+
+const TH_MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+/** "2026-10" → "ตุลาคม 2569" */
+export function monthLabelTh(ym: string): string {
+  const [y, m] = ym.split('-').map(Number) as [number, number];
+  return `${TH_MONTHS[m - 1] ?? ''} ${y + 543}`;
+}

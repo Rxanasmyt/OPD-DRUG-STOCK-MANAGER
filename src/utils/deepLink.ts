@@ -38,6 +38,25 @@ export function takeReturnsDeepLink(): ReturnsDeepLink | null {
     if (!raw) return null;
     sessionStorage.removeItem(KEY);
     const v = JSON.parse(raw) as ReturnsDeepLink;
-    return /^\d{4}-\d{2}$/.test(v.month) ? v : null;
+    if (!/^\d{4}-\d{2}$/.test(v.month)) return null;
+    markReturnsMonthSeen(v.month); // opened from the LINE link or the banner — either way this device has seen it
+    return v;
   } catch { return null; }
+}
+
+// ---- "monthly returns report is ready" banner (per device) ----------------------------------------------------------------------
+// The banner stays on the home screen until THIS device has opened that month's report. The only state is the latest month seen,
+// kept in localStorage (no server data, so the banner is per browser/device, not per person).
+const SEEN_KEY = 'opd-returns-report-seen';
+export function getSeenReturnsMonth(): string {
+  try { return localStorage.getItem(SEEN_KEY) ?? ''; } catch { return ''; }
+}
+/** Remember that `month` (YYYY-MM) was opened; never moves backwards. */
+export function markReturnsMonthSeen(month: string): void {
+  if (!/^\d{4}-\d{2}$/.test(month)) return;
+  try { if (month > getSeenReturnsMonth()) localStorage.setItem(SEEN_KEY, month); } catch { /* storage blocked — the banner just stays */ }
+}
+/** Park a link for ReportScreen to consume (same slot the LINE link uses). */
+export function stashReturnsDeepLink(dl: ReturnsDeepLink): void {
+  try { sessionStorage.setItem(KEY, JSON.stringify(dl)); } catch { /* ignore */ }
 }

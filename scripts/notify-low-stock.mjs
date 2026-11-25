@@ -22,7 +22,7 @@
 
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { mophNotify } from './moph-notify.mjs';
+import { mophNotify, waitUntilBangkokTime } from './moph-notify.mjs';
 
 const APP_URL = 'https://rxanasmyt.github.io/OPD-DRUG-STOCK-MANAGER/';
 const MAX_ROWS_PER_SECTION = 15; // keeps the broadcast readable — the app itself has the full list
@@ -74,6 +74,12 @@ async function lineBroadcast(token, text) {
 export { mophNotify };
 
 const DAY_MS = 86400000;
+/** Whole CALENDAR days from today to `exp` in Thailand — identical to the app's daysUntil() (src/utils/format.ts): a lot labelled to expire on
+ * a date is good through the end of that date, and the count ticks over at Bangkok midnight, not 24 h after the moment the script runs. */
+export function daysUntilBkk(exp, now = Date.now()) {
+  const start = (ms) => Math.floor((ms + BKK) / DAY_MS) * DAY_MS - BKK;
+  return Math.round((start(exp) - start(now)) / DAY_MS);
+}
 const BKK = 7 * 3600000;
 const bkkDay = (ms) => new Date(ms + BKK).toISOString().slice(0, 10);
 const nf = (n) => Number(n || 0).toLocaleString('en-US');
@@ -117,7 +123,7 @@ export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now(),
     const m = byId.get(l.medId);
     // The "ปรับยอด (นับสต็อก)" placeholder lot has no real expiry (set ~100 years out) — never worth an expiry alert.
     if (!m || typeof l.exp !== 'number' || l.exp > now + 50 * 365 * DAY_MS) continue;
-    const days = Math.floor((l.exp - now) / DAY_MS);
+    const days = daysUntilBkk(l.exp, now);
     if (days < expiryWarnDays) expiring.push({ name: m.name, unit: m.unit, lotNo: l.lotNo, qty: l.qty, days });
   }
   expiring.sort((a, b) => a.days - b.days);
@@ -372,6 +378,8 @@ export async function main() {
   if (!keyJson) { console.error('FIREBASE_SERVICE_ACCOUNT_KEY env var is not set.'); process.exit(1); }
   if (!dryRun && !lineToken && !hasMoph) { console.error('Set LINE_CHANNEL_ACCESS_TOKEN and/or MOPH_NOTIFY_CLIENT_KEY + MOPH_NOTIFY_SECRET_KEY (or pass --dry-run to test without them).'); process.exit(1); }
 
+  // Scheduled runs start early and wait for the exact Bangkok time (see moph-notify.mjs); data is read AFTER the wait.
+  await waitUntilBangkokTime(process.env.TARGET_TIME_BKK);
   initializeApp({ credential: cert(JSON.parse(keyJson)) });
   const db = getFirestore();
 

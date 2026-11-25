@@ -1,6 +1,7 @@
 import { TAB } from './navLabels';
 import ReconcileReminder from './components/ReconcileReminder';
 import BackupReminder from './components/BackupReminder';
+import ReturnsReportBanner from './components/ReturnsReportBanner';
 import LoginArt from './components/LoginArt';
 import AppIcon from './components/AppIcon';
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from 'react';
@@ -259,6 +260,7 @@ export default function App() {
 
       <BackupReminder />
       <ReconcileReminder />
+      <ReturnsReportBanner />
       <ContextBar screen={state.screen} wardFilter={state.wardFilter} adjType={state.adjType} doneKind={state.doneKind} />
 
       {!state.online && (

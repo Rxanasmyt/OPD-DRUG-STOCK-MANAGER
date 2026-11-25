@@ -20,6 +20,7 @@ function box(n, path) {
   for (const k of ['margin', 'spacing', 'paddingAll', 'paddingStart', 'paddingEnd', 'paddingTop', 'paddingBottom', 'cornerRadius', 'width', 'height']) if (k in n && !okLen(n[k])) err(path, `${k}=${n[k]}`);
   if ('flex' in n && !Number.isInteger(n.flex)) err(path, 'flex');
   if ('backgroundColor' in n && !HEX.test(n.backgroundColor)) err(path, 'backgroundColor ' + n.backgroundColor);
+  if ('alignItems' in n && !['flex-start', 'center', 'flex-end'].includes(n.alignItems)) err(path, 'alignItems');
   if ('justifyContent' in n && !['flex-start', 'center', 'flex-end', 'space-between', 'space-around', 'space-evenly'].includes(n.justifyContent)) err(path, 'justifyContent');
   if (n.background) {
     const g = n.background;
