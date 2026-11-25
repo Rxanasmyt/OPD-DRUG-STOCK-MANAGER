@@ -332,7 +332,8 @@ describe('notify-low-stock — one card per drug, HAD first', () => {
     expect(buildText(r, 'x')).toContain('⚠HAD HAD DRUG');
     const flex = JSON.stringify(buildFlex(r, 'x'));
     expect(flex).toContain('⚠ HAD');
-    expect(flex).toContain('+ ยอด 0');
+    expect(flex).toContain('ยังเข้าเกณฑ์:');
+    expect(flex).toContain('"text":"ยอด 0"'); // short pill label
   });
   it('an emergency HAD drug sorts ahead of a non-HAD drug of the same urgency level', () => {
     const rep = buildReport({ meds: [

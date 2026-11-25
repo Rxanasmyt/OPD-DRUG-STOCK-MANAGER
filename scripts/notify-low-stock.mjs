@@ -274,14 +274,18 @@ function rowFlex(sec, key, r, horizonDays) {
   const bg = key === 'emergency' ? r.level.bg : t.soft;
   const nameText = { type: 'text', text: r.name, size: 'sm', weight: 'bold', wrap: true, color: '#12211A' };
   // Small tags under the name: ⚠ HAD (high-alert drug) and what ELSE is wrong with this drug (it is shown only once, in its most urgent card).
-  const tagList = [...(r.had ? [pill('⚠ HAD', '#8E0000')] : []), ...((r.also || []).map((a) => pill('+ ' + a, '#ECEFF1', '#455A64')))];
-  const tags = tagList.length ? [{ type: 'box', layout: 'horizontal', spacing: 'xs', contents: [...tagList, { type: 'filler' }] }] : [];
+  // (short labels + their own row: three long pills in one row do not fit a card and get clipped)
+  const SHORT = { 'เบิกฉุกเฉิน': 'ฉุกเฉิน', 'ยอด 0': 'ยอด 0', 'ต่ำกว่า Min': 'Min', 'ต่ำกว่า par': 'par' };
+  const alsoRow = (r.also && r.also.length) ? [{ type: 'box', layout: 'horizontal', spacing: 'xs', contents: [{ type: 'text', text: 'ยังเข้าเกณฑ์:', size: 'xxs', color: '#78909C', flex: 0, gravity: 'center' }, ...r.also.map((a) => pill(SHORT[a] || a, '#ECEFF1', '#455A64')), { type: 'filler' }] }] : [];
+  const tagList = r.had ? [pill('⚠ HAD', '#8E0000')] : [];
+  const tags = [...(tagList.length ? [{ type: 'box', layout: 'horizontal', spacing: 'xs', contents: [...tagList, { type: 'filler' }] }] : []), ...alsoRow];
   let content;
   if (key === 'emergency') {
     content = { type: 'box', layout: 'horizontal', flex: 1, contents: [
       { type: 'box', layout: 'vertical', flex: 1, spacing: 'xs', contents: [
         nameText,
-        { type: 'box', layout: 'horizontal', spacing: 'xs', contents: [pill(`${r.level.dot} ${r.level.label}`, r.level.ink), ...(r.had ? [pill('⚠ HAD', '#8E0000')] : []), ...((r.also || []).map((a) => pill('+ ' + a, '#FFFFFFCC', '#455A64'))), { type: 'filler' }] },
+        { type: 'box', layout: 'horizontal', spacing: 'xs', contents: [pill(`${r.level.dot} ${r.level.label}`, r.level.ink), ...(r.had ? [pill('⚠ HAD', '#8E0000')] : []), { type: 'filler' }] },
+        ...alsoRow,
         { type: 'text', text: `คงเหลือ ${nf(r.onHand)} ${r.unit} · ควรขอ ~${nf(r.needQty)} ${r.unit}`, size: 'xs', color: '#555555', wrap: true },
         bar(Math.round((r.cover / Math.max(1, horizonDays)) * 100), r.level.ink),
       ] },
@@ -300,7 +304,8 @@ function rowFlex(sec, key, r, horizonDays) {
   } else if (key === 'zeroFloor') {
     content = { type: 'box', layout: 'vertical', flex: 1, spacing: 'xs', contents: [
       nameText,
-      { type: 'box', layout: 'horizontal', spacing: 'xs', contents: [pill('0 ' + r.unit, accent), ...(r.had ? [pill('⚠ HAD', '#8E0000')] : []), ...((r.also || []).map((a) => pill('+ ' + a, '#FFFFFFCC', '#455A64'))), { type: 'filler' }] },
+      { type: 'box', layout: 'horizontal', spacing: 'xs', contents: [pill('0 ' + r.unit, accent), ...(r.had ? [pill('⚠ HAD', '#8E0000')] : []), { type: 'filler' }] },
+      ...alsoRow,
       { type: 'text', text: 'ยังไม่ได้นับวันนี้ — นับจริงแล้วบันทึกในแอป', size: 'xxs', color: '#6D736D', wrap: true },
     ] };
   } else {
