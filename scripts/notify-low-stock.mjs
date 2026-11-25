@@ -123,11 +123,11 @@ export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now(),
   expiring.sort((a, b) => a.days - b.days);
   const subQty = (id) => subByMed.get(id) || 0;
   const belowMin = active.filter((m) => !isOnStockHold(m) && (m.floor || 0) < floorMinOf(m))
-    .map((m) => ({ name: m.name, unit: m.unit, cur: m.floor || 0, ref: floorMinOf(m) }));
+    .map((m) => ({ id: m.id, name: m.name, unit: m.unit, cur: m.floor || 0, ref: floorMinOf(m) }));
   const belowSubParAll = active.filter((m) => !isOnStockHold(m) && (usesSubstock(m) ? subQty(m.id) < (m.parSub || 0) : (m.floor || 0) < (m.parFloor || 0)))
     .map((m) => usesSubstock(m)
-      ? { name: m.name, unit: m.unit, cur: subQty(m.id), ref: m.parSub || 0 }
-      : { name: m.name, unit: m.unit, cur: m.floor || 0, ref: m.parFloor || 0 });
+      ? { id: m.id, name: m.name, unit: m.unit, cur: subQty(m.id), ref: m.parSub || 0 }
+      : { id: m.id, name: m.name, unit: m.unit, cur: m.floor || 0, ref: m.parFloor || 0 });
   const emergency = active
     .filter((m) => !isOnStockHold(m) && monthlyUse(m) > 0)
     .map((m) => {
@@ -138,18 +138,18 @@ export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now(),
     .filter((x) => x.cover <= horizonDays)
     .sort((a, b) => a.cover - b.cover)
     .map((x) => ({
-      name: x.m.name, unit: x.m.unit, onHand: x.onHand, cover: Math.max(0, Math.floor(x.cover)), level: urgencyLevel(Math.max(0, Math.floor(x.cover))),
+      id: x.m.id, name: x.m.name, unit: x.m.unit, onHand: x.onHand, cover: Math.max(0, Math.floor(x.cover)), level: urgencyLevel(Math.max(0, Math.floor(x.cover))),
       // enough to carry the drug through the horizon plus a week of lead time, never less than topping substock up to par
       needQty: Math.max(0, Math.ceil(x.daily * (horizonDays + 7) - x.onHand), (usesSubstock(x.m) ? (x.m.parSub || 0) - subQty(x.m.id) : 0)),
     }));
-  const emergencyNames = new Set(emergency.map((e) => e.name));
-  const zeroFloor = active.filter((m) => needsZeroFloorCheck(m, now)).map((m) => ({ name: m.name, unit: m.unit }));
+  const emergencyIds = new Set(emergency.map((e) => e.id));
+  const zeroFloor = active.filter((m) => needsZeroFloorCheck(m, now)).map((m) => ({ id: m.id, name: m.name, unit: m.unit }));
   // A zero-floor med is always below Min too; list it once (under "ยอด 0 ควรนับจริง", the action it actually needs) instead of
   // repeating it in two sections of the same message.
   // Same for par: a drug already in the emergency list is not repeated under "ต่ำกว่า par".
-  const belowSubPar = belowSubParAll.filter((r) => !emergencyNames.has(r.name));
-  const zeroNames = new Set(zeroFloor.map((z) => z.name));
-  const belowMinShown = belowMin.filter((r) => !zeroNames.has(r.name));
+  const belowSubPar = belowSubParAll.filter((r) => !emergencyIds.has(r.id));
+  const zeroIds = new Set(zeroFloor.map((z) => z.id));
+  const belowMinShown = belowMin.filter((r) => !zeroIds.has(r.id));
   return { emergency, horizonDays, belowMin: belowMinShown, belowSubPar, zeroFloor, expiring, expiryWarnDays, empty: !emergency.length && !belowMinShown.length && !belowSubPar.length && !zeroFloor.length && !expiring.length };
 }
 
@@ -177,7 +177,9 @@ export function buildText(report, dateLabel) {
     const title = sec.key === 'expiring' ? `${sec.title} (< ${report.expiryWarnDays} วัน)` : sec.title;
     text += `\n\n${sec.icon} ${title} (${rows.length} รายการ)\n` + shown.map((r) => `• ${r.name}: ${sec.fmt(r)}`).join('\n') + more;
   }
-  return text + `\n\nเปิดแอพ: ${APP_URL}`;
+  const tail = `\n\nเปิดแอพ: ${APP_URL}`;
+  // LINE rejects a text message over 5,000 characters — keep the tail (app link) and trim the middle if ever needed.
+  return text.length + tail.length > 4900 ? text.slice(0, 4900 - tail.length - 12) + '\n…(ตัดข้อความ)' + tail : text + tail;
 }
 
 // ---- Flex message design (MOPH Notify → LINE group) -------------------------------------------------------------------------
@@ -193,6 +195,18 @@ const THEME = {
 };
 const grad = (c1, c2) => ({ type: 'linearGradient', angle: '135deg', startColor: c1, endColor: c2 });
 const ROWS_PER_CARD = 7;
+const FLEX_MAX_BYTES = 28000;
+
+// Proportional strip of the emergency list by urgency level (🔴 วิกฤต / 🟠 เร่งด่วนมาก / 🟡 เร่งด่วน) + a counts line.
+function levelStrip(report) {
+  const reps = [urgencyLevel(0), urgencyLevel(3), urgencyLevel(7)];
+  const counts = reps.map((lv) => report.emergency.filter((e) => e.level.n === lv.n).length);
+  const segs = reps.map((lv, i) => counts[i] ? { type: 'box', layout: 'vertical', flex: counts[i], backgroundColor: lv.ink, contents: [{ type: 'filler' }] } : null).filter(Boolean);
+  return [
+    { type: 'box', layout: 'horizontal', height: '8px', margin: 'sm', cornerRadius: '4px', spacing: 'xs', contents: segs },
+    { type: 'text', size: 'xs', weight: 'bold', wrap: true, color: '#B71C1C', text: reps.map((lv, i) => counts[i] ? `${lv.dot} ${lv.label} ${counts[i]}` : '').filter(Boolean).join('   ') },
+  ];
+}
 
 function summaryBubble(report, dateLabel) {
   const tile = (key) => {
@@ -211,14 +225,11 @@ function summaryBubble(report, dateLabel) {
     header: { type: 'box', layout: 'vertical', paddingAll: '16px', background: grad('#02B0AE', '#004C4B'), contents: [
       { type: 'text', text: 'สต็อกยา · ห้องยา', color: '#B2F0EE', size: 'xs', weight: 'bold' },
       { type: 'text', text: 'แจ้งเตือนประจำวัน', color: '#FFFFFF', size: 'xl', weight: 'bold', margin: 'xs' },
-      { type: 'text', text: dateLabel, color: '#E1F7F6', size: 'xs', wrap: true, margin: 'xs' },
+      { type: 'text', text: `${dateLabel} · อัปเดต ${new Date(Date.now() + BKK).toISOString().slice(11, 16)} น.`, color: '#E1F7F6', size: 'xs', wrap: true, margin: 'xs' },
     ] },
     body: { type: 'box', layout: 'vertical', paddingAll: '14px', spacing: 'md', contents: [
       { type: 'text', text: `พบ ${total} รายการที่ควรดำเนินการ`, size: 'sm', weight: 'bold', color: '#12211A' },
-      ...(report.emergency.length ? [{ type: 'box', layout: 'horizontal', contents: [tile('emergency')] }, {
-        type: 'text', size: 'xs', weight: 'bold', wrap: true, color: '#B71C1C',
-        text: [1, 2, 3].map((n) => { const c = report.emergency.filter((e) => e.level.n === n).length; return c ? urgencyLevel(n === 1 ? 0 : n === 2 ? 3 : 7).dot + urgencyLevel(n === 1 ? 0 : n === 2 ? 3 : 7).label + ' ' + c : ''; }).filter(Boolean).join('  ·  '),
-      }] : []),
+      ...(report.emergency.length ? [{ type: 'box', layout: 'horizontal', contents: [tile('emergency')] }, ...levelStrip(report)] : []),
       { type: 'box', layout: 'horizontal', spacing: 'md', contents: [tile('belowMin'), tile('zeroFloor')] },
       { type: 'box', layout: 'horizontal', spacing: 'md', contents: [tile('belowSubPar'), tile('expiring')] },
       { type: 'text', text: 'ปัดการ์ดไปทางซ้ายเพื่อดูรายชื่อยาในแต่ละหมวด', size: 'xxs', color: '#8A918B', wrap: true },
@@ -229,32 +240,67 @@ function summaryBubble(report, dateLabel) {
   };
 }
 
-function rowFlex(sec, key, r) {
+const pill = (text, bg, color = '#FFFFFF') => ({
+  type: 'box', layout: 'vertical', flex: 0, backgroundColor: bg, cornerRadius: '20px', paddingStart: '8px', paddingEnd: '8px', paddingTop: '2px', paddingBottom: '2px',
+  contents: [{ type: 'text', text, size: 'xxs', weight: 'bold', color, wrap: false }],
+});
+const bar = (pct, color) => ({ type: 'box', layout: 'horizontal', height: '6px', margin: 'sm', backgroundColor: '#FFFFFFAA', cornerRadius: '3px', contents: [
+  { type: 'box', layout: 'vertical', width: Math.max(4, Math.min(100, pct)) + '%', backgroundColor: color, cornerRadius: '3px', contents: [{ type: 'filler' }] },
+] });
+
+// One row = coloured accent stripe + content. The accent colour is the row's severity, so a glance down the card reads top-to-bottom.
+function rowFlex(sec, key, r, horizonDays) {
   const t = THEME[key];
-  const hasBar = key === 'belowMin' || key === 'belowSubPar';
-  const pct = hasBar && r.ref > 0 ? Math.max(3, Math.min(100, Math.round((r.cur / r.ref) * 100))) : 0;
-  const urgentExp = (key === 'expiring' && r.days <= 7) || (key === 'emergency' && r.cover <= 7);
-  const valueColor = key === 'emergency' ? r.level.ink : urgentExp ? '#C62828' : t.ink;
-  const inner = [
-    { type: 'box', layout: 'horizontal', contents: [
-      { type: 'text', text: r.name, size: 'sm', weight: 'bold', wrap: true, flex: 5, color: '#12211A' },
-      ...(key === 'expiring' ? [] : [{ type: 'text', text: sec.valueText(r), size: 'sm', weight: 'bold', color: valueColor, align: 'end', flex: 3, wrap: true }]),
-    ] },
-  ];
-  if (key === 'expiring') inner.push({ type: 'text', text: sec.fmt(r), size: 'xs', weight: 'bold', color: valueColor, wrap: true });
-  else if (key === 'emergency') inner.push({ type: 'text', text: `คงเหลือ ${nf(r.onHand)} ${r.unit} · ควรขอ ~${nf(r.needQty)} ${r.unit}`, size: 'xs', color: '#666666', wrap: true });
-  else if (key === 'zeroFloor') inner.push({ type: 'text', text: 'ยังไม่ได้นับวันนี้ — นับจริงแล้วบันทึกในแอป', size: 'xxs', color: '#8A918B', wrap: true });
-  if (hasBar) inner.push({ type: 'box', layout: 'horizontal', height: '6px', margin: 'sm', backgroundColor: '#E6E9E4', cornerRadius: '3px', contents: [
-    { type: 'box', layout: 'vertical', width: pct + '%', backgroundColor: t.c2, cornerRadius: '3px', contents: [{ type: 'filler' }] },
-  ] });
-  const rowBg = key === 'emergency' ? r.level.bg : t.soft;
-  return { type: 'box', layout: 'vertical', margin: 'md', paddingAll: '10px', backgroundColor: rowBg, cornerRadius: '10px', contents: inner };
+  const accent = key === 'emergency' ? r.level.ink : t.c2;
+  const bg = key === 'emergency' ? r.level.bg : t.soft;
+  const nameText = { type: 'text', text: r.name, size: 'sm', weight: 'bold', wrap: true, color: '#12211A' };
+  let content;
+  if (key === 'emergency') {
+    content = { type: 'box', layout: 'horizontal', flex: 1, contents: [
+      { type: 'box', layout: 'vertical', flex: 1, spacing: 'xs', contents: [
+        nameText,
+        { type: 'box', layout: 'horizontal', spacing: 'sm', contents: [pill(`${r.level.dot} ${r.level.label}`, r.level.ink), { type: 'filler' }] },
+        { type: 'text', text: `คงเหลือ ${nf(r.onHand)} ${r.unit} · ควรขอ ~${nf(r.needQty)} ${r.unit}`, size: 'xs', color: '#555555', wrap: true },
+        bar(Math.round((r.cover / Math.max(1, horizonDays)) * 100), r.level.ink),
+      ] },
+      { type: 'box', layout: 'vertical', flex: 0, width: '54px', justifyContent: 'center', contents: [
+        { type: 'text', text: String(r.cover), size: 'xxl', weight: 'bold', color: r.level.ink, align: 'center' },
+        { type: 'text', text: r.cover === 0 ? 'วันนี้' : 'วัน', size: 'xxs', color: r.level.ink, align: 'center', weight: 'bold' },
+      ] },
+    ] };
+  } else if (key === 'expiring') {
+    const hot = r.days <= 7; const ink = hot ? '#C62828' : t.ink;
+    content = { type: 'box', layout: 'vertical', flex: 1, spacing: 'xs', contents: [
+      nameText,
+      { type: 'box', layout: 'horizontal', spacing: 'sm', contents: [pill(r.days < 0 ? `หมดอายุแล้ว ${Math.abs(r.days)} วัน` : `อีก ${r.days} วัน`, ink), { type: 'filler' }] },
+      { type: 'text', text: `${r.lotNo ? 'lot ' + r.lotNo + ' · ' : ''}${nf(r.qty)} ${r.unit}`, size: 'xs', color: '#555555', wrap: true },
+    ] };
+  } else if (key === 'zeroFloor') {
+    content = { type: 'box', layout: 'vertical', flex: 1, spacing: 'xs', contents: [
+      nameText,
+      { type: 'box', layout: 'horizontal', contents: [pill('0 ' + r.unit, accent), { type: 'filler' }] },
+      { type: 'text', text: 'ยังไม่ได้นับวันนี้ — นับจริงแล้วบันทึกในแอป', size: 'xxs', color: '#6D736D', wrap: true },
+    ] };
+  } else {
+    const pct = r.ref > 0 ? Math.round((r.cur / r.ref) * 100) : 0;
+    content = { type: 'box', layout: 'vertical', flex: 1, spacing: 'xs', contents: [
+      { type: 'box', layout: 'horizontal', contents: [
+        { ...nameText, flex: 5 },
+        { type: 'text', text: `${nf(r.cur)}/${nf(r.ref)}`, size: 'sm', weight: 'bold', color: t.ink, align: 'end', flex: 3 },
+      ] },
+      bar(pct, t.c2),
+    ] };
+  }
+  return { type: 'box', layout: 'horizontal', margin: 'md', backgroundColor: bg, cornerRadius: '10px', contents: [
+    { type: 'box', layout: 'vertical', width: '5px', backgroundColor: accent, cornerRadius: '10px', contents: [{ type: 'filler' }] },
+    { type: 'box', layout: 'vertical', flex: 1, paddingAll: '10px', contents: [content] },
+  ] };
 }
 
-function sectionBubble(sec, report) {
+function sectionBubble(sec, report, rowsPerCard = ROWS_PER_CARD) {
   const key = sec.key; const t = THEME[key]; const rows = report[key];
-  const shown = rows.slice(0, ROWS_PER_CARD);
-  const body = shown.map((r) => rowFlex(sec, key, r));
+  const shown = rows.slice(0, rowsPerCard);
+  const body = shown.map((r) => rowFlex(sec, key, r, report.horizonDays));
   if (rows.length > shown.length) body.push({ type: 'text', text: `…และอีก ${rows.length - shown.length} รายการ — ดูทั้งหมดในแอป`, size: 'xs', color: '#8A918B', margin: 'md', wrap: true });
   return {
     type: 'bubble', size: 'mega',
@@ -271,14 +317,21 @@ function sectionBubble(sec, report) {
 
 /** Flex carousel for MOPH Notify: summary card + one coloured card per non-empty alert type. */
 export function buildFlex(report, dateLabel) {
-  const bubbles = [summaryBubble(report, dateLabel)];
-  for (const sec of SECTIONS) if (report[sec.key].length) bubbles.push(sectionBubble(sec, report));
   const counts = SECTIONS.map((s) => report[s.key].length ? `${s.icon}${report[s.key].length}` : '').filter(Boolean).join(' ');
-  return {
-    type: 'flex',
-    altText: `แจ้งเตือนสต็อกยา ${dateLabel} ${counts}`.slice(0, 400),
-    contents: { type: 'carousel', contents: bubbles },
+  const make = (rowsPerCard) => {
+    const bubbles = [summaryBubble(report, dateLabel)];
+    for (const sec of SECTIONS) if (report[sec.key].length) bubbles.push(sectionBubble(sec, report, rowsPerCard));
+    return {
+      type: 'flex',
+      altText: `แจ้งเตือนสต็อกยา ${dateLabel} ${counts}`.slice(0, 400),
+      contents: { type: 'carousel', contents: bubbles },
+    };
   };
+  // LINE caps a Flex message's JSON (30KB is the conservative figure for a single bubble; carousels get more). With 5 cards of rich rows
+  // a busy day could exceed it and the whole message would be rejected — so shrink rows per card until it fits.
+  let flex = make(ROWS_PER_CARD);
+  for (let rows = ROWS_PER_CARD - 1; rows >= 2 && JSON.stringify(flex).length > FLEX_MAX_BYTES; rows--) flex = make(rows);
+  return flex;
 }
 
 export async function main() {

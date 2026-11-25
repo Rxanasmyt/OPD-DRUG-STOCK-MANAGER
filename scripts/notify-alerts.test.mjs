@@ -25,6 +25,10 @@ describe('HOSxP reminder decision', () => {
     expect(needsReminder({ txs: [], now: SAT }).reason).toBe('weekend');
     expect(needsReminder({ txs: [], now: WED, holidays: ['2026-11-25'] }).reason).toBe('holiday');
   });
+  it('a malformed tx with no ts does not crash the check', () => {
+    expect(() => needsReminder({ txs: [{ type: 'reconcile_hosxp' }, { type: 'reconcile_hosxp', ts: 'x' }], now: WED })).not.toThrow();
+    expect(needsReminder({ txs: [{ type: 'reconcile_hosxp' }], now: WED }).remind).toBe(true);
+  });
   it('bkkDayStart is 00:00 Bangkok = 17:00 UTC the previous day', () => {
     expect(new Date(bkkDayStart(WED)).toISOString()).toBe('2026-11-24T17:00:00.000Z');
   });

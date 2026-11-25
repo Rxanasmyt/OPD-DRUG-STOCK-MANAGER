@@ -204,7 +204,7 @@ describe('notify-low-stock — flex payload stays within LINE limits', () => {
     const rep = { emergency: many.map((m) => ({ name: m.name, unit: m.unit, onHand: 5, cover: 2, level: urgencyLevel(2), needQty: 100 })), horizonDays: 14, belowMin: many, belowSubPar: many, zeroFloor: many.map((m) => ({ name: m.name, unit: m.unit })), expiring: many.map((m) => ({ ...m, lotNo: 'L', qty: 1, days: 3 })), expiryWarnDays: 30, empty: false };
     const flex = buildFlex(rep, 'วันนี้');
     expect(flex.contents.contents.length).toBe(6);
-    expect(JSON.stringify(flex).length).toBeLessThan(30000); // LINE flex payload limit is 30KB
+    expect(JSON.stringify(flex).length).toBeLessThan(30000); // LINE flex payload: stay under 30KB by shrinking rows per card
     expect(flex.altText.length).toBeLessThanOrEqual(400);
   });
 });
@@ -255,5 +255,31 @@ describe('notify-low-stock — emergency urgency levels', () => {
     const r = buildReport({ meds: [mk('a', 'D0', 5), mk('b', 'D2', 25)], lots: [], now: NOW });
     expect(buildText(r, 'x')).toContain('วิกฤต');
     expect(JSON.stringify(buildFlex(r, 'x'))).toContain('เร่งด่วนมาก');
+  });
+});
+
+describe('notify-low-stock — bug fixes found in review', () => {
+  const NOW = Date.parse('2026-11-25T03:00:00Z');
+  it('two meds with the SAME name (e.g. OPD + IPD record) are told apart by id when de-duplicating sections', () => {
+    const a = { id: 'opd', name: 'SAME NAME', active: true, unit: 'เม็ด', parFloor: 10, parSub: 0, noSubstock: true, used30: 300, floor: 5 };   // runs out → emergency
+    const b = { id: 'ipd', name: 'SAME NAME', active: true, unit: 'เม็ด', parFloor: 100, parSub: 0, noSubstock: true, used30: 0, floor: 20 }; // below par, no usage
+    const r = buildReport({ meds: [a, b], lots: [], now: NOW });
+    expect(r.emergency.map((e) => e.id)).toEqual(['opd']);
+    expect(r.belowSubPar.map((e) => e.id)).toEqual(['ipd']); // used to vanish: filtered out by the shared NAME
+  });
+  it('plain-text message never exceeds LINE\'s 5,000-character limit and keeps the app link', () => {
+    const many = Array.from({ length: 300 }, (_, i) => ({ id: 'i' + i, name: 'ยาชื่อยาวมากมาย '.repeat(6) + i, unit: 'เม็ด', cur: 1, ref: 50 }));
+    const rep = { emergency: [], horizonDays: 7, belowMin: many, belowSubPar: many, zeroFloor: many, expiring: [], expiryWarnDays: 30, empty: false };
+    const text = buildText(rep, 'วันนี้');
+    expect(text.length).toBeLessThanOrEqual(5000);
+    expect(text).toContain('OPD-DRUG-STOCK-MANAGER');
+  });
+  it('flex: every emergency row has an accent stripe, level pill and a days number; summary has the level strip', () => {
+    const med = { id: 'x', name: 'D2', active: true, unit: 'เม็ด', parFloor: 10, parSub: 0, noSubstock: true, used30: 300, floor: 25 };
+    const flex = buildFlex(buildReport({ meds: [med], lots: [], now: NOW }), 'x');
+    const s = JSON.stringify(flex);
+    expect(s).toContain('เร่งด่วนมาก');
+    expect(s).toContain('"cornerRadius":"20px"'); // the pill
+    expect(JSON.stringify(flex.contents.contents[0])).toContain('"height":"8px"'); // level strip
   });
 });

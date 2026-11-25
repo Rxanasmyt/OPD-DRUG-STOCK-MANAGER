@@ -20,7 +20,8 @@ export function needsReminder({ txs, now = Date.now(), holidays = [] }) {
   const dow = new Date(now + BKK).getUTCDay(); // 0 = Sunday … 6 = Saturday (Bangkok)
   if (dow === 0 || dow === 6) return { remind: false, reason: 'weekend' };
   if (holidays.includes(today)) return { remind: false, reason: 'holiday' };
-  const done = txs.some((t) => t.type === 'reconcile_hosxp' && bkkDay(t.ts) === today);
+  // A malformed tx without a numeric ts must not crash the check (new Date(NaN).toISOString() throws).
+  const done = txs.some((t) => t.type === 'reconcile_hosxp' && Number.isFinite(t.ts) && bkkDay(t.ts) === today);
   return done ? { remind: false, reason: 'already-reconciled' } : { remind: true, reason: 'not-reconciled' };
 }
 
