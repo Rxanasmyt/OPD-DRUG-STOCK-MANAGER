@@ -261,6 +261,11 @@ a { color: var(--green); transition: color var(--dur-fast) var(--ease); }
 a:hover { color: var(--green-dark); }
 
 input, button, select, textarea { font-family: inherit; font-size: inherit; color: inherit; }
+/* iPhone/iPad Safari zooms the whole page when a text field under 16px gets focus (and often stays zoomed, hiding the nav).
+   Many fields set a 13–15px inline size, so on touch screens force 16px for every text-entry control. */
+@media (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']), select, textarea { font-size: 16px !important; }
+}
 
 input, textarea, select {
   transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
