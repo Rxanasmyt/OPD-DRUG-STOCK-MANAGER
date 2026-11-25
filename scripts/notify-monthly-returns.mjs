@@ -77,6 +77,19 @@ export const monthShort = (ym) => { const [y, m] = ym.split('-').map(Number); re
 
 const nf = (n) => Math.round(Number(n || 0)).toLocaleString('en-US');
 
+/** Direction of the monthly value series: least-squares slope relative to the average (±5%/month is "flat"). Pure; exported for tests. */
+export function analyzeTrend(trend) {
+  const ys = trend.map((t) => t.value); const n = ys.length;
+  const avg = n ? ys.reduce((a, b) => a + b, 0) / n : 0;
+  const xm = (n - 1) / 2;
+  const sxx = ys.reduce((a, _, i) => a + (i - xm) ** 2, 0) || 1;
+  const slope = ys.reduce((a, y, i) => a + (i - xm) * (y - avg), 0) / sxx; // baht per month
+  const rel = avg > 0 ? slope / avg : 0;
+  const dir = rel > 0.05 ? 'up' : rel < -0.05 ? 'down' : 'flat';
+  let peak = 0; ys.forEach((y, i) => { if (y > ys[peak]) peak = i; });
+  return { avg: Math.round(avg), slope: Math.round(slope), rel, dir, peakMonth: trend[peak]?.month ?? null, peakValue: ys[peak] ?? 0 };
+}
+
 /** Pure: everything the report says. `records` = all returns rows from the first month of the window through the report month. */
 export function buildMonthlyReport({ records, month, monthsBack = 6 }) {
   const months = Array.from({ length: monthsBack }, (_, i) => shiftMonth(month, i - (monthsBack - 1)));
@@ -93,8 +106,9 @@ export function buildMonthlyReport({ records, month, monthsBack = 6 }) {
     for (const r of net) { const e = m.get(r.medId) || { name: r.medName, unit: r.unit, value: 0, qty: 0 }; e.value += Math.round(r.value); e.qty += r.qty; m.set(r.medId, e); }
     return [...m.values()].filter((x) => x.value > 0).sort((a, b) => b.value - a.value).slice(0, 5);
   })();
+  const trendInfo = analyzeTrend(trend);
   return {
-    month, trend,
+    month, trend, trendInfo,
     total: { count: t.count, value: t.value, qty: t.qty, hn: new Set(live.map((r) => r.hn)).size },
     prev: prev ? { count: prev.count, value: prev.value } : null,
     byCategory: groupReturns(cur, 'cat'), byReason: groupReturns(cur, 'reason'), topMeds,
@@ -150,20 +164,49 @@ function summaryCard(rep) {
     footer: footerBtn('ดูทุกหมวดในแอป', link(rep.month, 'all'), '#007371') };
 }
 
+// Flex has no chart element, so charts are drawn with boxes: a column's height in px IS the value (max 96px).
+const compact = (v) => { const a = Math.abs(v); return a >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : a >= 1000 ? (v / 1000).toFixed(1) + 'k' : String(Math.round(v)); };
+/** items: [{label, value, color, bold}] — columns with the value above each bar and the label below. */
+export function columnChart(items, { maxHeight = 96, avg } = {}) {
+  const max = Math.max(1, ...items.map((i) => i.value));
+  const cols = items.map((i) => ({ type: 'box', layout: 'vertical', flex: 1, justifyContent: 'flex-end', contents: [
+    { type: 'text', text: compact(i.value), size: 'xxs', color: i.color, weight: i.bold ? 'bold' : 'regular', align: 'center', wrap: false },
+    { type: 'box', layout: 'vertical', height: Math.max(3, Math.round((Math.max(0, i.value) / max) * maxHeight)) + 'px', margin: 'xs', backgroundColor: i.color, cornerRadius: '4px', contents: [{ type: 'filler' }] },
+  ] }));
+  const labels = items.map((i) => ({ type: 'text', text: i.label, size: 'xxs', align: 'center', color: i.bold ? '#12211A' : '#78909C', weight: i.bold ? 'bold' : 'regular', flex: 1, wrap: false }));
+  return [
+    { type: 'box', layout: 'horizontal', spacing: 'sm', height: (maxHeight + 22) + 'px', contents: cols },
+    { type: 'separator', margin: 'sm' },
+    { type: 'box', layout: 'horizontal', spacing: 'sm', margin: 'sm', contents: labels },
+    ...(avg != null ? [{ type: 'text', text: `เฉลี่ย ${nf(avg)} บาท/เดือน`, size: 'xxs', color: '#78909C', margin: 'sm', align: 'center' }] : []),
+  ];
+}
+/** Proportional strip (100% stacked bar): [{label, value, color}] → one rounded bar, widths in whole percents. */
+export function stackStrip(parts) {
+  const total = parts.reduce((s, p) => s + Math.max(0, p.value), 0);
+  if (!(total > 0)) return null;
+  const segs = parts.filter((p) => p.value > 0).map((p) => ({ type: 'box', layout: 'vertical', flex: Math.max(1, Math.round((p.value / total) * 100)), backgroundColor: p.color, contents: [{ type: 'filler' }] }));
+  return { type: 'box', layout: 'horizontal', height: '12px', cornerRadius: '6px', spacing: 'xs', contents: segs };
+}
+const PALETTE = ['#02B0AE', '#7C4DFF', '#FF7043', '#FFB300', '#EC407A', '#26A69A', '#5C6BC0', '#90A4AE'];
+const trendText = (t) => t.dir === 'up' ? { text: `▲ แนวโน้มเพิ่มขึ้น ~${nf(Math.abs(t.slope))} บาท/เดือน`, color: '#C62828' } : t.dir === 'down' ? { text: `▼ แนวโน้มลดลง ~${nf(Math.abs(t.slope))} บาท/เดือน`, color: '#2E7D32' } : { text: '► แนวโน้มทรงตัว', color: '#546E7A' };
+
 function trendCard(rep) {
-  const max = Math.max(1, ...rep.trend.map((t) => t.value));
+  const t = trendText(rep.trendInfo);
+  const items = rep.trend.map((x) => {
+    const cur = x.month === rep.month;
+    return { label: monthShort(x.month).split(' ')[0], value: x.value, color: cur ? '#4527A0' : '#B39DDB', bold: cur };
+  });
+  const countRow = { type: 'box', layout: 'horizontal', spacing: 'sm', margin: 'md', contents: rep.trend.map((x) => ({ type: 'text', text: String(x.count), size: 'xxs', align: 'center', flex: 1, color: x.month === rep.month ? '#4527A0' : '#78909C', weight: x.month === rep.month ? 'bold' : 'regular' })) };
   return { type: 'bubble', size: 'mega',
-    header: header('📈', 'แนวโน้ม 6 เดือน', 'มูลค่ายาที่คืนในแต่ละเดือน', '#7C4DFF', '#4527A0'),
-    body: { type: 'box', layout: 'vertical', paddingAll: '12px', spacing: 'sm', contents: rep.trend.map((t) => {
-      const cur = t.month === rep.month;
-      return { type: 'box', layout: 'vertical', margin: 'sm', contents: [
-        { type: 'box', layout: 'horizontal', contents: [
-          { type: 'text', text: monthShort(t.month), size: 'xs', weight: cur ? 'bold' : 'regular', color: cur ? '#4527A0' : '#555555', flex: 3 },
-          { type: 'text', text: `${nf(t.value)} บาท · ${nf(t.count)} ครั้ง`, size: 'xs', weight: cur ? 'bold' : 'regular', color: cur ? '#4527A0' : '#555555', align: 'end', flex: 7 },
-        ] },
-        bar((t.value / max) * 100, cur ? '#4527A0' : '#B39DDB'),
-      ] };
-    }) },
+    header: header('📈', 'แนวโน้ม 6 เดือน', 'มูลค่ายาที่คืนในแต่ละเดือน (บาท)', '#7C4DFF', '#4527A0'),
+    body: { type: 'box', layout: 'vertical', paddingAll: '12px', contents: [
+      { type: 'text', text: t.text, size: 'sm', weight: 'bold', color: t.color, wrap: true },
+      { type: 'box', layout: 'vertical', margin: 'md', contents: columnChart(items, { avg: rep.trendInfo.avg }) },
+      { type: 'text', text: 'จำนวนครั้งที่คืนในแต่ละเดือน', size: 'xxs', color: '#78909C', margin: 'md', align: 'center' },
+      countRow,
+      ...(rep.trendInfo.peakMonth ? [{ type: 'text', text: `สูงสุด: ${monthLabel(rep.trendInfo.peakMonth)} (${nf(rep.trendInfo.peakValue)} บาท)`, size: 'xxs', color: '#546E7A', margin: 'md', wrap: true }] : []),
+    ] },
     footer: footerBtn('เปิดรายงานในแอป', link(rep.month, 'all'), '#4527A0') };
 }
 
@@ -172,19 +215,22 @@ function groupsCard(rep, by) {
   const shown = groups.slice(0, 7);
   const rest = groups.slice(7);
   const total = Math.max(1, groups.reduce((s, g) => s + Math.max(0, g.value), 0));
+  const colorOf = (i) => PALETTE[Math.min(i, PALETTE.length - 1)];
+  const strip = stackStrip([...shown.map((g, i) => ({ value: g.value, color: colorOf(i) })), ...(rest.length ? [{ value: rest.reduce((s, g) => s + Math.max(0, g.value), 0), color: '#CFD8DC' }] : [])]);
   const rows = shown.map((g, i) => ({ type: 'box', layout: 'vertical', margin: 'md', contents: [
     { type: 'box', layout: 'horizontal', contents: [
-      { type: 'text', text: `${g.icon ? g.icon + ' ' : ''}${g.label}`, size: 'sm', weight: 'bold', wrap: true, flex: 6, color: '#12211A' },
+      { type: 'box', layout: 'vertical', width: '10px', height: '10px', flex: 0, margin: 'none', backgroundColor: colorOf(i), cornerRadius: '3px', contents: [{ type: 'filler' }] },
+      { type: 'text', text: `${g.icon ? g.icon + ' ' : ''}${g.label}`, size: 'sm', weight: 'bold', wrap: true, flex: 6, color: '#12211A', margin: 'sm' },
       { type: 'text', text: `${nf(g.value)}`, size: 'sm', weight: 'bold', align: 'end', flex: 3, color: by === 'cat' ? '#007371' : '#BF360C' },
     ] },
     { type: 'text', text: `${nf(g.count)} ครั้ง · ${Math.round((Math.max(0, g.value) / total) * 100)}% ของมูลค่า` + (by === 'reason' && g.children?.[0] ? ` · มาก: ${g.children[0].label}` : ''), size: 'xxs', color: '#6D736D', wrap: true },
-    bar((Math.max(0, g.value) / total) * 100, by === 'cat' ? '#02B0AE' : '#FF7043'),
+    bar((Math.max(0, g.value) / total) * 100, colorOf(i)),
   ] }));
   if (rest.length) rows.push({ type: 'text', text: `…และอีก ${rest.length} กลุ่ม (${nf(rest.reduce((s, g) => s + g.value, 0))} บาท) — ดูในแอป`, size: 'xs', color: '#8A918B', margin: 'md', wrap: true });
   if (!groups.length) rows.push({ type: 'text', text: 'ไม่มีข้อมูล', size: 'sm', color: '#8A918B' });
   return { type: 'bubble', size: 'mega',
     header: by === 'cat' ? header('🗂', 'แยกตามหมวดหมู่ยา', `${monthLabel(rep.month)} · มูลค่า (บาท)`, '#02B0AE', '#004C4B') : header('💬', 'แยกตามเหตุผลการคืนยา', `${monthLabel(rep.month)} · มูลค่า (บาท)`, '#FF8A65', '#BF360C'),
-    body: { type: 'box', layout: 'vertical', paddingAll: '12px', contents: rows },
+    body: { type: 'box', layout: 'vertical', paddingAll: '12px', contents: [...(strip ? [strip] : []), ...rows] },
     footer: footerBtn(by === 'cat' ? 'ดูแยกตามหมวดยา' : 'ดูแยกตามเหตุผล', link(rep.month, by), by === 'cat' ? '#007371' : '#BF360C') };
 }
 
