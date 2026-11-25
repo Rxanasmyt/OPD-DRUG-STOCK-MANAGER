@@ -104,14 +104,22 @@ function needsZeroFloorCheck(m, now) {
 /** Pure: everything the notification says, computed from already-read data. Exported for tests. */
 // Emergency requisition: the warehouse is requisitioned about every 2 weeks and stock arrives ~1 week after the request, so a drug
 // whose TOTAL on-hand (shelf + substock) will run out before the next regular delivery cannot wait for the normal round.
-// `horizonDays` = days until that next delivery: from NEXT_DELIVERY_DATE when the hospital sets it, else a 14-day default.
+// `horizonDays` = how far ahead to look: default 7 days (a drug that will run out within a week is flagged); a hospital can change it
+// with REQ_HORIZON_DAYS, or set NEXT_DELIVERY_DATE to look exactly as far as the next regular delivery.
 // Daily use is the calendar-day average of the same blended monthly figure the app's par suggestion uses.
 function monthlyUse(m) {
   const cur = m.used30 || 0; const prev = m.usedPrev30 || 0;
   return prev > 0 ? Math.max(cur * 0.7 + prev * 0.3, (cur + prev) / 2) : cur;
 }
 
-export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now(), horizonDays = 14 }) {
+/** Urgency ladder for the emergency list, by whole days of cover left. */
+export function urgencyLevel(coverDays) {
+  if (coverDays <= 1) return { n: 1, label: 'วิกฤต', sub: 'หมดวันนี้–พรุ่งนี้', ink: '#B71C1C', bg: '#FFCDD2', dot: '🔴' };
+  if (coverDays <= 3) return { n: 2, label: 'เร่งด่วนมาก', sub: 'หมดใน 2–3 วัน', ink: '#D84315', bg: '#FFE0B2', dot: '🟠' };
+  return { n: 3, label: 'เร่งด่วน', sub: 'หมดใน 4–7 วัน', ink: '#9A5B00', bg: '#FFF8C4', dot: '🟡' };
+}
+
+export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now(), horizonDays = 7 }) {
   const active = meds.filter((m) => m.active);
   const byId = new Map(active.map((m) => [m.id, m]));
   const subByMed = new Map();
@@ -140,10 +148,10 @@ export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now(),
       const onHand = (m.floor || 0) + subQty(m.id);
       return { m, daily, onHand, cover: onHand / daily };
     })
-    .filter((x) => x.cover < horizonDays)
+    .filter((x) => x.cover <= horizonDays)
     .sort((a, b) => a.cover - b.cover)
     .map((x) => ({
-      name: x.m.name, unit: x.m.unit, onHand: x.onHand, cover: Math.max(0, Math.floor(x.cover)),
+      name: x.m.name, unit: x.m.unit, onHand: x.onHand, cover: Math.max(0, Math.floor(x.cover)), level: urgencyLevel(Math.max(0, Math.floor(x.cover))),
       // enough to carry the drug through the horizon plus a week of lead time, never less than topping substock up to par
       needQty: Math.max(0, Math.ceil(x.daily * (horizonDays + 7) - x.onHand), (usesSubstock(x.m) ? (x.m.parSub || 0) - subQty(x.m.id) : 0)),
     }));
@@ -159,7 +167,7 @@ export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now(),
 }
 
 const SECTIONS = [
-  { key: 'emergency', icon: '🚨', color: '#B71C1C', title: 'เบิกฉุกเฉิน — จะหมดก่อนถึงรอบเบิกปกติ', fmt: (r) => `เหลือใช้ ~${r.cover} วัน · คงเหลือ ${nf(r.onHand)} ${r.unit} · ควรขอ ~${nf(r.needQty)}`, valueText: (r) => `~${r.cover} วัน` },
+  { key: 'emergency', icon: '🚨', color: '#B71C1C', title: 'เบิกฉุกเฉิน — จะหมดก่อนถึงรอบเบิกปกติ', fmt: (r) => `${r.level.dot} ${r.level.label} · เหลือใช้ ~${r.cover} วัน · คงเหลือ ${nf(r.onHand)} ${r.unit} · ควรขอ ~${nf(r.needQty)}`, valueText: (r) => `${r.level.label} · ~${r.cover} วัน` },
   { key: 'belowMin', icon: '🔴', color: '#C62828', title: 'ต่ำกว่าจุดต้องเติม (Min) — ควรเติมวันนี้', fmt: (r) => `${nf(r.cur)}/${nf(r.ref)} ${r.unit}`, valueText: (r) => `${nf(r.cur)}/${nf(r.ref)}` },
   { key: 'zeroFloor', icon: '0️⃣', color: '#6A1B9A', title: 'ยอดหน้างานเป็น 0 — ควรนับจริง', fmt: () => 'ยังไม่ได้นับวันนี้', valueText: () => '0' },
   { key: 'belowSubPar', icon: '🟡', color: '#B26A00', title: 'ต่ำกว่า par — ควรเบิกจากคลังใหญ่', fmt: (r) => `${nf(r.cur)}/${nf(r.ref)} ${r.unit}`, valueText: (r) => `${nf(r.cur)}/${nf(r.ref)}` },
@@ -220,7 +228,10 @@ function summaryBubble(report, dateLabel) {
     ] },
     body: { type: 'box', layout: 'vertical', paddingAll: '14px', spacing: 'md', contents: [
       { type: 'text', text: `พบ ${total} รายการที่ควรดำเนินการ`, size: 'sm', weight: 'bold', color: '#12211A' },
-      ...(report.emergency.length ? [{ type: 'box', layout: 'horizontal', contents: [tile('emergency')] }] : []),
+      ...(report.emergency.length ? [{ type: 'box', layout: 'horizontal', contents: [tile('emergency')] }, {
+        type: 'text', size: 'xs', weight: 'bold', wrap: true, color: '#B71C1C',
+        text: [1, 2, 3].map((n) => { const c = report.emergency.filter((e) => e.level.n === n).length; return c ? urgencyLevel(n === 1 ? 0 : n === 2 ? 3 : 7).dot + urgencyLevel(n === 1 ? 0 : n === 2 ? 3 : 7).label + ' ' + c : ''; }).filter(Boolean).join('  ·  '),
+      }] : []),
       { type: 'box', layout: 'horizontal', spacing: 'md', contents: [tile('belowMin'), tile('zeroFloor')] },
       { type: 'box', layout: 'horizontal', spacing: 'md', contents: [tile('belowSubPar'), tile('expiring')] },
       { type: 'text', text: 'ปัดการ์ดไปทางซ้ายเพื่อดูรายชื่อยาในแต่ละหมวด', size: 'xxs', color: '#8A918B', wrap: true },
@@ -236,7 +247,7 @@ function rowFlex(sec, key, r) {
   const hasBar = key === 'belowMin' || key === 'belowSubPar';
   const pct = hasBar && r.ref > 0 ? Math.max(3, Math.min(100, Math.round((r.cur / r.ref) * 100))) : 0;
   const urgentExp = (key === 'expiring' && r.days <= 7) || (key === 'emergency' && r.cover <= 7);
-  const valueColor = urgentExp ? '#C62828' : t.ink;
+  const valueColor = key === 'emergency' ? r.level.ink : urgentExp ? '#C62828' : t.ink;
   const inner = [
     { type: 'box', layout: 'horizontal', contents: [
       { type: 'text', text: r.name, size: 'sm', weight: 'bold', wrap: true, flex: 5, color: '#12211A' },
@@ -249,7 +260,8 @@ function rowFlex(sec, key, r) {
   if (hasBar) inner.push({ type: 'box', layout: 'horizontal', height: '6px', margin: 'sm', backgroundColor: '#E6E9E4', cornerRadius: '3px', contents: [
     { type: 'box', layout: 'vertical', width: pct + '%', backgroundColor: t.c2, cornerRadius: '3px', contents: [{ type: 'filler' }] },
   ] });
-  return { type: 'box', layout: 'vertical', margin: 'md', paddingAll: '10px', backgroundColor: t.soft, cornerRadius: '10px', contents: inner };
+  const rowBg = key === 'emergency' ? r.level.bg : t.soft;
+  return { type: 'box', layout: 'vertical', margin: 'md', paddingAll: '10px', backgroundColor: rowBg, cornerRadius: '10px', contents: inner };
 }
 
 function sectionBubble(sec, report) {
@@ -263,7 +275,7 @@ function sectionBubble(sec, report) {
       { type: 'text', text: sec.icon, size: 'xxl', flex: 0, gravity: 'center' },
       { type: 'box', layout: 'vertical', margin: 'md', flex: 1, contents: [
         { type: 'text', text: `${t.label} · ${rows.length} รายการ`, color: '#FFFFFF', weight: 'bold', size: 'md', wrap: true },
-        { type: 'text', text: key === 'expiring' ? `ภายใน ${report.expiryWarnDays} วัน · ${t.sub}` : key === 'emergency' ? `เหลือใช้ไม่ถึง ${report.horizonDays} วัน · ${t.sub}` : t.sub, color: '#FFFFFFD9', size: 'xs', wrap: true },
+        { type: 'text', text: key === 'expiring' ? `ภายใน ${report.expiryWarnDays} วัน · ${t.sub}` : key === 'emergency' ? `เหลือใช้ไม่เกิน ${report.horizonDays} วัน · เรียงตามความเร่งด่วน` : t.sub, color: '#FFFFFFD9', size: 'xs', wrap: true },
       ] },
     ] },
     body: { type: 'box', layout: 'vertical', paddingAll: '12px', contents: body },
@@ -308,8 +320,8 @@ export async function main() {
   const expiryWarnDays = typeof settings.expiryWarnDays === 'number' ? settings.expiryWarnDays : 30;
 
   // Days until the next regular warehouse delivery: NEXT_DELIVERY_DATE (YYYY-MM-DD, set as a repo variable) when given and in the
-  // future, else REQ_HORIZON_DAYS, else 14.
-  let horizonDays = Number(process.env.REQ_HORIZON_DAYS) > 0 ? Number(process.env.REQ_HORIZON_DAYS) : 14;
+  // future, else REQ_HORIZON_DAYS, else 7.
+  let horizonDays = Number(process.env.REQ_HORIZON_DAYS) > 0 ? Number(process.env.REQ_HORIZON_DAYS) : 7;
   const nd = process.env.NEXT_DELIVERY_DATE;
   if (nd && /^\d{4}-\d{2}-\d{2}$/.test(nd)) {
     const diff = Math.ceil((Date.parse(nd + 'T00:00:00+07:00') - Date.now()) / DAY_MS);
