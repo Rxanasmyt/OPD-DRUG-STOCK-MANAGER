@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildMonthlyReport, buildMonthlyFlex, groupReturns as scriptGroup, monthLabel, shiftMonth, previousMonthOf, monthRange, CATEGORY_LABELS, REVERSAL_PREFIX } from './notify-monthly-returns.mjs';
+import { analyzeTrend, columnChart, stackStrip, buildMonthlyReport, buildMonthlyFlex, groupReturns as scriptGroup, monthLabel, shiftMonth, previousMonthOf, monthRange, CATEGORY_LABELS, REVERSAL_PREFIX } from './notify-monthly-returns.mjs';
 import { groupReturns as appGroup } from '../src/utils/returnsSummary';
 import { RETURN_REASON_GROUPS, REVERSAL_PREFIX as APP_REVERSAL } from '../src/utils/returnReasons';
 import { DRUG_CATEGORIES } from '../src/data/categories';
@@ -106,3 +106,43 @@ describe('script ↔ app parity (the script keeps a copy of the app logic)', () 
 function scriptGroupReasons() {
   return RETURN_REASON_GROUPS.map((g) => g.reasons.filter((r) => scriptGroup([rec({ reason: r })], 'reason')[0].key === g.key).join('|')).join('/');
 }
+
+describe('monthly returns report — charts', () => {
+  const series = (vals) => vals.map((value, i) => ({ month: '2026-0' + (i + 1), value, count: 1 }));
+  it('trend direction: rising, falling and flat (within ±5%/month)', () => {
+    expect(analyzeTrend(series([100, 200, 300, 400, 500, 600])).dir).toBe('up');
+    expect(analyzeTrend(series([600, 500, 400, 300, 200, 100])).dir).toBe('down');
+    expect(analyzeTrend(series([300, 310, 295, 305, 300, 302])).dir).toBe('flat');
+    expect(analyzeTrend(series([0, 0, 0, 0, 0, 0])).dir).toBe('flat');
+  });
+  it('trend reports the average and the peak month', () => {
+    const t = analyzeTrend(series([100, 900, 200, 200, 100, 100]));
+    expect(t.avg).toBe(267);
+    expect(t.peakMonth).toBe('2026-02');
+  });
+  it('column heights are proportional to value (tallest = 96px) and never vanish', () => {
+    const cols = columnChart([{ label: 'a', value: 1000, color: '#000' }, { label: 'b', value: 500, color: '#000' }, { label: 'c', value: 0, color: '#000' }])[0].contents;
+    const h = cols.map((c) => parseInt(c.contents[1].height, 10));
+    expect(h).toEqual([96, 48, 3]);
+  });
+  it('a column must not use alignItems:center — a filler-only bar would collapse to zero width', () => {
+    const col = columnChart([{ label: 'a', value: 5, color: '#000' }])[0].contents[0];
+    expect(col.alignItems).toBeUndefined();
+  });
+  it('compact value labels (14,820 → 14.8k)', () => {
+    const cols = columnChart([{ label: 'a', value: 14820, color: '#000' }, { label: 'b', value: 950, color: '#000' }])[0].contents;
+    expect(cols.map((c) => c.contents[0].text)).toEqual(['14.8k', '950']);
+  });
+  it('stack strip uses whole-percent integer flex and skips empty parts; null when there is nothing', () => {
+    const s = stackStrip([{ value: 600, color: '#a' }, { value: 300, color: '#b' }, { value: 0, color: '#c' }, { value: 100, color: '#d' }]);
+    expect(s.contents.map((x) => x.flex)).toEqual([60, 30, 10]);
+    expect(stackStrip([{ value: 0, color: '#a' }])).toBeNull();
+  });
+  it('the report carries trend info and the cards show it', () => {
+    const rep = buildMonthlyReport({ records: data, month: '2026-10' });
+    expect(['up', 'down', 'flat']).toContain(rep.trendInfo.dir);
+    const s = JSON.stringify(buildMonthlyFlex(rep));
+    expect(s).toContain('แนวโน้ม');
+    expect(s).toContain('จำนวนครั้งที่คืนในแต่ละเดือน');
+  });
+});
