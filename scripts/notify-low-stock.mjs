@@ -102,7 +102,16 @@ function needsZeroFloorCheck(m, now) {
 }
 
 /** Pure: everything the notification says, computed from already-read data. Exported for tests. */
-export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now() }) {
+// Emergency requisition: the warehouse is requisitioned about every 2 weeks and stock arrives ~1 week after the request, so a drug
+// whose TOTAL on-hand (shelf + substock) will run out before the next regular delivery cannot wait for the normal round.
+// `horizonDays` = days until that next delivery: from NEXT_DELIVERY_DATE when the hospital sets it, else a 14-day default.
+// Daily use is the calendar-day average of the same blended monthly figure the app's par suggestion uses.
+function monthlyUse(m) {
+  const cur = m.used30 || 0; const prev = m.usedPrev30 || 0;
+  return prev > 0 ? Math.max(cur * 0.7 + prev * 0.3, (cur + prev) / 2) : cur;
+}
+
+export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now(), horizonDays = 14 }) {
   const active = meds.filter((m) => m.active);
   const byId = new Map(active.map((m) => [m.id, m]));
   const subByMed = new Map();
@@ -120,19 +129,37 @@ export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now() 
   const subQty = (id) => subByMed.get(id) || 0;
   const belowMin = active.filter((m) => !isOnStockHold(m) && (m.floor || 0) < floorMinOf(m))
     .map((m) => ({ name: m.name, unit: m.unit, cur: m.floor || 0, ref: floorMinOf(m) }));
-  const belowSubPar = active.filter((m) => !isOnStockHold(m) && (usesSubstock(m) ? subQty(m.id) < (m.parSub || 0) : (m.floor || 0) < (m.parFloor || 0)))
+  const belowSubParAll = active.filter((m) => !isOnStockHold(m) && (usesSubstock(m) ? subQty(m.id) < (m.parSub || 0) : (m.floor || 0) < (m.parFloor || 0)))
     .map((m) => usesSubstock(m)
       ? { name: m.name, unit: m.unit, cur: subQty(m.id), ref: m.parSub || 0 }
       : { name: m.name, unit: m.unit, cur: m.floor || 0, ref: m.parFloor || 0 });
+  const emergency = active
+    .filter((m) => !isOnStockHold(m) && monthlyUse(m) > 0)
+    .map((m) => {
+      const daily = monthlyUse(m) / 30;
+      const onHand = (m.floor || 0) + subQty(m.id);
+      return { m, daily, onHand, cover: onHand / daily };
+    })
+    .filter((x) => x.cover < horizonDays)
+    .sort((a, b) => a.cover - b.cover)
+    .map((x) => ({
+      name: x.m.name, unit: x.m.unit, onHand: x.onHand, cover: Math.max(0, Math.floor(x.cover)),
+      // enough to carry the drug through the horizon plus a week of lead time, never less than topping substock up to par
+      needQty: Math.max(0, Math.ceil(x.daily * (horizonDays + 7) - x.onHand), (usesSubstock(x.m) ? (x.m.parSub || 0) - subQty(x.m.id) : 0)),
+    }));
+  const emergencyNames = new Set(emergency.map((e) => e.name));
   const zeroFloor = active.filter((m) => needsZeroFloorCheck(m, now)).map((m) => ({ name: m.name, unit: m.unit }));
   // A zero-floor med is always below Min too; list it once (under "ยอด 0 ควรนับจริง", the action it actually needs) instead of
   // repeating it in two sections of the same message.
+  // Same for par: a drug already in the emergency list is not repeated under "ต่ำกว่า par".
+  const belowSubPar = belowSubParAll.filter((r) => !emergencyNames.has(r.name));
   const zeroNames = new Set(zeroFloor.map((z) => z.name));
   const belowMinShown = belowMin.filter((r) => !zeroNames.has(r.name));
-  return { belowMin: belowMinShown, belowSubPar, zeroFloor, expiring, expiryWarnDays, empty: !belowMinShown.length && !belowSubPar.length && !zeroFloor.length && !expiring.length };
+  return { emergency, horizonDays, belowMin: belowMinShown, belowSubPar, zeroFloor, expiring, expiryWarnDays, empty: !emergency.length && !belowMinShown.length && !belowSubPar.length && !zeroFloor.length && !expiring.length };
 }
 
 const SECTIONS = [
+  { key: 'emergency', icon: '🚨', color: '#B71C1C', title: 'เบิกฉุกเฉิน — จะหมดก่อนถึงรอบเบิกปกติ', fmt: (r) => `เหลือใช้ ~${r.cover} วัน · คงเหลือ ${nf(r.onHand)} ${r.unit} · ควรขอ ~${nf(r.needQty)}`, valueText: (r) => `~${r.cover} วัน` },
   { key: 'belowMin', icon: '🔴', color: '#C62828', title: 'ต่ำกว่าจุดต้องเติม (Min) — ควรเติมวันนี้', fmt: (r) => `${nf(r.cur)}/${nf(r.ref)} ${r.unit}`, valueText: (r) => `${nf(r.cur)}/${nf(r.ref)}` },
   { key: 'zeroFloor', icon: '0️⃣', color: '#6A1B9A', title: 'ยอดหน้างานเป็น 0 — ควรนับจริง', fmt: () => 'ยังไม่ได้นับวันนี้', valueText: () => '0' },
   { key: 'belowSubPar', icon: '🟡', color: '#B26A00', title: 'ต่ำกว่า par — ควรเบิกจากคลังใหญ่', fmt: (r) => `${nf(r.cur)}/${nf(r.ref)} ${r.unit}`, valueText: (r) => `${nf(r.cur)}/${nf(r.ref)}` },
@@ -163,6 +190,7 @@ export function buildText(report, dateLabel) {
 // available — and used here — is colour, gradients, size/weight hierarchy, emoji and simple bars. A carousel: first card is
 // a colour-coded summary of the day, then one card per kind of alert, each in its own colour so severity reads at a glance.
 const THEME = {
+  emergency: { c1: '#FF1744', c2: '#8E0000', soft: '#FFEBEE', ink: '#B71C1C', label: 'เบิกฉุกเฉิน', sub: 'จะหมดก่อนถึงรอบเบิกปกติ' },
   belowMin: { c1: '#FF5F6D', c2: '#C62828', soft: '#FFEBEE', ink: '#B71C1C', label: 'ต่ำกว่า Min', sub: 'ควรเติมหน้างานวันนี้' },
   zeroFloor: { c1: '#B388FF', c2: '#6A1B9A', soft: '#F3E5F5', ink: '#6A1B9A', label: 'ยอด 0', sub: 'ควรนับจริงหน้างาน' },
   belowSubPar: { c1: '#FFC107', c2: '#E08A00', soft: '#FFF8E1', ink: '#9A5B00', label: 'ต่ำกว่า par', sub: 'ควรเบิกจากคลังใหญ่' },
@@ -182,7 +210,7 @@ function summaryBubble(report, dateLabel) {
       ],
     };
   };
-  const total = ['belowMin', 'zeroFloor', 'belowSubPar', 'expiring'].reduce((a, k) => a + report[k].length, 0);
+  const total = ['emergency', 'belowMin', 'zeroFloor', 'belowSubPar', 'expiring'].reduce((a, k) => a + report[k].length, 0);
   return {
     type: 'bubble', size: 'mega',
     header: { type: 'box', layout: 'vertical', paddingAll: '16px', background: grad('#02B0AE', '#004C4B'), contents: [
@@ -192,6 +220,7 @@ function summaryBubble(report, dateLabel) {
     ] },
     body: { type: 'box', layout: 'vertical', paddingAll: '14px', spacing: 'md', contents: [
       { type: 'text', text: `พบ ${total} รายการที่ควรดำเนินการ`, size: 'sm', weight: 'bold', color: '#12211A' },
+      ...(report.emergency.length ? [{ type: 'box', layout: 'horizontal', contents: [tile('emergency')] }] : []),
       { type: 'box', layout: 'horizontal', spacing: 'md', contents: [tile('belowMin'), tile('zeroFloor')] },
       { type: 'box', layout: 'horizontal', spacing: 'md', contents: [tile('belowSubPar'), tile('expiring')] },
       { type: 'text', text: 'ปัดการ์ดไปทางซ้ายเพื่อดูรายชื่อยาในแต่ละหมวด', size: 'xxs', color: '#8A918B', wrap: true },
@@ -206,7 +235,7 @@ function rowFlex(sec, key, r) {
   const t = THEME[key];
   const hasBar = key === 'belowMin' || key === 'belowSubPar';
   const pct = hasBar && r.ref > 0 ? Math.max(3, Math.min(100, Math.round((r.cur / r.ref) * 100))) : 0;
-  const urgentExp = key === 'expiring' && r.days <= 7;
+  const urgentExp = (key === 'expiring' && r.days <= 7) || (key === 'emergency' && r.cover <= 7);
   const valueColor = urgentExp ? '#C62828' : t.ink;
   const inner = [
     { type: 'box', layout: 'horizontal', contents: [
@@ -215,6 +244,7 @@ function rowFlex(sec, key, r) {
     ] },
   ];
   if (key === 'expiring') inner.push({ type: 'text', text: sec.fmt(r), size: 'xs', weight: 'bold', color: valueColor, wrap: true });
+  else if (key === 'emergency') inner.push({ type: 'text', text: `คงเหลือ ${nf(r.onHand)} ${r.unit} · ควรขอ ~${nf(r.needQty)} ${r.unit}`, size: 'xs', color: '#666666', wrap: true });
   else if (key === 'zeroFloor') inner.push({ type: 'text', text: 'ยังไม่ได้นับวันนี้ — นับจริงแล้วบันทึกในแอป', size: 'xxs', color: '#8A918B', wrap: true });
   if (hasBar) inner.push({ type: 'box', layout: 'horizontal', height: '6px', margin: 'sm', backgroundColor: '#E6E9E4', cornerRadius: '3px', contents: [
     { type: 'box', layout: 'vertical', width: pct + '%', backgroundColor: t.c2, cornerRadius: '3px', contents: [{ type: 'filler' }] },
@@ -233,7 +263,7 @@ function sectionBubble(sec, report) {
       { type: 'text', text: sec.icon, size: 'xxl', flex: 0, gravity: 'center' },
       { type: 'box', layout: 'vertical', margin: 'md', flex: 1, contents: [
         { type: 'text', text: `${t.label} · ${rows.length} รายการ`, color: '#FFFFFF', weight: 'bold', size: 'md', wrap: true },
-        { type: 'text', text: key === 'expiring' ? `ภายใน ${report.expiryWarnDays} วัน · ${t.sub}` : t.sub, color: '#FFFFFFD9', size: 'xs', wrap: true },
+        { type: 'text', text: key === 'expiring' ? `ภายใน ${report.expiryWarnDays} วัน · ${t.sub}` : key === 'emergency' ? `เหลือใช้ไม่ถึง ${report.horizonDays} วัน · ${t.sub}` : t.sub, color: '#FFFFFFD9', size: 'xs', wrap: true },
       ] },
     ] },
     body: { type: 'box', layout: 'vertical', paddingAll: '12px', contents: body },
@@ -277,7 +307,15 @@ export async function main() {
   const settings = settingsSnap && typeof settingsSnap.data === 'function' ? (settingsSnap.data() || {}) : {};
   const expiryWarnDays = typeof settings.expiryWarnDays === 'number' ? settings.expiryWarnDays : 30;
 
-  const report = buildReport({ meds, lots, expiryWarnDays });
+  // Days until the next regular warehouse delivery: NEXT_DELIVERY_DATE (YYYY-MM-DD, set as a repo variable) when given and in the
+  // future, else REQ_HORIZON_DAYS, else 14.
+  let horizonDays = Number(process.env.REQ_HORIZON_DAYS) > 0 ? Number(process.env.REQ_HORIZON_DAYS) : 14;
+  const nd = process.env.NEXT_DELIVERY_DATE;
+  if (nd && /^\d{4}-\d{2}-\d{2}$/.test(nd)) {
+    const diff = Math.ceil((Date.parse(nd + 'T00:00:00+07:00') - Date.now()) / DAY_MS);
+    if (diff > 0) horizonDays = diff;
+  }
+  const report = buildReport({ meds, lots, expiryWarnDays, horizonDays });
   if (report.empty) {
     console.log('Nothing below par today — skipping notification (no alert fatigue for a clean day).');
     return;

@@ -201,10 +201,42 @@ describe('notify-low-stock — report sections', () => {
 describe('notify-low-stock — flex payload stays within LINE limits', () => {
   it('caps rows per card and stays small even with hundreds of alerts', () => {
     const many = Array.from({ length: 300 }, (_, i) => ({ name: 'ยา ' + i, unit: 'เม็ด', cur: i % 7, ref: 50 }));
-    const rep = { belowMin: many, belowSubPar: many, zeroFloor: many.map((m) => ({ name: m.name, unit: m.unit })), expiring: many.map((m) => ({ ...m, lotNo: 'L', qty: 1, days: 3 })), expiryWarnDays: 30, empty: false };
+    const rep = { emergency: many.map((m) => ({ name: m.name, unit: m.unit, onHand: 5, cover: 2, needQty: 100 })), horizonDays: 14, belowMin: many, belowSubPar: many, zeroFloor: many.map((m) => ({ name: m.name, unit: m.unit })), expiring: many.map((m) => ({ ...m, lotNo: 'L', qty: 1, days: 3 })), expiryWarnDays: 30, empty: false };
     const flex = buildFlex(rep, 'วันนี้');
-    expect(flex.contents.contents.length).toBe(5);
+    expect(flex.contents.contents.length).toBe(6);
     expect(JSON.stringify(flex).length).toBeLessThan(30000); // LINE flex payload limit is 30KB
     expect(flex.altText.length).toBeLessThanOrEqual(400);
+  });
+});
+
+describe('notify-low-stock — emergency requisition (runs out before next delivery)', () => {
+  const NOW = Date.parse('2026-11-25T03:00:00Z');
+  const base = { active: true, unit: 'เม็ด', parFloor: 100, parSub: 1000, used30: 900, usedPrev30: 0 }; // 30/day
+  const meds = [
+    { ...base, id: 'a', name: 'RUNS OUT SOON', floor: 20 },        // 20 + 100 = 120 on hand → 4 days
+    { ...base, id: 'b', name: 'PLENTY', floor: 100 },              // 100 + 900 = 1000 → 33 days
+    { ...base, id: 'c', name: 'ON HOLD', floor: 0, outOfStockSince: NOW },
+    { ...base, id: 'd', name: 'NO USAGE', floor: 0, used30: 0 },
+  ];
+  const lots = [{ medId: 'a', qty: 100, exp: NOW + 400 * 86400000 }, { medId: 'b', qty: 900, exp: NOW + 400 * 86400000 }];
+
+  it('flags only drugs whose total on-hand runs out inside the horizon, soonest first', () => {
+    const r = buildReport({ meds, lots, now: NOW, horizonDays: 14 });
+    expect(r.emergency.map((e) => e.name)).toEqual(['RUNS OUT SOON']);
+    expect(r.emergency[0].cover).toBe(4);
+  });
+  it('suggests a request quantity that covers horizon + lead time (at least up to par)', () => {
+    const r = buildReport({ meds, lots, now: NOW, horizonDays: 14 });
+    expect(r.emergency[0].needQty).toBe(Math.max(30 * 21 - 120, 1000 - 100)); // 900
+  });
+  it('a nearer next-delivery date shrinks the horizon', () => {
+    expect(buildReport({ meds, lots, now: NOW, horizonDays: 3 }).emergency).toHaveLength(0);
+  });
+  it('an emergency drug is not repeated under "ต่ำกว่า par", and shows first in the flex carousel', () => {
+    const r = buildReport({ meds, lots, now: NOW, horizonDays: 14 });
+    expect(r.belowSubPar.map((x) => x.name)).not.toContain('RUNS OUT SOON');
+    const flex = buildFlex(r, 'วันนี้');
+    expect(JSON.stringify(flex.contents.contents[1])).toContain('เบิกฉุกเฉิน');
+    expect(buildText(r, 'วันนี้')).toContain('🚨');
   });
 });

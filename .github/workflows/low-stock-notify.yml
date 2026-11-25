@@ -57,3 +57,7 @@ jobs:
           # MOPH Notify → a LINE group with the "หมอพร้อม" bot (same channel EB Notify uses). Optional; either or both channels may be set.
           MOPH_NOTIFY_CLIENT_KEY: ${{ secrets.MOPH_NOTIFY_CLIENT_KEY }}
           MOPH_NOTIFY_SECRET_KEY: ${{ secrets.MOPH_NOTIFY_SECRET_KEY }}
+          # Emergency-requisition horizon (optional repo *variables*, Settings → Variables): NEXT_DELIVERY_DATE = YYYY-MM-DD of the
+          # next regular warehouse delivery; otherwise REQ_HORIZON_DAYS (default 14). Drugs that will run out sooner are flagged 🚨.
+          NEXT_DELIVERY_DATE: ${{ vars.NEXT_DELIVERY_DATE }}
+          REQ_HORIZON_DAYS: ${{ vars.REQ_HORIZON_DAYS }}
