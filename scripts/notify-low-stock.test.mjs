@@ -94,3 +94,57 @@ describe('notify-low-stock — stale floorMin (Min above Max) regression', () =>
     logSpy.mockRestore();
   });
 });
+
+describe('notify-low-stock — MOPH Notify channel', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    process.env.FIREBASE_SERVICE_ACCOUNT_KEY = JSON.stringify({ project_id: 'opd-drug-stock' });
+    process.argv = ['node', 'notify-low-stock.mjs'];
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    process.env.MOPH_NOTIFY_CLIENT_KEY = 'ck';
+    process.env.MOPH_NOTIFY_SECRET_KEY = 'sk';
+  });
+
+  it('posts the text message to the MOPH endpoint with client-key/secret-key headers', async () => {
+    mockFirestoreWith([GENUINELY_LOW_MED]);
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, text: async () => '{"message":"Success","message_code":200}' }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { main } = await import('./notify-low-stock.mjs');
+    await main();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://morpromt2f.moph.go.th/api/notify/send');
+    expect(init.headers['client-key']).toBe('ck');
+    expect(init.headers['secret-key']).toBe('sk');
+    const body = JSON.parse(init.body);
+    expect(body.messages[0].type).toBe('text');
+    expect(body.messages[0].text).toContain(GENUINELY_LOW_MED.name);
+    vi.unstubAllGlobals();
+  });
+
+  it('treats message_code 401 in the body as a failure even when HTTP is 200', async () => {
+    mockFirestoreWith([GENUINELY_LOW_MED]);
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, text: async () => '{"message":"Unauthorized","message_code":401}' })));
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { main } = await import('./notify-low-stock.mjs');
+    await expect(main()).rejects.toThrow(/MOPH Notify failed/);
+    vi.unstubAllGlobals();
+  });
+
+  it('a failing MOPH channel does not stop the LINE OA channel from sending', async () => {
+    process.env.LINE_CHANNEL_ACCESS_TOKEN = 'tok';
+    mockFirestoreWith([GENUINELY_LOW_MED]);
+    const fetchMock = vi.fn(async (url) => String(url).includes('moph')
+      ? { ok: false, status: 500, text: async () => 'boom' }
+      : { ok: true, status: 200, text: async () => '{}' });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { main } = await import('./notify-low-stock.mjs');
+    await expect(main()).rejects.toThrow(/1 notification channel/);
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('api.line.me'))).toBe(true);
+    vi.unstubAllGlobals();
+  });
+});
