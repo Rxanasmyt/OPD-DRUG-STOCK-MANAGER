@@ -147,7 +147,7 @@ function summaryCard(rep) {
       ...(topReason ? [{ type: 'text', text: `💬 เหตุผลหลัก: ${topReason.icon ?? ''} ${topReason.label} (${nf(topReason.value)} บาท)`, size: 'xs', wrap: true, color: '#12211A' }] : []),
       { type: 'text', text: 'ปัดการ์ดไปทางซ้ายเพื่อดู: แนวโน้ม · แยกตามหมวดหมู่ยา · แยกตามเหตุผล · ยาคืนสูงสุด', size: 'xxs', color: '#8A918B', wrap: true },
     ] },
-    footer: footerBtn('ดูทุกหมวด (รายการทั้งหมด)', link(rep.month, 'all'), '#007371') };
+    footer: footerBtn('ดูทุกหมวดในแอป', link(rep.month, 'all'), '#007371') };
 }
 
 function trendCard(rep) {
@@ -185,7 +185,7 @@ function groupsCard(rep, by) {
   return { type: 'bubble', size: 'mega',
     header: by === 'cat' ? header('🗂', 'แยกตามหมวดหมู่ยา', `${monthLabel(rep.month)} · มูลค่า (บาท)`, '#02B0AE', '#004C4B') : header('💬', 'แยกตามเหตุผลการคืนยา', `${monthLabel(rep.month)} · มูลค่า (บาท)`, '#FF8A65', '#BF360C'),
     body: { type: 'box', layout: 'vertical', paddingAll: '12px', contents: rows },
-    footer: footerBtn(by === 'cat' ? 'ดูแยกตามหมวดหมู่ในแอป' : 'ดูแยกตามเหตุผลในแอป', link(rep.month, by), by === 'cat' ? '#007371' : '#BF360C') };
+    footer: footerBtn(by === 'cat' ? 'ดูแยกตามหมวดยา' : 'ดูแยกตามเหตุผล', link(rep.month, by), by === 'cat' ? '#007371' : '#BF360C') };
 }
 
 function topMedsCard(rep) {
@@ -227,7 +227,7 @@ export async function main() {
   console.log(`${monthLabel(month)}: ${rep.total.count} returns, ${rep.total.value} baht`);
   const flex = buildMonthlyFlex(rep);
   if (dryRun) { console.log(JSON.stringify(flex.contents.contents.length) + ' cards, ' + JSON.stringify(flex).length + ' bytes (--dry-run — not sending)'); return; }
-  await sendIfConfigured([flex]);
+  await sendIfConfigured([flex], process.env, { required: true });
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

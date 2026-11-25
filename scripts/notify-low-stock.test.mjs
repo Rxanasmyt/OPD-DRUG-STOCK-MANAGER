@@ -283,3 +283,18 @@ describe('notify-low-stock — bug fixes found in review', () => {
     expect(JSON.stringify(flex.contents.contents[0])).toContain('"height":"8px"'); // level strip
   });
 });
+
+describe('notify-low-stock — stale usage statistics warning', () => {
+  const NOW = Date.parse('2026-11-25T03:00:00Z');
+  const med = { id: 'x', name: 'D2', active: true, unit: 'เม็ด', parFloor: 10, parSub: 0, noSubstock: true, used30: 300, floor: 25 };
+  it('warns on the text and the summary card when the daily usage job has not run for > 3 days', () => {
+    const rep = buildReport({ meds: [med], lots: [], now: NOW, usageStatsRecomputedAt: NOW - 6 * 86400000 });
+    expect(rep.usageStaleDays).toBe(6);
+    expect(buildText(rep, 'x')).toContain('ไม่ได้อัปเดตมา 6 วัน');
+    expect(JSON.stringify(buildFlex(rep, 'x').contents.contents[0])).toContain('ไม่ได้อัปเดตมา 6 วัน');
+  });
+  it('is silent when fresh, and when the timestamp is unknown', () => {
+    expect(buildText(buildReport({ meds: [med], lots: [], now: NOW, usageStatsRecomputedAt: NOW - 86400000 }), 'x')).not.toContain('ไม่ได้อัปเดต');
+    expect(buildText(buildReport({ meds: [med], lots: [], now: NOW }), 'x')).not.toContain('ไม่ได้อัปเดต');
+  });
+});

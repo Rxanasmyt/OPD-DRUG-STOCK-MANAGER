@@ -42,10 +42,15 @@ export function alertFlex({ icon, title, lines, tone = 'red', buttonLabel = 'เ
   };
 }
 
-/** Send to MOPH when the keys are configured; otherwise just log. Returns true if sent. */
-export async function sendIfConfigured(messages, env = process.env) {
+/** Send to MOPH when the keys are configured; otherwise just log. Returns true if sent.
+ * `required`: a scheduled report/reminder whose ONLY purpose is the message must FAIL (red run) when the keys are missing — a green run that
+ * silently sent nothing looks exactly like "working". Failure alerts (notify-alert.mjs) stay optional so they never mask the original failure. */
+export async function sendIfConfigured(messages, env = process.env, { required = false } = {}) {
   const k = env.MOPH_NOTIFY_CLIENT_KEY; const s = env.MOPH_NOTIFY_SECRET_KEY;
-  if (!k || !s) { console.log('MOPH_NOTIFY_CLIENT_KEY / MOPH_NOTIFY_SECRET_KEY not set — not sending.'); return false; }
+  if (!k || !s) {
+    if (required) throw new Error('MOPH_NOTIFY_CLIENT_KEY / MOPH_NOTIFY_SECRET_KEY are not set (GitHub → Settings → Secrets and variables → Actions).');
+    console.log('MOPH_NOTIFY_CLIENT_KEY / MOPH_NOTIFY_SECRET_KEY not set — not sending.'); return false;
+  }
   await mophNotify(k, s, messages);
   console.log('MOPH Notify: sent to LINE group.');
   return true;

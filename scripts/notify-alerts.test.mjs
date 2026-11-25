@@ -68,3 +68,12 @@ describe('shared MOPH helper', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe('required keys (a scheduled report that silently sends nothing must fail the run)', () => {
+  it('sendIfConfigured({required}) throws without keys, but stays optional for failure alerts', async () => {
+    const { sendIfConfigured } = await import('./moph-notify.mjs');
+    await expect(sendIfConfigured([], {}, { required: true })).rejects.toThrow(/not set/);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    await expect(sendIfConfigured([], {})).resolves.toBe(false);
+  });
+});

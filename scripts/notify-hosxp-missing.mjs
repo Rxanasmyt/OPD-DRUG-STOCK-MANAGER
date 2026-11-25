@@ -34,7 +34,7 @@ export function reminderMessage(now = Date.now()) {
       'ถ้าข้ามไป ยอดหน้างานในแอปจะคลาดจากของจริง และการแจ้งเตือนยาต่ำ/ยาจะหมดจะคำนวณจากเลขที่ไม่ตรง',
       'เมนู “นำเข้า HOSxP” → แนบไฟล์ → ตรวจ → ตัดยอด',
     ],
-    buttonLabel: 'เปิดแอป · นำเข้า HOSxP',
+    buttonLabel: 'ไปที่นำเข้า HOSxP',
     footnote: 'ถ้าวันนี้เป็นวันหยุดราชการ ให้เพิ่มวันที่ในตัวแปร HOLIDAYS ของ GitHub repo เพื่อไม่ให้เตือน',
   });
 }
@@ -53,7 +53,7 @@ export async function main() {
   console.log(`Today's txs: ${txs.length} · verdict: ${verdict.reason}`);
   if (!verdict.remind) return;
   if (dryRun) { console.log('(--dry-run — would send reminder)'); return; }
-  await sendIfConfigured([reminderMessage(now)]);
+  await sendIfConfigured([reminderMessage(now)], process.env, { required: true });
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

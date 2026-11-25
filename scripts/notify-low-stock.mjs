@@ -106,7 +106,7 @@ export function urgencyLevel(coverDays) {
   return { n: 3, label: 'เร่งด่วน', sub: 'หมดใน 4–7 วัน', ink: '#9A5B00', bg: '#FFF8C4', dot: '🟡' };
 }
 
-export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now(), horizonDays = 7 }) {
+export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now(), horizonDays = 7, usageStatsRecomputedAt = null }) {
   const active = meds.filter((m) => m.active);
   const byId = new Map(active.map((m) => [m.id, m]));
   const subByMed = new Map();
@@ -150,7 +150,9 @@ export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now(),
   const belowSubPar = belowSubParAll.filter((r) => !emergencyIds.has(r.id));
   const zeroIds = new Set(zeroFloor.map((z) => z.id));
   const belowMinShown = belowMin.filter((r) => !zeroIds.has(r.id));
-  return { emergency, horizonDays, belowMin: belowMinShown, belowSubPar, zeroFloor, expiring, expiryWarnDays, empty: !emergency.length && !belowMinShown.length && !belowSubPar.length && !zeroFloor.length && !expiring.length };
+  // The emergency list is only as good as used30/usedPrev30, which a daily job refreshes. If that job stopped, say so on the message.
+  const usageStaleDays = typeof usageStatsRecomputedAt === 'number' ? Math.floor((now - usageStatsRecomputedAt) / DAY_MS) : null;
+  return { usageStaleDays, emergency, horizonDays, belowMin: belowMinShown, belowSubPar, zeroFloor, expiring, expiryWarnDays, empty: !emergency.length && !belowMinShown.length && !belowSubPar.length && !zeroFloor.length && !expiring.length };
 }
 
 const SECTIONS = [
@@ -177,7 +179,8 @@ export function buildText(report, dateLabel) {
     const title = sec.key === 'expiring' ? `${sec.title} (< ${report.expiryWarnDays} วัน)` : sec.title;
     text += `\n\n${sec.icon} ${title} (${rows.length} รายการ)\n` + shown.map((r) => `• ${r.name}: ${sec.fmt(r)}`).join('\n') + more;
   }
-  const tail = `\n\nเปิดแอพ: ${APP_URL}`;
+  const stale = report.usageStaleDays != null && report.usageStaleDays > 3 ? `\n\n⚠️ ข้อมูลอัตราการใช้ยาไม่ได้อัปเดตมา ${report.usageStaleDays} วัน — รายการ “เบิกฉุกเฉิน” อาจคลาดเคลื่อน` : '';
+  const tail = stale + `\n\nเปิดแอพ: ${APP_URL}`;
   // LINE rejects a text message over 5,000 characters — keep the tail (app link) and trim the middle if ever needed.
   return text.length + tail.length > 4900 ? text.slice(0, 4900 - tail.length - 12) + '\n…(ตัดข้อความ)' + tail : text + tail;
 }
@@ -232,6 +235,7 @@ function summaryBubble(report, dateLabel) {
       ...(report.emergency.length ? [{ type: 'box', layout: 'horizontal', contents: [tile('emergency')] }, ...levelStrip(report)] : []),
       { type: 'box', layout: 'horizontal', spacing: 'md', contents: [tile('belowMin'), tile('zeroFloor')] },
       { type: 'box', layout: 'horizontal', spacing: 'md', contents: [tile('belowSubPar'), tile('expiring')] },
+      ...(report.usageStaleDays != null && report.usageStaleDays > 3 ? [{ type: 'text', text: `⚠️ ข้อมูลอัตราการใช้ยาไม่ได้อัปเดตมา ${report.usageStaleDays} วัน — “เบิกฉุกเฉิน” อาจคลาดเคลื่อน`, size: 'xxs', color: '#C62828', weight: 'bold', wrap: true }] : []),
       { type: 'text', text: 'ปัดการ์ดไปทางซ้ายเพื่อดูรายชื่อยาในแต่ละหมวด', size: 'xxs', color: '#8A918B', wrap: true },
     ] },
     footer: { type: 'box', layout: 'vertical', contents: [
@@ -367,7 +371,7 @@ export async function main() {
     const diff = Math.ceil((Date.parse(nd + 'T00:00:00+07:00') - Date.now()) / DAY_MS);
     if (diff > 0) horizonDays = diff;
   }
-  const report = buildReport({ meds, lots, expiryWarnDays, horizonDays });
+  const report = buildReport({ meds, lots, expiryWarnDays, horizonDays, usageStatsRecomputedAt: typeof settings.usageStatsRecomputedAt === 'number' ? settings.usageStatsRecomputedAt : null });
   if (report.empty) {
     console.log('Nothing below par today — skipping notification (no alert fatigue for a clean day).');
     return;
