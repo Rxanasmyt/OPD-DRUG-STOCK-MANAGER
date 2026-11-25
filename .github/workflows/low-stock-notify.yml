@@ -21,7 +21,11 @@ name: Low-Stock LINE Notify
 #      today's real stock numbers) — if that's already configured for this repo, nothing more to
 #      do there.
 #
-# Until both secrets exist, this workflow fails every run with a clear "env var is not set"
+# Alternative/additional channel — MOPH Notify (LINE group with the "หมอพร้อม" bot): add repository secrets
+# MOPH_NOTIFY_CLIENT_KEY and MOPH_NOTIFY_SECRET_KEY (from the unit's page in the MOPH Notify CMS). With only these two
+# set, LINE_CHANNEL_ACCESS_TOKEN is not needed.
+#
+# Until a channel's secrets exist, this workflow fails every run with a clear "env var is not set"
 # error (see the script) rather than silently sending nothing.
 
 on:
@@ -45,3 +49,6 @@ jobs:
         env:
           FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          # MOPH Notify → a LINE group with the "หมอพร้อม" bot (same channel EB Notify uses). Optional; either or both channels may be set.
+          MOPH_NOTIFY_CLIENT_KEY: ${{ secrets.MOPH_NOTIFY_CLIENT_KEY }}
+          MOPH_NOTIFY_SECRET_KEY: ${{ secrets.MOPH_NOTIFY_SECRET_KEY }}

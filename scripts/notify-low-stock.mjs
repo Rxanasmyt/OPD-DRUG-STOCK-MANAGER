@@ -69,12 +69,32 @@ async function lineBroadcast(token, text) {
   }
 }
 
+// Second channel (same one the EB Notify app uses): MOPH Notify posts into a LINE GROUP that has the "หมอพร้อม" bot in it,
+// using the unit's client-key / secret-key from the MOPH Notify CMS (API_Document_MOPH_Notify). Success = HTTP 2xx AND
+// message_code 200 — the API reports failures (wrong key, bad message format) as `message_code: 401` in the body.
+export async function mophNotify(clientKey, secretKey, text) {
+  const res = await fetch('https://morpromt2f.moph.go.th/api/notify/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'client-key': clientKey, 'secret-key': secretKey },
+    body: JSON.stringify({ messages: [{ type: 'text', text }] }),
+  });
+  const raw = await res.text().catch(() => '');
+  let code;
+  try { code = JSON.parse(raw).message_code; } catch { /* non-JSON body */ }
+  if (!res.ok || (code !== undefined && Number(code) !== 200)) {
+    throw new Error(`MOPH Notify failed: ${res.status} — ${raw.slice(0, 200)}`);
+  }
+}
+
 export async function main() {
   const dryRun = process.argv.includes('--dry-run');
   const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   const lineToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  const mophKey = process.env.MOPH_NOTIFY_CLIENT_KEY;
+  const mophSecret = process.env.MOPH_NOTIFY_SECRET_KEY;
+  const hasMoph = !!(mophKey && mophSecret);
   if (!keyJson) { console.error('FIREBASE_SERVICE_ACCOUNT_KEY env var is not set.'); process.exit(1); }
-  if (!dryRun && !lineToken) { console.error('LINE_CHANNEL_ACCESS_TOKEN env var is not set (pass --dry-run to test without it).'); process.exit(1); }
+  if (!dryRun && !lineToken && !hasMoph) { console.error('Set LINE_CHANNEL_ACCESS_TOKEN and/or MOPH_NOTIFY_CLIENT_KEY + MOPH_NOTIFY_SECRET_KEY (or pass --dry-run to test without them).'); process.exit(1); }
 
   const serviceAccount = JSON.parse(keyJson);
   initializeApp({ credential: cert(serviceAccount) });
@@ -127,7 +147,11 @@ export async function main() {
   console.log('--- message ---\n' + text + '\n---------------');
   if (dryRun) { console.log('(--dry-run — not sending)'); return; }
 
-  await lineBroadcast(lineToken, text);
+  // Send to every configured channel; one failing must not stop the other, but the run still fails so it is noticed.
+  const failures = [];
+  if (hasMoph) { try { await mophNotify(mophKey, mophSecret, text); console.log('MOPH Notify: sent to LINE group.'); } catch (e) { failures.push(e); console.error(String(e.message || e)); } }
+  if (lineToken) { try { await lineBroadcast(lineToken, text); console.log('LINE OA broadcast: sent.'); } catch (e) { failures.push(e); console.error(String(e.message || e)); } }
+  if (failures.length) throw new Error(`${failures.length} notification channel(s) failed: ` + failures.map((e) => e.message).join(' | '));
   console.log(`Sent — ${belowMin.length} below Min, ${belowSubPar.length} below substock par.`);
 }
 
