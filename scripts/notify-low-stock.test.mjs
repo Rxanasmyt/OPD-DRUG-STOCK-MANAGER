@@ -7,6 +7,7 @@
 // sitting in that stale state would get broadcast as "ต่ำกว่า Min" over LINE to real staff even
 // though the app itself (using the correct, lower Min) does not consider it low.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { buildReport, buildText, buildFlex } from './notify-low-stock.mjs';
 
 vi.mock('firebase-admin/app', () => ({
   initializeApp: vi.fn(),
@@ -31,6 +32,7 @@ const GENUINELY_LOW_MED = {
 function mockFirestoreWith(meds) {
   vi.doMock('firebase-admin/firestore', () => ({
     getFirestore: () => ({
+      doc: () => ({ get: async () => ({ data: () => ({ expiryWarnDays: 30 }) }) }),
       collection: (name) => {
         if (name === 'meds') return { get: async () => ({ docs: meds.map((m) => ({ id: m.id, data: () => m })) }) };
         if (name === 'lots') return { where: () => ({ get: async () => ({ docs: [] }) }) };
@@ -118,8 +120,10 @@ describe('notify-low-stock — MOPH Notify channel', () => {
     expect(init.headers['client-key']).toBe('ck');
     expect(init.headers['secret-key']).toBe('sk');
     const body = JSON.parse(init.body);
-    expect(body.messages[0].type).toBe('text');
-    expect(body.messages[0].text).toContain(GENUINELY_LOW_MED.name);
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].type).toBe('flex');
+    expect(body.messages[0].altText).toContain('แจ้งเตือนสต็อกยา');
+    expect(JSON.stringify(body.messages[0])).toContain(GENUINELY_LOW_MED.name);
     vi.unstubAllGlobals();
   });
 
@@ -146,5 +150,46 @@ describe('notify-low-stock — MOPH Notify channel', () => {
     await expect(main()).rejects.toThrow(/1 notification channel/);
     expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('api.line.me'))).toBe(true);
     vi.unstubAllGlobals();
+  });
+});
+
+describe('notify-low-stock — report sections', () => {
+  const NOW = Date.parse('2026-11-25T03:00:00Z');
+  const base = { active: true, unit: 'เม็ด', parFloor: 100, parSub: 0, noSubstock: true };
+  const meds = [
+    { ...base, id: 'z', name: 'ZERO DRUG', floor: 0 },
+    { ...base, id: 'zc', name: 'ZERO COUNTED TODAY', floor: 0, lastCountTs: NOW - 3600000 },
+    { ...base, id: 'ok', name: 'OK DRUG', floor: 90 },
+  ];
+  const lots = [
+    { id: 'a', medId: 'ok', qty: 5, lotNo: 'L1', exp: NOW + 10 * 86400000 },
+    { id: 'b', medId: 'ok', qty: 5, lotNo: 'L2', exp: NOW + 200 * 86400000 },
+    { id: 'c', medId: 'ok', qty: 7, lotNo: 'ปรับยอด (นับสต็อก)', exp: NOW + 100 * 365 * 86400000 },
+    { id: 'd', medId: 'ok', qty: 0, lotNo: 'L0', exp: NOW + 1 * 86400000 },
+  ];
+  const r = buildReport({ meds, lots, expiryWarnDays: 30, now: NOW });
+
+  it('lists a zero-floor med that was not counted today, and skips one counted today', () => {
+    expect(r.zeroFloor.map((x) => x.name)).toEqual(['ZERO DRUG']);
+  });
+  it('does not repeat a zero-floor med under "ต่ำกว่า Min"', () => {
+    expect(r.belowMin.map((x) => x.name)).not.toContain('ZERO DRUG');
+  });
+  it('lists only real lots expiring inside the warn window (not far-dated, empty, or placeholder lots)', () => {
+    expect(r.expiring).toHaveLength(1);
+    expect(r.expiring[0]).toMatchObject({ lotNo: 'L1', days: 10 });
+  });
+  it('text and flex both carry every section and the app link', () => {
+    const label = 'วันพุธ';
+    const text = buildText(r, label);
+    expect(text).toContain('ยอดหน้างานเป็น 0');
+    expect(text).toContain('ใกล้หมดอายุ');
+    const flex = buildFlex(r, label);
+    expect(flex.type).toBe('flex');
+    expect(JSON.stringify(flex)).toContain('ZERO DRUG');
+    expect(flex.contents.footer.contents[0].action.uri).toContain('OPD-DRUG-STOCK-MANAGER');
+  });
+  it('is empty when nothing needs attention', () => {
+    expect(buildReport({ meds: [{ ...base, id: 'ok', name: 'OK', floor: 100 }], lots: [], now: NOW }).empty).toBe(true);
   });
 });

@@ -72,11 +72,11 @@ async function lineBroadcast(token, text) {
 // Second channel (same one the EB Notify app uses): MOPH Notify posts into a LINE GROUP that has the "หมอพร้อม" bot in it,
 // using the unit's client-key / secret-key from the MOPH Notify CMS (API_Document_MOPH_Notify). Success = HTTP 2xx AND
 // message_code 200 — the API reports failures (wrong key, bad message format) as `message_code: 401` in the body.
-export async function mophNotify(clientKey, secretKey, text) {
+export async function mophNotify(clientKey, secretKey, messages) {
   const res = await fetch('https://morpromt2f.moph.go.th/api/notify/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'client-key': clientKey, 'secret-key': secretKey },
-    body: JSON.stringify({ messages: [{ type: 'text', text }] }),
+    body: JSON.stringify({ messages }),
   });
   const raw = await res.text().catch(() => '');
   let code;
@@ -84,6 +84,114 @@ export async function mophNotify(clientKey, secretKey, text) {
   if (!res.ok || (code !== undefined && Number(code) !== 200)) {
     throw new Error(`MOPH Notify failed: ${res.status} — ${raw.slice(0, 200)}`);
   }
+}
+
+const DAY_MS = 86400000;
+const BKK = 7 * 3600000;
+const bkkDay = (ms) => new Date(ms + BKK).toISOString().slice(0, 10);
+const nf = (n) => Number(n || 0).toLocaleString('en-US');
+
+// Same rule as selectors.ts's needsZeroFloorCheck(): an active, non-hold med whose shelf shows 0 although it normally has stock
+// (parFloor / recent usage), unless somebody already counted it today (Bangkok date).
+function needsZeroFloorCheck(m, now) {
+  if (!m.active || isOnStockHold(m) || m.floor !== 0) return false;
+  if (!((m.parFloor || 0) > 0 || (m.used30 || 0) > 0)) return false;
+  const last = m.lastCountTs;
+  if (typeof last === 'number' && isFinite(last) && bkkDay(last) === bkkDay(now)) return false;
+  return true;
+}
+
+/** Pure: everything the notification says, computed from already-read data. Exported for tests. */
+export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now() }) {
+  const active = meds.filter((m) => m.active);
+  const byId = new Map(active.map((m) => [m.id, m]));
+  const subByMed = new Map();
+  const expiring = [];
+  for (const l of lots) {
+    if (!(l.qty > 0)) continue;
+    subByMed.set(l.medId, (subByMed.get(l.medId) || 0) + l.qty);
+    const m = byId.get(l.medId);
+    // The "ปรับยอด (นับสต็อก)" placeholder lot has no real expiry (set ~100 years out) — never worth an expiry alert.
+    if (!m || typeof l.exp !== 'number' || l.exp > now + 50 * 365 * DAY_MS) continue;
+    const days = Math.floor((l.exp - now) / DAY_MS);
+    if (days < expiryWarnDays) expiring.push({ name: m.name, unit: m.unit, lotNo: l.lotNo, qty: l.qty, days });
+  }
+  expiring.sort((a, b) => a.days - b.days);
+  const subQty = (id) => subByMed.get(id) || 0;
+  const belowMin = active.filter((m) => !isOnStockHold(m) && (m.floor || 0) < floorMinOf(m))
+    .map((m) => ({ name: m.name, unit: m.unit, cur: m.floor || 0, ref: floorMinOf(m) }));
+  const belowSubPar = active.filter((m) => !isOnStockHold(m) && (usesSubstock(m) ? subQty(m.id) < (m.parSub || 0) : (m.floor || 0) < (m.parFloor || 0)))
+    .map((m) => usesSubstock(m)
+      ? { name: m.name, unit: m.unit, cur: subQty(m.id), ref: m.parSub || 0 }
+      : { name: m.name, unit: m.unit, cur: m.floor || 0, ref: m.parFloor || 0 });
+  const zeroFloor = active.filter((m) => needsZeroFloorCheck(m, now)).map((m) => ({ name: m.name, unit: m.unit }));
+  // A zero-floor med is always below Min too; list it once (under "ยอด 0 ควรนับจริง", the action it actually needs) instead of
+  // repeating it in two sections of the same message.
+  const zeroNames = new Set(zeroFloor.map((z) => z.name));
+  const belowMinShown = belowMin.filter((r) => !zeroNames.has(r.name));
+  return { belowMin: belowMinShown, belowSubPar, zeroFloor, expiring, expiryWarnDays, empty: !belowMinShown.length && !belowSubPar.length && !zeroFloor.length && !expiring.length };
+}
+
+const SECTIONS = [
+  { key: 'belowMin', icon: '🔴', color: '#C62828', title: 'ต่ำกว่าจุดต้องเติม (Min) — ควรเติมวันนี้', fmt: (r) => `${nf(r.cur)}/${nf(r.ref)} ${r.unit}` },
+  { key: 'zeroFloor', icon: '0️⃣', color: '#6A1B9A', title: 'ยอดหน้างานเป็น 0 — ควรนับจริง', fmt: () => 'ยังไม่ได้นับวันนี้' },
+  { key: 'belowSubPar', icon: '🟡', color: '#B26A00', title: 'ต่ำกว่า par — ควรเบิกจากคลังใหญ่', fmt: (r) => `${nf(r.cur)}/${nf(r.ref)} ${r.unit}` },
+  { key: 'expiring', icon: '⏳', color: '#E65100', title: 'ใกล้หมดอายุ', fmt: (r) => `${r.lotNo ? 'lot ' + r.lotNo + ' · ' : ''}${nf(r.qty)} ${r.unit} · ${r.days < 0 ? 'หมดอายุแล้ว ' + Math.abs(r.days) + ' วัน' : 'อีก ' + r.days + ' วัน'}` },
+];
+
+export function dateLabelBkk(now = Date.now()) {
+  // Runs on a UTC GitHub runner — without an explicit timeZone the date would be a day behind in Bangkok for part of the day.
+  return new Date(now).toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' });
+}
+
+/** Plain-text version (LINE OA broadcast + dry-run printout). */
+export function buildText(report, dateLabel) {
+  let text = `📋 แจ้งเตือนสต็อกยา รพ.กรงปินัง\n${dateLabel}`;
+  for (const sec of SECTIONS) {
+    const rows = report[sec.key];
+    if (!rows.length) continue;
+    const shown = rows.slice(0, MAX_ROWS_PER_SECTION);
+    const more = rows.length > shown.length ? `\n…และอีก ${rows.length - shown.length} รายการ` : '';
+    const title = sec.key === 'expiring' ? `${sec.title} (< ${report.expiryWarnDays} วัน)` : sec.title;
+    text += `\n\n${sec.icon} ${title} (${rows.length} รายการ)\n` + shown.map((r) => `• ${r.name}: ${sec.fmt(r)}`).join('\n') + more;
+  }
+  return text + `\n\nเปิดแอพ: ${APP_URL}`;
+}
+
+/** Flex message (card) for MOPH Notify. */
+export function buildFlex(report, dateLabel) {
+  const body = [];
+  for (const sec of SECTIONS) {
+    const rows = report[sec.key];
+    if (!rows.length) continue;
+    const shown = rows.slice(0, 8);
+    body.push({ type: 'text', text: `${sec.icon} ${sec.title} (${rows.length})`, weight: 'bold', size: 'sm', color: sec.color, wrap: true, margin: body.length ? 'lg' : 'none' });
+    for (const r of shown) {
+      body.push({
+        type: 'box', layout: 'vertical', margin: 'sm', contents: [
+          { type: 'text', text: r.name, size: 'sm', wrap: true, weight: 'bold' },
+          { type: 'text', text: sec.fmt(r), size: 'xs', color: '#666666', wrap: true },
+        ],
+      });
+    }
+    if (rows.length > shown.length) body.push({ type: 'text', text: `…และอีก ${rows.length - shown.length} รายการ (ดูในแอพ)`, size: 'xs', color: '#888888', margin: 'sm' });
+  }
+  const counts = SECTIONS.map((s) => report[s.key].length ? `${s.icon}${report[s.key].length}` : '').filter(Boolean).join(' ');
+  return {
+    type: 'flex',
+    altText: `แจ้งเตือนสต็อกยา ${dateLabel} ${counts}`.slice(0, 400),
+    contents: {
+      type: 'bubble', size: 'mega',
+      header: { type: 'box', layout: 'vertical', backgroundColor: '#007371', paddingAll: '14px', contents: [
+        { type: 'text', text: 'แจ้งเตือนสต็อกยา', color: '#FFFFFF', weight: 'bold', size: 'lg' },
+        { type: 'text', text: 'ห้องยา รพ.กรงปินัง · ' + dateLabel, color: '#E1F7F6', size: 'xs', wrap: true, margin: 'xs' },
+      ] },
+      body: { type: 'box', layout: 'vertical', contents: body },
+      footer: { type: 'box', layout: 'vertical', contents: [
+        { type: 'button', style: 'primary', color: '#007371', height: 'sm', action: { type: 'uri', label: 'เปิดแอปสต็อกยา', uri: APP_URL } },
+      ] },
+    },
+  };
 }
 
 export async function main() {
@@ -96,68 +204,45 @@ export async function main() {
   if (!keyJson) { console.error('FIREBASE_SERVICE_ACCOUNT_KEY env var is not set.'); process.exit(1); }
   if (!dryRun && !lineToken && !hasMoph) { console.error('Set LINE_CHANNEL_ACCESS_TOKEN and/or MOPH_NOTIFY_CLIENT_KEY + MOPH_NOTIFY_SECRET_KEY (or pass --dry-run to test without them).'); process.exit(1); }
 
-  const serviceAccount = JSON.parse(keyJson);
-  initializeApp({ credential: cert(serviceAccount) });
+  initializeApp({ credential: cert(JSON.parse(keyJson)) });
   const db = getFirestore();
 
-  // Bug fix (Firestore quota incident — same fix as collect-daily-metrics.mjs/check-stock-drift.mjs,
-  // see collect-daily-metrics.mjs's own doc comment): the loop below already requires `l.qty > 0`
-  // before counting a lot, so filtering server-side costs nothing functionally while skipping
-  // every long-dead, fully-dispensed lot `lots` never deletes.
-  console.log('Reading meds/lots...');
-  const [medSnap, lotSnap] = await Promise.all([db.collection('meds').get(), db.collection('lots').where('qty', '>', 0).get()]);
-  const meds = medSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((m) => m.active);
+  // Only lots with qty > 0 are read (server-side filter) — `lots` never deletes spent lots, so an unfiltered read grows forever.
+  console.log('Reading meds/lots/settings...');
+  const [medSnap, lotSnap, settingsSnap] = await Promise.all([
+    db.collection('meds').get(),
+    db.collection('lots').where('qty', '>', 0).get(),
+    db.doc('meta/settings').get().catch(() => null),
+  ]);
+  const meds = medSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const lots = lotSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const settings = settingsSnap && typeof settingsSnap.data === 'function' ? (settingsSnap.data() || {}) : {};
+  const expiryWarnDays = typeof settings.expiryWarnDays === 'number' ? settings.expiryWarnDays : 30;
 
-  const subByMed = new Map();
-  for (const d of lotSnap.docs) {
-    const l = d.data();
-    if (l.qty > 0) subByMed.set(l.medId, (subByMed.get(l.medId) || 0) + l.qty);
-  }
-  const subQty = (medId) => subByMed.get(medId) || 0;
-
-  // Same rule as selectors.ts's needsWarehouseRequest(): a no-substock med's shelf stands in for
-  // its substock, so it is judged against parFloor instead of being skipped entirely.
-  const belowMin = meds.filter((m) => !isOnStockHold(m) && (m.floor || 0) < floorMinOf(m));
-  const belowSubPar = meds.filter((m) => !isOnStockHold(m) && (usesSubstock(m) ? subQty(m.id) < (m.parSub || 0) : (m.floor || 0) < (m.parFloor || 0)));
-
-  if (!belowMin.length && !belowSubPar.length) {
+  const report = buildReport({ meds, lots, expiryWarnDays });
+  if (report.empty) {
     console.log('Nothing below par today — skipping notification (no alert fatigue for a clean day).');
     return;
   }
-
-  // Bug fix (timezone): this script runs on a GitHub Actions runner (UTC), not in Thailand —
-  // without an explicit timeZone, toLocaleDateString uses the runner's UTC calendar date, which
-  // is a day behind Bangkok's for roughly 17:00-23:59 UTC (00:00-06:59 the next day in Bangkok).
-  // The scheduled cron run happens to dodge this window, but a manual workflow_dispatch trigger
-  // during those hours would broadcast a stale "today" date to every staff member on the LINE OA.
-  const dateLabel = new Date().toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' });
-  const section = (title, rows, fmt) => {
-    if (!rows.length) return '';
-    const shown = rows.slice(0, MAX_ROWS_PER_SECTION);
-    const lines = shown.map((m) => `• ${m.name}: ${fmt(m)}`).join('\n');
-    const more = rows.length > shown.length ? `\n…และอีก ${rows.length - shown.length} รายการ` : '';
-    return `\n\n${title} (${rows.length} รายการ)\n${lines}${more}`;
-  };
-
-  const text = `📋 แจ้งเตือนสต็อกยา รพ.กรงปินัง\n${dateLabel}` +
-    section('🔴 ต่ำกว่าจุดต้องเติม (Min) — ควรเติมวันนี้', belowMin, (m) => `${(m.floor || 0).toLocaleString('en-US')}/${floorMinOf(m).toLocaleString('en-US')} ${m.unit}`) +
-    section('🟡 ต่ำกว่า par substock — ควรเบิกจากคลังใหญ่', belowSubPar, (m) => `${subQty(m.id).toLocaleString('en-US')}/${(m.parSub || 0).toLocaleString('en-US')} ${m.unit}`) +
-    `\n\nเปิดแอพ: ${APP_URL}`;
-
+  const dateLabel = dateLabelBkk();
+  const text = buildText(report, dateLabel);
   console.log('--- message ---\n' + text + '\n---------------');
   if (dryRun) { console.log('(--dry-run — not sending)'); return; }
 
   // Send to every configured channel; one failing must not stop the other, but the run still fails so it is noticed.
   const failures = [];
-  if (hasMoph) { try { await mophNotify(mophKey, mophSecret, text); console.log('MOPH Notify: sent to LINE group.'); } catch (e) { failures.push(e); console.error(String(e.message || e)); } }
+  if (hasMoph) {
+    try {
+      await mophNotify(mophKey, mophSecret, [buildFlex(report, dateLabel)]);
+      console.log('MOPH Notify: sent to LINE group.');
+    } catch (e) { failures.push(e); console.error(String(e.message || e)); }
+  }
   if (lineToken) { try { await lineBroadcast(lineToken, text); console.log('LINE OA broadcast: sent.'); } catch (e) { failures.push(e); console.error(String(e.message || e)); } }
   if (failures.length) throw new Error(`${failures.length} notification channel(s) failed: ` + failures.map((e) => e.message).join(' | '));
-  console.log(`Sent — ${belowMin.length} below Min, ${belowSubPar.length} below substock par.`);
+  console.log(`Sent — Min ${report.belowMin.length}, par ${report.belowSubPar.length}, zero ${report.zeroFloor.length}, expiring ${report.expiring.length}.`);
 }
 
-// Only auto-run when this file is actually run as a script — NOT when it's imported, which lets
-// notify-low-stock.test.mjs import `main` and drive it with mocked firebase-admin/fetch. Same
-// guard scripts/backfill-warehouse-codes.mjs and scripts/restore-firestore.mjs already use.
+// Only auto-run when this file is actually run as a script — NOT when it's imported (tests drive `main` with mocks).
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((err) => {
     console.error('Low-stock notify failed:', err);
