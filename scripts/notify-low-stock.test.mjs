@@ -187,9 +187,24 @@ describe('notify-low-stock — report sections', () => {
     const flex = buildFlex(r, label);
     expect(flex.type).toBe('flex');
     expect(JSON.stringify(flex)).toContain('ZERO DRUG');
-    expect(flex.contents.footer.contents[0].action.uri).toContain('OPD-DRUG-STOCK-MANAGER');
+    expect(flex.contents.type).toBe('carousel');
+    const bubbles = flex.contents.contents;
+    expect(bubbles.length).toBe(1 + 4); // summary + Min (the already-counted zero med) + zero + par + expiring
+    expect(bubbles[0].footer.contents[0].action.uri).toContain('OPD-DRUG-STOCK-MANAGER');
+    expect(bubbles.length).toBeLessThanOrEqual(12); // LINE carousel limit
   });
   it('is empty when nothing needs attention', () => {
     expect(buildReport({ meds: [{ ...base, id: 'ok', name: 'OK', floor: 100 }], lots: [], now: NOW }).empty).toBe(true);
+  });
+});
+
+describe('notify-low-stock — flex payload stays within LINE limits', () => {
+  it('caps rows per card and stays small even with hundreds of alerts', () => {
+    const many = Array.from({ length: 300 }, (_, i) => ({ name: 'ยา ' + i, unit: 'เม็ด', cur: i % 7, ref: 50 }));
+    const rep = { belowMin: many, belowSubPar: many, zeroFloor: many.map((m) => ({ name: m.name, unit: m.unit })), expiring: many.map((m) => ({ ...m, lotNo: 'L', qty: 1, days: 3 })), expiryWarnDays: 30, empty: false };
+    const flex = buildFlex(rep, 'วันนี้');
+    expect(flex.contents.contents.length).toBe(5);
+    expect(JSON.stringify(flex).length).toBeLessThan(30000); // LINE flex payload limit is 30KB
+    expect(flex.altText.length).toBeLessThanOrEqual(400);
   });
 });

@@ -133,9 +133,9 @@ export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now() 
 }
 
 const SECTIONS = [
-  { key: 'belowMin', icon: '🔴', color: '#C62828', title: 'ต่ำกว่าจุดต้องเติม (Min) — ควรเติมวันนี้', fmt: (r) => `${nf(r.cur)}/${nf(r.ref)} ${r.unit}` },
-  { key: 'zeroFloor', icon: '0️⃣', color: '#6A1B9A', title: 'ยอดหน้างานเป็น 0 — ควรนับจริง', fmt: () => 'ยังไม่ได้นับวันนี้' },
-  { key: 'belowSubPar', icon: '🟡', color: '#B26A00', title: 'ต่ำกว่า par — ควรเบิกจากคลังใหญ่', fmt: (r) => `${nf(r.cur)}/${nf(r.ref)} ${r.unit}` },
+  { key: 'belowMin', icon: '🔴', color: '#C62828', title: 'ต่ำกว่าจุดต้องเติม (Min) — ควรเติมวันนี้', fmt: (r) => `${nf(r.cur)}/${nf(r.ref)} ${r.unit}`, valueText: (r) => `${nf(r.cur)}/${nf(r.ref)}` },
+  { key: 'zeroFloor', icon: '0️⃣', color: '#6A1B9A', title: 'ยอดหน้างานเป็น 0 — ควรนับจริง', fmt: () => 'ยังไม่ได้นับวันนี้', valueText: () => '0' },
+  { key: 'belowSubPar', icon: '🟡', color: '#B26A00', title: 'ต่ำกว่า par — ควรเบิกจากคลังใหญ่', fmt: (r) => `${nf(r.cur)}/${nf(r.ref)} ${r.unit}`, valueText: (r) => `${nf(r.cur)}/${nf(r.ref)}` },
   { key: 'expiring', icon: '⏳', color: '#E65100', title: 'ใกล้หมดอายุ', fmt: (r) => `${r.lotNo ? 'lot ' + r.lotNo + ' · ' : ''}${nf(r.qty)} ${r.unit} · ${r.days < 0 ? 'หมดอายุแล้ว ' + Math.abs(r.days) + ' วัน' : 'อีก ' + r.days + ' วัน'}` },
 ];
 
@@ -158,39 +158,97 @@ export function buildText(report, dateLabel) {
   return text + `\n\nเปิดแอพ: ${APP_URL}`;
 }
 
-/** Flex message (card) for MOPH Notify. */
+// ---- Flex message design (MOPH Notify → LINE group) -------------------------------------------------------------------------
+// LINE renders Flex natively: no custom fonts, CSS or animation are possible (the phone's own font is used). What IS
+// available — and used here — is colour, gradients, size/weight hierarchy, emoji and simple bars. A carousel: first card is
+// a colour-coded summary of the day, then one card per kind of alert, each in its own colour so severity reads at a glance.
+const THEME = {
+  belowMin: { c1: '#FF5F6D', c2: '#C62828', soft: '#FFEBEE', ink: '#B71C1C', label: 'ต่ำกว่า Min', sub: 'ควรเติมหน้างานวันนี้' },
+  zeroFloor: { c1: '#B388FF', c2: '#6A1B9A', soft: '#F3E5F5', ink: '#6A1B9A', label: 'ยอด 0', sub: 'ควรนับจริงหน้างาน' },
+  belowSubPar: { c1: '#FFC107', c2: '#E08A00', soft: '#FFF8E1', ink: '#9A5B00', label: 'ต่ำกว่า par', sub: 'ควรเบิกจากคลังใหญ่' },
+  expiring: { c1: '#FF9A5A', c2: '#E64A19', soft: '#FBE9E7', ink: '#BF360C', label: 'ใกล้หมดอายุ', sub: 'ตรวจและส่งคืน/ใช้ก่อน' },
+};
+const grad = (c1, c2) => ({ type: 'linearGradient', angle: '135deg', startColor: c1, endColor: c2 });
+const ROWS_PER_CARD = 7;
+
+function summaryBubble(report, dateLabel) {
+  const tile = (key) => {
+    const t = THEME[key]; const n = report[key].length;
+    return {
+      type: 'box', layout: 'vertical', flex: 1, cornerRadius: '14px', paddingAll: '12px', background: n ? grad(t.c1, t.c2) : grad('#CFD8DC', '#B0BEC5'),
+      contents: [
+        { type: 'text', text: String(n), size: '3xl', weight: 'bold', color: '#FFFFFF', align: 'center' },
+        { type: 'text', text: t.label, size: 'xs', color: '#FFFFFF', align: 'center', weight: 'bold', wrap: true },
+      ],
+    };
+  };
+  const total = ['belowMin', 'zeroFloor', 'belowSubPar', 'expiring'].reduce((a, k) => a + report[k].length, 0);
+  return {
+    type: 'bubble', size: 'mega',
+    header: { type: 'box', layout: 'vertical', paddingAll: '16px', background: grad('#02B0AE', '#004C4B'), contents: [
+      { type: 'text', text: 'สต็อกยา · ห้องยา', color: '#B2F0EE', size: 'xs', weight: 'bold' },
+      { type: 'text', text: 'แจ้งเตือนประจำวัน', color: '#FFFFFF', size: 'xl', weight: 'bold', margin: 'xs' },
+      { type: 'text', text: dateLabel, color: '#E1F7F6', size: 'xs', wrap: true, margin: 'xs' },
+    ] },
+    body: { type: 'box', layout: 'vertical', paddingAll: '14px', spacing: 'md', contents: [
+      { type: 'text', text: `พบ ${total} รายการที่ควรดำเนินการ`, size: 'sm', weight: 'bold', color: '#12211A' },
+      { type: 'box', layout: 'horizontal', spacing: 'md', contents: [tile('belowMin'), tile('zeroFloor')] },
+      { type: 'box', layout: 'horizontal', spacing: 'md', contents: [tile('belowSubPar'), tile('expiring')] },
+      { type: 'text', text: 'ปัดการ์ดไปทางซ้ายเพื่อดูรายชื่อยาในแต่ละหมวด', size: 'xxs', color: '#8A918B', wrap: true },
+    ] },
+    footer: { type: 'box', layout: 'vertical', contents: [
+      { type: 'button', style: 'primary', color: '#007371', height: 'sm', action: { type: 'uri', label: 'เปิดแอปสต็อกยา', uri: APP_URL } },
+    ] },
+  };
+}
+
+function rowFlex(sec, key, r) {
+  const t = THEME[key];
+  const hasBar = key === 'belowMin' || key === 'belowSubPar';
+  const pct = hasBar && r.ref > 0 ? Math.max(3, Math.min(100, Math.round((r.cur / r.ref) * 100))) : 0;
+  const urgentExp = key === 'expiring' && r.days <= 7;
+  const valueColor = urgentExp ? '#C62828' : t.ink;
+  const inner = [
+    { type: 'box', layout: 'horizontal', contents: [
+      { type: 'text', text: r.name, size: 'sm', weight: 'bold', wrap: true, flex: 5, color: '#12211A' },
+      ...(key === 'expiring' ? [] : [{ type: 'text', text: sec.valueText(r), size: 'sm', weight: 'bold', color: valueColor, align: 'end', flex: 3, wrap: true }]),
+    ] },
+  ];
+  if (key === 'expiring') inner.push({ type: 'text', text: sec.fmt(r), size: 'xs', weight: 'bold', color: valueColor, wrap: true });
+  else if (key === 'zeroFloor') inner.push({ type: 'text', text: 'ยังไม่ได้นับวันนี้ — นับจริงแล้วบันทึกในแอป', size: 'xxs', color: '#8A918B', wrap: true });
+  if (hasBar) inner.push({ type: 'box', layout: 'horizontal', height: '6px', margin: 'sm', backgroundColor: '#E6E9E4', cornerRadius: '3px', contents: [
+    { type: 'box', layout: 'vertical', width: pct + '%', backgroundColor: t.c2, cornerRadius: '3px', contents: [{ type: 'filler' }] },
+  ] });
+  return { type: 'box', layout: 'vertical', margin: 'md', paddingAll: '10px', backgroundColor: t.soft, cornerRadius: '10px', contents: inner };
+}
+
+function sectionBubble(sec, report) {
+  const key = sec.key; const t = THEME[key]; const rows = report[key];
+  const shown = rows.slice(0, ROWS_PER_CARD);
+  const body = shown.map((r) => rowFlex(sec, key, r));
+  if (rows.length > shown.length) body.push({ type: 'text', text: `…และอีก ${rows.length - shown.length} รายการ — ดูทั้งหมดในแอป`, size: 'xs', color: '#8A918B', margin: 'md', wrap: true });
+  return {
+    type: 'bubble', size: 'mega',
+    header: { type: 'box', layout: 'horizontal', paddingAll: '14px', background: grad(t.c1, t.c2), contents: [
+      { type: 'text', text: sec.icon, size: 'xxl', flex: 0, gravity: 'center' },
+      { type: 'box', layout: 'vertical', margin: 'md', flex: 1, contents: [
+        { type: 'text', text: `${t.label} · ${rows.length} รายการ`, color: '#FFFFFF', weight: 'bold', size: 'md', wrap: true },
+        { type: 'text', text: key === 'expiring' ? `ภายใน ${report.expiryWarnDays} วัน · ${t.sub}` : t.sub, color: '#FFFFFFD9', size: 'xs', wrap: true },
+      ] },
+    ] },
+    body: { type: 'box', layout: 'vertical', paddingAll: '12px', contents: body },
+  };
+}
+
+/** Flex carousel for MOPH Notify: summary card + one coloured card per non-empty alert type. */
 export function buildFlex(report, dateLabel) {
-  const body = [];
-  for (const sec of SECTIONS) {
-    const rows = report[sec.key];
-    if (!rows.length) continue;
-    const shown = rows.slice(0, 8);
-    body.push({ type: 'text', text: `${sec.icon} ${sec.title} (${rows.length})`, weight: 'bold', size: 'sm', color: sec.color, wrap: true, margin: body.length ? 'lg' : 'none' });
-    for (const r of shown) {
-      body.push({
-        type: 'box', layout: 'vertical', margin: 'sm', contents: [
-          { type: 'text', text: r.name, size: 'sm', wrap: true, weight: 'bold' },
-          { type: 'text', text: sec.fmt(r), size: 'xs', color: '#666666', wrap: true },
-        ],
-      });
-    }
-    if (rows.length > shown.length) body.push({ type: 'text', text: `…และอีก ${rows.length - shown.length} รายการ (ดูในแอพ)`, size: 'xs', color: '#888888', margin: 'sm' });
-  }
+  const bubbles = [summaryBubble(report, dateLabel)];
+  for (const sec of SECTIONS) if (report[sec.key].length) bubbles.push(sectionBubble(sec, report));
   const counts = SECTIONS.map((s) => report[s.key].length ? `${s.icon}${report[s.key].length}` : '').filter(Boolean).join(' ');
   return {
     type: 'flex',
     altText: `แจ้งเตือนสต็อกยา ${dateLabel} ${counts}`.slice(0, 400),
-    contents: {
-      type: 'bubble', size: 'mega',
-      header: { type: 'box', layout: 'vertical', backgroundColor: '#007371', paddingAll: '14px', contents: [
-        { type: 'text', text: 'แจ้งเตือนสต็อกยา', color: '#FFFFFF', weight: 'bold', size: 'lg' },
-        { type: 'text', text: 'ห้องยา รพ.กรงปินัง · ' + dateLabel, color: '#E1F7F6', size: 'xs', wrap: true, margin: 'xs' },
-      ] },
-      body: { type: 'box', layout: 'vertical', contents: body },
-      footer: { type: 'box', layout: 'vertical', contents: [
-        { type: 'button', style: 'primary', color: '#007371', height: 'sm', action: { type: 'uri', label: 'เปิดแอปสต็อกยา', uri: APP_URL } },
-      ] },
-    },
+    contents: { type: 'carousel', contents: bubbles },
   };
 }
 
