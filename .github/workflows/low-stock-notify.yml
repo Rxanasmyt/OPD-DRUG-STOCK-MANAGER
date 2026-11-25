@@ -32,6 +32,11 @@ on:
   schedule:
     - cron: '0 0 * * 1-5' # 07:00 Asia/Bangkok, Mon–Fri — before the day's restocking starts
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'ทดสอบ: อ่านข้อมูลจริงและพิมพ์ข้อความใน log แต่ไม่ส่งเข้า LINE'
+        type: boolean
+        default: false
 
 jobs:
   notify:
@@ -45,7 +50,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: node scripts/notify-low-stock.mjs
+      - run: node scripts/notify-low-stock.mjs ${{ inputs.dry_run && '--dry-run' || '' }}
         env:
           FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
