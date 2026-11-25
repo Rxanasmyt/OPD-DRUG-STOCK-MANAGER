@@ -1248,4 +1248,5 @@ input[type='date'], input[type='time'], input[type='month'] { min-width: 0; max-
 .rr-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 12px; line-height: 1.4; } .rr-txt b { font-size: 13.5px; }
 .rr-go { flex: none; border: 0; border-radius: 999px; padding: 0 14px; min-height: 40px; font-weight: 800; font-size: 13px; cursor: pointer; background: currentColor; }
 .rr-go { color: #fff; background: var(--amber, #b9740b); } .rr-banner[data-level='overdue'] .rr-go { background: var(--red, #a32b22); }
+.rr-banner[data-level='info'] { background: var(--green-tint, #e1f7f6); color: var(--green-dark, #004c4b); border-bottom-color: var(--green, #007371); } .rr-banner[data-level='info'] .rr-go { background: var(--green, #007371); }
 .rr-x { flex: none; border: 0; background: transparent; color: inherit; font-size: 16px; min-width: 40px; min-height: 40px; opacity: .7; cursor: pointer; }
