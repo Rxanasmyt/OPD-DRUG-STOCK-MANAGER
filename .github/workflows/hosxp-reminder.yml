@@ -1,0 +1,32 @@
+name: HOSxP Not Reconciled Reminder
+
+# Weekdays 15:00 (Asia/Bangkok): if nobody has done "นำเข้า HOSxP" today, remind the LINE group (MOPH Notify). Silent when it was done.
+# Needs the same secrets as low-stock-notify.yml (FIREBASE_SERVICE_ACCOUNT_KEY, MOPH_NOTIFY_CLIENT_KEY, MOPH_NOTIFY_SECRET_KEY).
+# Optional repo variable HOLIDAYS = comma-separated YYYY-MM-DD public holidays to skip (the app has no holiday calendar).
+
+on:
+  schedule:
+    - cron: '0 8 * * 1-5' # 15:00 Asia/Bangkok, Mon–Fri
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'ทดสอบ: ตรวจและพิมพ์ผลใน log แต่ไม่ส่งเข้า LINE'
+        type: boolean
+        default: false
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/notify-hosxp-missing.mjs ${{ inputs.dry_run && '--dry-run' || '' }}
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+          MOPH_NOTIFY_CLIENT_KEY: ${{ secrets.MOPH_NOTIFY_CLIENT_KEY }}
+          MOPH_NOTIFY_SECRET_KEY: ${{ secrets.MOPH_NOTIFY_SECRET_KEY }}
+          HOLIDAYS: ${{ vars.HOLIDAYS }}

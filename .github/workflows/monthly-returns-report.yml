@@ -1,0 +1,37 @@
+name: Monthly Returns Report (LINE)
+
+# On the 1st of every month, 09:00 Asia/Bangkok: send the previous month's drug-return (คืนยา) report to the LINE group via MOPH Notify —
+# an overview, 6-month trend, breakdown by drug category, breakdown by return reason, and top returned drugs. Each card links into the
+# app's ↩️ รายงานคืนยา at that month/view. Needs FIREBASE_SERVICE_ACCOUNT_KEY, MOPH_NOTIFY_CLIENT_KEY, MOPH_NOTIFY_SECRET_KEY.
+# Run by hand for any month: Actions → Run workflow → month (YYYY-MM); tick dry_run to only print the totals in the log.
+
+on:
+  schedule:
+    - cron: '0 2 1 * *' # 09:00 Asia/Bangkok on the 1st
+  workflow_dispatch:
+    inputs:
+      month:
+        description: 'เดือนที่รายงาน (YYYY-MM) — เว้นว่างเพื่อใช้เดือนที่แล้ว'
+        required: false
+        default: ''
+      dry_run:
+        description: 'ทดสอบ: พิมพ์สรุปใน log แต่ไม่ส่งเข้า LINE'
+        type: boolean
+        default: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/notify-monthly-returns.mjs ${{ inputs.dry_run && '--dry-run' || '' }}
+        env:
+          REPORT_MONTH: ${{ inputs.month }}
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+          MOPH_NOTIFY_CLIENT_KEY: ${{ secrets.MOPH_NOTIFY_CLIENT_KEY }}
+          MOPH_NOTIFY_SECRET_KEY: ${{ secrets.MOPH_NOTIFY_SECRET_KEY }}

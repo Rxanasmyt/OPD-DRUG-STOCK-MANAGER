@@ -2,6 +2,8 @@ import { useApp } from '../store/AppContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { subQty, daysUntil, usageAnomalies, daysOfStockLeft, categoryStats, dailyUsageRate, toneFor, topUsageByMed, usageByCategory, usageByMonth, leadTimeTrend, recurringStockouts, parAdjustmentOutcomes, discrepancyByCategory, repeatAdrReturns, frequentFloorRefills, replenishByMed } from '../store/selectors';
 import { nf, isoDate, fiscalYearStartIso, DAY } from '../utils/format';
+import { takeReturnsDeepLink } from '../utils/deepLink';
+import { monthRange, type ReturnsView } from '../utils/returnsSummary';
 import type { DailyMetrics, UsageHistoryRecord, ParAdjustmentRecord, DrugReturnRecord, Tx, MedId } from '../types';
 import { TABS, REPORT_NAMES, AGING_BUCKETS, DISC_TYPES } from './report/shared';
 import { ExecTab } from './report/ExecTab';
@@ -326,10 +328,12 @@ export default function ReportScreen() {
   const [rtnLoading, setRtnLoading] = useState(false);
   const [rtnLoaded, setRtnLoaded] = useState(false);
   const rtnReqId = useRef(0);
-  const loadReturns = () => {
+  const [rtnView, setRtnView] = useState<ReturnsView>('all');
+  // `range` lets a quick chip ("เดือนที่แล้ว") / a deep link load a period right away instead of waiting for state to settle.
+  const loadReturns = (range?: { from: string; to: string }) => {
     const reqId = ++rtnReqId.current;
     setRtnLoading(true);
-    fetchDrugReturns(rtnFrom, rtnTo).then((records) => {
+    fetchDrugReturns(range?.from ?? rtnFrom, range?.to ?? rtnTo).then((records) => {
       if (reqId !== rtnReqId.current) return;
       setRtnRecords(records); setRtnLoaded(true);
     }).catch((e) => {
@@ -341,7 +345,16 @@ export default function ReportScreen() {
     }).finally(() => { if (reqId === rtnReqId.current) setRtnLoading(false); });
   };
   useEffect(() => {
-    if (state.reportTab === 'returns' && !rtnLoaded) loadReturns();
+    if (state.reportTab !== 'returns') return;
+    // Opened from the LINE monthly report (?r=returns&m=YYYY-MM&v=all|cat|reason): jump straight to that month and view.
+    const dl = takeReturnsDeepLink();
+    if (dl) {
+      const { from, to } = monthRange(dl.month);
+      setRtnFrom(from); setRtnTo(to); setRtnView(dl.view);
+      loadReturns({ from, to });
+      return;
+    }
+    if (!rtnLoaded) loadReturns();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.reportTab]);
   const rtnTotalQty = rtnRecords.reduce((s, r) => s + r.qty, 0);
@@ -553,6 +566,7 @@ export default function ReportScreen() {
             rtnFrom={rtnFrom} setRtnFrom={setRtnFrom} rtnTo={rtnTo} setRtnTo={setRtnTo}
             rtnRecords={rtnRecords} rtnLoading={rtnLoading} rtnLoaded={rtnLoaded} loadReturns={loadReturns}
             rtnTotalValue={rtnTotalValue} rtnTotalQty={rtnTotalQty} exportDrugReturnsCsv={exportDrugReturnsCsv}
+            rtnView={rtnView} setRtnView={setRtnView}
           />
         )}
 

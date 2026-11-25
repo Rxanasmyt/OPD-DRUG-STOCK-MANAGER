@@ -21,6 +21,9 @@ import IdleLogoutWarning from './components/IdleLogoutWarning';
 import { SkeletonHome, SkeletonScreen } from './components/Skeleton';
 import { ContextBar } from './components/ContextBar';
 import type { Screen } from './types';
+import { captureReturnsDeepLink, hasReturnsDeepLink } from './utils/deepLink';
+
+captureReturnsDeepLink(); // ?r=returns&m=YYYY-MM&v=… from the LINE monthly report — parked until sign-in
 
 // Code-split the screens that aren't part of the hot day-to-day path (settings, admin,
 // reports, labels/QR, reconcile, count, adjust) — these pull in extra weight (qrcode, jsqr
@@ -85,7 +88,7 @@ const NAV_DEF: [Screen, string, string][] = [
 ];
 
 export default function App() {
-  const { state, myProfile, roleLabel, go, theme, toggleTheme, openScanSearch } = useApp();
+  const { state, myProfile, roleLabel, go, theme, toggleTheme, openScanSearch, setReportTab } = useApp();
 
   // Direction-aware screen transition — every screen already fades itself in on mount, but
   // that read identical whether you'd just drilled into a screen or backed out of one. Nav
@@ -137,6 +140,13 @@ export default function App() {
       : titleDef;
     document.title = screenTitle ? `${screenTitle} · KPNHOS-DRUG` : 'KPNHOS-DRUG SUBSTOCK-OPD-IPD-MANAGEMENT';
   }, [state.authStatus, state.dbReady, state.screen, state.wardFilter]);
+
+  // After sign-in, a parked returns-report link takes the person straight to ↩️ รายงานคืนยา (ReportScreen reads the month/view).
+  useEffect(() => {
+    if (state.authStatus !== 'signedIn' || !state.dbReady || !hasReturnsDeepLink()) return;
+    setReportTab('returns');
+    go('report');
+  }, [state.authStatus, state.dbReady, go, setReportTab]);
 
   if (state.authStatus !== 'signedIn') {
     return <LoginScreen />;

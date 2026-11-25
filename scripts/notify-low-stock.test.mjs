@@ -7,7 +7,7 @@
 // sitting in that stale state would get broadcast as "ต่ำกว่า Min" over LINE to real staff even
 // though the app itself (using the correct, lower Min) does not consider it low.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { buildReport, buildText, buildFlex } from './notify-low-stock.mjs';
+import { buildReport, buildText, buildFlex, urgencyLevel } from './notify-low-stock.mjs';
 
 vi.mock('firebase-admin/app', () => ({
   initializeApp: vi.fn(),
@@ -187,9 +187,158 @@ describe('notify-low-stock — report sections', () => {
     const flex = buildFlex(r, label);
     expect(flex.type).toBe('flex');
     expect(JSON.stringify(flex)).toContain('ZERO DRUG');
-    expect(flex.contents.footer.contents[0].action.uri).toContain('OPD-DRUG-STOCK-MANAGER');
+    expect(flex.contents.type).toBe('carousel');
+    const bubbles = flex.contents.contents;
+    expect(bubbles.length).toBe(1 + 4); // summary + Min (the already-counted zero med) + zero + par + expiring
+    expect(bubbles[0].footer.contents[0].action.uri).toContain('OPD-DRUG-STOCK-MANAGER');
+    expect(bubbles.length).toBeLessThanOrEqual(12); // LINE carousel limit
   });
   it('is empty when nothing needs attention', () => {
     expect(buildReport({ meds: [{ ...base, id: 'ok', name: 'OK', floor: 100 }], lots: [], now: NOW }).empty).toBe(true);
+  });
+});
+
+describe('notify-low-stock — flex payload stays within LINE limits', () => {
+  it('caps rows per card and stays small even with hundreds of alerts', () => {
+    const many = Array.from({ length: 300 }, (_, i) => ({ name: 'ยา ' + i, unit: 'เม็ด', cur: i % 7, ref: 50 }));
+    const rep = { emergency: many.map((m) => ({ name: m.name, unit: m.unit, onHand: 5, cover: 2, level: urgencyLevel(2), needQty: 100 })), horizonDays: 14, belowMin: many, belowSubPar: many, zeroFloor: many.map((m) => ({ name: m.name, unit: m.unit })), expiring: many.map((m) => ({ ...m, lotNo: 'L', qty: 1, days: 3 })), expiryWarnDays: 30, empty: false };
+    const flex = buildFlex(rep, 'วันนี้');
+    expect(flex.contents.contents.length).toBe(6);
+    expect(JSON.stringify(flex).length).toBeLessThan(30000); // LINE flex payload: stay under 30KB by shrinking rows per card
+    expect(flex.altText.length).toBeLessThanOrEqual(400);
+  });
+});
+
+describe('notify-low-stock — emergency requisition (runs out before next delivery)', () => {
+  const NOW = Date.parse('2026-11-25T03:00:00Z');
+  const base = { active: true, unit: 'เม็ด', parFloor: 100, parSub: 1000, used30: 900, usedPrev30: 0 }; // 30/day
+  const meds = [
+    { ...base, id: 'a', name: 'RUNS OUT SOON', floor: 20 },        // 20 + 100 = 120 on hand → 4 days
+    { ...base, id: 'b', name: 'PLENTY', floor: 100 },              // 100 + 900 = 1000 → 33 days
+    { ...base, id: 'c', name: 'ON HOLD', floor: 0, outOfStockSince: NOW },
+    { ...base, id: 'd', name: 'NO USAGE', floor: 0, used30: 0 },
+  ];
+  const lots = [{ medId: 'a', qty: 100, exp: NOW + 400 * 86400000 }, { medId: 'b', qty: 900, exp: NOW + 400 * 86400000 }];
+
+  it('flags only drugs whose total on-hand runs out inside the horizon, soonest first', () => {
+    const r = buildReport({ meds, lots, now: NOW, horizonDays: 7 });
+    expect(r.emergency.map((e) => e.name)).toEqual(['RUNS OUT SOON']);
+    expect(r.emergency[0].cover).toBe(4);
+  });
+  it('suggests a request quantity that covers horizon + lead time (at least up to par)', () => {
+    const r = buildReport({ meds, lots, now: NOW, horizonDays: 7 });
+    expect(r.emergency[0].needQty).toBe(Math.max(30 * 14 - 120, 1000 - 100)); // 900
+  });
+  it('a nearer next-delivery date shrinks the horizon', () => {
+    expect(buildReport({ meds, lots, now: NOW, horizonDays: 3 }).emergency).toHaveLength(0);
+  });
+  it('an emergency drug is not repeated under "ต่ำกว่า par", and shows first in the flex carousel', () => {
+    const r = buildReport({ meds, lots, now: NOW, horizonDays: 7 });
+    expect(r.belowSubPar.map((x) => x.name)).not.toContain('RUNS OUT SOON');
+    const flex = buildFlex(r, 'วันนี้');
+    expect(JSON.stringify(flex.contents.contents[1])).toContain('เบิกฉุกเฉิน');
+    expect(buildText(r, 'วันนี้')).toContain('🚨');
+  });
+});
+
+describe('notify-low-stock — emergency urgency levels', () => {
+  const NOW = Date.parse('2026-11-25T03:00:00Z');
+  const mk = (id, name, onHand) => ({ id, name, active: true, unit: 'เม็ด', parFloor: 10, parSub: 0, noSubstock: true, used30: 300, usedPrev30: 0, floor: onHand }); // 10/day
+  it('ladders by days of cover: ≤1 วิกฤต, 2–3 เร่งด่วนมาก, 4–7 เร่งด่วน; >7 days is not flagged', () => {
+    const r = buildReport({ meds: [mk('a', 'D0', 5), mk('b', 'D2', 25), mk('c', 'D5', 55), mk('d', 'D7', 70), mk('e', 'D9', 95)], lots: [], now: NOW });
+    expect(r.horizonDays).toBe(7);
+    expect(r.emergency.map((e) => [e.name, e.level.label])).toEqual([
+      ['D0', 'วิกฤต'], ['D2', 'เร่งด่วนมาก'], ['D5', 'เร่งด่วน'], ['D7', 'เร่งด่วน'],
+    ]);
+  });
+  it('level labels appear in the text and the flex summary', () => {
+    const r = buildReport({ meds: [mk('a', 'D0', 5), mk('b', 'D2', 25)], lots: [], now: NOW });
+    expect(buildText(r, 'x')).toContain('วิกฤต');
+    expect(JSON.stringify(buildFlex(r, 'x'))).toContain('เร่งด่วนมาก');
+  });
+});
+
+describe('notify-low-stock — bug fixes found in review', () => {
+  const NOW = Date.parse('2026-11-25T03:00:00Z');
+  it('two meds with the SAME name (e.g. OPD + IPD record) are told apart by id when de-duplicating sections', () => {
+    const a = { id: 'opd', name: 'SAME NAME', active: true, unit: 'เม็ด', parFloor: 10, parSub: 0, noSubstock: true, used30: 300, floor: 5 };   // runs out → emergency
+    const b = { id: 'ipd', name: 'SAME NAME', active: true, unit: 'เม็ด', parFloor: 100, parSub: 0, noSubstock: true, used30: 0, floor: 20 }; // below par, no usage
+    const r = buildReport({ meds: [a, b], lots: [], now: NOW });
+    expect(r.emergency.map((e) => e.id)).toEqual(['opd']);
+    // the IPD record (below Min AND below par) lands in ONE card — Min, the more urgent — and still appears (it used to vanish: filtered out by the shared NAME)
+    expect(r.belowMin.map((e) => e.id)).toEqual(['ipd']);
+    expect(r.belowMin[0].also).toEqual(['ต่ำกว่า par']);
+  });
+  it('plain-text message never exceeds LINE\'s 5,000-character limit and keeps the app link', () => {
+    const many = Array.from({ length: 300 }, (_, i) => ({ id: 'i' + i, name: 'ยาชื่อยาวมากมาย '.repeat(6) + i, unit: 'เม็ด', cur: 1, ref: 50 }));
+    const rep = { emergency: [], horizonDays: 7, belowMin: many, belowSubPar: many, zeroFloor: many, expiring: [], expiryWarnDays: 30, empty: false };
+    const text = buildText(rep, 'วันนี้');
+    expect(text.length).toBeLessThanOrEqual(5000);
+    expect(text).toContain('OPD-DRUG-STOCK-MANAGER');
+  });
+  it('flex: every emergency row has an accent stripe, level pill and a days number; summary has the level strip', () => {
+    const med = { id: 'x', name: 'D2', active: true, unit: 'เม็ด', parFloor: 10, parSub: 0, noSubstock: true, used30: 300, floor: 25 };
+    const flex = buildFlex(buildReport({ meds: [med], lots: [], now: NOW }), 'x');
+    const s = JSON.stringify(flex);
+    expect(s).toContain('เร่งด่วนมาก');
+    expect(s).toContain('"cornerRadius":"20px"'); // the pill
+    expect(JSON.stringify(flex.contents.contents[0])).toContain('"height":"8px"'); // level strip
+  });
+});
+
+describe('notify-low-stock — stale usage statistics warning', () => {
+  const NOW = Date.parse('2026-11-25T03:00:00Z');
+  const med = { id: 'x', name: 'D2', active: true, unit: 'เม็ด', parFloor: 10, parSub: 0, noSubstock: true, used30: 300, floor: 25 };
+  it('warns on the text and the summary card when the daily usage job has not run for > 3 days', () => {
+    const rep = buildReport({ meds: [med], lots: [], now: NOW, usageStatsRecomputedAt: NOW - 6 * 86400000 });
+    expect(rep.usageStaleDays).toBe(6);
+    expect(buildText(rep, 'x')).toContain('ไม่ได้อัปเดตมา 6 วัน');
+    expect(JSON.stringify(buildFlex(rep, 'x').contents.contents[0])).toContain('ไม่ได้อัปเดตมา 6 วัน');
+  });
+  it('is silent when fresh, and when the timestamp is unknown', () => {
+    expect(buildText(buildReport({ meds: [med], lots: [], now: NOW, usageStatsRecomputedAt: NOW - 86400000 }), 'x')).not.toContain('ไม่ได้อัปเดต');
+    expect(buildText(buildReport({ meds: [med], lots: [], now: NOW }), 'x')).not.toContain('ไม่ได้อัปเดต');
+  });
+});
+
+describe('notify-low-stock — one card per drug, HAD first', () => {
+  const NOW = Date.parse('2026-11-25T03:00:00Z');
+  const base = { active: true, unit: 'เม็ด', parFloor: 300, parSub: 0, noSubstock: true, used30: 300 }; // 10/day
+  const meds = [
+    { ...base, id: 'zero', name: 'ZERO', floor: 0 },                         // emergency (0 days) + zero + Min + par
+    { ...base, id: 'soon', name: 'SOON', floor: 40 },                        // emergency (4 days) + Min + par
+    { ...base, id: 'min', name: 'LOW ONLY', floor: 120, used30: 30 },        // Min + par (cover 40 days → not emergency)
+    { ...base, id: 'par', name: 'PAR ONLY', floor: 200, floorMin: 100, used30: 30 },
+    { ...base, id: 'had', name: 'HAD DRUG', floor: 130, used30: 30, had: true }, // Min + par, HAD
+    { ...base, id: 'plain', name: 'PLAIN DRUG', floor: 125, used30: 30 },    // Min + par, not HAD
+  ];
+  const r = buildReport({ meds, lots: [], now: NOW });
+  const idsOf = (k) => r[k].map((x) => x.id);
+
+  it('every drug appears in exactly one of the four cards (the most urgent)', () => {
+    const all = ['emergency', 'zeroFloor', 'belowMin', 'belowSubPar'].flatMap(idsOf);
+    expect(new Set(all).size).toBe(all.length);
+    expect(idsOf('emergency')).toEqual(['zero', 'soon']);
+    expect(idsOf('zeroFloor')).toEqual([]); // ZERO is claimed by emergency
+    expect(idsOf('belowSubPar')).toEqual(['par']);
+  });
+  it('the primary row says what else is wrong with the drug', () => {
+    expect(r.emergency[0].also).toEqual(['ยอด 0', 'ต่ำกว่า Min', 'ต่ำกว่า par']);
+    expect(r.emergency[1].also).toEqual(['ต่ำกว่า Min', 'ต่ำกว่า par']);
+    expect(buildText(r, 'x')).toContain('(+ยอด 0, ต่ำกว่า Min, ต่ำกว่า par)');
+  });
+  it('high-alert (HAD) drugs are listed first within a card and marked', () => {
+    expect(idsOf('belowMin')).toEqual(['had', 'min', 'plain']); // HAD first, then lowest stock relative to Min
+    expect(buildText(r, 'x')).toContain('⚠HAD HAD DRUG');
+    const flex = JSON.stringify(buildFlex(r, 'x'));
+    expect(flex).toContain('⚠ HAD');
+    expect(flex).toContain('ยังเข้าเกณฑ์:');
+    expect(flex).toContain('"text":"ยอด 0"'); // short pill label
+  });
+  it('an emergency HAD drug sorts ahead of a non-HAD drug of the same urgency level', () => {
+    const rep = buildReport({ meds: [
+      { ...base, id: 'a', name: 'A', floor: 20 }, { ...base, id: 'b', name: 'B HAD', floor: 30, had: true },
+    ], lots: [], now: NOW });
+    expect(rep.emergency.map((e) => e.id)).toEqual(['b', 'a']); // both level 2 (2–3 days) → HAD first, then fewer days
   });
 });
