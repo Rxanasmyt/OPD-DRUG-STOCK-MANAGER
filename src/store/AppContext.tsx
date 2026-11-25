@@ -6237,6 +6237,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // there's nothing to read. commitTransfer/commitReceive already toast a clear, specific
     // message for this exact same "deleted-med" gap; this one never got the equivalent.
     if (!m) { toast('รายการนี้ถูกลบออกจากระบบไปแล้ว — ลบแถวนี้ออกจากหน้านับสต็อกแล้วรีเฟรชหน้าจอ'); return; }
+    // Same guard the "บันทึกทั้งหมด" path already has: a med deactivated (not deleted) on another device must not get a real write from a stale row.
+    if (!m.active) { toast('ยานี้ถูกปิดใช้งานแล้ว — ไม่บันทึกการนับ (รีเฟรชหน้าจอเพื่ออัปเดตรายการ)'); return; }
     // Bug fix (typo safety net): nothing here ever checked the typed count against anything —
     // digitsOnly() only guards against overflow/corruption (caps at 9 digits), not plausibility.
     // Typing several rows quickly on a shelf walk is exactly the situation an extra digit (e.g.
@@ -6390,6 +6392,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Bug fix (silent no-op): same class of gap as commitCount's own fix — this used to just
     // `return` here with no toast, leaving a tap on a deleted med's row do nothing at all.
     if (!m) { toast('รายการนี้ถูกลบออกจากระบบไปแล้ว — ลบแถวนี้ออกจากหน้านับสต็อกแล้วรีเฟรชหน้าจอ'); return; }
+    // Same guard the "บันทึกทั้งหมด" path already has: a med deactivated (not deleted) on another device must not get a real write from a stale row.
+    if (!m.active) { toast('ยานี้ถูกปิดใช้งานแล้ว — ไม่บันทึกการนับ (รีเฟรชหน้าจอเพื่ออัปเดตรายการ)'); return; }
     // Bug fix (typo safety net): same gap as commitCount's own fix above — nothing here ever
     // checked the typed count against anything plausible before committing it.
     const curSub = subQty(state, medId);
