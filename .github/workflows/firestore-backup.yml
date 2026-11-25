@@ -102,3 +102,13 @@ jobs:
       - run: node scripts/mark-backup-status.mjs
         env:
           FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+      # A failed backup used to be silent until someone needed the backup. Tell the LINE group right away (MOPH Notify keys optional).
+      - name: Alert LINE group on failure
+        if: failure()
+        run: node scripts/notify-alert.mjs
+        env:
+          ALERT_TITLE: 'สำรองข้อมูล (Firestore backup) ล้มเหลว'
+          ALERT_MESSAGE: 'การสำรองข้อมูลรอบล่าสุดไม่สำเร็จ ข้อมูลสำรองอาจไม่ใช่ของวันนี้ — ควรให้ผู้ดูแลระบบตรวจสอบ'
+          ALERT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          MOPH_NOTIFY_CLIENT_KEY: ${{ secrets.MOPH_NOTIFY_CLIENT_KEY }}
+          MOPH_NOTIFY_SECRET_KEY: ${{ secrets.MOPH_NOTIFY_SECRET_KEY }}

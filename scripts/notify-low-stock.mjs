@@ -22,6 +22,7 @@
 
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { mophNotify } from './moph-notify.mjs';
 
 const APP_URL = 'https://rxanasmyt.github.io/OPD-DRUG-STOCK-MANAGER/';
 const MAX_ROWS_PER_SECTION = 15; // keeps the broadcast readable — the app itself has the full list
@@ -69,22 +70,8 @@ async function lineBroadcast(token, text) {
   }
 }
 
-// Second channel (same one the EB Notify app uses): MOPH Notify posts into a LINE GROUP that has the "หมอพร้อม" bot in it,
-// using the unit's client-key / secret-key from the MOPH Notify CMS (API_Document_MOPH_Notify). Success = HTTP 2xx AND
-// message_code 200 — the API reports failures (wrong key, bad message format) as `message_code: 401` in the body.
-export async function mophNotify(clientKey, secretKey, messages) {
-  const res = await fetch('https://morpromt2f.moph.go.th/api/notify/send', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'client-key': clientKey, 'secret-key': secretKey },
-    body: JSON.stringify({ messages }),
-  });
-  const raw = await res.text().catch(() => '');
-  let code;
-  try { code = JSON.parse(raw).message_code; } catch { /* non-JSON body */ }
-  if (!res.ok || (code !== undefined && Number(code) !== 200)) {
-    throw new Error(`MOPH Notify failed: ${res.status} — ${raw.slice(0, 200)}`);
-  }
-}
+// Second channel (same one the EB Notify app uses): MOPH Notify → LINE group with the "หมอพร้อม" bot — see moph-notify.mjs.
+export { mophNotify };
 
 const DAY_MS = 86400000;
 const BKK = 7 * 3600000;
