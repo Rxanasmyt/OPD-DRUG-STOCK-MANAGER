@@ -97,4 +97,4 @@ export function MissDiagnosis({ med, fileNames, onFixMed }: {
   );
 }
 
-const linkBtn = { fontSize: 11.5, fontWeight: 600, color: 'var(--green)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' } as const;
+const linkBtn = { fontSize: 11.5, fontWeight: 600, color: 'var(--green)', background: 'none', border: 'none', padding: '9px 0', cursor: 'pointer' } as const;
