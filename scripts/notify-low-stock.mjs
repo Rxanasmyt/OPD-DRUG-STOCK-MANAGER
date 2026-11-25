@@ -122,13 +122,14 @@ export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now(),
   }
   expiring.sort((a, b) => a.days - b.days);
   const subQty = (id) => subByMed.get(id) || 0;
-  const belowMin = active.filter((m) => !isOnStockHold(m) && (m.floor || 0) < floorMinOf(m))
+  const hadOf = new Map(active.map((m) => [m.id, !!m.had]));
+  const belowMinAll = active.filter((m) => !isOnStockHold(m) && (m.floor || 0) < floorMinOf(m))
     .map((m) => ({ id: m.id, name: m.name, unit: m.unit, cur: m.floor || 0, ref: floorMinOf(m) }));
   const belowSubParAll = active.filter((m) => !isOnStockHold(m) && (usesSubstock(m) ? subQty(m.id) < (m.parSub || 0) : (m.floor || 0) < (m.parFloor || 0)))
     .map((m) => usesSubstock(m)
       ? { id: m.id, name: m.name, unit: m.unit, cur: subQty(m.id), ref: m.parSub || 0 }
       : { id: m.id, name: m.name, unit: m.unit, cur: m.floor || 0, ref: m.parFloor || 0 });
-  const emergency = active
+  const emergencyAll = active
     .filter((m) => !isOnStockHold(m) && monthlyUse(m) > 0)
     .map((m) => {
       const daily = monthlyUse(m) / 30;
@@ -136,20 +137,34 @@ export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now(),
       return { m, daily, onHand, cover: onHand / daily };
     })
     .filter((x) => x.cover <= horizonDays)
-    .sort((a, b) => a.cover - b.cover)
     .map((x) => ({
       id: x.m.id, name: x.m.name, unit: x.m.unit, onHand: x.onHand, cover: Math.max(0, Math.floor(x.cover)), level: urgencyLevel(Math.max(0, Math.floor(x.cover))),
       // enough to carry the drug through the horizon plus a week of lead time, never less than topping substock up to par
       needQty: Math.max(0, Math.ceil(x.daily * (horizonDays + 7) - x.onHand), (usesSubstock(x.m) ? (x.m.parSub || 0) - subQty(x.m.id) : 0)),
     }));
-  const emergencyIds = new Set(emergency.map((e) => e.id));
-  const zeroFloor = active.filter((m) => needsZeroFloorCheck(m, now)).map((m) => ({ id: m.id, name: m.name, unit: m.unit }));
-  // A zero-floor med is always below Min too; list it once (under "ยอด 0 ควรนับจริง", the action it actually needs) instead of
-  // repeating it in two sections of the same message.
-  // Same for par: a drug already in the emergency list is not repeated under "ต่ำกว่า par".
-  const belowSubPar = belowSubParAll.filter((r) => !emergencyIds.has(r.id));
-  const zeroIds = new Set(zeroFloor.map((z) => z.id));
-  const belowMinShown = belowMin.filter((r) => !zeroIds.has(r.id));
+  const zeroFloorAll = active.filter((m) => needsZeroFloorCheck(m, now)).map((m) => ({ id: m.id, name: m.name, unit: m.unit }));
+
+  // ONE card per drug: a drug that qualifies for several alerts is shown only in the most urgent one (emergency > ยอด 0 > Min > par),
+  // with small "also" tags for what else is wrong with it — otherwise the same drug reads as 2–3 separate problems.
+  const ALSO = { emergency: 'เบิกฉุกเฉิน', zeroFloor: 'ยอด 0', belowMin: 'ต่ำกว่า Min', belowSubPar: 'ต่ำกว่า par' };
+  const order = ['emergency', 'zeroFloor', 'belowMin', 'belowSubPar'];
+  const all = { emergency: emergencyAll, zeroFloor: zeroFloorAll, belowMin: belowMinAll, belowSubPar: belowSubParAll };
+  const idsIn = Object.fromEntries(order.map((k) => [k, new Set(all[k].map((r) => r.id))]));
+  const placed = {};
+  const seen = new Set();
+  for (const k of order) {
+    placed[k] = all[k].filter((r) => !seen.has(r.id)).map((r) => ({
+      ...r, had: hadOf.get(r.id) || false,
+      also: order.slice(order.indexOf(k) + 1).filter((o) => idsIn[o].has(r.id)).map((o) => ALSO[o]),
+    }));
+    placed[k].forEach((r) => seen.add(r.id));
+  }
+  // High-alert (HAD) drugs first within each card; emergency keeps its urgency level first, then fewest days left.
+  const hadFirst = (a, b) => (b.had ? 1 : 0) - (a.had ? 1 : 0);
+  const emergency = placed.emergency.sort((a, b) => a.level.n - b.level.n || hadFirst(a, b) || a.cover - b.cover);
+  const zeroFloor = placed.zeroFloor.sort(hadFirst);
+  const belowMinShown = placed.belowMin.sort((a, b) => hadFirst(a, b) || (a.cur / (a.ref || 1)) - (b.cur / (b.ref || 1)));
+  const belowSubPar = placed.belowSubPar.sort((a, b) => hadFirst(a, b) || (a.cur / (a.ref || 1)) - (b.cur / (b.ref || 1)));
   // The emergency list is only as good as used30/usedPrev30, which a daily job refreshes. If that job stopped, say so on the message.
   const usageStaleDays = typeof usageStatsRecomputedAt === 'number' ? Math.floor((now - usageStatsRecomputedAt) / DAY_MS) : null;
   return { usageStaleDays, emergency, horizonDays, belowMin: belowMinShown, belowSubPar, zeroFloor, expiring, expiryWarnDays, empty: !emergency.length && !belowMinShown.length && !belowSubPar.length && !zeroFloor.length && !expiring.length };
@@ -177,7 +192,7 @@ export function buildText(report, dateLabel) {
     const shown = rows.slice(0, MAX_ROWS_PER_SECTION);
     const more = rows.length > shown.length ? `\n…และอีก ${rows.length - shown.length} รายการ` : '';
     const title = sec.key === 'expiring' ? `${sec.title} (< ${report.expiryWarnDays} วัน)` : sec.title;
-    text += `\n\n${sec.icon} ${title} (${rows.length} รายการ)\n` + shown.map((r) => `• ${r.name}: ${sec.fmt(r)}`).join('\n') + more;
+    text += `\n\n${sec.icon} ${title} (${rows.length} รายการ)\n` + shown.map((r) => `• ${r.had ? '⚠HAD ' : ''}${r.name}: ${sec.fmt(r)}${r.also && r.also.length ? ' (+' + r.also.join(', ') + ')' : ''}`).join('\n') + more;
   }
   const stale = report.usageStaleDays != null && report.usageStaleDays > 3 ? `\n\n⚠️ ข้อมูลอัตราการใช้ยาไม่ได้อัปเดตมา ${report.usageStaleDays} วัน — รายการ “เบิกฉุกเฉิน” อาจคลาดเคลื่อน` : '';
   const tail = stale + `\n\nเปิดแอพ: ${APP_URL}`;
@@ -258,12 +273,15 @@ function rowFlex(sec, key, r, horizonDays) {
   const accent = key === 'emergency' ? r.level.ink : t.c2;
   const bg = key === 'emergency' ? r.level.bg : t.soft;
   const nameText = { type: 'text', text: r.name, size: 'sm', weight: 'bold', wrap: true, color: '#12211A' };
+  // Small tags under the name: ⚠ HAD (high-alert drug) and what ELSE is wrong with this drug (it is shown only once, in its most urgent card).
+  const tagList = [...(r.had ? [pill('⚠ HAD', '#8E0000')] : []), ...((r.also || []).map((a) => pill('+ ' + a, '#ECEFF1', '#455A64')))];
+  const tags = tagList.length ? [{ type: 'box', layout: 'horizontal', spacing: 'xs', contents: [...tagList, { type: 'filler' }] }] : [];
   let content;
   if (key === 'emergency') {
     content = { type: 'box', layout: 'horizontal', flex: 1, contents: [
       { type: 'box', layout: 'vertical', flex: 1, spacing: 'xs', contents: [
         nameText,
-        { type: 'box', layout: 'horizontal', spacing: 'sm', contents: [pill(`${r.level.dot} ${r.level.label}`, r.level.ink), { type: 'filler' }] },
+        { type: 'box', layout: 'horizontal', spacing: 'xs', contents: [pill(`${r.level.dot} ${r.level.label}`, r.level.ink), ...(r.had ? [pill('⚠ HAD', '#8E0000')] : []), ...((r.also || []).map((a) => pill('+ ' + a, '#FFFFFFCC', '#455A64'))), { type: 'filler' }] },
         { type: 'text', text: `คงเหลือ ${nf(r.onHand)} ${r.unit} · ควรขอ ~${nf(r.needQty)} ${r.unit}`, size: 'xs', color: '#555555', wrap: true },
         bar(Math.round((r.cover / Math.max(1, horizonDays)) * 100), r.level.ink),
       ] },
@@ -282,7 +300,7 @@ function rowFlex(sec, key, r, horizonDays) {
   } else if (key === 'zeroFloor') {
     content = { type: 'box', layout: 'vertical', flex: 1, spacing: 'xs', contents: [
       nameText,
-      { type: 'box', layout: 'horizontal', contents: [pill('0 ' + r.unit, accent), { type: 'filler' }] },
+      { type: 'box', layout: 'horizontal', spacing: 'xs', contents: [pill('0 ' + r.unit, accent), ...(r.had ? [pill('⚠ HAD', '#8E0000')] : []), ...((r.also || []).map((a) => pill('+ ' + a, '#FFFFFFCC', '#455A64'))), { type: 'filler' }] },
       { type: 'text', text: 'ยังไม่ได้นับวันนี้ — นับจริงแล้วบันทึกในแอป', size: 'xxs', color: '#6D736D', wrap: true },
     ] };
   } else {
@@ -292,6 +310,7 @@ function rowFlex(sec, key, r, horizonDays) {
         { ...nameText, flex: 5 },
         { type: 'text', text: `${nf(r.cur)}/${nf(r.ref)}`, size: 'sm', weight: 'bold', color: t.ink, align: 'end', flex: 3 },
       ] },
+      ...tags,
       bar(pct, t.c2),
     ] };
   }
