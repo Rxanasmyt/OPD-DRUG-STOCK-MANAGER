@@ -466,6 +466,7 @@ export default function SubstockCardScreen() {
             <div data-testid="card-actions" style={{ display: 'flex', gap: 7, flexWrap: 'wrap', padding: '10px 12px', background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-soft)' }}>
               {([
                 ['🔢 นับหน้างาน', () => goCountFor(med.id), true],
+                ['📦 นับ substock', () => goCountFor(med.id, 'sub'), usesSubstock(med)],
                 ['🔄 เติมหน้างาน', () => { setAppSearch(med.name); go('transfer'); }, usesSubstock(med)],
                 ['📦 รับเข้า', () => goReceiveFor(med.id), true],
                 ['⚖️ ปรับยอด/คืนยา', () => { pickAdjType('adjust'); pickAdjMed(med.id); go('adjust'); }, true],

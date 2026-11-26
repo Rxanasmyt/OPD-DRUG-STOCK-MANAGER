@@ -445,9 +445,18 @@ export default function TransferScreen() {
                             onClick={stopRowNav(() => goCountFor(m.id))}
                             title="ไปนับยอดหน้างานของยานี้ทันที"
                             aria-label={'นับหน้างาน ' + m.name}
-                            style={{ border: '1px solid var(--green)', background: 'transparent', color: 'var(--green)', fontSize: 11.5, fontWeight: 700, padding: '3px 9px', borderRadius: 8, minHeight: 36 }}
+                            style={{ border: '1px solid var(--green)', background: 'transparent', color: 'var(--green)', fontSize: 11.5, fontWeight: 700, padding: '3px 9px', borderRadius: 8, minHeight: 36, whiteSpace: 'nowrap' }}
                           >
                             🔢 นับหน้างาน
+                          </button>
+                          <button
+                            data-testid="count-sub-shortcut"
+                            onClick={stopRowNav(() => goCountFor(m.id, 'sub'))}
+                            title="ไปนับยอด substock ของยานี้ — ทวนสอบตอนไปหยิบยา"
+                            aria-label={'นับ substock ' + m.name}
+                            style={{ border: '1px solid var(--green)', background: 'transparent', color: 'var(--green)', fontSize: 11.5, fontWeight: 700, padding: '3px 9px', borderRadius: 8, minHeight: 36, whiteSpace: 'nowrap' }}
+                          >
+                            📦 นับ substock
                           </button>
                           <button
                             onClick={stopRowNav(() => setExpandedId(expandedId === m.id ? null : m.id))}
