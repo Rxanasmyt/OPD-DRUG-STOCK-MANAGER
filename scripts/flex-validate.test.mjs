@@ -66,7 +66,9 @@ function flexMessage(m, name) {
   const c = m.contents;
   if (c.type === 'carousel') { expect(c.contents.length).toBeLessThanOrEqual(12); c.contents.forEach((b, i) => bubble(b, `${name}.carousel[${i}]`)); }
   else bubble(c, name);
-  expect(JSON.stringify(m).length).toBeLessThan(30000);
+  // LINE: a bubble's JSON ≤ 10 KB, a carousel's ≤ 50 KB (a single-bubble message is held to 30 KB here to stay conservative)
+  expect(JSON.stringify(m).length).toBeLessThan(c.type === 'carousel' ? 50000 : 30000);
+  for (const b of (c.type === 'carousel' ? c.contents : [c])) expect(JSON.stringify(b).length).toBeLessThan(10000);
   return [...bad];
 }
 

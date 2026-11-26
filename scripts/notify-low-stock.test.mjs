@@ -32,7 +32,7 @@ const GENUINELY_LOW_MED = {
 function mockFirestoreWith(meds) {
   vi.doMock('firebase-admin/firestore', () => ({
     getFirestore: () => ({
-      doc: () => ({ get: async () => ({ data: () => ({ expiryWarnDays: 30 }) }) }),
+      doc: (path) => ({ get: async () => ({ data: () => ({ expiryWarnDays: 30 }) }), set: async (d, o) => { globalThis.__stamps?.push([path, d, o]); } }),
       collection: (name) => {
         if (name === 'meds') return { get: async () => ({ docs: meds.map((m) => ({ id: m.id, data: () => m })) }) };
         if (name === 'lots') return { where: () => ({ get: async () => ({ docs: [] }) }) };
@@ -340,5 +340,48 @@ describe('notify-low-stock — one card per drug, HAD first', () => {
       { ...base, id: 'a', name: 'A', floor: 20 }, { ...base, id: 'b', name: 'B HAD', floor: 30, had: true },
     ], lots: [], now: NOW });
     expect(rep.emergency.map((e) => e.id)).toEqual(['b', 'a']); // both level 2 (2–3 days) → HAD first, then fewer days
+  });
+});
+
+describe('notify-low-stock — shelf location and health stamp', () => {
+  const NOW = Date.parse('2026-11-25T03:00:00Z');
+  const base = { active: true, unit: 'เม็ด', parFloor: 300, parSub: 0, noSubstock: true, used30: 300 };
+  const rep = buildReport({ meds: [
+    { ...base, id: 'a', name: 'WITH BIN', floor: 20, bin: 'D1-3' },
+    { ...base, id: 'b', name: 'SHARED', floor: 25, bin: 'A1', binIpd: 'B2', shared: true },
+    { ...base, id: 'c', name: 'NO BIN', floor: 30 },
+  ], lots: [{ medId: 'a', qty: 5, lotNo: 'L', exp: NOW + 3 * 86400000 }], now: NOW });
+
+  it('every row carries the shelf code (a shared drug shows both sides; none → empty)', () => {
+    const all = Object.fromEntries([...rep.emergency, ...rep.belowMin, ...rep.belowSubPar, ...rep.zeroFloor].map((r) => [r.id, r.bin]));
+    expect(all).toMatchObject({ a: 'D1-3', b: 'A1/B2', c: '' });
+    expect(rep.expiring[0].bin).toBe('D1-3');
+  });
+  it('the text shows [bin] after the name and the flex card shows a 📍 pill; nothing is printed for a drug without a bin', () => {
+    const text = buildText(rep, 'x');
+    expect(text).toContain('WITH BIN [D1-3]');
+    expect(text).toContain('SHARED [A1/B2]');
+    expect(text).not.toContain('NO BIN [');
+    const flex = JSON.stringify(buildFlex(rep, 'x'));
+    expect(flex).toContain('📍 D1-3');
+    expect(flex).toContain('📍 A1/B2');
+  });
+  it('main() stamps meta/notifyStatus.stock: "nothing" on a clean day, "sent" after sending', async () => {
+    process.env.FIREBASE_SERVICE_ACCOUNT_KEY = JSON.stringify({ project_id: 'p' });
+    process.env.MOPH_NOTIFY_CLIENT_KEY = 'ck'; process.env.MOPH_NOTIFY_SECRET_KEY = 'sk'; delete process.env.LINE_CHANNEL_ACCESS_TOKEN; delete process.env.TARGET_TIME_BKK;
+    process.argv = ['node', 'x'];
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    globalThis.__stamps = [];
+    vi.resetModules(); mockFirestoreWith([]);
+    let { main } = await import('./notify-low-stock.mjs');
+    await main();
+    expect(globalThis.__stamps[0][1].stock).toMatchObject({ result: 'nothing' });
+    globalThis.__stamps = [];
+    vi.resetModules(); mockFirestoreWith([GENUINELY_LOW_MED]);
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, text: async () => '{"message_code":200}' })));
+    ({ main } = await import('./notify-low-stock.mjs'));
+    await main();
+    expect(globalThis.__stamps.at(-1)[1].stock).toMatchObject({ result: 'sent' });
+    vi.unstubAllGlobals(); delete globalThis.__stamps;
   });
 });

@@ -60,21 +60,24 @@ export default function CountScreen() {
   const [sort, setSort] = useState<Sort>('stale');
   const [scope, setScope] = useState<Scope>('all');
   const [catTab, setCatTab] = useState<'all' | string>('all');
-  // Arrived from a list row's "นับ" button (goCountFor): show just that med on the floor tab, then focus its box.
+  // Arrived from a list row's "นับ" button (goCountFor): show just that med on the floor (or substock) tab, then focus its box.
   const focusMed = state.countFocusId ? state.meds.find((x) => x.id === state.countFocusId) : undefined;
   // Remember the med + its lastCountTs at arrival; once that med's count is saved (lastCountTs moves), go back to where we came from.
-  const shortcut = useRef<{ id: string; baseline: number } | null>(null);
+  // (the floor tab watches lastCountTs, the substock tab watches lastSubCountTs)
+  const shortcut = useRef<{ id: string; loc: Loc; baseline: number } | null>(null);
   const shortcutMed = shortcut.current ? state.meds.find((x) => x.id === shortcut.current!.id) : undefined;
+  const shortcutTs = shortcut.current?.loc === 'sub' ? shortcutMed?.lastSubCountTs : shortcutMed?.lastCountTs;
   useEffect(() => {
     const sc = shortcut.current;
     if (!sc || !shortcutMed) return;
-    if ((shortcutMed.lastCountTs ?? 0) > sc.baseline) { shortcut.current = null; back(); }
+    if ((shortcutTs ?? 0) > sc.baseline) { shortcut.current = null; back(); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shortcutMed?.lastCountTs]);
+  }, [shortcutTs]);
   useEffect(() => {
     if (!state.countFocusId || !focusMed) return;
-    shortcut.current = { id: focusMed.id, baseline: focusMed.lastCountTs ?? 0 };
-    setLoc('floor'); setScope('all'); setCatTab('all'); setQ(focusMed.code);
+    const target: Loc = state.countFocusLoc === 'sub' && usesSubstock(focusMed) ? 'sub' : 'floor';
+    shortcut.current = { id: focusMed.id, loc: target, baseline: (target === 'sub' ? focusMed.lastSubCountTs : focusMed.lastCountTs) ?? 0 };
+    setLoc(target); setScope('all'); setCatTab('all'); setQ(focusMed.code);
     clearCountFocus();
     window.setTimeout(() => {
       const nm = focusMed.name.replace(/"/g, '\\"');

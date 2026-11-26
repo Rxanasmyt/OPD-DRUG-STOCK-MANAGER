@@ -7,7 +7,7 @@
 //   FIREBASE_SERVICE_ACCOUNT_KEY=... MOPH_NOTIFY_CLIENT_KEY=... MOPH_NOTIFY_SECRET_KEY=... node scripts/notify-monthly-returns.mjs [--dry-run] [--month=2026-10]
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { APP_URL, sendIfConfigured, waitUntilBangkokTime } from './moph-notify.mjs';
+import { APP_URL, sendIfConfigured, waitUntilBangkokTime, stampRun } from './moph-notify.mjs';
 
 // ---- copies of the app's constants (src/utils/returnReasons.ts, src/data/categories.ts) --------------------------------------
 export const REVERSAL_PREFIX = '↩ ยกเลิกรายการคืน · ';
@@ -90,30 +90,94 @@ export function analyzeTrend(trend) {
   return { avg: Math.round(avg), slope: Math.round(slope), rel, dir, peakMonth: trend[peak]?.month ?? null, peakValue: ys[peak] ?? 0 };
 }
 
-/** Pure: everything the report says. `records` = all returns rows from the first month of the window through the report month. */
-export function buildMonthlyReport({ records, month, monthsBack = 6 }) {
+/** Pure: everything the report says. `records` = returns rows for the report month and up to 12 months before it (13-month window: the
+ * 6-month trend, the previous month, and the same month last year for the year-on-year comparison). */
+export const ADR_REASON = 'แพ้ยา/ผลข้างเคียงการรักษา';
+const WEEKDAYS = ['จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.', 'อา.'];
+const dowOf = (iso) => (new Date(iso + 'T00:00:00Z').getUTCDay() + 6) % 7; // Monday = 0
+const daysIn = (ym) => Number(monthRange(ym).to.slice(8, 10));
+
+export function buildMonthlyReport({ records, month, monthsBack = 13 }) {
   const months = Array.from({ length: monthsBack }, (_, i) => shiftMonth(month, i - (monthsBack - 1)));
   const byMonth = new Map(months.map((m) => [m, []]));
   for (const r of records) { const m = (r.date || '').slice(0, 7); if (byMonth.has(m)) byMonth.get(m).push(r); }
-  const trend = months.map((m) => {
+  const stat = (m) => {
     const rs = byMonth.get(m); const { net, live } = netAndLive(rs);
     return { month: m, count: live.length, value: net.reduce((s, r) => s + Math.round(r.value), 0), qty: net.reduce((s, r) => s + r.qty, 0) };
-  });
-  const cur = byMonth.get(month); const { live } = netAndLive(cur);
+  };
+  const all = months.map(stat);
+  const trend = all.slice(-6);
+  const cur = byMonth.get(month); const { net: curNet, live } = netAndLive(cur);
   const t = trend[trend.length - 1]; const prev = trend[trend.length - 2];
+  const yoyRaw = months.length >= 13 ? all[0] : null;
+  const yoy = yoyRaw && (yoyRaw.count > 0 || yoyRaw.value !== 0) ? { month: yoyRaw.month, count: yoyRaw.count, value: yoyRaw.value } : null;
+
   const topMeds = (() => {
-    const { net } = netAndLive(cur); const m = new Map();
-    for (const r of net) { const e = m.get(r.medId) || { name: r.medName, unit: r.unit, value: 0, qty: 0 }; e.value += Math.round(r.value); e.qty += r.qty; m.set(r.medId, e); }
+    const m = new Map();
+    for (const r of curNet) { const e = m.get(r.medId) || { name: r.medName, unit: r.unit, value: 0, qty: 0 }; e.value += Math.round(r.value); e.qty += r.qty; m.set(r.medId, e); }
     return [...m.values()].filter((x) => x.value > 0).sort((a, b) => b.value - a.value).slice(0, 5);
   })();
-  const trendInfo = analyzeTrend(trend);
-  return {
-    month, trend, trendInfo,
-    total: { count: t.count, value: t.value, qty: t.qty, hn: new Set(live.map((r) => r.hn)).size },
+
+  // by day of the month (value, count) and by weekday (count)
+  const nDays = daysIn(month);
+  const daily = Array.from({ length: nDays }, (_, i) => ({ day: i + 1, count: 0, value: 0 }));
+  for (const r of curNet) { const d = Number((r.date || '').slice(8, 10)); if (daily[d - 1]) daily[d - 1].value += Math.round(r.value); }
+  for (const r of live) { const d = Number((r.date || '').slice(8, 10)); if (daily[d - 1]) daily[d - 1].count++; }
+  const weekday = WEEKDAYS.map((label, i) => ({ label, count: 0, value: 0, i }));
+  for (const r of live) weekday[dowOf(r.date)].count++;
+  for (const r of curNet) weekday[dowOf(r.date)].value += Math.round(r.value);
+  const peakDay = daily.reduce((b, d) => (d.value > b.value ? d : b), { day: 0, count: 0, value: 0 });
+
+  // categories: this month vs previous month (value) + the biggest drug in each
+  const byCategory = groupReturns(cur, 'cat');
+  const prevCat = new Map(groupReturns(byMonth.get(shiftMonth(month, -1)), 'cat').map((g) => [g.key, g.value]));
+  const catTop = new Map();
+  for (const r of curNet) { const k = r.category || 'other'; const m = catTop.get(k) || new Map(); m.set(r.medName, (m.get(r.medName) || 0) + Math.round(r.value)); catTop.set(k, m); }
+  for (const g of byCategory) {
+    g.prevValue = prevCat.has(g.key) ? prevCat.get(g.key) : null;
+    const m = catTop.get(g.key); g.topMed = m ? [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null : null;
+  }
+
+  // individual reasons (finer than the 5 groups) and patient-safety signals
+  const byReason = groupReturns(cur, 'reason');
+  const reasonDetail = byReason.flatMap((g) => (g.children || []).map((c) => ({ ...c, icon: g.icon, group: g.label }))).sort((a, b) => b.value - a.value);
+  const adrRows = live.filter((r) => baseReason(r) === ADR_REASON);
+  const adrByDrug = new Map(); for (const r of adrRows) adrByDrug.set(r.medName, (adrByDrug.get(r.medName) || 0) + 1);
+  const safety = {
+    adr: { count: adrRows.length, drugs: [...adrByDrug.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 4) },
+    error: { count: live.filter((r) => reasonGroupOf(baseReason(r)).key === 'error').length },
+    cancelled: cur.filter((r) => isReversal(r.reason)).length,
+  };
+  const avgPerReturn = t.count > 0 ? Math.round(t.value / t.count) : 0;
+
+  const out = {
+    month, trend, trendInfo: analyzeTrend(trend), yoy,
+    total: { count: t.count, value: t.value, qty: t.qty, hn: new Set(live.map((r) => r.hn)).size, avg: avgPerReturn },
     prev: prev ? { count: prev.count, value: prev.value } : null,
-    byCategory: groupReturns(cur, 'cat'), byReason: groupReturns(cur, 'reason'), topMeds,
+    byCategory, byReason, reasonDetail, topMeds, daily, weekday, peakDay, safety,
     empty: cur.length === 0,
   };
+  out.insights = buildInsights(out);
+  return out;
+}
+
+/** Plain-language observations (facts only, no clinical advice) so the report reads on its own. */
+export function buildInsights(rep) {
+  const out = [];
+  if (rep.empty) return out;
+  const { total, prev, yoy, trendInfo, peakDay, safety } = rep;
+  if (prev && prev.value > 0) { const d = Math.round(((total.value - prev.value) / prev.value) * 100); out.push(`มูลค่าคืน${d >= 0 ? 'เพิ่มขึ้น' : 'ลดลง'} ${Math.abs(d)}% จากเดือนก่อน (${nf(prev.value)} → ${nf(total.value)} บาท)`); }
+  if (yoy && yoy.value > 0) { const d = Math.round(((total.value - yoy.value) / yoy.value) * 100); out.push(`เทียบเดือนเดียวกันปีก่อน (${monthShort(yoy.month)}): ${d >= 0 ? '▲' : '▼'} ${Math.abs(d)}% (${nf(yoy.value)} บาท)`); }
+  if (trendInfo.dir !== 'flat') out.push(`แนวโน้ม 6 เดือน${trendInfo.dir === 'up' ? 'เพิ่มขึ้น' : 'ลดลง'} ~${nf(Math.abs(trendInfo.slope))} บาท/เดือน`);
+  if (peakDay.value > 0) out.push(`วันที่คืนมูลค่าสูงสุด: วันที่ ${peakDay.day} (${nf(peakDay.value)} บาท · ${nf(peakDay.count)} ครั้ง)`);
+  const wd = [...rep.weekday].sort((a, b) => b.count - a.count)[0];
+  if (wd && wd.count > 0 && total.count >= 10) out.push(`วันในสัปดาห์ที่คืนบ่อยที่สุด: ${wd.label} (${nf(wd.count)} ครั้ง, ${Math.round((wd.count / total.count) * 100)}%)`);
+  const risers = rep.byCategory.filter((g) => g.prevValue != null).map((g) => ({ g, d: g.value - g.prevValue })).sort((a, b) => b.d - a.d);
+  if (risers[0] && risers[0].d > 0) out.push(`หมวดที่เพิ่มมากที่สุด: ${risers[0].g.label} (+${nf(risers[0].d)} บาท)`);
+  if (safety.adr.count > 0) out.push(`⚠ คืนเพราะแพ้ยา/ผลข้างเคียง ${nf(safety.adr.count)} ครั้ง` + (safety.adr.drugs.length ? ` (${safety.adr.drugs.map((d) => d.name).slice(0, 3).join(', ')})` : ''));
+  if (safety.error.count > 0) out.push(`⚠ คืนเพราะความคลาดเคลื่อนในการจ่ายยา ${nf(safety.error.count)} ครั้ง`);
+  if (safety.cancelled > 0) out.push(`มีการยกเลิกรายการคืน ${nf(safety.cancelled)} รายการ (หักออกจากยอดแล้ว)`);
+  return out;
 }
 
 // ---- Flex -------------------------------------------------------------------------------------------------------------------------
@@ -156,10 +220,12 @@ function summaryCard(rep) {
     ] : [
       { type: 'text', text: `${nf(total.value)} บาท`, size: '3xl', weight: 'bold', color: '#007371', adjustMode: 'shrink-to-fit' },
       { type: 'text', text: deltaText(total.value, prev), size: 'xs', weight: 'bold', wrap: true, color: prev && prev.value > 0 ? (up ? '#C62828' : '#2E7D32') : '#8A918B' },
-      { type: 'box', layout: 'horizontal', spacing: 'md', contents: [statTile('ครั้งที่คืน', nf(total.count), '#02B0AE', '#007371'), statTile('ผู้ป่วย (HN)', nf(total.hn), '#7C4DFF', '#4527A0')] },
+      ...(rep.yoy && rep.yoy.value > 0 ? [{ type: 'text', text: `เทียบ ${monthShort(rep.yoy.month)} (ปีก่อน): ${total.value >= rep.yoy.value ? '▲' : '▼'} ${Math.abs(Math.round(((total.value - rep.yoy.value) / rep.yoy.value) * 100))}% (${nf(rep.yoy.value)} บาท)`, size: 'xxs', color: '#546E7A', wrap: true }] : []),
+      { type: 'box', layout: 'horizontal', spacing: 'sm', contents: [statTile('ครั้งที่คืน', nf(total.count), '#02B0AE', '#007371'), statTile('ผู้ป่วย (HN)', nf(total.hn), '#7C4DFF', '#4527A0'), statTile('เฉลี่ย/ครั้ง (บาท)', nf(total.avg), '#FFA726', '#E65100')] },
+      ...(rep.safety.adr.count + rep.safety.error.count > 0 ? [{ type: 'box', layout: 'vertical', backgroundColor: '#FFEBEE', cornerRadius: '8px', paddingAll: '8px', contents: [{ type: 'text', text: `⚠ ข้อควรเฝ้าระวัง: แพ้ยา/ผลข้างเคียง ${nf(rep.safety.adr.count)} ครั้ง · ความคลาดเคลื่อนการจ่ายยา ${nf(rep.safety.error.count)} ครั้ง`, size: 'xxs', color: '#B71C1C', weight: 'bold', wrap: true }] }] : []),
       ...(topCat ? [{ type: 'text', text: `🗂 หมวดมูลค่าสูงสุด: ${topCat.label} (${nf(topCat.value)} บาท)`, size: 'xs', wrap: true, color: '#12211A' }] : []),
       ...(topReason ? [{ type: 'text', text: `💬 เหตุผลหลัก: ${topReason.icon ?? ''} ${topReason.label} (${nf(topReason.value)} บาท)`, size: 'xs', wrap: true, color: '#12211A' }] : []),
-      { type: 'text', text: 'ปัดการ์ดไปทางซ้ายเพื่อดู: แนวโน้ม · แยกตามหมวดหมู่ยา · แยกตามเหตุผล · ยาคืนสูงสุด', size: 'xxs', color: '#8A918B', wrap: true },
+      { type: 'text', text: 'ปัดการ์ดไปทางซ้ายเพื่อดู: แนวโน้ม · รายวัน · หมวดยา · เหตุผล · ยาคืนสูงสุด · ข้อสังเกต', size: 'xxs', color: '#8A918B', wrap: true },
     ] },
     footer: footerBtn('ดูทุกหมวดในแอป', link(rep.month, 'all'), '#007371') };
 }
@@ -210,10 +276,10 @@ function trendCard(rep) {
     footer: footerBtn('เปิดรายงานในแอป', link(rep.month, 'all'), '#4527A0') };
 }
 
-function groupsCard(rep, by) {
+function groupsCard(rep, by, limit = 7) {
   const groups = by === 'cat' ? rep.byCategory : rep.byReason;
-  const shown = groups.slice(0, 7);
-  const rest = groups.slice(7);
+  const shown = groups.slice(0, limit);
+  const rest = groups.slice(limit);
   const total = Math.max(1, groups.reduce((s, g) => s + Math.max(0, g.value), 0));
   const colorOf = (i) => PALETTE[Math.min(i, PALETTE.length - 1)];
   const strip = stackStrip([...shown.map((g, i) => ({ value: g.value, color: colorOf(i) })), ...(rest.length ? [{ value: rest.reduce((s, g) => s + Math.max(0, g.value), 0), color: '#CFD8DC' }] : [])]);
@@ -224,6 +290,7 @@ function groupsCard(rep, by) {
       { type: 'text', text: `${nf(g.value)}`, size: 'sm', weight: 'bold', align: 'end', flex: 3, color: by === 'cat' ? '#007371' : '#BF360C' },
     ] },
     { type: 'text', text: `${nf(g.count)} ครั้ง · ${Math.round((Math.max(0, g.value) / total) * 100)}% ของมูลค่า` + (by === 'reason' && g.children?.[0] ? ` · มาก: ${g.children[0].label}` : ''), size: 'xxs', color: '#6D736D', wrap: true },
+    ...(by === 'cat' && g.prevValue != null && g.prevValue !== 0 ? [{ type: 'text', text: `${g.value >= g.prevValue ? '▲' : '▼'} ${nf(Math.abs(g.value - g.prevValue))} จากเดือนก่อน (${nf(g.prevValue)})${g.topMed ? ' · หลัก: ' + g.topMed : ''}`, size: 'xxs', color: g.value >= g.prevValue ? '#C62828' : '#2E7D32', wrap: true }] : (by === 'cat' && g.topMed ? [{ type: 'text', text: `หลัก: ${g.topMed}`, size: 'xxs', color: '#6D736D', wrap: true }] : [])),
     bar((Math.max(0, g.value) / total) * 100, colorOf(i)),
   ] }));
   if (rest.length) rows.push({ type: 'text', text: `…และอีก ${rest.length} กลุ่ม (${nf(rest.reduce((s, g) => s + g.value, 0))} บาท) — ดูในแอป`, size: 'xs', color: '#8A918B', margin: 'md', wrap: true });
@@ -248,10 +315,88 @@ function topMedsCard(rep) {
     footer: footerBtn('ดูรายการทั้งหมดในแอป', link(rep.month, 'all'), '#E65100') };
 }
 
+/** Daily pattern: columns for every day of the month (value), then the five weekdays + weekend (count). */
+function dailyCard(rep, withWeekday = true) {
+  const maxV = Math.max(1, ...rep.daily.map((d) => d.value));
+  // one box per day, bottom-aligned by the ROW (alignItems:flex-end) — no wrapper box per column keeps 31 columns small
+  const cols = rep.daily.map((d) => ({ type: 'box', layout: 'vertical', flex: 1, height: Math.max(2, Math.round((Math.max(0, d.value) / maxV) * 70)) + 'px', backgroundColor: d.day === rep.peakDay.day ? '#E65100' : '#26A69A', contents: [{ type: 'filler' }] }));
+  const n = rep.daily.length;
+  const dayLabels = [1, 10, 20, n].map((d) => ({ type: 'text', text: String(d), size: 'xxs', color: '#78909C', flex: 0 }));
+  const maxW = Math.max(1, ...rep.weekday.map((w) => w.count));
+  const wd = rep.weekday.map((w) => ({ label: w.label, value: w.count, color: w.count === maxW && w.count > 0 ? '#E65100' : '#80CBC4', bold: w.count === maxW && w.count > 0 }));
+  return { type: 'bubble', size: 'mega',
+    header: header('🗓', 'ลักษณะการคืนรายวัน', `${monthLabel(rep.month)} · แท่งสูง = มูลค่ามาก`, '#26A69A', '#00695C'),
+    body: { type: 'box', layout: 'vertical', paddingAll: '12px', contents: [
+      { type: 'text', text: 'มูลค่ายาที่คืนในแต่ละวัน (บาท)', size: 'xs', weight: 'bold', color: '#12211A' },
+      { type: 'box', layout: 'horizontal', spacing: 'xs', height: '72px', alignItems: 'flex-end', margin: 'md', contents: cols },
+      { type: 'separator', margin: 'sm' },
+      { type: 'box', layout: 'horizontal', justifyContent: 'space-between', margin: 'sm', contents: dayLabels },
+      ...(rep.peakDay.value > 0 ? [{ type: 'text', text: `สูงสุด: วันที่ ${rep.peakDay.day} · ${nf(rep.peakDay.value)} บาท · ${nf(rep.peakDay.count)} ครั้ง`, size: 'xxs', color: '#E65100', weight: 'bold', margin: 'sm', align: 'center' }] : []),
+      ...(withWeekday ? [
+        { type: 'text', text: 'จำนวนครั้งที่คืนตามวันในสัปดาห์', size: 'xs', weight: 'bold', color: '#12211A', margin: 'xl' },
+        { type: 'box', layout: 'vertical', margin: 'md', contents: columnChart(wd, { maxHeight: 56 }) },
+      ] : []),
+    ] },
+    footer: footerBtn('เปิดรายงานในแอป', link(rep.month, 'all'), '#00695C') };
+}
+
+/** Individual reasons (finer than the five groups), ranked, with the patient-safety flags underneath. */
+function reasonDetailCard(rep, limit = 7) {
+  const items = rep.reasonDetail.filter((r) => r.value > 0 || r.count > 0).slice(0, limit);
+  const max = Math.max(1, ...items.map((r) => r.value));
+  const rows = items.map((r) => ({ type: 'box', layout: 'vertical', margin: 'md', contents: [
+    { type: 'box', layout: 'horizontal', contents: [
+      { type: 'text', text: `${r.icon ? r.icon + ' ' : ''}${r.label}`, size: 'xs', weight: 'bold', wrap: true, flex: 6, color: '#12211A' },
+      { type: 'text', text: nf(r.value), size: 'xs', weight: 'bold', align: 'end', flex: 2, color: '#BF360C' },
+    ] },
+    { type: 'text', text: `${nf(r.count)} ครั้ง`, size: 'xxs', color: '#6D736D' },
+    bar((Math.max(0, r.value) / max) * 100, '#FF7043'),
+  ] }));
+  const warn = [];
+  if (rep.safety.adr.count > 0) warn.push({ type: 'box', layout: 'vertical', margin: 'lg', backgroundColor: '#FFEBEE', cornerRadius: '8px', paddingAll: '8px', contents: [
+    { type: 'text', text: `⚠ แพ้ยา/ผลข้างเคียง ${nf(rep.safety.adr.count)} ครั้ง`, size: 'xs', weight: 'bold', color: '#B71C1C' },
+    ...(rep.safety.adr.drugs.length ? [{ type: 'text', text: rep.safety.adr.drugs.map((d) => `${d.name}${d.count > 1 ? ' ×' + d.count : ''}`).join(' · '), size: 'xxs', color: '#B71C1C', wrap: true }] : []),
+  ] });
+  if (rep.safety.error.count > 0) warn.push({ type: 'box', layout: 'vertical', margin: 'sm', backgroundColor: '#FFF3E0', cornerRadius: '8px', paddingAll: '8px', contents: [
+    { type: 'text', text: `⚠ ความคลาดเคลื่อนในการจ่ายยา ${nf(rep.safety.error.count)} ครั้ง`, size: 'xs', weight: 'bold', color: '#E65100' },
+  ] });
+  return { type: 'bubble', size: 'mega',
+    header: header('🔎', 'เหตุผลการคืนแบบละเอียด', `${monthLabel(rep.month)} · เรียงตามมูลค่า (บาท)`, '#FF8A65', '#D84315'),
+    body: { type: 'box', layout: 'vertical', paddingAll: '12px', contents: [...(rows.length ? rows : [{ type: 'text', text: 'ไม่มีข้อมูล', size: 'sm', color: '#8A918B' }]), ...warn] },
+    footer: footerBtn('ดูแยกตามเหตุผล', link(rep.month, 'reason'), '#BF360C') };
+}
+
+function insightsCard(rep) {
+  return { type: 'bubble', size: 'mega',
+    header: header('💡', 'ข้อสังเกตจากรายงาน', `${monthLabel(rep.month)} · สรุปให้อ่านจบในที่เดียว`, '#5C6BC0', '#283593'),
+    body: { type: 'box', layout: 'vertical', paddingAll: '12px', spacing: 'md', contents: rep.insights.map((t) => ({ type: 'box', layout: 'horizontal', spacing: 'sm', contents: [
+      { type: 'text', text: '•', size: 'sm', color: '#283593', flex: 0, weight: 'bold' },
+      { type: 'text', text: t, size: 'xs', wrap: true, color: t.startsWith('⚠') ? '#B71C1C' : '#12211A', weight: t.startsWith('⚠') ? 'bold' : 'regular' },
+    ] })) },
+    footer: footerBtn('เปิดรายงานในแอป', link(rep.month, 'all'), '#283593') };
+}
+
+// LINE limits (documented): a bubble's JSON ≤ 10 KB, a carousel's ≤ 50 KB. Budget below those with margin.
+const FLEX_MAX_BYTES = 38000;
+const BUBBLE_MAX_BYTES = 9500;
 export function buildMonthlyFlex(rep) {
-  const bubbles = [summaryCard(rep)];
-  if (!rep.empty) bubbles.push(trendCard(rep), groupsCard(rep, 'cat'), groupsCard(rep, 'reason'), topMedsCard(rep));
-  return { type: 'flex', altText: `รายงานคืนยา ${monthLabel(rep.month)} — ${nf(rep.total.value)} บาท · ${nf(rep.total.count)} ครั้ง`.slice(0, 400), contents: { type: 'carousel', contents: bubbles } };
+  const make = (limit, drop = []) => {
+    const bubbles = [summaryCard(rep)];
+    if (!rep.empty) {
+      bubbles.push(trendCard(rep), dailyCard(rep, !drop.includes('weekday')), groupsCard(rep, 'cat', limit), groupsCard(rep, 'reason', limit));
+      if (!drop.includes('detail')) bubbles.push(reasonDetailCard(rep, limit));
+      if (!drop.includes('top')) bubbles.push(topMedsCard(rep));
+      if (rep.insights.length) bubbles.push(insightsCard(rep));
+    }
+    return { type: 'flex', altText: `รายงานคืนยา ${monthLabel(rep.month)} — ${nf(rep.total.value)} บาท · ${nf(rep.total.count)} ครั้ง`.slice(0, 400), contents: { type: 'carousel', contents: bubbles } };
+  };
+  const fits = (f) => JSON.stringify(f).length <= FLEX_MAX_BYTES && f.contents.contents.every((b) => JSON.stringify(b).length <= BUBBLE_MAX_BYTES);
+  // Many categories/reasons could push a card past the limits — show fewer rows per card first (the app has the full list), and only if
+  // that is not enough drop the optional extras one by one.
+  const attempts = [[7, []], [6, []], [5, []], [4, []], [3, []], [3, ['weekday']], [3, ['weekday', 'detail']], [3, ['weekday', 'detail', 'top']]];
+  let flex = make(7);
+  for (const [limit, drop] of attempts) { flex = make(limit, drop); if (fits(flex)) break; }
+  return flex;
 }
 
 // ---- main ---------------------------------------------------------------------------------------------------------------------------
@@ -265,16 +410,22 @@ export async function main() {
   await waitUntilBangkokTime(process.env.TARGET_TIME_BKK); // start early, send on the exact Bangkok minute
   initializeApp({ credential: cert(JSON.parse(keyJson)) });
   const db = getFirestore();
-  const from = monthRange(shiftMonth(month, -5)).from; const to = monthRange(month).to;
-  // `date` is a single-field range (+ orderBy on the same field) — no composite index. ~6 months of returns, once a month.
-  const snap = await db.collection('returns').where('date', '>=', from).where('date', '<=', to).orderBy('date', 'asc').get();
-  const records = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
-  console.log(`Returns ${from}..${to}: ${records.length} rows`);
-  const rep = buildMonthlyReport({ records, month });
-  console.log(`${monthLabel(month)}: ${rep.total.count} returns, ${rep.total.value} baht`);
-  const flex = buildMonthlyFlex(rep);
-  if (dryRun) { console.log(JSON.stringify(flex.contents.contents.length) + ' cards, ' + JSON.stringify(flex).length + ' bytes (--dry-run — not sending)'); return; }
-  await sendIfConfigured([flex], process.env, { required: true });
+  const from = monthRange(shiftMonth(month, -12)).from; const to = monthRange(month).to; // 13 months: trend + previous month + same month last year
+  try {
+    // `date` is a single-field range (+ orderBy on the same field) — no composite index. ~13 months of returns, once a month.
+    const snap = await db.collection('returns').where('date', '>=', from).where('date', '<=', to).orderBy('date', 'asc').get();
+    const records = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+    console.log(`Returns ${from}..${to}: ${records.length} rows`);
+    const rep = buildMonthlyReport({ records, month });
+    console.log(`${monthLabel(month)}: ${rep.total.count} returns, ${rep.total.value} baht`);
+    const flex = buildMonthlyFlex(rep);
+    if (dryRun) { console.log(JSON.stringify(flex.contents.contents.length) + ' cards, ' + JSON.stringify(flex).length + ' bytes (--dry-run — not sending)'); return; }
+    await sendIfConfigured([flex], process.env, { required: true });
+    await stampRun(db, 'monthly', 'sent', { month });
+  } catch (e) {
+    if (!process.argv.includes('--dry-run')) await stampRun(db, 'monthly', 'failed', { error: String(e.message || e).slice(0, 200), month });
+    throw e;
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
