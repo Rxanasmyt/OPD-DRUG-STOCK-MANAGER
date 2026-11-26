@@ -844,7 +844,7 @@ export function printSubstockCardSheet(
       const accent = (r.type && TX_TYPE_COLOR_HEX[r.type]) || '#c7cbc3';
       return `<tr${r.balance < 0 ? ' style="background:#fbeceb"' : ''}>
       <td class="no">${i + 1}</td>
-      <td class="date">${escapeHtml(new Date(r.ts).toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: '2-digit' }))}</td>
+      <td class="date">${escapeHtml(new Date(r.ts).toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: '2-digit', timeZone: 'Asia/Bangkok' }))}</td>
       <td class="type" style="border-left:3px solid ${accent}">${escapeHtml(r.typeLabel)}${r.note ? `<br><span style="font-size:7.5pt;font-weight:500;color:#667">${escapeHtml(r.note)}</span>` : ''}</td>
       <td class="num recv">${r.received ? r.received.toLocaleString('en-US') + boxSub(r.received) : ''}</td>
       <td class="num disp">${r.dispensed ? r.dispensed.toLocaleString('en-US') + boxSub(r.dispensed) : ''}</td>

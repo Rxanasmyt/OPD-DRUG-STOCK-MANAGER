@@ -106,7 +106,8 @@ export default function TransferScreen() {
   // Collapsible, dismissed for the rest of TODAY (see readDismissedToday's doc comment above) —
   // a fresh "should I check today's clinics" nudge once a day, not once per screen visit.
   const [showClinicInfo, setShowClinicInfo] = useState(() => !readDismissedToday('opd-clinic-banner-dismissed'));
-  const todayClinics = WEEKDAY_CLINICS[new Date().getDay()];
+  // Thai weekday (not the device's own): a tablet with a wrong OS timezone would otherwise show yesterday's/tomorrow's clinics near midnight.
+  const todayClinics = WEEKDAY_CLINICS[bangkokWeekday(Date.now())];
   // Friday-only nudge, separate from the clinic-info banner above (this one is actionable, not
   // just FYI) — the shelf isn't topped up again until Monday, so whatever's left after Friday's
   // fill has to survive a real 3-day gap (Fri+Sat+Sun). Filling only up to Min on Friday (the
@@ -114,7 +115,7 @@ export default function TransferScreen() {
   // point to somehow last three days with nobody there to top it up if it runs low — filling all
   // the way to Max specifically on Friday is what actually closes that gap.
   const [showFridayNudge, setShowFridayNudge] = useState(() => !readDismissedToday('opd-friday-nudge-dismissed'));
-  const isFriday = new Date().getDay() === 5;
+  const isFriday = bangkokWeekday(Date.now()) === 5;
   // Follow-up to the weekday-usage-pattern analysis (analyzeWeekdayUsage, AppContext.tsx) —
   // ผู้ใช้ถามว่า "มีอะไรตกหล่นบ้าง" หลัง merge รอบแรก แล้วขอให้ทำทั้งหมด: the detected pattern
   // previously only ever showed up in the Admin-only SettingsScreen insight card — invisible to

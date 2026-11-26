@@ -2,14 +2,14 @@ import { useMemo, useRef } from 'react';
 import { useApp } from '../store/AppContext';
 import type { MedId } from '../types';
 import { toneFor, subTone, daysUntil, usesSubstock, floorMinOf, isUrgentLow, needsWarehouseRequest, needsZeroFloorCheck, lastReconcileDateIso, suggestTransferQty, isOnStockHold } from '../store/selectors';
-import { nf, lotLabel, expLabel, isoDate } from '../utils/format';
+import { nf, lotLabel, expLabel, isoDate, bangkokHour } from '../utils/format';
 import { MedDot } from '../components/MedDot';
 import { Qty, DeficitBadge, UsageRateBadge, PAR_LABEL_COLOR } from '../components/Qty';
 import { HadTag } from '../components/Badge';
 import HospitalCrest from '../components/HospitalCrest';
 import StockHoldBanner from '../components/StockHoldBanner';
 
-const GREETING_DATE_FMT: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
+const GREETING_DATE_FMT: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' };
 
 // Bug fix (real-world request): "อรุณสวัสดิ์" + a mood weather icon (🌤️☀️🌇🌙) read as a
 // consumer lifestyle-app greeting, not a hospital pharmacy system — and this is the very
@@ -74,7 +74,7 @@ export default function HomeScreen() {
   const stopRowNav = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
   const expRef = useRef<HTMLDivElement>(null);
   const now = new Date();
-  const greeting = greetingFor(now.getHours());
+  const greeting = greetingFor(bangkokHour(now.getTime())); // Thai hour, whatever the device's timezone
 
   // Bug fix (performance audit): these used to be plain `const`s recomputed in full on every
   // render — up to 10 separate filter/sort passes over the whole active formulary (585 meds in
