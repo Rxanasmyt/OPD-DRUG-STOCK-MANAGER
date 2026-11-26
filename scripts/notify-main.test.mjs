@@ -5,11 +5,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('firebase-admin/app', () => ({ initializeApp: vi.fn(), cert: vi.fn((x) => x) }));
 
 function mockDb({ txs = [], returns = [] } = {}) {
-  const calls = { txs: [], returns: [] };
+  const calls = { txs: [], returns: [], stamps: [] };
   vi.doMock('firebase-admin/firestore', () => ({
     getFirestore: () => ({
+      doc: (path) => ({ set: async (d, o) => { calls.stamps.push([path, d, o]); }, get: async () => ({ data: () => ({}) }) }),
       collection: (name) => {
         const chain = { _f: [], where(f, op, v) { this._f.push([f, op, v]); calls[name]?.push(['where', f, op, v]); return this; }, orderBy(f, d) { calls[name]?.push(['orderBy', f, d]); return this; },
+          limit(n) { calls[name]?.push(['limit', n]); return this; },
           get: async () => ({ docs: (name === 'txs' ? txs : returns).map((r, i) => ({ id: r.id ?? 'd' + i, data: () => r })) }) };
         return chain;
       },
@@ -34,7 +36,8 @@ describe('notify-hosxp-missing main()', () => {
     const f = fetchOk(); vi.stubGlobal('fetch', f);
     const { main } = await import('./notify-hosxp-missing.mjs');
     await main();
-    expect(calls.txs).toEqual([['where', 'ts', '>=', Date.parse('2026-11-24T17:00:00Z')]]);
+    expect(calls.txs[0]).toEqual(['where', 'ts', '>=', Date.parse('2026-11-24T17:00:00Z')]); // today only, single-field range
+    expect(calls.txs.slice(1)).toEqual([['orderBy', 'coveredTo', 'desc'], ['limit', 1]]); // + ONE read for the last covered date
     expect(f).toHaveBeenCalledTimes(1);
     vi.unstubAllGlobals();
   });
@@ -121,5 +124,60 @@ describe('scheduled runs wait for the exact Bangkok minute BEFORE reading data',
     expect(new Date(calls.txs[0][3]).toISOString()).toBe('2026-11-24T17:00:00.000Z'); // "today" is the Bangkok day
     delete process.env.TARGET_TIME_BKK;
     vi.useRealTimers(); vi.unstubAllGlobals();
+  });
+});
+
+describe('run health stamps (meta/notifyStatus)', () => {
+  beforeEach(() => {
+    vi.resetModules(); vi.useRealTimers();
+    process.env.FIREBASE_SERVICE_ACCOUNT_KEY = JSON.stringify({ project_id: 'p' });
+    process.env.MOPH_NOTIFY_CLIENT_KEY = 'ck'; process.env.MOPH_NOTIFY_SECRET_KEY = 'sk';
+    delete process.env.TARGET_TIME_BKK; delete process.env.REMINDER_ROUND; delete process.env.HOLIDAYS;
+    process.argv = ['node', 'x'];
+    vi.spyOn(console, 'log').mockImplementation(() => {}); vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  const WED = new Date('2026-11-25T08:00:00Z');
+
+  it('hosxp: a reminder that was sent is stamped "sent" with the outstanding days; a clean day is stamped "nothing" (ran, nothing to say)', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(WED);
+    let calls = mockDb({ txs: [{ type: 'reconcile_hosxp', ts: Date.now() - 3600000, coveredTo: '2026-11-24' }] });
+    vi.stubGlobal('fetch', fetchOk());
+    let { main } = await import('./notify-hosxp-missing.mjs');
+    await main();
+    expect(calls.stamps[0][0]).toBe('meta/notifyStatus');
+    expect(calls.stamps[0][1].hosxp).toMatchObject({ result: 'nothing', why: 'already-reconciled' });
+    vi.resetModules();
+    calls = mockDb({ txs: [{ type: 'transfer', ts: Date.now() - 3600000, coveredTo: '2026-11-20' }] }); // last covered Fri 20th → Mon 23rd & Tue 24th missing
+    ({ main } = await import('./notify-hosxp-missing.mjs'));
+    await main();
+    expect(calls.stamps[0][1].hosxp).toMatchObject({ result: 'sent', round: 1, missingDays: 2 });
+    vi.useRealTimers(); vi.unstubAllGlobals();
+  });
+  it('hosxp: a failure is stamped "failed" (and still fails the run)', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(WED);
+    delete process.env.MOPH_NOTIFY_CLIENT_KEY;
+    const calls = mockDb({ txs: [] });
+    const { main } = await import('./notify-hosxp-missing.mjs');
+    await expect(main()).rejects.toThrow(/not set/);
+    expect(calls.stamps[0][1].hosxp.result).toBe('failed');
+    vi.useRealTimers();
+  });
+  it('--dry-run never writes a stamp', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(WED);
+    process.argv = ['node', 'x', '--dry-run'];
+    const calls = mockDb({ txs: [] });
+    const { main } = await import('./notify-hosxp-missing.mjs');
+    await main();
+    expect(calls.stamps).toEqual([]);
+    vi.useRealTimers();
+  });
+  it('monthly report: stamped "sent" with its month', async () => {
+    process.argv = ['node', 'x', '--month=2026-10'];
+    const calls = mockDb({ returns: [] });
+    vi.stubGlobal('fetch', fetchOk());
+    const { main } = await import('./notify-monthly-returns.mjs');
+    await main();
+    expect(calls.stamps[0][1].monthly).toMatchObject({ result: 'sent', month: '2026-10' });
+    vi.unstubAllGlobals();
   });
 });

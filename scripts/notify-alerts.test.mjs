@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { needsReminder, bkkDayStart, reminderMessage } from './notify-hosxp-missing.mjs';
+import { needsReminder, bkkDayStart, reminderMessage, missingWorkdays } from './notify-hosxp-missing.mjs';
 import { buildAlert, main as alertMain } from './notify-alert.mjs';
 import { mophNotify, alertFlex } from './moph-notify.mjs';
 
@@ -75,5 +75,42 @@ describe('required keys (a scheduled report that silently sends nothing must fai
     await expect(sendIfConfigured([], {}, { required: true })).rejects.toThrow(/not set/);
     vi.spyOn(console, 'log').mockImplementation(() => {});
     await expect(sendIfConfigured([], {})).resolves.toBe(false);
+  });
+});
+
+describe('outstanding working days (same rule as the app banner)', () => {
+  const TUE = Date.parse('2026-11-24T08:00:00Z'); // Tue 24 Nov, 15:00 Bangkok
+  it('nothing outstanding when yesterday is covered', () => { expect(missingWorkdays('2026-11-23', TUE).n).toBe(0); });
+  it('Friday\'s file then Tuesday afternoon: Mon (and Tue\'s own file is for yesterday = Mon) → 1 working day', () => {
+    expect(missingWorkdays('2026-11-20', TUE)).toEqual({ n: 1, first: '2026-11-23', last: '2026-11-23' });
+  });
+  it('a week without files skips the weekend', () => {
+    const r = missingWorkdays('2026-11-13', TUE); // covered Fri 13th → Mon 16 … Mon 23 = 6 working days
+    expect(r).toMatchObject({ n: 6, first: '2026-11-16', last: '2026-11-23' });
+  });
+  it('listed holidays do not count as missed days', () => {
+    expect(missingWorkdays('2026-11-13', TUE, ['2026-11-16', '2026-11-17']).n).toBe(4);
+  });
+  it('no information → 0 (never claims a delay it cannot prove)', () => { expect(missingWorkdays(null, TUE).n).toBe(0); });
+});
+
+describe('reminder wording', () => {
+  const NOW = Date.parse('2026-11-24T08:00:00Z');
+  const text = (m) => JSON.stringify(m);
+  it('round 1 with one day outstanding is the calm orange card', () => {
+    const m = reminderMessage(NOW, { round: 1, missing: { n: 1, first: '2026-11-23', last: '2026-11-23' } });
+    expect(text(m)).toContain('วันนี้ยังไม่ได้ตัดยอด HOSxP');
+    expect(text(m)).not.toContain('วันทำการ');
+  });
+  it('2+ working days outstanding is escalated: red, count in the title and the date range', () => {
+    const m = reminderMessage(NOW, { round: 1, missing: { n: 3, first: '2026-11-19', last: '2026-11-23' } });
+    expect(text(m)).toContain('ยังไม่ได้ตัดยอด HOSxP 3 วันทำการ');
+    expect(text(m)).toContain('19 พ.ย. – 23 พ.ย.');
+    expect(text(m)).toContain('#B71C1C'); // red tone
+  });
+  it('round 2 says it is the second reminder', () => {
+    const m = reminderMessage(Date.parse('2026-11-24T09:30:00Z'), { round: 2 });
+    expect(text(m)).toContain('เตือนครั้งที่ 2');
+    expect(text(m)).toContain('16:30');
   });
 });
