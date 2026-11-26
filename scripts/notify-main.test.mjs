@@ -63,12 +63,12 @@ describe('notify-monthly-returns main()', () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
   const r = (o) => ({ medId: 'm', medName: 'ยา', unit: 'เม็ด', category: 'pain', hn: '1', qty: 1, value: 100, reason: 'ปรับเปลี่ยนการรักษา', note: '', date: '2026-10-05', ts: 1, ...o });
-  it('reads a 6-month window with a single-field date range and sends one carousel', async () => {
+  it('reads a 13-month window (trend + previous month + same month last year) with a single-field date range and sends one carousel', async () => {
     const calls = mockDb({ returns: [r({}), r({ date: '2026-09-05', id: 'p' })] });
     const f = fetchOk(); vi.stubGlobal('fetch', f);
     const { main } = await import('./notify-monthly-returns.mjs');
     await main();
-    expect(calls.returns).toEqual([['where', 'date', '>=', '2026-05-01'], ['where', 'date', '<=', '2026-10-31'], ['orderBy', 'date', 'asc']]);
+    expect(calls.returns).toEqual([['where', 'date', '>=', '2025-10-01'], ['where', 'date', '<=', '2026-10-31'], ['orderBy', 'date', 'asc']]);
     expect(f).toHaveBeenCalledTimes(1);
     const body = JSON.parse(f.mock.calls[0][1].body);
     expect(body.messages).toHaveLength(1);

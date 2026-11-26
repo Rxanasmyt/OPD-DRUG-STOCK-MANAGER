@@ -65,22 +65,24 @@ describe('monthly returns report — dates', () => {
 describe('monthly returns report — Flex', () => {
   const rep = buildMonthlyReport({ records: data, month: '2026-10' });
   const flex = buildMonthlyFlex(rep);
-  it('five swipeable cards: overview, trend, by category, by reason, top drugs', () => {
+  it('eight swipeable cards: overview, trend, daily, by category, by reason, reason detail, top drugs, insights', () => {
     expect(flex.contents.type).toBe('carousel');
-    expect(flex.contents.contents).toHaveLength(5);
+    expect(flex.contents.contents).toHaveLength(8);
     const s = JSON.stringify(flex);
-    for (const t of ['รายงานคืนยารายเดือน', 'แนวโน้ม 6 เดือน', 'แยกตามหมวดหมู่ยา', 'แยกตามเหตุผลการคืนยา', 'ยาคืนมูลค่าสูงสุด']) expect(s).toContain(t);
+    for (const t of ['รายงานคืนยารายเดือน', 'แนวโน้ม 6 เดือน', 'ลักษณะการคืนรายวัน', 'แยกตามหมวดหมู่ยา', 'แยกตามเหตุผลการคืนยา', 'เหตุผลการคืนแบบละเอียด', 'ยาคืนมูลค่าสูงสุด', 'ข้อสังเกตจากรายงาน']) expect(s).toContain(t);
   });
   it('buttons deep-link into the app at that month and view', () => {
     const uris = flex.contents.contents.map((b) => b.footer.contents[0].action.uri);
     expect(uris[0]).toMatch(/\?r=returns&m=2026-10&v=all$/);
-    expect(uris[2]).toMatch(/&v=cat$/);
-    expect(uris[3]).toMatch(/&v=reason$/);
+    expect(uris[3]).toMatch(/&v=cat$/);
+    expect(uris[4]).toMatch(/&v=reason$/);
+    expect(uris[5]).toMatch(/&v=reason$/);
   });
   it('stays well inside LINE limits even with many groups', () => {
     const many = Array.from({ length: 200 }, (_, i) => rec({ id: 'x' + i, medId: 'z' + i, medName: 'ยาตัวที่ ' + i, category: Object.keys(CATEGORY_LABELS)[i % 21], reason: 'เหตุผล ' + i, value: 10 + i, hn: String(i) }));
     const big = buildMonthlyFlex(buildMonthlyReport({ records: many, month: '2026-10' }));
-    expect(JSON.stringify(big).length).toBeLessThan(30000);
+    expect(JSON.stringify(big).length).toBeLessThan(50000); // LINE: carousel ≤ 50 KB
+    for (const b of big.contents.contents) expect(JSON.stringify(b).length).toBeLessThan(10000); // LINE: bubble ≤ 10 KB
     expect(big.altText.length).toBeLessThanOrEqual(400);
   });
 });
@@ -144,5 +146,62 @@ describe('monthly returns report — charts', () => {
     const s = JSON.stringify(buildMonthlyFlex(rep));
     expect(s).toContain('แนวโน้ม');
     expect(s).toContain('จำนวนครั้งที่คืนในแต่ละเดือน');
+  });
+});
+
+describe('monthly returns report — detail', () => {
+  const R = (o) => ({ id: 'q' + Math.random(), medId: 'm1', medName: 'PARACETAMOL', unit: 'เม็ด', category: 'pain', hn: '1', qty: 10, value: 100, reason: 'ปรับเปลี่ยนการรักษา', note: '', date: '2026-10-05', ...o });
+  const recs = [
+    R({ date: '2026-10-05', value: 500 }),                                   // Monday
+    R({ date: '2026-10-05', value: 200, hn: '2', category: 'cardio', medId: 'm2', medName: 'AMLODIPINE' }),
+    R({ date: '2026-10-14', value: 900, hn: '3', category: 'cardio', medId: 'm2', medName: 'AMLODIPINE', reason: 'แพ้ยา/ผลข้างเคียงการรักษา' }),
+    R({ date: '2026-10-14', value: 50, hn: '4', reason: 'จ่ายยาผิดตัว/ผิดความแรง' }),
+    R({ date: '2026-09-10', value: 400, category: 'cardio', medId: 'm2', medName: 'AMLODIPINE' }),
+    R({ date: '2025-10-08', value: 1000, hn: '9' }),                         // same month last year
+    R({ id: 'cx', date: '2026-10-20', value: 70, hn: '5' }),
+    R({ date: '2026-10-21', value: 70, hn: '5', reason: REVERSAL_PREFIX + 'ปรับเปลี่ยนการรักษา', note: '#cx' }),
+  ];
+  const rep = buildMonthlyReport({ records: recs, month: '2026-10' });
+
+  it('daily series covers every day of the month (31) with value and count; peak day found', () => {
+    expect(rep.daily).toHaveLength(31);
+    expect(rep.daily[4]).toMatchObject({ day: 5, count: 2, value: 700 });
+    expect(rep.peakDay).toMatchObject({ day: 14, value: 950, count: 2 });
+  });
+  it('weekday counts use the Bangkok calendar date (5 Oct 2026 is a Monday)', () => {
+    expect(rep.weekday[0]).toMatchObject({ label: 'จ.', count: 2 });
+    expect(rep.weekday[2]).toMatchObject({ label: 'พ.', count: 2 }); // 14 Oct 2026 is a Wednesday
+    expect(rep.weekday[1].count).toBe(0); // Tuesday 20 Oct return was cancelled
+  });
+  it('year-on-year compares with the same month last year', () => {
+    expect(rep.yoy).toEqual({ month: '2025-10', count: 1, value: 1000 });
+  });
+  it('categories carry the previous month value and their biggest drug', () => {
+    const cardio = rep.byCategory.find((g) => g.key === 'cardio');
+    expect(cardio.prevValue).toBe(400);
+    expect(cardio.topMed).toBe('AMLODIPINE');
+  });
+  it('safety flags: ADR and dispensing-error counts, with drug names for ADR; cancelled returns counted', () => {
+    expect(rep.safety.adr.count).toBe(1);
+    expect(rep.safety.adr.drugs[0]).toEqual({ name: 'AMLODIPINE', count: 1 });
+    expect(rep.safety.error.count).toBe(1);
+    expect(rep.safety.cancelled).toBe(1);
+  });
+  it('insights state the facts in words and flag the safety items first-class', () => {
+    const text = rep.insights.join('\n');
+    expect(text).toContain('วันที่คืนมูลค่าสูงสุด: วันที่ 14');
+    expect(text).toContain('เทียบเดือนเดียวกันปีก่อน');
+    expect(text).toContain('⚠ คืนเพราะแพ้ยา/ผลข้างเคียง 1 ครั้ง');
+    expect(text).toContain('ยกเลิกรายการคืน 1 รายการ');
+  });
+  it('the summary card shows average per return and the safety banner', () => {
+    const s = JSON.stringify(buildMonthlyFlex(rep).contents.contents[0]);
+    expect(s).toContain('เฉลี่ย/ครั้ง');
+    expect(s).toContain('ข้อควรเฝ้าระวัง');
+  });
+  it('an empty month still produces one short card and no insights', () => {
+    const e = buildMonthlyReport({ records: [], month: '2026-10' });
+    expect(e.insights).toEqual([]);
+    expect(buildMonthlyFlex(e).contents.contents).toHaveLength(1);
   });
 });
