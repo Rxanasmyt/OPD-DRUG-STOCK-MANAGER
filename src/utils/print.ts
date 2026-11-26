@@ -683,7 +683,7 @@ export function printPickListSheet(
       <div class="pair"><div class="k">วันที่</div><div class="v">${escapeHtml(thDateLong(now))}</div></div>
       <div class="pair"><div class="k">จำนวนรายการ</div><div class="v">${sorted.length} รายการ</div></div>
       <div class="pair"><div class="k">ผู้จัดทำรายการ</div><div class="v">${escapeHtml(meta.printedBy || '—')}</div></div>
-      <div class="pair"><div class="k">วันที่จัดพิมพ์เอกสาร</div><div class="v">${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }))}</div></div>
+      <div class="pair"><div class="k">วันที่จัดพิมพ์เอกสาร</div><div class="v">${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Bangkok' }))}</div></div>
     </div>
     <table class="rows">
       <thead><tr><th class="n">ลำดับ</th><th class="bin">${escapeHtml(colLabels.bin)}</th>${showPickBin ? `<th class="pickbin">${escapeHtml(colLabels.pickBin || 'หยิบจาก (substock)')}</th>` : ''}${showWhCode ? `<th class="whcode">รหัสยาคลัง</th>` : ''}<th class="name">รายการยา</th>${showParCols ? `<th class="par">${escapeHtml(colLabels.par || 'Par')}</th><th class="curbal">${escapeHtml(colLabels.curBalance || 'คงเหลือ')}</th>` : ''}${showCarryOver ? `<th class="carryover">ยาที่ค้าง</th>` : ''}<th class="qty">${escapeHtml(colLabels.qty)}</th><th class="check">✓</th></tr></thead>
@@ -971,7 +971,7 @@ export function printSubstockCardSheet(
         </div>${!tie ? '<div class="note">หมายเหตุ: ยอดคงเหลือทั้งสองรายการข้างต้นไม่สอดคล้องกัน โปรดตรวจสอบรายละเอียดเพิ่มเติมในระบบบันทึกการตรวจสอบ (Audit Log)</div>' : ''}`;
       })() : ''}
       ${hasNegative ? '<div class="note">หมายเหตุ: ยอดคงเหลือในรายการนี้คำนวณจากประวัติการทำธุรกรรมภายในระบบเท่านั้น ปรากฏเป็นจำนวนติดลบเนื่องจากมีสต็อกยกยอดเริ่มต้นหรือรายการก่อนการบันทึกข้อมูลในระบบซึ่งไม่ปรากฏในประวัตินี้ มิใช่ยอดคงเหลือที่แท้จริงบนชั้นวาง โปรดตรวจสอบยอดคงเหลือที่แท้จริงผ่านหน้าจอ "บัตรสต็อก substock" เท่านั้น</div>' : ''}
-      <div class="foot"><span>ห้องยา ${med.ward === 'ipd' ? 'IPD' : 'OPD'} · รพ.กรงปินัง · จัดพิมพ์โดย: ${escapeHtml(meta.printedBy || '—')}</span><span>จัดพิมพ์จากระบบเมื่อวันที่ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
+      <div class="foot"><span>ห้องยา ${med.ward === 'ipd' ? 'IPD' : 'OPD'} · รพ.กรงปินัง · จัดพิมพ์โดย: ${escapeHtml(meta.printedBy || '—')}</span><span>จัดพิมพ์จากระบบเมื่อวันที่ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Bangkok' }))}</span></div>
     </div>
   </div>
   <script>window.onload = function () {
@@ -1110,7 +1110,7 @@ export function printExecutiveSummarySheet(
     <div class="sectitle">รายการยาที่มีอัตราการใช้สูงสุด 10 อันดับแรก (ยอดจ่ายในรอบ 30 วัน)</div>
     ${rowsHtml(topUsage, 'จ่าย 30 วัน', 'คงคลัง (วัน)')}
 
-    <div class="foot"><span>จัดทำโดย: ${escapeHtml(meta.printedBy || '—')}</span><span>จัดพิมพ์จากระบบเมื่อวันที่ ${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
+    <div class="foot"><span>จัดทำโดย: ${escapeHtml(meta.printedBy || '—')}</span><span>จัดพิมพ์จากระบบเมื่อวันที่ ${escapeHtml(new Date(now).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Bangkok' }))}</span></div>
   </div>
   <script>window.onload = function () {
     // Bug fix (print timing): window.onload fires once the Google Fonts stylesheet LINK has
@@ -1332,7 +1332,7 @@ export function printKpiReportSheet(rows: DailyMetrics[], meta: { fromDate: stri
       <tbody>${tableRows}</tbody>
     </table>
 
-    <div class="foot"><span>จัดทำโดย: ${escapeHtml(meta.printedBy || '—')}</span><span>จัดพิมพ์จากระบบเมื่อวันที่ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></div>
+    <div class="foot"><span>จัดทำโดย: ${escapeHtml(meta.printedBy || '—')}</span><span>จัดพิมพ์จากระบบเมื่อวันที่ ${escapeHtml(now.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Bangkok' }))}</span></div>
   </div>
   <script>window.onload = function () {
     // Bug fix (print timing): window.onload fires once the Google Fonts stylesheet LINK has

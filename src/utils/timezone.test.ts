@@ -34,3 +34,19 @@ describe('no screen reads the device clock for "what day / hour is it in Thailan
     expect(bad).toEqual([]);
   });
 });
+
+describe('every toLocale*String with a date in src passes an explicit timeZone', () => {
+  it('print/format helpers never rely on the device zone', () => {
+    const walk2: string[] = [];
+    const w = (d: string) => { for (const f of readdirSync(d)) { const p = join(d, f); if (statSync(p).isDirectory()) w(p); else if (/\.(ts|tsx)$/.test(f) && !/\.test\./.test(f)) walk2.push(p); } };
+    w('src');
+    const bad: string[] = [];
+    for (const f of walk2) {
+      readFileSync(f, 'utf8').split('\n').forEach((l, i) => {
+        if (/^\s*(\/\/|\*|\/\*)/.test(l)) return;
+        if (/toLocale(Date|Time)?String\(\s*'th-TH'\s*,\s*\{[^}]*(dateStyle|timeStyle|day:|month:|hour:)/.test(l) && !/timeZone/.test(l)) bad.push(`${f}:${i + 1}`);
+      });
+    }
+    expect(bad).toEqual([]);
+  });
+});
