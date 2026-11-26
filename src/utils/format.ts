@@ -13,7 +13,7 @@ export function nf(n: number): string {
 }
 
 export function thDate(ms: number): string {
-  return new Date(ms).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit' });
+  return new Date(ms).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit', timeZone: 'Asia/Bangkok' });
 }
 
 // Real-world request: "...ไม่ต้องบังคับให้ใส่ Lot และวันหมดอายุ...เนื่องจากตอนนี้ภาระหน้างานหนัก"
@@ -46,11 +46,11 @@ export function thDateWithWeekday(iso: string): string {
 }
 
 export function thDateLong(ms: number): string {
-  return new Date(ms).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+  return new Date(ms).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' });
 }
 
 export function thTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+  return new Date(ms).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' });
 }
 
 // Bug fix (audit finding — device-timezone trust): every calendar-day calculation below used to
@@ -86,6 +86,11 @@ function bangkokStartOfDayMs(ms: number): number {
  * Date.prototype.getDay() convention WEEKDAY_CLINICS (data/clinics.ts) already keys by. */
 export function bangkokWeekday(ms: number): number {
   return new Date(ms + BANGKOK_OFFSET_MS).getUTCDay();
+}
+
+/** Hour of day (0–23) in Thailand, whatever timezone the device itself is set to. */
+export function bangkokHour(ms: number): number {
+  return new Date(ms + BANGKOK_OFFSET_MS).getUTCHours();
 }
 
 // Bug fix (audit finding — minor duplication): the final "pad y/m/d, join with '-'" assembly

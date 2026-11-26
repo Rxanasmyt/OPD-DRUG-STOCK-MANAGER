@@ -1,3 +1,4 @@
+import { isoDate } from './format';
 // ยาใกล้หมดอายุ / ยาต่ำกว่า Min — local notification helpers.
 //
 // This is a static site with no backend (see README/CHANGELOG's own notes on avoiding a paid
@@ -46,8 +47,7 @@ export async function requestPermission(): Promise<NotificationPermission> {
 }
 
 function todayKey(): string {
-  const d = new Date();
-  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  return isoDate(Date.now()); // Thai calendar day, not the device's
 }
 
 /** True (and marks today as used) only the first time this is called for `key` on a given
