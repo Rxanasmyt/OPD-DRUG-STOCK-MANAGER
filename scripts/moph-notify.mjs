@@ -91,6 +91,8 @@ export async function waitUntilBangkokTime(hhmm, { now = () => Date.now(), sleep
 // key or a disabled workflow is silent. "Ran" is stamped even when nothing needed sending (a clean day is a healthy run).
 export async function stampRun(db, kind, result, extra = {}) {
   try {
-    await db.doc('meta/notifyStatus').set({ [kind]: { ranAt: Date.now(), result, ...extra } }, { merge: true });
+    // mergeFields REPLACES this job's whole entry (a plain {merge:true} deep-merges maps, so an old `error` would linger after a good run) while
+    // leaving the other jobs' entries untouched.
+    await db.doc('meta/notifyStatus').set({ [kind]: { ranAt: Date.now(), result, ...extra } }, { mergeFields: [kind] });
   } catch (e) { console.error('could not stamp meta/notifyStatus.' + kind + ':', e.message || e); }
 }

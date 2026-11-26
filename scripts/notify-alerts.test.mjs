@@ -114,3 +114,21 @@ describe('reminder wording', () => {
     expect(text(m)).toContain('16:30');
   });
 });
+
+describe('stampRun replaces the job entry instead of deep-merging it', () => {
+  it('uses mergeFields: [kind] so a stale error from an earlier failed run cannot linger', async () => {
+    const { stampRun } = await import('./moph-notify.mjs');
+    const set = vi.fn(async () => {});
+    await stampRun({ doc: () => ({ set }) }, 'stock', 'sent', { items: 3 });
+    expect(set).toHaveBeenCalledTimes(1);
+    const [data, opts] = set.mock.calls[0];
+    expect(opts).toEqual({ mergeFields: ['stock'] });
+    expect(data.stock).toMatchObject({ result: 'sent', items: 3 });
+    expect(data.stock.error).toBeUndefined();
+  });
+  it('never throws (a stamp failure must not hide the real outcome)', async () => {
+    const { stampRun } = await import('./moph-notify.mjs');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(stampRun({ doc: () => ({ set: async () => { throw new Error('denied'); } }) }, 'stock', 'sent')).resolves.toBeUndefined();
+  });
+});
