@@ -109,7 +109,7 @@ export default function SettingsScreen() {
   const usageFuzzy = usageRows.filter((r) => r.match.kind === 'fuzzy').length;
   const usageSkipped = usageRows.filter((r) => r.match.kind === 'ambiguous' || r.match.kind === 'none').length;
   const usagePeriodDays = state.usageDateFrom && state.usageDateTo
-    ? Math.round((new Date(state.usageDateTo + 'T00:00:00').getTime() - new Date(state.usageDateFrom + 'T00:00:00').getTime()) / DAY) + 1
+    ? Math.round((new Date(state.usageDateTo + 'T00:00:00+07:00').getTime() - new Date(state.usageDateFrom + 'T00:00:00+07:00').getTime()) / DAY) + 1
     : 0;
   const usageCanCommit = usageRows.length > 0 && usagePeriodDays > 0 && (usageFuzzy === 0 || state.usageConfirmFuzzy);
 
@@ -473,7 +473,7 @@ export default function SettingsScreen() {
                     <span style={{ flex: 'none', fontSize: 10.5, fontWeight: 700, color: exceedsMax ? 'var(--red)' : 'var(--amber-ink)' }}>จ่ายสูงสุด 1 วัน {nf(m.peakDayQty || 0)} {m.unit}</span>
                   </div>
                   <div className="muted" style={{ fontSize: 11, lineHeight: 1.5 }}>
-                    จ่ายสูงสุดวันที่ {m.peakDayDate ? thDate(new Date(m.peakDayDate + 'T00:00:00').getTime()) : '-'}
+                    จ่ายสูงสุดวันที่ {m.peakDayDate ? thDate(new Date(m.peakDayDate + 'T00:00:00+07:00').getTime()) : '-'}
                     {m.peakDayP90Qty != null && <> · ใช้คำนวณ Max จริง (เปอร์เซ็นไทล์ 90): {nf(m.peakDayP90Qty)} {m.unit}</>}
                     {exceedsMax && <span style={{ color: 'var(--red)', fontWeight: 600 }}> — จ่ายสูงสุด 1 วันนี้เกิน Max ปัจจุบัน ({nf(m.parFloor)} {m.unit})</span>}
                   </div>

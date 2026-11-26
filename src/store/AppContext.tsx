@@ -107,7 +107,7 @@ const HOSXP_AUTO_CATCHUP_MAX_DAYS = 14;
 export function smartHosxpCoveredFrom(txs: Tx[], yesterdayIso: string): string {
   const lastCoveredTo = lastReconcileCoveredToIso(txs);
   if (!lastCoveredTo) return yesterdayIso;
-  const nextDayTs = new Date(lastCoveredTo + 'T00:00:00').getTime() + DAY;
+  const nextDayTs = new Date(lastCoveredTo + 'T00:00:00+07:00').getTime() + DAY;
   if (nextDayTs < Date.now() - HOSXP_AUTO_CATCHUP_MAX_DAYS * DAY) return yesterdayIso;
   const nextDayIso = isoDate(nextDayTs);
   return nextDayIso <= yesterdayIso ? nextDayIso : yesterdayIso; // already caught up (or ahead) — normal case
@@ -325,8 +325,8 @@ function collectDeductedByDay(docs: { data: () => unknown }[]): Map<string, Set<
     if (x.type !== 'reconcile_hosxp' || !x.medId) continue;
     const fromIso = x.coveredFrom || isoDate(x.ts);
     const toIso = x.coveredTo || isoDate(x.ts);
-    const fromTs = new Date(fromIso + 'T00:00:00').getTime();
-    const toTs = new Date(toIso + 'T00:00:00').getTime();
+    const fromTs = new Date(fromIso + 'T00:00:00+07:00').getTime();
+    const toTs = new Date(toIso + 'T00:00:00+07:00').getTime();
     const daysCovered = Math.max(1, Math.round((toTs - fromTs) / DAY) + 1);
     for (let i = 0; i < daysCovered; i++) {
       const dIso = isoDate(fromTs + i * DAY);
@@ -4650,8 +4650,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (bucket !== 30) return; // dispenseDays30 only ever covers the current 30-day bucket
         const fromIso = x.coveredFrom || isoDate(x.ts);
         const toIso = x.coveredTo || isoDate(x.ts);
-        const fromTs = new Date(fromIso + 'T00:00:00').getTime();
-        const toTs = new Date(toIso + 'T00:00:00').getTime();
+        const fromTs = new Date(fromIso + 'T00:00:00+07:00').getTime();
+        const toTs = new Date(toIso + 'T00:00:00+07:00').getTime();
         const daysCovered = Math.max(1, Math.round((toTs - fromTs) / DAY) + 1);
         for (let i = 0; i < daysCovered; i++) {
           const dayTs = fromTs + i * DAY;
@@ -4775,8 +4775,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // artificially busiest on Mondays.
         const fromIso = x.coveredFrom || isoDate(x.ts);
         const toIso = x.coveredTo || isoDate(x.ts);
-        const fromTs = new Date(fromIso + 'T00:00:00').getTime();
-        const toTs = new Date(toIso + 'T00:00:00').getTime();
+        const fromTs = new Date(fromIso + 'T00:00:00+07:00').getTime();
+        const toTs = new Date(toIso + 'T00:00:00+07:00').getTime();
         const daysCovered = Math.max(1, Math.round((toTs - fromTs) / DAY) + 1);
         // Bug fix (data integrity): same reportedQty-over-qty preference as recomputeUsageStats
         // above — see Tx.reportedQty's own doc comment (types.ts).
@@ -6177,8 +6177,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // has no type filter built in (a composite index tradeoff every other caller of it already
   // accepts; see its own doc comment, txsRepo.ts).
   const fetchFloorRefills = useCallback(async (fromDate: string, toDate: string): Promise<import('../types').Tx[]> => {
-    const fromMs = new Date(fromDate + 'T00:00:00').getTime();
-    const toMs = new Date(toDate + 'T23:59:59.999').getTime();
+    const fromMs = new Date(fromDate + 'T00:00:00+07:00').getTime();
+    const toMs = new Date(toDate + 'T23:59:59.999+07:00').getTime();
     const snap = await withTimeout(getDocs(queryTxsByDateRange(fromMs, toMs)));
     const rows: import('../types').Tx[] = [];
     const all: { type: string; reason?: string; note?: string }[] = [];
@@ -6747,8 +6747,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // directly (hosxpCoveredFrom/To — see their own doc comment, types.ts); validated here the
     // same way nothing else in this flow has a date column to check automatically.
     if (!state.hosxpCoveredFrom || !state.hosxpCoveredTo) { toast('ระบุช่วงวันที่ที่ไฟล์/ข้อมูลนี้ครอบคลุมก่อนตัดยอด'); return; }
-    const coveredFromTs = new Date(state.hosxpCoveredFrom + 'T00:00:00').getTime();
-    const coveredToTs = new Date(state.hosxpCoveredTo + 'T00:00:00').getTime();
+    const coveredFromTs = new Date(state.hosxpCoveredFrom + 'T00:00:00+07:00').getTime();
+    const coveredToTs = new Date(state.hosxpCoveredTo + 'T00:00:00+07:00').getTime();
     if (!(coveredFromTs <= coveredToTs)) { toast('วันที่เริ่มต้องไม่เกินวันที่สิ้นสุดของช่วงที่ครอบคลุม'); return; }
     // Identity gate: an attached FILE must be provably the one for this range — its own stated date equals the
     // covered range and that range is what is due — or the pharmacist explicitly confirmed the date.
@@ -6803,10 +6803,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const lastCoveredTo = effectiveLastCoveredTo(state.txs, state.lastReconcileFetched);
       if (lastCoveredTo) {
         if (state.hosxpCoveredFrom <= lastCoveredTo) {
-          const overlapDays = Math.round((new Date(lastCoveredTo + 'T00:00:00').getTime() - coveredFromTs) / DAY) + 1;
+          const overlapDays = Math.round((new Date(lastCoveredTo + 'T00:00:00+07:00').getTime() - coveredFromTs) / DAY) + 1;
           if (!(await confirmAsync(
             'ไฟล์นี้ระบุว่าครอบคลุมตั้งแต่วันที่ ' + thDate(coveredFromTs) + ' แต่ครั้งก่อนตัดยอด HOSxP ไปถึงวันที่ '
-            + thDate(new Date(lastCoveredTo + 'T00:00:00').getTime()) + ' แล้ว (ทับซ้อนกัน ' + overlapDays
+            + thDate(new Date(lastCoveredTo + 'T00:00:00+07:00').getTime()) + ' แล้ว (ทับซ้อนกัน ' + overlapDays
             + ' วัน) — ตัดยอดต่อไปจะหักสต็อกซ้ำสองในช่วงที่ทับซ้อน ตรวจสอบไฟล์/ช่วงวันที่ให้ถูกก่อน ยังต้องการตัดยอดต่อหรือไม่?'
           ))) return;
         } else {
@@ -6815,12 +6815,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // folded into the next business day's combined range, so a plain calendar-day gap
           // would false-positive every single Monday otherwise.
           let missingWeekdays = 0;
-          for (let ts = new Date(lastCoveredTo + 'T00:00:00').getTime() + DAY; ts < coveredFromTs; ts += DAY) {
+          for (let ts = new Date(lastCoveredTo + 'T00:00:00+07:00').getTime() + DAY; ts < coveredFromTs; ts += DAY) {
             const wd = bangkokWeekday(ts);
             if (wd !== 0 && wd !== 6) missingWeekdays++;
           }
           if (missingWeekdays > 0 && !(await confirmAsync(
-            'ครั้งก่อนตัดยอด HOSxP ครอบคลุมถึงวันที่ ' + thDate(new Date(lastCoveredTo + 'T00:00:00').getTime()) + ' แล้ว แต่ไฟล์นี้เริ่มจากวันที่ '
+            'ครั้งก่อนตัดยอด HOSxP ครอบคลุมถึงวันที่ ' + thDate(new Date(lastCoveredTo + 'T00:00:00+07:00').getTime()) + ' แล้ว แต่ไฟล์นี้เริ่มจากวันที่ '
             + thDate(coveredFromTs) + ' — มีวันทำการที่ยังไม่ถูกตัดยอดเลยอยู่ระหว่างนั้น ' + missingWeekdays
             + ' วัน ถ้ายังมีไฟล์ของวันที่ขาดอยู่ ควรกลับไปแนบให้ครบก่อน ต้องการตัดยอดต่อโดยข้ามช่วงนี้ไปหรือไม่?'
           ))) return;
@@ -6842,7 +6842,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const mismatch = !!fileInfo.dateRange && (fileInfo.dateRange.from !== state.hosxpCoveredFrom || fileInfo.dateRange.to !== state.hosxpCoveredTo);
       if (fileInfo.dateRange) {
         const fr = fileInfo.dateRange;
-        const frLabel = fr.from === fr.to ? thDate(new Date(fr.from + 'T00:00:00').getTime()) : thDate(new Date(fr.from + 'T00:00:00').getTime()) + ' ถึง ' + thDate(new Date(fr.to + 'T00:00:00').getTime());
+        const frLabel = fr.from === fr.to ? thDate(new Date(fr.from + 'T00:00:00+07:00').getTime()) : thDate(new Date(fr.from + 'T00:00:00+07:00').getTime()) + ' ถึง ' + thDate(new Date(fr.to + 'T00:00:00+07:00').getTime());
         lines.push(mismatch
           ? '⚠ วันที่ที่ไฟล์ระบุไว้เอง (' + frLabel + ') ไม่ตรงกับช่วงที่เลือกไว้ — ถ้าตัดผิดวัน ยอดหน้างานจะเพี้ยน'
           : '✓ วันที่ที่ไฟล์ระบุ (' + frLabel + ') ตรงกับช่วงที่เลือก');
@@ -7284,8 +7284,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const commitUsageImport = useCallback(guardOnce('usageImport', async () => {
     const rows = state.usageRows || [];
     if (!state.usageDateFrom || !state.usageDateTo) { toast('ระบุช่วงวันที่ที่ไฟล์นี้ครอบคลุมก่อนนำเข้า'); return; }
-    const from = new Date(state.usageDateFrom + 'T00:00:00').getTime();
-    const to = new Date(state.usageDateTo + 'T00:00:00').getTime();
+    const from = new Date(state.usageDateFrom + 'T00:00:00+07:00').getTime();
+    const to = new Date(state.usageDateTo + 'T00:00:00+07:00').getTime();
     const periodDays = Math.round((to - from) / DAY) + 1; // inclusive of both endpoints
     if (!isFinite(periodDays) || periodDays < 1) { toast('ช่วงวันที่ไม่ถูกต้อง — "จากวันที่" ต้องไม่เกิน "ถึงวันที่"'); return; }
     const hasFuzzy = rows.some((r) => r.match.kind === 'fuzzy');
@@ -7782,8 +7782,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const x = d.data() as { type?: string; medId?: string; qty?: number; reportedQty?: number; ts?: number; coveredFrom?: string; coveredTo?: string };
       if (x.type !== 'reconcile_hosxp' || !x.medId || typeof x.qty !== 'number' || typeof x.ts !== 'number') return;
       if (x.qty >= 0 && !((x.reportedQty ?? 0) > 0) && !((x.reportedQty ?? 0) < 0)) return; // dispensed only (same test as the usage stats)
-      const fromTs = new Date((x.coveredFrom || isoDate(x.ts)) + 'T00:00:00').getTime();
-      const toTs = new Date((x.coveredTo || isoDate(x.ts)) + 'T00:00:00').getTime();
+      const fromTs = new Date((x.coveredFrom || isoDate(x.ts)) + 'T00:00:00+07:00').getTime();
+      const toTs = new Date((x.coveredTo || isoDate(x.ts)) + 'T00:00:00+07:00').getTime();
       const daysCovered = Math.max(1, Math.round((toTs - fromTs) / DAY) + 1);
       const perDay = ((x.reportedQty ?? 0) < 0 ? (x.reportedQty as number) : Math.abs(x.reportedQty ?? x.qty)) / daysCovered;
       for (let i = 0; i < daysCovered; i++) {
@@ -7879,8 +7879,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const searchHistory = useCallback(async () => {
     if (!state.historyFrom || !state.historyTo) { toast('เลือกช่วงวันที่ให้ครบทั้งจากและถึงก่อนค้นหา'); return; }
-    const from = new Date(state.historyFrom + 'T00:00:00').getTime();
-    const to = new Date(state.historyTo + 'T23:59:59.999').getTime();
+    const from = new Date(state.historyFrom + 'T00:00:00+07:00').getTime();
+    const to = new Date(state.historyTo + 'T23:59:59.999+07:00').getTime();
     if (isNaN(from) || isNaN(to) || from > to) { toast('ช่วงวันที่ไม่ถูกต้อง — "จาก" ต้องไม่เกิน "ถึง"'); return; }
     patch({ historyLoading: true, historyResults: null });
     const CAP = 1500;

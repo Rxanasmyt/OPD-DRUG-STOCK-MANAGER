@@ -390,8 +390,8 @@ export default function ReportScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.reportTab]);
   const replByMed = useMemo(() => {
-    const fromMs = new Date(replFrom + 'T00:00:00').getTime();
-    const toMs = new Date(replTo + 'T23:59:59.999').getTime();
+    const fromMs = new Date(replFrom + 'T00:00:00+07:00').getTime();
+    const toMs = new Date(replTo + 'T23:59:59.999+07:00').getTime();
     const totalDays = Math.max(1, Math.round((toMs - fromMs) / DAY) + 1);
     return replenishByMed(replRecords, meds, totalDays);
   }, [replRecords, meds, replFrom, replTo]);
@@ -416,7 +416,7 @@ export default function ReportScreen() {
     // End-of-day (23:59:59.999) so the picked DATE's own transactions are included in "up to
     // and including" that day, matching how every other date-range picker in this app treats
     // its "ถึงวันที่" bound.
-    const dateMs = new Date(stockAsOfDate + 'T23:59:59.999').getTime();
+    const dateMs = new Date(stockAsOfDate + 'T23:59:59.999+07:00').getTime();
     fetchStockAsOf(dateMs).then((rows) => {
       if (reqId !== stockAsOfReqId.current) return;
       setStockAsOfRows(rows); setStockAsOfLoaded(true);

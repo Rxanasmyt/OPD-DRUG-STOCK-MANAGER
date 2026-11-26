@@ -60,7 +60,7 @@ export function StockAsOfTab({
           </button>
 
           <div className="grid-2 stagger" style={{ marginBottom: 14 }}>
-            <ExecStat label={'มูลค่าคงคลังรวม ณ ' + thDate(new Date(stockAsOfDate + 'T00:00:00').getTime())} value={nf(Math.round(stockAsOfTotalValue)) + ' บาท'} />
+            <ExecStat label={'มูลค่าคงคลังรวม ณ ' + thDate(new Date(stockAsOfDate + 'T00:00:00+07:00').getTime())} value={nf(Math.round(stockAsOfTotalValue)) + ' บาท'} />
             <ExecStat
               label="รายการที่คำนวณได้ติดลบ"
               value={nf(stockAsOfNegativeCount) + ' รายการ'}
