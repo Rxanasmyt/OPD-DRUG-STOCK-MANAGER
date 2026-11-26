@@ -8,7 +8,8 @@ name: HOSxP Not Reconciled Reminder
 # Bangkok minute (TARGET_TIME_BKK, set only for scheduled runs) before reading data and sending. A manual run sends at once.
 on:
   schedule:
-    - cron: '30 7 * * 1-5' # starts 14:30 Asia/Bangkok Mon–Fri (= 07:30 UTC); sends at exactly 15:00
+    - cron: '30 7 * * 1-5' # starts 14:30 Asia/Bangkok Mon–Fri (= 07:30 UTC); sends at exactly 15:00 (round 1)
+    - cron: '0 9 * * 1-5' # starts 16:00 Asia/Bangkok Mon–Fri (= 09:00 UTC); sends at exactly 16:30 ONLY if still not done (round 2)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -29,7 +30,8 @@ jobs:
       - run: npm ci
       - run: node scripts/notify-hosxp-missing.mjs ${{ inputs.dry_run && '--dry-run' || '' }}
         env:
-          TARGET_TIME_BKK: ${{ github.event_name == 'schedule' && '15:00' || '' }}
+          TARGET_TIME_BKK: ${{ github.event_name == 'schedule' && (github.event.schedule == '0 9 * * 1-5' && '16:30' || '15:00') || '' }}
+          REMINDER_ROUND: ${{ github.event.schedule == '0 9 * * 1-5' && '2' || '1' }}
           FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
           MOPH_NOTIFY_CLIENT_KEY: ${{ secrets.MOPH_NOTIFY_CLIENT_KEY }}
           MOPH_NOTIFY_SECRET_KEY: ${{ secrets.MOPH_NOTIFY_SECRET_KEY }}

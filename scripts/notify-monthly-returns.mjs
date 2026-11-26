@@ -7,7 +7,7 @@
 //   FIREBASE_SERVICE_ACCOUNT_KEY=... MOPH_NOTIFY_CLIENT_KEY=... MOPH_NOTIFY_SECRET_KEY=... node scripts/notify-monthly-returns.mjs [--dry-run] [--month=2026-10]
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { APP_URL, sendIfConfigured, waitUntilBangkokTime } from './moph-notify.mjs';
+import { APP_URL, sendIfConfigured, waitUntilBangkokTime, stampRun } from './moph-notify.mjs';
 
 // ---- copies of the app's constants (src/utils/returnReasons.ts, src/data/categories.ts) --------------------------------------
 export const REVERSAL_PREFIX = '↩ ยกเลิกรายการคืน · ';
@@ -411,15 +411,21 @@ export async function main() {
   initializeApp({ credential: cert(JSON.parse(keyJson)) });
   const db = getFirestore();
   const from = monthRange(shiftMonth(month, -12)).from; const to = monthRange(month).to; // 13 months: trend + previous month + same month last year
-  // `date` is a single-field range (+ orderBy on the same field) — no composite index. ~13 months of returns, once a month.
-  const snap = await db.collection('returns').where('date', '>=', from).where('date', '<=', to).orderBy('date', 'asc').get();
-  const records = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
-  console.log(`Returns ${from}..${to}: ${records.length} rows`);
-  const rep = buildMonthlyReport({ records, month });
-  console.log(`${monthLabel(month)}: ${rep.total.count} returns, ${rep.total.value} baht`);
-  const flex = buildMonthlyFlex(rep);
-  if (dryRun) { console.log(JSON.stringify(flex.contents.contents.length) + ' cards, ' + JSON.stringify(flex).length + ' bytes (--dry-run — not sending)'); return; }
-  await sendIfConfigured([flex], process.env, { required: true });
+  try {
+    // `date` is a single-field range (+ orderBy on the same field) — no composite index. ~13 months of returns, once a month.
+    const snap = await db.collection('returns').where('date', '>=', from).where('date', '<=', to).orderBy('date', 'asc').get();
+    const records = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+    console.log(`Returns ${from}..${to}: ${records.length} rows`);
+    const rep = buildMonthlyReport({ records, month });
+    console.log(`${monthLabel(month)}: ${rep.total.count} returns, ${rep.total.value} baht`);
+    const flex = buildMonthlyFlex(rep);
+    if (dryRun) { console.log(JSON.stringify(flex.contents.contents.length) + ' cards, ' + JSON.stringify(flex).length + ' bytes (--dry-run — not sending)'); return; }
+    await sendIfConfigured([flex], process.env, { required: true });
+    await stampRun(db, 'monthly', 'sent', { month });
+  } catch (e) {
+    if (!process.argv.includes('--dry-run')) await stampRun(db, 'monthly', 'failed', { error: String(e.message || e).slice(0, 200), month });
+    throw e;
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -84,3 +84,13 @@ export async function waitUntilBangkokTime(hhmm, { now = () => Date.now(), sleep
   await sleep(ms);
   return { waited: ms, reason: 'waited' };
 }
+
+// ---- Run health stamps -------------------------------------------------------------------------------------------------------------
+// Each scheduled notifier records that it RAN (and how it ended) in meta/notifyStatus.<kind> via the Admin SDK (bypasses rules; the app may
+// read meta/*). The app warns an admin when a job has not run for days or its last run failed — otherwise a stopped scheduler, a revoked
+// key or a disabled workflow is silent. "Ran" is stamped even when nothing needed sending (a clean day is a healthy run).
+export async function stampRun(db, kind, result, extra = {}) {
+  try {
+    await db.doc('meta/notifyStatus').set({ [kind]: { ranAt: Date.now(), result, ...extra } }, { merge: true });
+  } catch (e) { console.error('could not stamp meta/notifyStatus.' + kind + ':', e.message || e); }
+}

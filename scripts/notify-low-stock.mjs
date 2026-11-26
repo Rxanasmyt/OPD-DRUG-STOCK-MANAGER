@@ -22,7 +22,7 @@
 
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { mophNotify, waitUntilBangkokTime } from './moph-notify.mjs';
+import { mophNotify, waitUntilBangkokTime, stampRun } from './moph-notify.mjs';
 
 const APP_URL = 'https://rxanasmyt.github.io/OPD-DRUG-STOCK-MANAGER/';
 const MAX_ROWS_PER_SECTION = 15; // keeps the broadcast readable — the app itself has the full list
@@ -53,6 +53,11 @@ function floorMinOf(m) {
   return m.parFloor >= 1 ? Math.max(1, half) : half;
 }
 function usesSubstock(m) { return !m.noSubstock; }
+/** Shelf code(s) shown next to a drug — copy of selectors.ts binDisplayAll(): "A1", or "A1/B2" for a shared med with a distinct IPD-side bin. */
+export function binOf(m) {
+  const b = typeof m.bin === 'string' ? m.bin.trim() : '';
+  return m.shared && m.binIpd && m.binIpd !== m.bin ? `${b}/${m.binIpd}` : b;
+}
 // Mirrors selectors.ts's isOnStockHold(): a med flagged "ยาขาดชั่วคราว" is never worth a LINE
 // alert — nothing refilling/requisitioning can fix a broken supply chain, and the app itself
 // excludes it from every low-stock list.
@@ -124,17 +129,17 @@ export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now(),
     // The "ปรับยอด (นับสต็อก)" placeholder lot has no real expiry (set ~100 years out) — never worth an expiry alert.
     if (!m || typeof l.exp !== 'number' || l.exp > now + 50 * 365 * DAY_MS) continue;
     const days = daysUntilBkk(l.exp, now);
-    if (days < expiryWarnDays) expiring.push({ name: m.name, unit: m.unit, lotNo: l.lotNo, qty: l.qty, days });
+    if (days < expiryWarnDays) expiring.push({ name: m.name, unit: m.unit, bin: binOf(m), lotNo: l.lotNo, qty: l.qty, days });
   }
   expiring.sort((a, b) => a.days - b.days);
   const subQty = (id) => subByMed.get(id) || 0;
   const hadOf = new Map(active.map((m) => [m.id, !!m.had]));
   const belowMinAll = active.filter((m) => !isOnStockHold(m) && (m.floor || 0) < floorMinOf(m))
-    .map((m) => ({ id: m.id, name: m.name, unit: m.unit, cur: m.floor || 0, ref: floorMinOf(m) }));
+    .map((m) => ({ id: m.id, name: m.name, unit: m.unit, bin: binOf(m), cur: m.floor || 0, ref: floorMinOf(m) }));
   const belowSubParAll = active.filter((m) => !isOnStockHold(m) && (usesSubstock(m) ? subQty(m.id) < (m.parSub || 0) : (m.floor || 0) < (m.parFloor || 0)))
     .map((m) => usesSubstock(m)
-      ? { id: m.id, name: m.name, unit: m.unit, cur: subQty(m.id), ref: m.parSub || 0 }
-      : { id: m.id, name: m.name, unit: m.unit, cur: m.floor || 0, ref: m.parFloor || 0 });
+      ? { id: m.id, name: m.name, unit: m.unit, bin: binOf(m), cur: subQty(m.id), ref: m.parSub || 0 }
+      : { id: m.id, name: m.name, unit: m.unit, bin: binOf(m), cur: m.floor || 0, ref: m.parFloor || 0 });
   const emergencyAll = active
     .filter((m) => !isOnStockHold(m) && monthlyUse(m) > 0)
     .map((m) => {
@@ -144,11 +149,11 @@ export function buildReport({ meds, lots, expiryWarnDays = 30, now = Date.now(),
     })
     .filter((x) => x.cover <= horizonDays)
     .map((x) => ({
-      id: x.m.id, name: x.m.name, unit: x.m.unit, onHand: x.onHand, cover: Math.max(0, Math.floor(x.cover)), level: urgencyLevel(Math.max(0, Math.floor(x.cover))),
+      id: x.m.id, name: x.m.name, unit: x.m.unit, bin: binOf(x.m), onHand: x.onHand, cover: Math.max(0, Math.floor(x.cover)), level: urgencyLevel(Math.max(0, Math.floor(x.cover))),
       // enough to carry the drug through the horizon plus a week of lead time, never less than topping substock up to par
       needQty: Math.max(0, Math.ceil(x.daily * (horizonDays + 7) - x.onHand), (usesSubstock(x.m) ? (x.m.parSub || 0) - subQty(x.m.id) : 0)),
     }));
-  const zeroFloorAll = active.filter((m) => needsZeroFloorCheck(m, now)).map((m) => ({ id: m.id, name: m.name, unit: m.unit }));
+  const zeroFloorAll = active.filter((m) => needsZeroFloorCheck(m, now)).map((m) => ({ id: m.id, name: m.name, unit: m.unit, bin: binOf(m) }));
 
   // ONE card per drug: a drug that qualifies for several alerts is shown only in the most urgent one (emergency > ยอด 0 > Min > par),
   // with small "also" tags for what else is wrong with it — otherwise the same drug reads as 2–3 separate problems.
@@ -198,7 +203,7 @@ export function buildText(report, dateLabel) {
     const shown = rows.slice(0, MAX_ROWS_PER_SECTION);
     const more = rows.length > shown.length ? `\n…และอีก ${rows.length - shown.length} รายการ` : '';
     const title = sec.key === 'expiring' ? `${sec.title} (< ${report.expiryWarnDays} วัน)` : sec.title;
-    text += `\n\n${sec.icon} ${title} (${rows.length} รายการ)\n` + shown.map((r) => `• ${r.had ? '⚠HAD ' : ''}${r.name}: ${sec.fmt(r)}${r.also && r.also.length ? ' (+' + r.also.join(', ') + ')' : ''}`).join('\n') + more;
+    text += `\n\n${sec.icon} ${title} (${rows.length} รายการ)\n` + shown.map((r) => `• ${r.had ? '⚠HAD ' : ''}${r.name}${r.bin ? ' [' + r.bin + ']' : ''}: ${sec.fmt(r)}${r.also && r.also.length ? ' (+' + r.also.join(', ') + ')' : ''}`).join('\n') + more;
   }
   const stale = report.usageStaleDays != null && report.usageStaleDays > 3 ? `\n\n⚠️ ข้อมูลอัตราการใช้ยาไม่ได้อัปเดตมา ${report.usageStaleDays} วัน — รายการ “เบิกฉุกเฉิน” อาจคลาดเคลื่อน` : '';
   const tail = stale + `\n\nเปิดแอพ: ${APP_URL}`;
@@ -283,14 +288,14 @@ function rowFlex(sec, key, r, horizonDays) {
   // (short labels + their own row: three long pills in one row do not fit a card and get clipped)
   const SHORT = { 'เบิกฉุกเฉิน': 'ฉุกเฉิน', 'ยอด 0': 'ยอด 0', 'ต่ำกว่า Min': 'Min', 'ต่ำกว่า par': 'par' };
   const alsoRow = (r.also && r.also.length) ? [{ type: 'box', layout: 'horizontal', spacing: 'xs', contents: [{ type: 'text', text: 'ยังเข้าเกณฑ์:', size: 'xxs', color: '#78909C', flex: 0, gravity: 'center' }, ...r.also.map((a) => pill(SHORT[a] || a, '#ECEFF1', '#455A64')), { type: 'filler' }] }] : [];
-  const tagList = r.had ? [pill('⚠ HAD', '#8E0000')] : [];
+  const tagList = [...(r.bin ? [pill('📍 ' + r.bin, '#37474F')] : []), ...(r.had ? [pill('⚠ HAD', '#8E0000')] : [])];
   const tags = [...(tagList.length ? [{ type: 'box', layout: 'horizontal', spacing: 'xs', contents: [...tagList, { type: 'filler' }] }] : []), ...alsoRow];
   let content;
   if (key === 'emergency') {
     content = { type: 'box', layout: 'horizontal', flex: 1, contents: [
       { type: 'box', layout: 'vertical', flex: 1, spacing: 'xs', contents: [
         nameText,
-        { type: 'box', layout: 'horizontal', spacing: 'xs', contents: [pill(`${r.level.dot} ${r.level.label}`, r.level.ink), ...(r.had ? [pill('⚠ HAD', '#8E0000')] : []), { type: 'filler' }] },
+        { type: 'box', layout: 'horizontal', spacing: 'xs', contents: [pill(`${r.level.dot} ${r.level.label}`, r.level.ink), ...(r.bin ? [pill('📍 ' + r.bin, '#37474F')] : []), ...(r.had ? [pill('⚠ HAD', '#8E0000')] : []), { type: 'filler' }] },
         ...alsoRow,
         { type: 'text', text: `คงเหลือ ${nf(r.onHand)} ${r.unit} · ควรขอ ~${nf(r.needQty)} ${r.unit}`, size: 'xs', color: '#555555', wrap: true },
         bar(Math.round((r.cover / Math.max(1, horizonDays)) * 100), r.level.ink),
@@ -304,13 +309,13 @@ function rowFlex(sec, key, r, horizonDays) {
     const hot = r.days <= 7; const ink = hot ? '#C62828' : t.ink;
     content = { type: 'box', layout: 'vertical', flex: 1, spacing: 'xs', contents: [
       nameText,
-      { type: 'box', layout: 'horizontal', spacing: 'sm', contents: [pill(r.days < 0 ? `หมดอายุแล้ว ${Math.abs(r.days)} วัน` : `อีก ${r.days} วัน`, ink), { type: 'filler' }] },
+      { type: 'box', layout: 'horizontal', spacing: 'sm', contents: [pill(r.days < 0 ? `หมดอายุแล้ว ${Math.abs(r.days)} วัน` : `อีก ${r.days} วัน`, ink), ...(r.bin ? [pill('📍 ' + r.bin, '#37474F')] : []), { type: 'filler' }] },
       { type: 'text', text: `${r.lotNo ? 'lot ' + r.lotNo + ' · ' : ''}${nf(r.qty)} ${r.unit}`, size: 'xs', color: '#555555', wrap: true },
     ] };
   } else if (key === 'zeroFloor') {
     content = { type: 'box', layout: 'vertical', flex: 1, spacing: 'xs', contents: [
       nameText,
-      { type: 'box', layout: 'horizontal', spacing: 'xs', contents: [pill('0 ' + r.unit, accent), ...(r.had ? [pill('⚠ HAD', '#8E0000')] : []), { type: 'filler' }] },
+      { type: 'box', layout: 'horizontal', spacing: 'xs', contents: [pill('0 ' + r.unit, accent), ...(r.bin ? [pill('📍 ' + r.bin, '#37474F')] : []), ...(r.had ? [pill('⚠ HAD', '#8E0000')] : []), { type: 'filler' }] },
       ...alsoRow,
       { type: 'text', text: 'ยังไม่ได้นับวันนี้ — นับจริงแล้วบันทึกในแอป', size: 'xxs', color: '#6D736D', wrap: true },
     ] };
@@ -383,47 +388,54 @@ export async function main() {
   initializeApp({ credential: cert(JSON.parse(keyJson)) });
   const db = getFirestore();
 
-  // Only lots with qty > 0 are read (server-side filter) — `lots` never deletes spent lots, so an unfiltered read grows forever.
-  console.log('Reading meds/lots/settings...');
-  const [medSnap, lotSnap, settingsSnap] = await Promise.all([
-    db.collection('meds').get(),
-    db.collection('lots').where('qty', '>', 0).get(),
-    db.doc('meta/settings').get().catch(() => null),
-  ]);
-  const meds = medSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  const lots = lotSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  const settings = settingsSnap && typeof settingsSnap.data === 'function' ? (settingsSnap.data() || {}) : {};
-  const expiryWarnDays = typeof settings.expiryWarnDays === 'number' ? settings.expiryWarnDays : 30;
+  try {
+    // Only lots with qty > 0 are read (server-side filter) — `lots` never deletes spent lots, so an unfiltered read grows forever.
+    console.log('Reading meds/lots/settings...');
+    const [medSnap, lotSnap, settingsSnap] = await Promise.all([
+      db.collection('meds').get(),
+      db.collection('lots').where('qty', '>', 0).get(),
+      db.doc('meta/settings').get().catch(() => null),
+    ]);
+    const meds = medSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const lots = lotSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const settings = settingsSnap && typeof settingsSnap.data === 'function' ? (settingsSnap.data() || {}) : {};
+    const expiryWarnDays = typeof settings.expiryWarnDays === 'number' ? settings.expiryWarnDays : 30;
 
-  // Days until the next regular warehouse delivery: NEXT_DELIVERY_DATE (YYYY-MM-DD, set as a repo variable) when given and in the
-  // future, else REQ_HORIZON_DAYS, else 7.
-  let horizonDays = Number(process.env.REQ_HORIZON_DAYS) > 0 ? Number(process.env.REQ_HORIZON_DAYS) : 7;
-  const nd = process.env.NEXT_DELIVERY_DATE;
-  if (nd && /^\d{4}-\d{2}-\d{2}$/.test(nd)) {
-    const diff = Math.ceil((Date.parse(nd + 'T00:00:00+07:00') - Date.now()) / DAY_MS);
-    if (diff > 0) horizonDays = diff;
-  }
-  const report = buildReport({ meds, lots, expiryWarnDays, horizonDays, usageStatsRecomputedAt: typeof settings.usageStatsRecomputedAt === 'number' ? settings.usageStatsRecomputedAt : null });
-  if (report.empty) {
-    console.log('Nothing below par today — skipping notification (no alert fatigue for a clean day).');
-    return;
-  }
-  const dateLabel = dateLabelBkk();
-  const text = buildText(report, dateLabel);
-  console.log('--- message ---\n' + text + '\n---------------');
-  if (dryRun) { console.log('(--dry-run — not sending)'); return; }
+    // Days until the next regular warehouse delivery: NEXT_DELIVERY_DATE (YYYY-MM-DD, set as a repo variable) when given and in the
+    // future, else REQ_HORIZON_DAYS, else 7.
+    let horizonDays = Number(process.env.REQ_HORIZON_DAYS) > 0 ? Number(process.env.REQ_HORIZON_DAYS) : 7;
+    const nd = process.env.NEXT_DELIVERY_DATE;
+    if (nd && /^\d{4}-\d{2}-\d{2}$/.test(nd)) {
+      const diff = Math.ceil((Date.parse(nd + 'T00:00:00+07:00') - Date.now()) / DAY_MS);
+      if (diff > 0) horizonDays = diff;
+    }
+    const report = buildReport({ meds, lots, expiryWarnDays, horizonDays, usageStatsRecomputedAt: typeof settings.usageStatsRecomputedAt === 'number' ? settings.usageStatsRecomputedAt : null });
+    if (report.empty) {
+      console.log('Nothing below par today — skipping notification (no alert fatigue for a clean day).');
+      if (!dryRun) await stampRun(db, 'stock', 'nothing');
+      return;
+    }
+    const dateLabel = dateLabelBkk();
+    const text = buildText(report, dateLabel);
+    console.log('--- message ---\n' + text + '\n---------------');
+    if (dryRun) { console.log('(--dry-run — not sending)'); return; }
 
-  // Send to every configured channel; one failing must not stop the other, but the run still fails so it is noticed.
-  const failures = [];
-  if (hasMoph) {
-    try {
-      await mophNotify(mophKey, mophSecret, [buildFlex(report, dateLabel)]);
-      console.log('MOPH Notify: sent to LINE group.');
-    } catch (e) { failures.push(e); console.error(String(e.message || e)); }
+    // Send to every configured channel; one failing must not stop the other, but the run still fails so it is noticed.
+    const failures = [];
+    if (hasMoph) {
+      try {
+        await mophNotify(mophKey, mophSecret, [buildFlex(report, dateLabel)]);
+        console.log('MOPH Notify: sent to LINE group.');
+      } catch (e) { failures.push(e); console.error(String(e.message || e)); }
+    }
+    if (lineToken) { try { await lineBroadcast(lineToken, text); console.log('LINE OA broadcast: sent.'); } catch (e) { failures.push(e); console.error(String(e.message || e)); } }
+    if (failures.length) throw new Error(`${failures.length} notification channel(s) failed: ` + failures.map((e) => e.message).join(' | '));
+    await stampRun(db, 'stock', 'sent', { items: report.belowMin.length + report.belowSubPar.length + report.zeroFloor.length + report.emergency.length + report.expiring.length });
+    console.log(`Sent — Min ${report.belowMin.length}, par ${report.belowSubPar.length}, zero ${report.zeroFloor.length}, expiring ${report.expiring.length}.`);
+  } catch (e) {
+    if (!dryRun) await stampRun(db, 'stock', 'failed', { error: String(e.message || e).slice(0, 200) });
+    throw e;
   }
-  if (lineToken) { try { await lineBroadcast(lineToken, text); console.log('LINE OA broadcast: sent.'); } catch (e) { failures.push(e); console.error(String(e.message || e)); } }
-  if (failures.length) throw new Error(`${failures.length} notification channel(s) failed: ` + failures.map((e) => e.message).join(' | '));
-  console.log(`Sent — Min ${report.belowMin.length}, par ${report.belowSubPar.length}, zero ${report.zeroFloor.length}, expiring ${report.expiring.length}.`);
 }
 
 // Only auto-run when this file is actually run as a script — NOT when it's imported (tests drive `main` with mocks).
