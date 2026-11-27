@@ -20,7 +20,7 @@ export default function ReconcileReminder() {
   if (r.level === 'ok' || state.screen === 'reconcile' || state.screen === 'login' || state.authStatus !== 'signedIn') return null;
   const key = r.level + '|' + r.lastMissingIso;
   if (dismissedFor === key) return null;
-  const toTs = (iso: string | null) => (iso ? new Date(iso + 'T12:00:00').getTime() : 0);
+  const toTs = (iso: string | null) => (iso ? new Date(iso + 'T12:00:00+07:00').getTime() : 0);
   const range = r.missingWeekdays === 1 ? thDate(toTs(r.lastMissingIso)) : thDate(toTs(r.firstMissingIso)) + ' – ' + thDate(toTs(r.lastMissingIso));
   const overdue = r.level === 'overdue';
   return (

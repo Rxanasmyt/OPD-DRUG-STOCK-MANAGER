@@ -1902,8 +1902,8 @@ export function reconcileReminder(lastCoveredTo: string | null, nowTs: number): 
   const yesterdayIso = isoDate(nowTs - DAY);
   if (lastCoveredTo >= yesterdayIso) return none;
   let first: string | null = null; let last: string | null = null; let n = 0;
-  const startTs = new Date(lastCoveredTo + 'T00:00:00').getTime() + DAY;
-  const endTs = new Date(yesterdayIso + 'T00:00:00').getTime();
+  const startTs = new Date(lastCoveredTo + 'T00:00:00+07:00').getTime() + DAY;
+  const endTs = new Date(yesterdayIso + 'T00:00:00+07:00').getTime();
   for (let ts = startTs; ts <= endTs; ts += DAY) {
     const wd = bangkokWeekday(ts + 12 * 3600000);
     if (wd === 0 || wd === 6) continue;

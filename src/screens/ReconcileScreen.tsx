@@ -61,9 +61,9 @@ export default function ReconcileScreen() {
   const lastCoveredTo = useMemo(() => effectiveLastCoveredTo(state.txs, state.lastReconcileFetched), [state.txs, state.lastReconcileFetched]);
   const missingWeekdaysSoFar = useMemo(() => {
     if (!lastCoveredTo) return 0;
-    const yesterdayTs = new Date(isoDate(Date.now() - DAY) + 'T00:00:00').getTime();
+    const yesterdayTs = new Date(isoDate(Date.now() - DAY) + 'T00:00:00+07:00').getTime();
     let count = 0;
-    for (let ts = new Date(lastCoveredTo + 'T00:00:00').getTime() + DAY; ts <= yesterdayTs; ts += DAY) {
+    for (let ts = new Date(lastCoveredTo + 'T00:00:00+07:00').getTime() + DAY; ts <= yesterdayTs; ts += DAY) {
       const wd = bangkokWeekday(ts);
       if (wd !== 0 && wd !== 6) count++;
     }
@@ -161,7 +161,7 @@ export default function ReconcileScreen() {
   const todayIso = isoDate(Date.now());
   const coveredValid = !!state.hosxpCoveredFrom && !!state.hosxpCoveredTo && state.hosxpCoveredFrom <= state.hosxpCoveredTo && state.hosxpCoveredTo < todayIso;
   const daysCovered = coveredValid
-    ? Math.round((new Date(state.hosxpCoveredTo + 'T00:00:00').getTime() - new Date(state.hosxpCoveredFrom + 'T00:00:00').getTime()) / DAY) + 1
+    ? Math.round((new Date(state.hosxpCoveredTo + 'T00:00:00+07:00').getTime() - new Date(state.hosxpCoveredFrom + 'T00:00:00+07:00').getTime()) / DAY) + 1
     : 0;
   // Is the attached file provably the one due? (see hosxpDateCheck) — otherwise the pharmacist must pick + confirm.
   const dueYesterday = isoDate(Date.now() - DAY);
@@ -401,13 +401,13 @@ export default function ReconcileScreen() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 13px', background: 'var(--red-bg)', borderRadius: 10, marginBottom: 12 }}>
             <span style={{ fontSize: 13 }}>⚠</span>
             <span style={{ fontSize: 12.5, color: 'var(--red)', fontWeight: 600, lineHeight: 1.5 }}>
-              ตัดยอด HOSxP ล่าสุดถึงวันที่ {thDate(new Date(lastCoveredTo + 'T00:00:00').getTime())} — ค้างอีก {missingWeekdaysSoFar} วันทำการที่ยังไม่ตัดยอด (รวมไฟล์ที่กำลังจะแนบนี้ด้วย ตรวจสอบให้ครอบคลุมช่วงที่ขาด)
+              ตัดยอด HOSxP ล่าสุดถึงวันที่ {thDate(new Date(lastCoveredTo + 'T00:00:00+07:00').getTime())} — ค้างอีก {missingWeekdaysSoFar} วันทำการที่ยังไม่ตัดยอด (รวมไฟล์ที่กำลังจะแนบนี้ด้วย ตรวจสอบให้ครอบคลุมช่วงที่ขาด)
             </span>
           </div>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 13px', background: 'var(--green-tint)', borderRadius: 10, marginBottom: 12 }}>
             <span style={{ fontSize: 13 }}>✓</span>
-            <span style={{ fontSize: 12.5, color: 'var(--green)', fontWeight: 600 }}>ตัดยอด HOSxP ล่าสุดถึงวันที่ {thDate(new Date(lastCoveredTo + 'T00:00:00').getTime())} — ล่าสุดเท่าที่ควรแล้ว</span>
+            <span style={{ fontSize: 12.5, color: 'var(--green)', fontWeight: 600 }}>ตัดยอด HOSxP ล่าสุดถึงวันที่ {thDate(new Date(lastCoveredTo + 'T00:00:00+07:00').getTime())} — ล่าสุดเท่าที่ควรแล้ว</span>
           </div>
         )
       ) : (
@@ -745,7 +745,7 @@ export default function ReconcileScreen() {
                         ? <Badge flexNone size={11} padding="2px 8px" color="var(--red)" bg="var(--red-bg)">ไม่มีไฟล์</Badge>
                         : <Badge flexNone size={11} padding="2px 8px" color="var(--amber-ink)" bg="var(--amber-bg)">ตัดไม่ครบ</Badge>}
                       <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 0 }}>
-                        {thDate(new Date(g.dateIso + 'T12:00:00').getTime())}
+                        {thDate(new Date(g.dateIso + 'T12:00:00+07:00').getTime())}
                         {g.kind === 'missing' ? ' — ไม่มีการตัดยอด HOSxP เลยทั้งวัน' : ' — ' + g.missingMeds.length + ' รายการที่ปกติจ่ายทุกวันไม่ถูกตัดยอด'}
                       </span>
                       <span className="muted" style={{ flex: 'none', fontSize: 11 }}>{open ? 'ซ่อน ▲' : 'ดูสาเหตุรายตัว ▾'}</span>

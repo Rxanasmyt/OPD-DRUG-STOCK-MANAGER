@@ -50,3 +50,30 @@ describe('every toLocale*String with a date in src passes an explicit timeZone',
     expect(bad).toEqual([]);
   });
 });
+
+describe('date-only ISO strings are anchored to Bangkok, not the device', () => {
+  it('no "YYYY-MM-DD"+T00:00:00 / T12:00:00 / T23:59:59.999 without an offset in src or scripts', () => {
+    const all: string[] = [];
+    const w = (d: string) => { for (const f of readdirSync(d)) { const p = join(d, f); if (statSync(p).isDirectory()) w(p); else if (/\.(ts|tsx|mjs)$/.test(f) && !/\.test\./.test(f)) all.push(p); } };
+    w('src'); w('scripts');
+    const bad: string[] = [];
+    for (const f of all) readFileSync(f, 'utf8').split('\n').forEach((l, i) => {
+      if (/^\s*(\/\/|\*|\/\*)/.test(l)) return;
+      if (/T(00:00:00|23:59:59\.999|12:00:00)'/.test(l) && !/(Z'|\+07:00')/.test(l)) bad.push(`${f}:${i + 1}`);
+    });
+    expect(bad).toEqual([]);
+  });
+
+  for (const tz of ['America/Los_Angeles', 'Asia/Tokyo', 'UTC']) {
+    it(`reconcileReminder counts the same missing days on a device in ${tz}`, async () => {
+      process.env.TZ = tz;
+      const { reconcileReminder } = await import('../store/selectors');
+      // Thu 26 Nov 2026 10:00 Bangkok; last file covered Mon 23 Nov → Tue 24 + Wed 25 missing
+      const r = reconcileReminder('2026-11-23', Date.UTC(2026, 10, 26, 3, 0, 0));
+      expect(r.level).toBe('overdue');
+      expect(r.missingWeekdays).toBe(2);
+      expect(r.firstMissingIso).toBe('2026-11-24');
+      expect(r.lastMissingIso).toBe('2026-11-25');
+    });
+  }
+});

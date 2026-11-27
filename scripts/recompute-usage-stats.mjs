@@ -162,8 +162,8 @@ async function main() {
     if (bucket !== 30) continue; // dispenseDays30 only ever covers the current 30-day bucket
     const fromIso = x.coveredFrom || isoDate(x.ts);
     const toIso = x.coveredTo || isoDate(x.ts);
-    const fromTs = new Date(fromIso + 'T00:00:00').getTime();
-    const toTs = new Date(toIso + 'T00:00:00').getTime();
+    const fromTs = new Date(fromIso + 'T00:00:00+07:00').getTime();
+    const toTs = new Date(toIso + 'T00:00:00+07:00').getTime();
     const daysCovered = Math.max(1, Math.round((toTs - fromTs) / DAY) + 1);
     for (let i = 0; i < daysCovered; i++) {
       const dayTs = fromTs + i * DAY;
@@ -232,8 +232,8 @@ async function main() {
     // (src/store/AppContext.tsx) exactly.
     const fromIso = x.coveredFrom || isoDate(x.ts);
     const toIso = x.coveredTo || isoDate(x.ts);
-    const fromTs = new Date(fromIso + 'T00:00:00').getTime();
-    const toTs = new Date(toIso + 'T00:00:00').getTime();
+    const fromTs = new Date(fromIso + 'T00:00:00+07:00').getTime();
+    const toTs = new Date(toIso + 'T00:00:00+07:00').getTime();
     const daysCovered = Math.max(1, Math.round((toTs - fromTs) / DAY) + 1);
     // Bug fix (data integrity): same reportedQty-over-qty preference as Part 1 above.
     const perDayQty = ((x.reportedQty ?? 0) < 0 ? x.reportedQty : Math.abs(x.reportedQty ?? x.qty)) / daysCovered;
