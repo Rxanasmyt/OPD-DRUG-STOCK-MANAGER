@@ -20,6 +20,9 @@ export function needsReminder({ txs, now = Date.now(), holidays = [] }) {
   const dow = new Date(now + BKK).getUTCDay(); // 0 = Sunday … 6 = Saturday (Bangkok)
   if (dow === 0 || dow === 6) return { remind: false, reason: 'weekend' };
   if (holidays.includes(today)) return { remind: false, reason: 'holiday' };
+  // Defence in depth (real case: a reminder arrived at 00:51): "not reconciled TODAY" means nothing at the very start or end of the day.
+  const hour = new Date(now + BKK).getUTCHours();
+  if (hour < 9 || hour >= 20) return { remind: false, reason: 'off-hours' };
   // A malformed tx without a numeric ts must not crash the check (new Date(NaN).toISOString() throws).
   const done = txs.some((t) => t.type === 'reconcile_hosxp' && Number.isFinite(t.ts) && bkkDay(t.ts) === today);
   return done ? { remind: false, reason: 'already-reconciled' } : { remind: true, reason: 'not-reconciled' };
@@ -70,7 +73,8 @@ export async function main() {
   const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (!keyJson) { console.error('FIREBASE_SERVICE_ACCOUNT_KEY env var is not set.'); process.exit(1); }
   const round = process.env.REMINDER_ROUND === '2' ? 2 : 1;
-  await waitUntilBangkokTime(process.env.TARGET_TIME_BKK); // start early, send on the exact Bangkok minute
+  const w = await waitUntilBangkokTime(process.env.TARGET_TIME_BKK); // start early, send on the exact Bangkok minute
+  if (w.skip) { console.log('::warning::Skipped — the scheduled run was not on time, nothing was sent.'); return; }
   initializeApp({ credential: cert(JSON.parse(keyJson)) });
   const db = getFirestore();
   try {

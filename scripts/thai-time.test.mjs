@@ -25,17 +25,35 @@ describe('waiting for the exact Bangkok minute', () => {
     expect(sleep).toHaveBeenCalledWith(30 * 60000);
     expect(r.reason).toBe('waited');
   });
-  it('a run that starts LATE sends immediately (no sleep)', async () => {
+  it('a run that starts a little LATE sends immediately (no sleep)', async () => {
     const sleep = vi.fn(); vi.spyOn(console, 'log').mockImplementation(() => {});
-    const r = await waitUntilBangkokTime('07:00', { now: () => t('2026-11-25T00:25:00Z'), sleep }); // 07:25 Bangkok
+    const r = await waitUntilBangkokTime('07:00', { now: () => t('2026-11-25T00:10:00Z'), sleep }); // 07:10 Bangkok
     expect(sleep).not.toHaveBeenCalled();
     expect(r.reason).toBe('late');
+    expect(r.skip).toBeUndefined();
+  });
+  it('a run that starts TOO late is skipped, never sent (real case: HOSxP reminder arrived at 00:51)', async () => {
+    const sleep = vi.fn(); vi.spyOn(console, 'log').mockImplementation(() => {});
+    const r = await waitUntilBangkokTime('07:00', { now: () => t('2026-11-25T00:25:00Z'), sleep }); // 07:25 Bangkok
+    expect(r.skip).toBe(true);
+    // the 15:00 reminder that GitHub started at 00:51 the next night
+    const r2 = await waitUntilBangkokTime('15:00', { now: () => t('2026-11-25T17:51:00Z'), sleep }); // 00:51 Bangkok
+    expect(r2.skip).toBe(true);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+  it('a longer lateness limit can be allowed (monthly report)', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const r = await waitUntilBangkokTime('08:00', { now: () => t('2026-11-30T22:00:00Z'), sleep: vi.fn(), maxLateMs: 6 * 3600000 }); // 05:00 Bangkok
+    expect(r.skip).toBe(true); // 3 h BEFORE target is still off schedule
+    const r2 = await waitUntilBangkokTime('08:00', { now: () => t('2026-12-01T03:00:00Z'), sleep: vi.fn(), maxLateMs: 6 * 3600000 }); // 10:00, 2 h late
+    expect(r2.skip).toBeUndefined();
   });
   it('never parks a job for hours: a target further than the limit is not waited for', async () => {
     const sleep = vi.fn(); vi.spyOn(console, 'log').mockImplementation(() => {});
     const r = await waitUntilBangkokTime('15:00', { now: () => t('2026-11-25T00:00:00Z'), sleep }); // 07:00 Bangkok, 8 h away
     expect(sleep).not.toHaveBeenCalled();
     expect(r.reason).toBe('too far');
+    expect(r.skip).toBe(true);
   });
   it('no target (manual run) = no wait', async () => {
     const sleep = vi.fn();
