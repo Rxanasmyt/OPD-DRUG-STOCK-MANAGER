@@ -22,7 +22,7 @@ export function needsReminder({ txs, now = Date.now(), holidays = [] }) {
   if (holidays.includes(today)) return { remind: false, reason: 'holiday' };
   // Defence in depth (real case: a reminder arrived at 00:51): "not reconciled TODAY" means nothing at the very start or end of the day.
   const hour = new Date(now + BKK).getUTCHours();
-  if (hour < 9 || hour >= 20) return { remind: false, reason: 'off-hours' };
+  if (hour < 9 || hour >= 18) return { remind: false, reason: 'off-hours' };
   // A malformed tx without a numeric ts must not crash the check (new Date(NaN).toISOString() throws).
   const done = txs.some((t) => t.type === 'reconcile_hosxp' && Number.isFinite(t.ts) && bkkDay(t.ts) === today);
   return done ? { remind: false, reason: 'already-reconciled' } : { remind: true, reason: 'not-reconciled' };

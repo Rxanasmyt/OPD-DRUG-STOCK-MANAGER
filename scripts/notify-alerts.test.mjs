@@ -140,5 +140,6 @@ describe('needsReminder is silent outside working hours', () => {
     expect(needsReminder({ txs: [], now: at('2026-11-25T17:51:00Z') }).reason).toBe('off-hours'); // Thu 26 Nov 00:51
     expect(needsReminder({ txs: [], now: at('2026-11-26T08:00:00Z') }).remind).toBe(true); // 15:00
     expect(needsReminder({ txs: [], now: at('2026-11-26T14:00:00Z') }).reason).toBe('off-hours'); // 21:00
+    expect(needsReminder({ txs: [], now: at('2026-11-26T12:00:00Z') }).reason).toBe('off-hours'); // 19:00
   });
 });
