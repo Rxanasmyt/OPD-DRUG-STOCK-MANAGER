@@ -72,14 +72,23 @@ export function msUntilBangkokTime(hhmm, now = Date.now()) {
   return Math.max(0, target - now);
 }
 
-/** Wait until HH:MM Bangkok time (env TARGET_TIME_BKK). No-op when unset (manual runs), invalid, already past, or further away than
- * `maxWaitMs` (a wrong guess must never park a job for hours). Returns what happened, for logging/tests. */
-export async function waitUntilBangkokTime(hhmm, { now = () => Date.now(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), maxWaitMs = 50 * 60000 } = {}) {
+/** Wait until HH:MM Bangkok time (env TARGET_TIME_BKK). No-op when unset (manual runs) or invalid.
+ * A scheduled run must also be ON TIME: GitHub's scheduler can start a job hours late (real case: the HOSxP reminder arrived at 00:51), and a
+ * time-critical reminder sent at the wrong hour is worse than none. So when the clock is more than `maxLateMs` PAST the target, or further than
+ * `maxWaitMs` BEFORE it, the result is `{skip:true}` and the caller must exit without sending. Returns what happened, for logging/tests. */
+export async function waitUntilBangkokTime(hhmm, { now = () => Date.now(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), maxWaitMs = 50 * 60000, maxLateMs = 20 * 60000 } = {}) {
   if (!hhmm) return { waited: 0, reason: 'no target' };
-  const ms = msUntilBangkokTime(hhmm, now());
+  const t0 = now();
+  const ms = msUntilBangkokTime(hhmm, t0);
   if (ms === null) { console.log(`TARGET_TIME_BKK "${hhmm}" is not HH:MM — sending at once.`); return { waited: 0, reason: 'invalid' }; }
-  if (ms === 0) { console.log(`Past ${hhmm} (Bangkok) already — sending at once.`); return { waited: 0, reason: 'late' }; }
-  if (ms > maxWaitMs) { console.log(`${hhmm} (Bangkok) is ${Math.round(ms / 60000)} min away — more than the ${Math.round(maxWaitMs / 60000)} min limit, sending at once.`); return { waited: 0, reason: 'too far' }; }
+  if (ms === 0) {
+    const [h, m] = String(hhmm).trim().split(':').map(Number);
+    const lateMs = t0 - (bkkStartOfDay(t0) + h * 3600000 + m * 60000);
+    if (lateMs > maxLateMs) { console.log(`Started ${Math.round(lateMs / 60000)} min after ${hhmm} (Bangkok) — too late, NOT sending.`); return { waited: 0, reason: 'too late', skip: true }; }
+    console.log(`Past ${hhmm} (Bangkok) by ${Math.round(lateMs / 60000)} min — sending at once.`);
+    return { waited: 0, reason: 'late' };
+  }
+  if (ms > maxWaitMs) { console.log(`${hhmm} (Bangkok) is ${Math.round(ms / 60000)} min away — the run is off schedule, NOT sending.`); return { waited: 0, reason: 'too far', skip: true }; }
   console.log(`Waiting ${Math.round(ms / 1000)} s until ${hhmm} Bangkok time…`);
   await sleep(ms);
   return { waited: ms, reason: 'waited' };

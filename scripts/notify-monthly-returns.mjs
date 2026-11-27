@@ -407,7 +407,8 @@ export async function main() {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) { console.error('Bad month (expected YYYY-MM): ' + month); process.exit(1); }
   const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (!keyJson) { console.error('FIREBASE_SERVICE_ACCOUNT_KEY env var is not set.'); process.exit(1); }
-  await waitUntilBangkokTime(process.env.TARGET_TIME_BKK); // start early, send on the exact Bangkok minute
+  const w = await waitUntilBangkokTime(process.env.TARGET_TIME_BKK, { maxLateMs: 6 * 3600000 }); // start early, send on the exact Bangkok minute
+  if (w.skip) { console.log('::warning::Skipped — the scheduled run was not on time, nothing was sent.'); return; }
   initializeApp({ credential: cert(JSON.parse(keyJson)) });
   const db = getFirestore();
   const from = monthRange(shiftMonth(month, -12)).from; const to = monthRange(month).to; // 13 months: trend + previous month + same month last year
