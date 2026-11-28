@@ -45,11 +45,11 @@ describe('waiting for the exact Bangkok minute', () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     const sleep = vi.fn();
     // real runs: 07:00 job started 12:16 Bangkok → sent; 15:00 job started 00:37 the next night → skipped
-    const a = await waitUntilBangkokTime('07:00', { now: () => t('2026-11-27T05:16:00Z'), sleep, lateUntil: '17:00' });
+    const a = await waitUntilBangkokTime('07:00', { now: () => t('2026-11-27T05:16:00Z'), sleep, lateUntil: '16:30' });
     expect(a.skip).toBeUndefined(); expect(a.reason).toBe('late');
-    const b = await waitUntilBangkokTime('15:00', { now: () => t('2026-11-27T17:37:00Z'), sleep, lateUntil: '17:30' });
+    const b = await waitUntilBangkokTime('15:00', { now: () => t('2026-11-27T17:37:00Z'), sleep, lateUntil: '16:30' });
     expect(b.skip).toBe(true);
-    const c = await waitUntilBangkokTime('07:00', { now: () => t('2026-11-27T10:30:00Z'), sleep, lateUntil: '17:00' }); // 17:30 > cut-off
+    const c = await waitUntilBangkokTime('07:00', { now: () => t('2026-11-27T09:45:00Z'), sleep, lateUntil: '16:30' }); // 16:45 > cut-off
     expect(c.skip).toBe(true);
     expect(sleep).not.toHaveBeenCalled();
   });

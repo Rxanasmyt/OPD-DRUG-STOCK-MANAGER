@@ -400,6 +400,14 @@ export function buildMonthlyFlex(rep) {
 }
 
 // ---- main ---------------------------------------------------------------------------------------------------------------------------
+/** True on the first Mon–Fri day of the month (Bangkok): the 1st, or the 2nd/3rd when the 1st is Sunday/Saturday. */
+export function isFirstWeekdayOfMonth(now = Date.now()) {
+  const d = new Date(now + 7 * 3600000);
+  const day = d.getUTCDate(); const wd = d.getUTCDay();
+  if (wd === 0 || wd === 6) return false;
+  return day === 1 || (day === 2 && wd === 1) || (day === 3 && wd === 1);
+}
+
 export async function main() {
   const dryRun = process.argv.includes('--dry-run');
   const arg = process.argv.find((a) => a.startsWith('--month='));
@@ -407,7 +415,9 @@ export async function main() {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) { console.error('Bad month (expected YYYY-MM): ' + month); process.exit(1); }
   const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (!keyJson) { console.error('FIREBASE_SERVICE_ACCOUNT_KEY env var is not set.'); process.exit(1); }
-  const w = await waitUntilBangkokTime(process.env.TARGET_TIME_BKK, { lateUntil: '18:00' }); // start early, send on the exact Bangkok minute
+  // Office days only: the 1st if it is Mon–Fri, otherwise the first Monday (cron also fires on the 2nd and 3rd).
+  if (process.env.TARGET_TIME_BKK && !isFirstWeekdayOfMonth(Date.now())) { console.log('Not the first working day of the month — nothing to do today.'); return; }
+  const w = await waitUntilBangkokTime(process.env.TARGET_TIME_BKK, { lateUntil: '16:30' }); // start early, send on the exact Bangkok minute
   if (w.skip) { console.log('::warning::Skipped — the scheduled run was not on time, nothing was sent.'); return; }
   initializeApp({ credential: cert(JSON.parse(keyJson)) });
   const db = getFirestore();

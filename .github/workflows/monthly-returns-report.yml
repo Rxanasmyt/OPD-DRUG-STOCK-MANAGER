@@ -9,7 +9,7 @@ name: Monthly Returns Report (LINE)
 # Bangkok minute (TARGET_TIME_BKK, set only for scheduled runs) before reading data and sending. A manual run sends at once.
 on:
   schedule:
-    - cron: '30 1 1 * *' # starts 08:30 Asia/Bangkok on the 1st (= 01:30 UTC); sends at exactly 09:00
+    - cron: '30 1 1-3 * *' # starts 08:30 Asia/Bangkok on the 1st–3rd (= 01:30 UTC; the script sends only on the first Mon–Fri of the month); sends at exactly 09:00
   workflow_dispatch:
     inputs:
       month:
