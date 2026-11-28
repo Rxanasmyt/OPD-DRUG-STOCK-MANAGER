@@ -73,10 +73,11 @@ export function msUntilBangkokTime(hhmm, now = Date.now()) {
 }
 
 /** Wait until HH:MM Bangkok time (env TARGET_TIME_BKK). No-op when unset (manual runs) or invalid.
- * A scheduled run must also be ON TIME: GitHub's scheduler can start a job hours late (real case: the HOSxP reminder arrived at 00:51), and a
- * time-critical reminder sent at the wrong hour is worse than none. So when the clock is more than `maxLateMs` PAST the target, or further than
- * `maxWaitMs` BEFORE it, the result is `{skip:true}` and the caller must exit without sending. Returns what happened, for logging/tests. */
-export async function waitUntilBangkokTime(hhmm, { now = () => Date.now(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), maxWaitMs = 50 * 60000, maxLateMs = 20 * 60000 } = {}) {
+ * GitHub's scheduler is often HOURS late for this repo (real runs: a 07:00 job started ~12:16, a 15:00 job started at 00:37 the next night).
+ * A late message sent in working hours is still useful; one sent at night is not. So a run that is past the target is sent only while it is
+ * still before `lateUntil` ("HH:MM" Bangkok, same day; default: 20 min after the target) — otherwise `{skip:true}` and the caller must not send.
+ * A run more than `maxWaitMs` BEFORE the target is also skipped (off schedule). Returns what happened, for logging/tests. */
+export async function waitUntilBangkokTime(hhmm, { now = () => Date.now(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), maxWaitMs = 50 * 60000, maxLateMs = 20 * 60000, lateUntil = null } = {}) {
   if (!hhmm) return { waited: 0, reason: 'no target' };
   const t0 = now();
   const ms = msUntilBangkokTime(hhmm, t0);
@@ -84,7 +85,9 @@ export async function waitUntilBangkokTime(hhmm, { now = () => Date.now(), sleep
   if (ms === 0) {
     const [h, m] = String(hhmm).trim().split(':').map(Number);
     const lateMs = t0 - (bkkStartOfDay(t0) + h * 3600000 + m * 60000);
-    if (lateMs > maxLateMs) { console.log(`Started ${Math.round(lateMs / 60000)} min after ${hhmm} (Bangkok) — too late, NOT sending.`); return { waited: 0, reason: 'too late', skip: true }; }
+    const cut = lateUntil && /^([01]?\d|2[0-3]):([0-5]\d)$/.test(lateUntil) ? lateUntil.split(':').map(Number) : null;
+    const allowed = cut ? t0 <= bkkStartOfDay(t0) + cut[0] * 3600000 + cut[1] * 60000 : lateMs <= maxLateMs;
+    if (!allowed) { console.log(`Started ${Math.round(lateMs / 60000)} min after ${hhmm} (Bangkok)${cut ? ', past the ' + lateUntil + ' cut-off' : ''} — too late, NOT sending.`); return { waited: 0, reason: 'too late', skip: true }; }
     console.log(`Past ${hhmm} (Bangkok) by ${Math.round(lateMs / 60000)} min — sending at once.`);
     return { waited: 0, reason: 'late' };
   }

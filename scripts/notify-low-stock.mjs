@@ -384,7 +384,7 @@ export async function main() {
   if (!dryRun && !lineToken && !hasMoph) { console.error('Set LINE_CHANNEL_ACCESS_TOKEN and/or MOPH_NOTIFY_CLIENT_KEY + MOPH_NOTIFY_SECRET_KEY (or pass --dry-run to test without them).'); process.exit(1); }
 
   // Scheduled runs start early and wait for the exact Bangkok time (see moph-notify.mjs); data is read AFTER the wait.
-  const w = await waitUntilBangkokTime(process.env.TARGET_TIME_BKK);
+  const w = await waitUntilBangkokTime(process.env.TARGET_TIME_BKK, { lateUntil: '17:00' }); // GitHub often starts hours late: still useful in working hours
   if (w.skip) { console.log('::warning::Skipped — the scheduled run was not on time, nothing was sent.'); return; }
   initializeApp({ credential: cert(JSON.parse(keyJson)) });
   const db = getFirestore();
