@@ -41,6 +41,18 @@ describe('waiting for the exact Bangkok minute', () => {
     expect(r2.skip).toBe(true);
     expect(sleep).not.toHaveBeenCalled();
   });
+  it('lateUntil: a run that GitHub starts hours late is still sent inside working hours, never at night', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const sleep = vi.fn();
+    // real runs: 07:00 job started 12:16 Bangkok → sent; 15:00 job started 00:37 the next night → skipped
+    const a = await waitUntilBangkokTime('07:00', { now: () => t('2026-11-27T05:16:00Z'), sleep, lateUntil: '17:00' });
+    expect(a.skip).toBeUndefined(); expect(a.reason).toBe('late');
+    const b = await waitUntilBangkokTime('15:00', { now: () => t('2026-11-27T17:37:00Z'), sleep, lateUntil: '17:30' });
+    expect(b.skip).toBe(true);
+    const c = await waitUntilBangkokTime('07:00', { now: () => t('2026-11-27T10:30:00Z'), sleep, lateUntil: '17:00' }); // 17:30 > cut-off
+    expect(c.skip).toBe(true);
+    expect(sleep).not.toHaveBeenCalled();
+  });
   it('a longer lateness limit can be allowed (monthly report)', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     const r = await waitUntilBangkokTime('08:00', { now: () => t('2026-11-30T22:00:00Z'), sleep: vi.fn(), maxLateMs: 6 * 3600000 }); // 05:00 Bangkok
