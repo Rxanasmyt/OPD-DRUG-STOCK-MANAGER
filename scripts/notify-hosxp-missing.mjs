@@ -7,7 +7,7 @@
 //   FIREBASE_SERVICE_ACCOUNT_KEY=... MOPH_NOTIFY_CLIENT_KEY=... MOPH_NOTIFY_SECRET_KEY=... node scripts/notify-hosxp-missing.mjs [--dry-run]
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { alertFlex, sendIfConfigured, waitUntilBangkokTime, stampRun } from './moph-notify.mjs';
+import { alertFlex, sendIfConfigured, waitUntilBangkokTime, stampRun, inOfficeHours } from './moph-notify.mjs';
 
 const BKK = 7 * 3600000;
 const bkkDay = (ms) => new Date(ms + BKK).toISOString().slice(0, 10);
@@ -20,9 +20,8 @@ export function needsReminder({ txs, now = Date.now(), holidays = [] }) {
   const dow = new Date(now + BKK).getUTCDay(); // 0 = Sunday … 6 = Saturday (Bangkok)
   if (dow === 0 || dow === 6) return { remind: false, reason: 'weekend' };
   if (holidays.includes(today)) return { remind: false, reason: 'holiday' };
-  // Defence in depth (real case: a reminder arrived at 00:51): "not reconciled TODAY" means nothing at the very start or end of the day.
-  const hour = new Date(now + BKK).getUTCHours();
-  if (hour < 9 || hour >= 18) return { remind: false, reason: 'off-hours' };
+  // Defence in depth (real case: a reminder arrived at 00:51): LINE only inside office hours, Mon–Fri 08:30–16:30.
+  if (!inOfficeHours(now)) return { remind: false, reason: 'off-hours' };
   // A malformed tx without a numeric ts must not crash the check (new Date(NaN).toISOString() throws).
   const done = txs.some((t) => t.type === 'reconcile_hosxp' && Number.isFinite(t.ts) && bkkDay(t.ts) === today);
   return done ? { remind: false, reason: 'already-reconciled' } : { remind: true, reason: 'not-reconciled' };
@@ -73,7 +72,7 @@ export async function main() {
   const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (!keyJson) { console.error('FIREBASE_SERVICE_ACCOUNT_KEY env var is not set.'); process.exit(1); }
   const round = process.env.REMINDER_ROUND === '2' ? 2 : 1;
-  const w = await waitUntilBangkokTime(process.env.TARGET_TIME_BKK, { lateUntil: round === 2 ? '18:00' : '17:30' }); // start early, send on the exact Bangkok minute
+  const w = await waitUntilBangkokTime(process.env.TARGET_TIME_BKK, { lateUntil: '16:30' }); // start early, send on the exact Bangkok minute
   if (w.skip) { console.log('::warning::Skipped — the scheduled run was not on time, nothing was sent.'); return; }
   initializeApp({ credential: cert(JSON.parse(keyJson)) });
   const db = getFirestore();
@@ -85,11 +84,11 @@ export async function main() {
     const verdict = needsReminder({ txs, now, holidays });
     console.log(`Today's txs: ${txs.length} · verdict: ${verdict.reason} · round ${round}`);
     if (!verdict.remind) { if (!dryRun) await stampRun(db, 'hosxp', 'nothing', { why: verdict.reason }); return; }
-    // Both rounds can start late and land close together: never send round 2 right after round 1 was sent (< 60 min).
+    // Both rounds can start late and land close together: never send round 2 right after round 1 was sent (< 45 min).
     if (round === 2 && !dryRun) {
       try {
         const st = (await db.doc('meta/notifyStatus').get()).data()?.hosxp;
-        if (st?.result === 'sent' && Number.isFinite(st.ranAt) && now - st.ranAt < 60 * 60000) { console.log('Round 1 was sent less than an hour ago — not sending round 2.'); return; }
+        if (st?.result === 'sent' && Number.isFinite(st.ranAt) && now - st.ranAt < 45 * 60000) { console.log('Round 1 was sent less than 45 min ago — not sending round 2.'); return; }
       } catch (e) { console.error('could not read notifyStatus:', e.message || e); }
     }
     // How many working days are outstanding? ONE read (single-field index on coveredTo). A newest row that is a reversal is "uncertain" → say nothing about the count.

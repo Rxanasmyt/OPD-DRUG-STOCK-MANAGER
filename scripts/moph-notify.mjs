@@ -72,6 +72,14 @@ export function msUntilBangkokTime(hhmm, now = Date.now()) {
   return Math.max(0, target - now);
 }
 
+/** Government office hours: Mon–Fri 08:30–16:30 Bangkok. LINE messages are only sent inside this window (owner's rule). */
+export function inOfficeHours(now = Date.now()) {
+  const d = new Date(now + BKK_MS);
+  const wd = d.getUTCDay();
+  const min = d.getUTCHours() * 60 + d.getUTCMinutes();
+  return wd >= 1 && wd <= 5 && min >= 8 * 60 + 30 && min <= 16 * 60 + 30;
+}
+
 /** Wait until HH:MM Bangkok time (env TARGET_TIME_BKK). No-op when unset (manual runs) or invalid.
  * GitHub's scheduler is often HOURS late for this repo (real runs: a 07:00 job started ~12:16, a 15:00 job started at 00:37 the next night).
  * A late message sent in working hours is still useful; one sent at night is not. So a run that is past the target is sent only while it is

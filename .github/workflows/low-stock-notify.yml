@@ -32,7 +32,7 @@ name: Low-Stock LINE Notify
 # Bangkok minute (TARGET_TIME_BKK, set only for scheduled runs) before reading data and sending. A manual run sends at once.
 on:
   schedule:
-    - cron: '30 23 * * 0-4' # starts 06:30 Asia/Bangkok Mon–Fri (= 23:30 UTC Sun–Thu); sends at exactly 07:00 — before the day's restocking starts
+    - cron: '0 1 * * 1-5' # starts 08:00 Asia/Bangkok Mon–Fri (= 01:00 UTC); sends at exactly 08:30 (office hours 08:30–16:30; a late start still sends until 16:30)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -58,7 +58,7 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           # MOPH Notify → a LINE group with the "หมอพร้อม" bot (same channel EB Notify uses). Optional; either or both channels may be set.
-          TARGET_TIME_BKK: ${{ github.event_name == 'schedule' && '07:00' || '' }}
+          TARGET_TIME_BKK: ${{ github.event_name == 'schedule' && '08:30' || '' }}
           MOPH_NOTIFY_CLIENT_KEY: ${{ secrets.MOPH_NOTIFY_CLIENT_KEY }}
           MOPH_NOTIFY_SECRET_KEY: ${{ secrets.MOPH_NOTIFY_SECRET_KEY }}
           # Emergency-requisition horizon (optional repo *variables*, Settings → Variables): NEXT_DELIVERY_DATE = YYYY-MM-DD of the

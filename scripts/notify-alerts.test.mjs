@@ -48,7 +48,7 @@ describe('failure alert', () => {
   it('never throws even when MOPH rejects (must not hide the original failure)', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, text: async () => '{"message_code":401}' })));
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    await expect(alertMain({ MOPH_NOTIFY_CLIENT_KEY: 'a', MOPH_NOTIFY_SECRET_KEY: 'b' })).resolves.toBeUndefined();
+    await expect(alertMain({ MOPH_NOTIFY_CLIENT_KEY: 'a', MOPH_NOTIFY_SECRET_KEY: 'b', ALERT_IGNORE_HOURS: '1' })).resolves.toBeUndefined();
     expect(err).toHaveBeenCalled();
     vi.unstubAllGlobals(); err.mockRestore();
   });
@@ -140,6 +140,41 @@ describe('needsReminder is silent outside working hours', () => {
     expect(needsReminder({ txs: [], now: at('2026-11-25T17:51:00Z') }).reason).toBe('off-hours'); // Thu 26 Nov 00:51
     expect(needsReminder({ txs: [], now: at('2026-11-26T08:00:00Z') }).remind).toBe(true); // 15:00
     expect(needsReminder({ txs: [], now: at('2026-11-26T14:00:00Z') }).reason).toBe('off-hours'); // 21:00
+    expect(needsReminder({ txs: [], now: at('2026-11-26T09:45:00Z') }).reason).toBe('off-hours'); // 16:45
     expect(needsReminder({ txs: [], now: at('2026-11-26T12:00:00Z') }).reason).toBe('off-hours'); // 19:00
+  });
+});
+
+describe('office hours (Mon–Fri 08:30–16:30 Bangkok)', () => {
+  it('inOfficeHours boundaries', async () => {
+    const { inOfficeHours } = await import('./moph-notify.mjs');
+    const at = (iso) => Date.parse(iso);
+    expect(inOfficeHours(at('2026-11-26T01:30:00Z'))).toBe(true); // Thu 08:30
+    expect(inOfficeHours(at('2026-11-26T01:29:00Z'))).toBe(false); // 08:29
+    expect(inOfficeHours(at('2026-11-26T09:30:00Z'))).toBe(true); // 16:30
+    expect(inOfficeHours(at('2026-11-26T09:31:00Z'))).toBe(false); // 16:31
+    expect(inOfficeHours(at('2026-11-28T05:00:00Z'))).toBe(false); // Saturday noon
+  });
+  it('the failure alert is NOT sent at night (02:00) and IS sent in office hours', async () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200, text: async () => '{"message_code":200}' }));
+    vi.stubGlobal('fetch', f); vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-25T19:00:00Z')); // Thu 02:00 Bangkok
+    await alertMain({ MOPH_NOTIFY_CLIENT_KEY: 'a', MOPH_NOTIFY_SECRET_KEY: 'b' });
+    expect(f).not.toHaveBeenCalled();
+    vi.setSystemTime(new Date('2026-11-26T03:00:00Z')); // Thu 10:00 Bangkok
+    await alertMain({ MOPH_NOTIFY_CLIENT_KEY: 'a', MOPH_NOTIFY_SECRET_KEY: 'b' });
+    expect(f).toHaveBeenCalledTimes(1);
+    vi.useRealTimers(); vi.unstubAllGlobals();
+  });
+  it('monthly report: only on the first Mon–Fri of the month', async () => {
+    const { isFirstWeekdayOfMonth } = await import('./notify-monthly-returns.mjs');
+    const d = (iso) => Date.parse(iso + 'T03:00:00Z');
+    expect(isFirstWeekdayOfMonth(d('2026-12-01'))).toBe(true); // Tue
+    expect(isFirstWeekdayOfMonth(d('2026-12-02'))).toBe(false);
+    expect(isFirstWeekdayOfMonth(d('2027-05-01'))).toBe(false); // Sat
+    expect(isFirstWeekdayOfMonth(d('2027-05-03'))).toBe(true); // Mon (1st was Sat)
+    expect(isFirstWeekdayOfMonth(d('2027-08-02'))).toBe(true); // Mon (1st was Sun)
+    expect(isFirstWeekdayOfMonth(d('2027-08-03'))).toBe(false);
   });
 });
